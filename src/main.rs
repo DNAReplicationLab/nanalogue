@@ -15,7 +15,7 @@ enum Commands {
     BcLenVsAlignLen {
         /// Input BAM file
         bam_file: String,
-		#[clap(default_value_t = String::from(""))]
+        #[clap(default_value_t = String::from(""))]
         /// Input sequence summary file from Guppy/Dorado (optional)
         seq_summ_file: String,
     },
