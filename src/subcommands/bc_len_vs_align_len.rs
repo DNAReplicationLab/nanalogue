@@ -41,7 +41,7 @@ impl ReadLen {
             },
             ReadLenState::OnlyBcLen(bl) => {
                 self.state = ReadLenState::BothAlignBcLen{
-                    align_len: align_len,
+                    align_len,
                     bc_len: *bl,
                 };
             },
@@ -56,7 +56,7 @@ impl ReadLen {
             ReadLenState::OnlyAlignLen {align_len: al, seq_len: _} => {
                 self.state = ReadLenState::BothAlignBcLen {
                     align_len: *al,
-                    bc_len: bc_len,
+                    bc_len,
                 };
             },
         }
@@ -115,13 +115,13 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
     let mut data_map = match process_tsv(seq_summ_path) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("An error occurred: {}", e);
+            eprintln!("An error occurred: {e}");
             std::process::exit(1);
         },
     };
 
     // set up a flag to check if sequencing summary file has data
-    let is_seq_summ_data :bool = data_map.len() > 0;
+    let is_seq_summ_data :bool = !data_map.is_empty();
 
     // open BAM file
     let mut bam = match bam::Reader::from_path(bam_path) {
@@ -129,7 +129,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
             v
         },
         Err(e) => {
-            eprintln!("Problem opening file, error: {}", e);
+            eprintln!("Problem opening file, error: {e}");
             std::process::exit(1)
         },
     };
@@ -149,7 +149,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
                 }
             },
             Err(e) => {
-                eprintln!("Some error while reading records {}", e);
+                eprintln!("Some error while reading records {e}");
                 std::process::exit(1)
             },
         };
@@ -158,7 +158,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
         let qname :String = match str::from_utf8(record.qname()) {
             Ok(v) => v.to_string(),
             Err(e) => {
-                eprintln!("Invalid UTF-8 sequence: {}", e);
+                eprintln!("Invalid UTF-8 sequence: {e}");
                 std::process::exit(1)
             },
         };
@@ -187,19 +187,16 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
             .and_modify( |entry| entry.add_align_len(align_len))
             .or_insert( ReadLen { 
                 state: ReadLenState::OnlyAlignLen {
-                    align_len: align_len,
-                    seq_len: seq_len
+                    align_len,
+                    seq_len
                 }});
 
     };
 
     // set up an output header string
     let mut output_header = "# bam file: ".to_owned() + bam_path + "\n";
-    match is_seq_summ_data {
-        true => output_header = output_header + "# seq summ file: " + seq_summ_path + "\n",
-        false => {},
-    }
-    output_header = output_header + "read_id\talign_length\tsequence_length_template";
+    if is_seq_summ_data { output_header = output_header + "# seq summ file: " + seq_summ_path + "\n" }
+    output_header += "read_id\talign_length\tsequence_length_template";
 
     // This apparently helps writing to the terminal faster,
     // according to https://rust-cli.github.io/book/tutorial/output.html
@@ -207,7 +204,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
     let mut handle = io::BufWriter::new(stdout); 
 
     // print the output header
-    match writeln!(handle, "{}", output_header){
+    match writeln!(handle, "{output_header}"){
         Ok(_) => {},
         Err(_) => {
             eprintln!("Error while writing output!");
@@ -222,7 +219,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
     for (key, val) in data_map.iter() {
         match (&val.state, is_seq_summ_data) {
             (ReadLenState::BothAlignBcLen {align_len: al, bc_len: bl}, true) => 
-                match writeln!(handle, "{key}\t{0}\t{1}", al, bl){
+                match writeln!(handle, "{key}\t{al}\t{bl}"){
                     Ok(_) => {},
                     Err(_) => {
                         eprintln!("Error while writing output!");
@@ -230,7 +227,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
                     },
                 },
             (ReadLenState::OnlyAlignLen {align_len: al, seq_len: sl }, false) => 
-                match writeln!(handle, "{key}\t{0}\t{1}", al, sl){
+                match writeln!(handle, "{key}\t{al}\t{sl}"){
                     Ok(_) => {},
                     Err(_) => {
                         eprintln!("Error while writing output!");

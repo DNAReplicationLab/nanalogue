@@ -47,7 +47,7 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
             v
         },
         Err(e) => {
-            eprintln!("Problem opening file, error: {}", e);
+            eprintln!("Problem opening file, error: {e}");
             std::process::exit(1)
         },
     };
@@ -69,7 +69,7 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
         let record = match r {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("Some error while reading records {}", e);
+                eprintln!("Some error while reading records {e}");
                 std::process::exit(1)
             },
         };
@@ -119,15 +119,9 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
     println!("Number of supplementary reads: {supplementary_count}");
     println!("Number of unmapped reads: {unmapped_count}");
 
-    match align_len_heap.pop(){
-        Some(v) =>  println!("Longest alignment length: {}", v),
-        None => {},
-    }
+    if let Some(v) = align_len_heap.pop() { println!("Longest alignment length: {v}") }
 
-    match seq_len_heap.pop(){
-        Some(v) =>  println!("Longest sequence length: {}", v),
-        None => {},
-    }
+    if let Some(v) = seq_len_heap.pop() { println!("Longest sequence length: {v}") }
 
     Ok(())
 }
