@@ -1,3 +1,5 @@
 /target
 cargo.def
 cargo.img
+ignore*
+slurm*
