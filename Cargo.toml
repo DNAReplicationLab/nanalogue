@@ -8,10 +8,15 @@ readme = "README.md"
 authors = ["Sathish Thiyagarajan <sathish.thiyagarajan@earlham.ac.uk>"]
 
 [dependencies]
-rust-htslib = "0.49.0"
+fibertools-rs = "0.6.4"
+rust-htslib = "0.43.0"
 clap = { version = "4.0.29", features = ["derive", "wrap_help"] }
 csv = "1.1"
 serde = { version = "1.0", features = ["derive"] }
+bio = "1.5.0"
+lazy_static = "1.4.0"
+regex = "1.11.1"
+log = "0.4.22"
 
 [lib]
 name = "nanalogue_core" # A distinct name for the library

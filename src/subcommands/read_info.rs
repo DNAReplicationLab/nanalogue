@@ -1,6 +1,8 @@
 use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions};
 use std::error::Error;
 use crate::{ReadState, ReadTransition, CurrRead};
+use crate::nanalogue_mm_ml_parser;
+use fibertools_rs::utils::basemods::BaseMods;
 
 pub fn run(bam_path: &str, read_id: &str) -> Result<(), Box<dyn Error>> {
 
@@ -69,6 +71,10 @@ pub fn run(bam_path: &str, read_id: &str) -> Result<(), Box<dyn Error>> {
                 curr_read_state.align_len = Some(align_len);
             },
         };
+
+        // get modification information
+        let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(&record, 128); 
+        curr_read_state.mods = Some(v);
 
         output_string = output_string + &curr_read_state.to_string() + "\n";
 
