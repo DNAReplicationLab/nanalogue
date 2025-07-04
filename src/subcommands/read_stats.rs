@@ -1,43 +1,7 @@
 use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions};
 use std::error::Error;
 use std::collections::BinaryHeap;
-
-// A read can exist in four states
-enum ReadState {
-	Primary,
-	Secondary,
-	Supplementary,
-	Unmapped,
-}
-
-// Assume a read is primary unless otherwise stated,
-// so we have three possible transitions
-enum ReadTransition {
-	PrimaryToSecondary,
-	PrimaryToSupplementary,
-	PrimaryToUnmapped,
-}
-
-struct CurrRead {
-	state: ReadState,
-}
-
-impl CurrRead {
-	fn new() -> Self {
-		Self { state: ReadState::Primary }
-	}
-	fn transition(&mut self, transition: ReadTransition){
-		match (&self.state, transition) {
-            (ReadState::Primary, ReadTransition::PrimaryToSecondary) => self.state = ReadState::Secondary,
-            (ReadState::Primary, ReadTransition::PrimaryToSupplementary) => self.state = ReadState::Supplementary,
-            (ReadState::Primary, ReadTransition::PrimaryToUnmapped) => self.state = ReadState::Unmapped,
-            _ => {
-                eprintln!("Invalid state reached!");
-                std::process::exit(1);
-            }
-		}
-	}
-}
+use crate::{ReadState, ReadTransition, CurrRead};
 
 fn get_stats_from_heap(mut input: BinaryHeap::<u64>, total_length: u64) -> (u64, f32, u64, u64, u64, u64){
     // process heaps to get statistics
@@ -55,28 +19,23 @@ fn get_stats_from_heap(mut input: BinaryHeap::<u64>, total_length: u64) -> (u64,
         },
     };
 
-    loop {
-        match input.pop() {
-            Some(v) => {
+    while let Some(v) = input.pop() {
 
-                if counter == 0 { longest = v };
+        if counter == 0 { longest = v };
 
-                running_total_length += v;
+        running_total_length += v;
 
-                if median == 0 && counter > heap_size / 2 {
-                    median = v;
-                }
+        if median == 0 && counter > heap_size / 2 {
+            median = v;
+        }
 
-                if n50 == 0 && running_total_length > total_length / 2 {
-                    n50 = v;
-                }
+        if n50 == 0 && running_total_length > total_length / 2 {
+            n50 = v;
+        }
 
-                shortest = v;
+        shortest = v;
 
-                counter += 1;
-            },
-            None => break,
-        };
+        counter += 1;
     };
 
     assert_eq!(running_total_length, total_length);
@@ -93,9 +52,7 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
 
     // open BAM file
     let mut bam = match bam::Reader::from_path(bam_path) {
-        Ok(v) => {
-            v
-        },
+        Ok(v) => v,
         Err(e) => {
             eprintln!("Problem opening file, error: {e}");
             std::process::exit(1)
@@ -176,7 +133,7 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
     let (_, align_len_mean, align_len_max, align_len_min, align_len_median, align_len_n50) = 
         get_stats_from_heap(align_len_heap, align_len_total);
 
-    println!("# input bam {}", bam_path);
+    println!("# input bam {bam_path}");
     println!("key\tvalue");
     println!("n_primary_alignments\t{primary_count}");
     println!("n_secondary_alignments\t{secondary_count}");

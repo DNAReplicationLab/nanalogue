@@ -24,10 +24,12 @@ enum Commands {
         /// Input BAM file
         bam_file: String,
     },
-    /// Counts base modifications (e.g., 5mC, 6mA) in reads.
-    CountMods {
-        /// Input BAM file with MM/ML tags
+    /// Print information about a read
+    ReadInfo {
+        /// Input BAM file
         bam_file: String,
+        /// Input read id
+        read_id: String,
     },
 }
 
@@ -42,8 +44,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         Commands::ReadStats { bam_file } => {
             subcommands::read_stats::run(&bam_file)?;
         }
-        Commands::CountMods { bam_file } => {
-            subcommands::count_mods::run(&bam_file)?;
+        Commands::ReadInfo { bam_file, read_id } => {
+            subcommands::read_info::run(&bam_file, &read_id)?;
         }
     }
 

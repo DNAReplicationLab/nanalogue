@@ -14,13 +14,13 @@ use std::io::{self, Write};
 // - both are available, in which case we retain only the sequence
 //   length from the sequencing summary file and the alignment length
 //   from the BAM file, discarding the sequence length from the BAM file.
-enum ReadLenState {
-    OnlyAlignLen {
+enum ReadState {
+    OnlyAlign {
         align_len: u64,
         seq_len: u64,
     },
-    OnlyBcLen(u64),
-    BothAlignBcLen {
+    OnlyBc(u64),
+    BothAlignBc {
         align_len: u64,
         bc_len: u64,
     },
@@ -28,19 +28,19 @@ enum ReadLenState {
 
 // Implement a structure representing the above state
 struct ReadLen {
-    state: ReadLenState,
+    state: ReadState,
 }
 
 impl ReadLen {
     fn add_align_len(&mut self, align_len: u64) {
         match &self.state {
-            ReadLenState::OnlyAlignLen { align_len: _, seq_len: _ } | 
-                ReadLenState::BothAlignBcLen { align_len: _, bc_len: _ } => {
+            ReadState::OnlyAlign { align_len: _, seq_len: _ } | 
+                ReadState::BothAlignBc { align_len: _, bc_len: _ } => {
                 eprintln!("Alignment statistics duplicate detected!");
                 std::process::exit(1);
             },
-            ReadLenState::OnlyBcLen(bl) => {
-                self.state = ReadLenState::BothAlignBcLen{
+            ReadState::OnlyBc(bl) => {
+                self.state = ReadState::BothAlignBc{
                     align_len,
                     bc_len: *bl,
                 };
@@ -49,12 +49,12 @@ impl ReadLen {
     }
     fn add_bc_len(&mut self, bc_len: u64) {
         match &self.state {
-            ReadLenState::OnlyBcLen(_) | ReadLenState::BothAlignBcLen { align_len: _, bc_len: _ } => {
+            ReadState::OnlyBc(_) | ReadState::BothAlignBc { align_len: _, bc_len: _ } => {
                 eprintln!("Basecalled length duplicate detected!");
                 std::process::exit(1);
             },
-            ReadLenState::OnlyAlignLen {align_len: al, seq_len: _} => {
-                self.state = ReadLenState::BothAlignBcLen {
+            ReadState::OnlyAlign {align_len: al, seq_len: _} => {
+                self.state = ReadState::BothAlignBc {
                     align_len: *al,
                     bc_len,
                 };
@@ -100,7 +100,7 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Box<dyn Erro
                 let record: TSVRecord = result?;
                 data_map.entry(record.read_id)
                     .and_modify( |entry| entry.add_bc_len(record.sequence_length_template))
-                    .or_insert( ReadLen { state: ReadLenState::OnlyBcLen(record.sequence_length_template) });
+                    .or_insert( ReadLen { state: ReadState::OnlyBc(record.sequence_length_template) });
             }
         },
     };
@@ -186,7 +186,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
         data_map.entry(qname)
             .and_modify( |entry| entry.add_align_len(align_len))
             .or_insert( ReadLen { 
-                state: ReadLenState::OnlyAlignLen {
+                state: ReadState::OnlyAlign {
                     align_len,
                     seq_len
                 }});
@@ -218,7 +218,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
     // we use the sequence length in the BAM file as the basecalled sequence length.
     for (key, val) in data_map.iter() {
         match (&val.state, is_seq_summ_data) {
-            (ReadLenState::BothAlignBcLen {align_len: al, bc_len: bl}, true) => 
+            (ReadState::BothAlignBc {align_len: al, bc_len: bl}, true) => 
                 match writeln!(handle, "{key}\t{al}\t{bl}"){
                     Ok(_) => {},
                     Err(_) => {
@@ -226,7 +226,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
                         std::process::exit(1);
                     },
                 },
-            (ReadLenState::OnlyAlignLen {align_len: al, seq_len: sl }, false) => 
+            (ReadState::OnlyAlign {align_len: al, seq_len: sl }, false) => 
                 match writeln!(handle, "{key}\t{al}\t{sl}"){
                     Ok(_) => {},
                     Err(_) => {
