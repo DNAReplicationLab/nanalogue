@@ -71,7 +71,7 @@ impl fmt::Display for CurrRead {
         if let Some(v) = &self.read_id {
             output_string = output_string + v;
         } else {
-            output_string = output_string + "NA";
+            output_string += "NA";
         }
 
         if let Some(v) = self.seq_len {
@@ -99,7 +99,7 @@ impl fmt::Display for CurrRead {
                     output_string = output_string + "\t" + &k.ranges.qual.len().to_string();
                 }
 			} else {
-				output_string = output_string + "\t0";
+				output_string += "\t0";
             }
         } else {
             output_string += "\tNA";
@@ -108,6 +108,43 @@ impl fmt::Display for CurrRead {
         write!(f, "{output_string}")
 
     }
+}
+
+fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
+    // convert seq to uppercase, throwing errors if invalid characters found
+    const A :u8  = 'A' as u8;
+    const C :u8 = 'C' as u8;
+    const G :u8 = 'G' as u8;
+    const T :u8 = 'T' as u8;
+    const N :u8 = 'N' as u8;
+    const A_LOWER :u8 = 'a' as u8;
+    const C_LOWER :u8 = 'c' as u8;
+    const G_LOWER :u8 = 'g' as u8;
+    const T_LOWER :u8 = 't' as u8;
+    const N_LOWER :u8 = 'n' as u8;
+    const EQ :u8 = '=' as u8;
+    const DOT :u8 = '.' as u8;
+    const ASTERISK :u8 = '*' as u8;
+
+    for pos in 0..seq.len() {
+        match seq[pos] {
+            A | C | G | T | N => {},
+            A_LOWER => seq[pos] = A,
+            C_LOWER => seq[pos] = C,
+            G_LOWER => seq[pos] = G,
+            T_LOWER => seq[pos] = T,
+            N_LOWER => seq[pos] = N,
+            EQ | DOT | ASTERISK => {
+                eprintln!("Chars in SEQ not allowed although valid in BAM!");
+                std::process::exit(1);
+            },
+            _ => {
+                eprintln!("Invalid characters in SEQ!");
+                std::process::exit(1);
+            }
+        }
+    }
+    seq
 }
 
 // We are copying and modifying code from the fibertools-rs repository.
@@ -123,6 +160,8 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
 	let mut rtn = vec![];
 
 	let ml_tag = get_u8_tag(record, b"ML");
+
+    const N_BASE :u8 = 'N' as u8;
 
 	let mut num_mods_seen = 0;
 
@@ -144,9 +183,9 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
 
 			// get forward sequence bases from the bam record
 			let forward_bases = if record.is_reverse() {
-				revcomp(record.seq().as_bytes())
+				revcomp(convert_seq_uppercase(record.seq().as_bytes()))
 			} else {
-				record.seq().as_bytes()
+				convert_seq_uppercase(record.seq().as_bytes())
 			};
 			log::trace!(
 				"mod_base: {}, mod_strand: {}, modification_type: {}, mod_dists: {:?}",
@@ -162,7 +201,7 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
 			let mut unfiltered_modified_positions: Vec<i64> = vec![0; mod_dists.len()];
 			while cur_seq_idx < forward_bases.len() && cur_mod_idx < mod_dists.len() {
 				let cur_base = forward_bases[cur_seq_idx];
-				if cur_base == mod_base && dist_from_last_mod_base == mod_dists[cur_mod_idx] {
+				if (cur_base == mod_base || mod_base == N_BASE) && dist_from_last_mod_base == mod_dists[cur_mod_idx] {
 					unfiltered_modified_positions[cur_mod_idx] =
 						i64::try_from(cur_seq_idx).unwrap();
 					dist_from_last_mod_base = 0;
