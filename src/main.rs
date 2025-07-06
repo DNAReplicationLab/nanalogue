@@ -11,15 +11,18 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Correlates basecalled length with alignment length.
-    BcLenVsAlignLen {
+    /// Print basecalled len, align len, mod count per molecule
+    BcLenAlignLenModCount {
+        /// Turn off mod counts
+        #[arg(short, long, default_value_t = false)]
+        no_mod_count: bool,
         /// Input BAM file
         bam_file: String,
         #[clap(default_value_t = String::from(""))]
         /// Input sequence summary file from Guppy/Dorado (optional)
         seq_summ_file: String,
     },
-    /// Calculates various statistics on reads.
+    /// Calculates various summary statistics on all reads.
     ReadStats {
         /// Input BAM file
         bam_file: String,
@@ -38,8 +41,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Match on the subcommand and call the corresponding logic from the library
     match cli.command {
-        Commands::BcLenVsAlignLen { bam_file, seq_summ_file } => {
-            subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file)?;
+        Commands::BcLenAlignLenModCount { bam_file, seq_summ_file, no_mod_count } => {
+            subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file, !no_mod_count)?;
         }
         Commands::ReadStats { bam_file } => {
             subcommands::read_stats::run(&bam_file)?;

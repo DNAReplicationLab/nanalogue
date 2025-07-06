@@ -41,16 +41,16 @@ impl ReadLen {
             mod_count: None,
         }
     }
-    fn new_align_len(align_len: u64, seq_len: u64, mod_count: u64) -> Self {
+    fn new_align_len(align_len: u64, seq_len: u64, mod_count: Option<u64>) -> Self {
         Self { 
             state: ReadLenState::OnlyAlign {
                 align_len,
                 seq_len
             },
-            mod_count: Some(mod_count),
+            mod_count,
         }
     }
-    fn add_align_len(&mut self, align_len: u64, mod_count: u64) {
+    fn add_align_len(&mut self, align_len: u64, mod_count: Option<u64>) {
         match &self.state {
             ReadLenState::OnlyAlign { align_len: _, seq_len: _ } | 
                 ReadLenState::BothAlignBc { align_len: _, bc_len: _ } => {
@@ -64,7 +64,7 @@ impl ReadLen {
                 };
             },
         }
-        self.mod_count = Some(mod_count);
+        self.mod_count = mod_count;
     }
 
     fn add_bc_len(&mut self, bc_len: u64) {
@@ -128,8 +128,8 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Box<dyn Erro
     Ok(data_map)
 }
 
-pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
-
+pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) 
+    -> Result<(), Box<dyn Error>> {
 
     // read TSV file and convert into hashmap
     let mut data_map = match process_tsv(seq_summ_path) {
@@ -202,15 +202,19 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
         };
 
         // get modification information
-        let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(&record, 128); 
-        let mut mod_count :u64 = 0;
-        if ! v.is_empty() {
-            for k in v {
-                mod_count += k.ranges.qual.len() as u64;
-            }
-        } else {
-            mod_count = 0;
-        }
+        let mod_count :Option<u64> = match is_mod_count{
+            false => None,
+            true => {
+                let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(&record, 128); 
+                Some({
+                    let mut cnt: u64 = 0;
+                    for k in v {
+                        cnt += k.ranges.qual.len() as u64;
+                    }
+                    cnt
+                })
+            },
+        };
 
         // add data depending on whether an entry is already present
         // in the hashmap from the sequencing summary file
@@ -223,7 +227,11 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
     // set up an output header string
     let mut output_header = "# bam file: ".to_owned() + bam_path + "\n";
     if is_seq_summ_data { output_header = output_header + "# seq summ file: " + seq_summ_path + "\n" }
-    output_header += "read_id\talign_length\tsequence_length_template\tmod_count";
+    if is_mod_count {
+        output_header += "read_id\talign_length\tsequence_length_template\tmod_count";
+    } else {
+        output_header += "read_id\talign_length\tsequence_length_template";
+    }
 
     // This apparently helps writing to the terminal faster,
     // according to https://rust-cli.github.io/book/tutorial/output.html
@@ -244,8 +252,8 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
     // summ file takes precedence. If only the BAM file is available, then
     // we use the sequence length in the BAM file as the basecalled sequence length.
     for (key, val) in data_map.iter() {
-        match (&val, is_seq_summ_data) {
-            (ReadLen{ state: ReadLenState::BothAlignBc {align_len: al, bc_len: bl}, mod_count: Some(ml) }, true) => 
+        match (&val, is_seq_summ_data, is_mod_count) {
+            (ReadLen{ state: ReadLenState::BothAlignBc {align_len: al, bc_len: bl}, mod_count: Some(ml) }, true, true) => 
                 match writeln!(handle, "{key}\t{al}\t{bl}\t{ml}"){
                     Ok(_) => {},
                     Err(_) => {
@@ -253,8 +261,24 @@ pub fn run(bam_path: &str, seq_summ_path: &str) -> Result<(), Box<dyn Error>> {
                         std::process::exit(1);
                     },
                 },
-            (ReadLen{ state: ReadLenState::OnlyAlign {align_len: al, seq_len: sl }, mod_count: Some(ml) }, false) => 
+            (ReadLen{ state: ReadLenState::OnlyAlign {align_len: al, seq_len: sl }, mod_count: Some(ml) }, false, true) => 
                 match writeln!(handle, "{key}\t{al}\t{sl}\t{ml}"){
+                    Ok(_) => {},
+                    Err(_) => {
+                        eprintln!("Error while writing output!");
+                        std::process::exit(1);
+                    },
+                },
+            (ReadLen{ state: ReadLenState::BothAlignBc {align_len: al, bc_len: bl}, mod_count: _ }, true, false) => 
+                match writeln!(handle, "{key}\t{al}\t{bl}"){
+                    Ok(_) => {},
+                    Err(_) => {
+                        eprintln!("Error while writing output!");
+                        std::process::exit(1);
+                    },
+                },
+            (ReadLen{ state: ReadLenState::OnlyAlign {align_len: al, seq_len: sl }, mod_count: _ }, false, false) => 
+                match writeln!(handle, "{key}\t{al}\t{sl}"){
                     Ok(_) => {},
                     Err(_) => {
                         eprintln!("Error while writing output!");

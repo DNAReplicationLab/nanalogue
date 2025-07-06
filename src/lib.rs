@@ -111,23 +111,15 @@ impl fmt::Display for CurrRead {
 }
 
 fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
-    // convert seq to uppercase, throwing errors if invalid characters found
+    // convert seq to uppercase, ignoring invalid characters
     for base in &mut seq {
         match *base {
-            b'A' | b'C' | b'G' | b'T' | b'N' => {},
             b'a' => *base = b'A',
             b'c' => *base = b'C',
             b'g' => *base = b'G',
             b't' => *base = b'T',
             b'n' => *base = b'N',
-            b'=' | b'.' | b'*' => {
-                eprintln!("Chars in SEQ not allowed although valid in BAM!");
-                std::process::exit(1);
-            },
-            _ => {
-                eprintln!("Invalid characters in SEQ!");
-                std::process::exit(1);
-            }
+            _ => {},
         }
     }
     seq
