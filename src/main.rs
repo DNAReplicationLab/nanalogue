@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use nanalogue_core::{self, subcommands}; 
+use nanalogue_core::{self, subcommands};
 use std::error::Error;
 
 #[derive(Parser, Debug)]
@@ -41,7 +41,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Match on the subcommand and call the corresponding logic from the library
     match cli.command {
-        Commands::BcLenAlignLenModCount { bam_file, seq_summ_file, no_mod_count } => {
+        Commands::BcLenAlignLenModCount {
+            bam_file,
+            seq_summ_file,
+            no_mod_count,
+        } => {
             subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file, !no_mod_count)?;
         }
         Commands::ReadStats { bam_file } => {
