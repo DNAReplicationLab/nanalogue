@@ -16,10 +16,10 @@ pub fn run(bam_path: &str, read_id: &str) -> Result<(), Box<dyn Error>> {
         let record = match r {
             Ok(v) => {
                 // get read id
-                let qname: String = str::from_utf8(v.qname()).to_string().unwrap_or_else(|e| {
+                let qname: String = str::from_utf8(v.qname()).unwrap_or_else(|e| {
                     eprintln!("Invalid UTF-8 sequence: {e}");
                     std::process::exit(1);
-                });
+                }).to_string();
                 if qname == read_id {
                     v
                 } else {

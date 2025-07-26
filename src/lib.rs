@@ -127,17 +127,22 @@ fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     seq
 }
 
-fn process_mod_type(mod_type: &str) -> char {
+fn process_mod_type(mod_type: &str) -> Result<char, String> {
     // process the modification type, returning the first character if it is a letter,
     // or converting it to a character if it is a number
     let first_char = mod_type.chars().next().unwrap();
     match first_char {
-        'A' ..= 'Z' | 'a' ..= 'z' => first_char,
-        '0' ..= '9' => char::from_u32(mod_type.parse().unwrap()).unwrap(),
-        _ => {
-            eprintln!("Invalid modification type: {}", mod_type);
-            std::process::exit(1);
+        'A' ..= 'Z' | 'a' ..= 'z' => Ok(first_char),
+        '0' ..= '9' => {
+            let u: u32 = match mod_type.parse() {
+                Ok(num) => num,
+                Err(_) => return Err(format!("Invalid modification type: {}", mod_type)),
+            };
+            char::from_u32(u).ok_or_else(|| {
+                format!("Invalid modification type: {} (not a valid Unicode character)", mod_type)
+            })
         }
+        _ => Err(format!("Invalid modification type: {}", mod_type)),
     }
 }
 
@@ -255,7 +260,7 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
                 record,
                 mod_base,
                 mod_strand.chars().next().unwrap(),
-                process_mod_type(modification_type),
+                process_mod_type(modification_type).unwrap(),
                 modified_positions,
                 modified_probabilities,
             );

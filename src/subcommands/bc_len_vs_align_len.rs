@@ -176,22 +176,16 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
         };
 
         // get length of alignment
-        let align_len: u64 = match (record.reference_end() - record.pos()).try_into() {
-            Ok(v) => v,
-            Err(_) => {
+        let align_len: u64 = (record.reference_end() - record.pos()).try_into().unwrap_or_else(|_| {
                 eprintln!("Problem getting alignment length");
                 std::process::exit(1);
-            }
-        };
+        });
 
         // get length of sequence
-        let seq_len: u64 = match record.seq_len().try_into() {
-            Ok(v) => v,
-            Err(_) => {
+        let seq_len: u64 = record.seq_len().try_into().unwrap_or_else(|_| {
                 eprintln!("Error while getting sequencing length!");
                 std::process::exit(1);
-            }
-        };
+        });
 
         // get modification information
         let mod_count: Option<u64> = match is_mod_count {
