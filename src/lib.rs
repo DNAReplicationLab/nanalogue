@@ -130,7 +130,10 @@ fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
 fn process_mod_type(mod_type: &str) -> Result<char, String> {
     // process the modification type, returning the first character if it is a letter,
     // or converting it to a character if it is a number
-    let first_char = mod_type.chars().next().unwrap();
+    let first_char = match mod_type.chars().next() {
+        Some(c) => c,
+        None => return Err(format!("Modification type is empty: {}", mod_type)),
+    };
     match first_char {
         'A' ..= 'Z' | 'a' ..= 'z' => Ok(first_char),
         '0' ..= '9' => {
@@ -141,7 +144,7 @@ fn process_mod_type(mod_type: &str) -> Result<char, String> {
             char::from_u32(u).ok_or_else(|| {
                 format!("Invalid modification type: {} (not a valid Unicode character)", mod_type)
             })
-        }
+        },
         _ => Err(format!("Invalid modification type: {}", mod_type)),
     }
 }
