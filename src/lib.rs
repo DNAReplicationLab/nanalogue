@@ -98,14 +98,23 @@ impl fmt::Display for CurrRead {
 
         if let Some(v) = &self.mods {
             if !v.is_empty() {
+                output_string = output_string + "\t";
                 for k in v {
-                    output_string = output_string + "\t" + &k.ranges.qual.len().to_string();
+                    output_string = output_string + format!("{}{}{}:{};",
+                        k.modified_base as char,
+                        k.strand,
+                        match k.modification_type {
+                            'A'..='Z' | 'a'..='z' => k.modification_type.to_string(),
+                            _ => format!("{}", k.modification_type as u32),
+                        },
+                        k.ranges.qual.len()
+                    ).as_str();
                 }
             } else {
                 output_string += "\t0";
             }
         } else {
-            output_string += "\tNA";
+            output_string += "\t0";
         }
 
         write!(f, "{output_string}")
