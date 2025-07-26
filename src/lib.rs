@@ -127,6 +127,20 @@ fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     seq
 }
 
+fn process_mod_type(mod_type: &str) -> char {
+    // process the modification type, returning the first character if it is a letter,
+    // or converting it to a character if it is a number
+    let first_char = mod_type.chars().next().unwrap();
+    match first_char {
+        'A' ..= 'Z' | 'a' ..= 'z' => first_char,
+        '0' ..= '9' => char::from_u32(mod_type.parse().unwrap()).unwrap(),
+        _ => {
+            eprintln!("Invalid modification type: {}", mod_type);
+            std::process::exit(1);
+        }
+    }
+}
+
 // We are copying and modifying code from the fibertools-rs repository.
 // https://github.com/fiberseq/fibertools-rs
 pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMods {
@@ -241,7 +255,7 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
                 record,
                 mod_base,
                 mod_strand.chars().next().unwrap(),
-                modification_type.chars().next().unwrap(),
+                process_mod_type(modification_type),
                 modified_positions,
                 modified_probabilities,
             );
@@ -266,19 +280,13 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
 /// Opens BAM file, also copied and edited from fiberseq repo.
 pub fn nanalogue_bam_reader(bam_path: &str) -> bam::Reader {
     match bam_path {
-        "-" => match bam::Reader::from_stdin() {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("Problem opening file, error: {e}");
-                std::process::exit(1)
-            }
-        },
-        s => match bam::Reader::from_path(s) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("Problem opening file, error: {e}");
-                std::process::exit(1)
-            }
-        },
+        "-" => bam::Reader::from_stdin().unwrap_or_else(|e| {
+            eprintln!("Problem opening file, error: {e}");
+            std::process::exit(1)
+        }),
+        s => bam::Reader::from_path(s).unwrap_or_else(|e| {
+            eprintln!("Problem opening file, error: {e}");
+            std::process::exit(1)
+        }),
     }
 }
