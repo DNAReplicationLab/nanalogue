@@ -1,6 +1,5 @@
-use crate::{nanalogue_bam_reader, nanalogue_mm_ml_parser, CurrRead, ReadState};
+use crate::{nanalogue_bam_reader, CurrRead, ReadState};
 use csv::ReaderBuilder;
-use fibertools_rs::utils::basemods::BaseMods;
 use rust_htslib::{bam::Read};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -184,12 +183,11 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
         let mod_count: Option<String> = match is_mod_count {
             false => None,
             true => {
-                let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(&record, 128);
-                curr_read_state.mods = Some(v);
+                curr_read_state.set_mod_data(&record, 128);
+                let mut output_string = String::from("");
                 match curr_read_state.mod_count_per_mod() {
-                    None => Some(String::from("0;")),
+                    None => {output_string += "0;"},
                     Some(v) => {
-                        let mut output_string = String::from("");
                         for (key,value) in v.into_iter(){
                             output_string = output_string + &format!("{}:{};",
                                 match key {
@@ -197,9 +195,10 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
                                     _ => format!("{}", key as u32),
                                 }, value).to_string();
                         }
-                        Some(output_string)
                     }
                 }
+                output_string.pop();
+                Some(output_string)
             }
         };
 

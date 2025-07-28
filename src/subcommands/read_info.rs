@@ -1,7 +1,6 @@
-use crate::{CurrRead};
-use crate::{nanalogue_bam_reader, nanalogue_mm_ml_parser};
-use fibertools_rs::utils::basemods::BaseMods;
-use rust_htslib::{bam::Read};
+use crate::CurrRead;
+use crate::nanalogue_bam_reader;
+use rust_htslib::bam::Read;
 use std::error::Error;
 
 pub fn run(bam_path: &str, read_id: &str) -> Result<(), Box<dyn Error>> {
@@ -26,8 +25,7 @@ pub fn run(bam_path: &str, read_id: &str) -> Result<(), Box<dyn Error>> {
                                 curr_read_state.set_read_state(&v).expect("failed to set read state!");
                                 curr_read_state.set_seq_len(&v).expect("failed to set sequence length!");
                                 curr_read_state.set_align_len(&v).expect("failed to set alignment length!");
-                                let BaseMods { base_mods: x } = nanalogue_mm_ml_parser(&v, 128);
-                                curr_read_state.mods = Some(x);
+                                curr_read_state.set_mod_data(&v, 128);
                             }
                         }
                     },

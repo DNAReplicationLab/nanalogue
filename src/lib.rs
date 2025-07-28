@@ -112,6 +112,10 @@ impl CurrRead {
             Err("Error while getting read id".to_string())
         }
     }
+    fn set_mod_data(&mut self, record: &Record, mod_thres: u8){
+        let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(record, mod_thres);
+        self.mods = Some(v);
+    }
     fn header_string() -> String {
         "read_id\tsequence_length_template\talign_length\talignment_type\tmod_count".to_string()
     }
