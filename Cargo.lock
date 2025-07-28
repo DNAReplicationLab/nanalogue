@@ -230,11 +230,11 @@ dependencies = [
 
 [[package]]
 name = "bio-types"
-version = "1.0.1"
+version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d45749b87f21808051025e9bf714d14ff4627f9d8ca967eade6946ea769aa4a"
+checksum = "f4dcf54f8b7f51450207d54780bab09c05f30b8b0caa991545082842e466ad7e"
 dependencies = [
- "derive-new 0.5.9",
+ "derive-new 0.6.0",
  "lazy_static",
  "regex",
  "strum_macros",
@@ -2258,9 +2258,9 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "lazy_static"
-version = "1.4.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
+checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "lebe"
@@ -2572,6 +2572,7 @@ name = "nanalogue"
 version = "0.1.0"
 dependencies = [
  "bio",
+ "bio-types",
  "clap",
  "csv",
  "fibertools-rs",

@@ -26,6 +26,7 @@ pub fn run(bam_path: &str, read_id: &str) -> Result<(), Box<dyn Error>> {
                                 curr_read_state.set_seq_len(&v).expect("failed to set sequence length!");
                                 curr_read_state.set_align_len(&v).expect("failed to set alignment length!");
                                 curr_read_state.set_mod_data(&v, 128);
+                                curr_read_state.set_contig_and_start(&v).expect("failed to set contig");
                             }
                         }
                     },
@@ -45,7 +46,6 @@ pub fn run(bam_path: &str, read_id: &str) -> Result<(), Box<dyn Error>> {
     }
 
     if !output_string.is_empty() {
-        println!("{}", CurrRead::header_string());
         print!("{output_string}");
     }
 

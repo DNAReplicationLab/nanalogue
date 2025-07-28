@@ -7,9 +7,14 @@ use rust_htslib::{bam, bam::record::Aux, bam::record::Record, bam::ext::BamRecor
 use std::convert::TryFrom;
 use std::fmt;
 use std::collections::HashMap;
+use bio_types::genome::AbstractInterval;
 
 // Declare the modules.
 pub mod subcommands;
+pub mod error;
+
+// Re-export the error type
+pub use error::Error;
 
 // A read can exist in seven states + one unknown state
 #[derive(Debug, Clone, Copy)]
@@ -46,19 +51,21 @@ pub struct CurrRead {
     seq_len: Option<u64>,
     align_len: Option<u64>,
     mods: Option<Vec<BaseMod>>,
+    contig_and_start: Option<(String, u64)>,
 }
 
 impl CurrRead {
     fn new() -> Self {
         Self {
-            state: ReadState::PrimaryFwd,
+            state: ReadState::Unknown,
             read_id: None,
             seq_len: None,
             align_len: None,
             mods: None,
+            contig_and_start: None,
         }
     }
-    fn set_read_state(&mut self, record: &Record) -> Result<bool, String> {
+    fn set_read_state(&mut self, record: &Record) -> Result<bool, Error> {
         match (record.is_reverse(), record.is_unmapped(), record.is_secondary(), record.is_supplementary()) {
             (false, true, false, false) => self.state = ReadState::Unmapped,
             (true, false, false, false) => self.state = ReadState::PrimaryRev,
@@ -70,36 +77,48 @@ impl CurrRead {
             _ => self.state = ReadState::Unknown,
         };
         match self.state {
-            ReadState::Unknown => Err("Invalid read state reached!".to_string()),
+            ReadState::Unknown => Err(Error::UnknownAlignState),
             _ => Ok(true),
         }
     }
-    fn set_seq_len(&mut self, record: &Record) -> Result<bool, String>{
+    fn set_seq_len(&mut self, record: &Record) -> Result<bool, Error>{
         // get length of sequence
         let ln: u64 = record.seq_len().try_into().unwrap_or_default();
         if ln > 0 {
             self.seq_len = Some(ln);
             Ok(true)
         } else {
-            Err("Error while getting sequence length".to_string())
+            Err(Error::InvalidSeqLength)
         }
     }
-    fn set_align_len(&mut self, record: &Record) -> Result<bool, String>{
+    fn set_align_len(&mut self, record: &Record) -> Result<bool, Error>{
         match self.state {
-            ReadState::Unknown => Err("cannot retrieve alignment length before setting state!".to_string()),
+            ReadState::Unknown => Err(Error::UnknownAlignState),
             ReadState::Unmapped => Ok(false),
             _ => {
-                let align_len: u64 = (record.reference_end() - record.pos()).try_into().unwrap_or_default();
-                if align_len > 0 {
-                    self.align_len = Some(align_len);
+                let st: i64 = record.pos();
+                let en: i64 = record.reference_end();
+                if en > st && st >= 0 {
+                    self.align_len = Some((en - st).try_into().unwrap());
                     Ok(true)
                 } else {
-                    Err("Error while getting alignment length".to_string())
+                    Err(Error::InvalidAlignLength)
                 }
             },
         }
     }
-    fn set_read_id(&mut self, record: &Record) -> Result<bool, String>{
+    fn set_contig_and_start(&mut self, record: &Record) -> Result<bool, Error> {
+        match self.state {
+            ReadState::Unknown => Err(Error::UnknownAlignState),
+            ReadState::Unmapped => Ok(false),
+            _ => {
+                self.contig_and_start = Some((record.contig().to_string(),
+                    record.pos().try_into().unwrap()));
+                Ok(true)
+            },
+        }
+    }
+    fn set_read_id(&mut self, record: &Record) -> Result<bool, Error>{
         // get read id
         let qname: String = match str::from_utf8(record.qname()) {
             Ok(v) => v.to_string(),
@@ -109,15 +128,12 @@ impl CurrRead {
             self.read_id = Some(qname.clone());
             Ok(true)
         } else {
-            Err("Error while getting read id".to_string())
+            Err(Error::InvalidReadID)
         }
     }
     fn set_mod_data(&mut self, record: &Record, mod_thres: u8){
         let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(record, mod_thres);
         self.mods = Some(v);
-    }
-    fn header_string() -> String {
-        "read_id\tsequence_length_template\talign_length\talignment_type\tmod_count".to_string()
     }
     fn mod_count_per_mod(&self) -> Option<HashMap<char, u32>> {
         let mut output = HashMap::<char, u32>::new();
@@ -143,28 +159,27 @@ impl fmt::Display for CurrRead {
         let mut output_string = String::from("");
 
         if let Some(v) = &self.read_id {
-            output_string = output_string + v;
-        } else {
-            output_string += "NA";
+            output_string = output_string + "\t\"read_id\": \"" + v + "\",\n";
         }
 
         if let Some(v) = self.seq_len {
-            output_string = output_string + "\t" + &v.to_string();
-        } else {
-            output_string += "\tNA";
-        }
+            output_string = output_string + "\t\"sequence_length\": " + &v.to_string() + ",\n";
+        } 
 
         if let Some(v) = self.align_len {
-            output_string = output_string + "\t" + &v.to_string();
-        } else {
-            output_string += "\tNA";
+            output_string = output_string + "\t\"alignment_length\": " + &v.to_string() + ",\n";
         }
 
-        output_string = output_string + "\t" + &self.state.to_string();
+        if let Some((v, w)) = &self.contig_and_start {
+            output_string = output_string + "\t\"contig\": \"" + &v.to_string() + "\",\n";
+            output_string = output_string + "\t\"reference_start\": " + &w.to_string() + ",\n";
+        }
+
+        output_string = output_string + "\t\"alignment_type\": \"" + &self.state.to_string() + "\",\n";
 
         if let Some(v) = &self.mods {
             if !v.is_empty() {
-                output_string += "\t";
+                output_string += "\t\"mod_count\": \"";
                 for k in v {
                     output_string += format!("{}{}{}:{};",
                         k.modified_base as char,
@@ -176,14 +191,16 @@ impl fmt::Display for CurrRead {
                         k.ranges.qual.len()
                     ).as_str();
                 }
+                output_string.pop();
+                output_string += "\"\n";
             } else {
-                output_string += "\t0";
+                output_string += " \"0\"\n";
             }
         } else {
-            output_string += "\t0";
+            output_string += " \"0\"\n";
         }
 
-        write!(f, "{output_string}")
+        write!(f, "{{\n{output_string}}}")
     }
 }
 
@@ -202,25 +219,25 @@ fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     seq
 }
 
-fn process_mod_type(mod_type: &str) -> Result<char, String> {
+fn process_mod_type(mod_type: &str) -> Result<char, Error> {
     // process the modification type, returning the first character if it is a letter,
     // or converting it to a character if it is a number
     let first_char = match mod_type.chars().next() {
         Some(c) => c,
-        None => return Err(format!("Modification type is empty: {}", mod_type)),
+        None => return Err(Error::EmptyModType),
     };
     match first_char {
         'A' ..= 'Z' | 'a' ..= 'z' => Ok(first_char),
         '0' ..= '9' => {
             let u: u32 = match mod_type.parse() {
                 Ok(num) => num,
-                Err(_) => return Err(format!("Invalid modification type: {}", mod_type)),
+                Err(_) => return Err(Error::InvalidModType),
             };
-            char::from_u32(u).ok_or_else(|| {
-                format!("Invalid modification type: {} (not a valid Unicode character)", mod_type)
+            char::from_u32(u).ok_or({
+                Error::InvalidModType
             })
         },
-        _ => Err(format!("Invalid modification type: {}", mod_type)),
+        _ => Err(Error::InvalidModType),
     }
 }
 
