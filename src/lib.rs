@@ -6,6 +6,7 @@ use regex::Regex;
 use rust_htslib::{bam, bam::record::Aux};
 use std::convert::TryFrom;
 use std::fmt;
+use std::collections::HashMap;
 
 // Declare the modules.
 pub mod subcommands;
@@ -62,8 +63,24 @@ impl CurrRead {
         }
     }
     fn header_string() -> String {
-        "read_id\tsequence_length_template\talign_length\talignment_type\tall_mods_count"
-            .to_string()
+        "read_id\tsequence_length_template\talign_length\talignment_type\tmod_count".to_string()
+    }
+    fn mod_count_per_mod(&self) -> Option<HashMap<char, u32>> {
+        let mut output = HashMap::<char, u32>::new();
+        match &self.mods {
+            Some(v) => {
+                if v.is_empty() {
+                    None
+                } else {
+                    for k in v {
+                        let mod_count = k.ranges.qual.len() as u32;
+                        output.entry(k.modification_type).and_modify(|e| *e += mod_count ).or_insert(mod_count);
+                    }
+                    Some(output)
+                }
+            }
+            None => None,
+        }
     }
 }
 
@@ -98,9 +115,9 @@ impl fmt::Display for CurrRead {
 
         if let Some(v) = &self.mods {
             if !v.is_empty() {
-                output_string = output_string + "\t";
+                output_string += "\t";
                 for k in v {
-                    output_string = output_string + format!("{}{}{}:{};",
+                    output_string += format!("{}{}{}:{};",
                         k.modified_base as char,
                         k.strand,
                         match k.modification_type {

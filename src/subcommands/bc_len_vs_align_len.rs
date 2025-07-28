@@ -1,4 +1,4 @@
-use crate::{nanalogue_bam_reader, nanalogue_mm_ml_parser};
+use crate::{nanalogue_bam_reader, nanalogue_mm_ml_parser, CurrRead};
 use csv::ReaderBuilder;
 use fibertools_rs::utils::basemods::BaseMods;
 use rust_htslib::{bam::Read, bam::ext::BamRecordExtensions};
@@ -25,7 +25,7 @@ enum ReadLenState {
 // and other information in the read
 struct ReadLen {
     state: ReadLenState,
-    mod_count: Option<u64>,
+    mod_count: Option<String>,
 }
 
 impl ReadLen {
@@ -35,13 +35,13 @@ impl ReadLen {
             mod_count: None,
         }
     }
-    fn new_align_len(align_len: u64, seq_len: u64, mod_count: Option<u64>) -> Self {
+    fn new_align_len(align_len: u64, seq_len: u64, mod_count: Option<String>) -> Self {
         Self {
             state: ReadLenState::OnlyAlign { align_len, seq_len },
             mod_count,
         }
     }
-    fn add_align_len(&mut self, align_len: u64, mod_count: Option<u64>) {
+    fn add_align_len(&mut self, align_len: u64, mod_count: Option<String>) {
         match &self.state {
             ReadLenState::OnlyAlign {
                 align_len: _,
@@ -188,17 +188,26 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
         });
 
         // get modification information
-        let mod_count: Option<u64> = match is_mod_count {
+        let mod_count: Option<String> = match is_mod_count {
             false => None,
             true => {
                 let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(&record, 128);
-                Some({
-                    let mut cnt: u64 = 0;
-                    for k in v {
-                        cnt += k.ranges.qual.len() as u64;
+                let mut curr_read_state = CurrRead::new();
+                curr_read_state.mods = Some(v);
+                match curr_read_state.mod_count_per_mod() {
+                    None => Some("0;".to_string()),
+                    Some(v) => {
+                        let mut output_string = String::from("");
+                        for (key,value) in v.into_iter(){
+                            output_string = output_string + &format!("{}:{};",
+                                match key {
+                                    'A'..='Z' | 'a'..='z' => key.to_string(),
+                                    _ => format!("{}", key as u32),
+                                }, value).to_string();
+                        }
+                        Some(output_string)
                     }
-                    cnt
-                })
+                }
             }
         };
 
@@ -206,7 +215,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
         // in the hashmap from the sequencing summary file
         data_map
             .entry(qname)
-            .and_modify(|entry| entry.add_align_len(align_len, mod_count))
+            .and_modify(|entry| entry.add_align_len(align_len, mod_count.clone()))
             .or_insert(ReadLen::new_align_len(align_len, seq_len, mod_count));
     }
 
