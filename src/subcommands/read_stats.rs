@@ -1,5 +1,5 @@
-use crate::{CurrRead, ReadState, ReadTransition, nanalogue_bam_reader};
-use rust_htslib::{bam::Read, bam::ext::BamRecordExtensions};
+use crate::{CurrRead, ReadState, nanalogue_bam_reader};
+use rust_htslib::{bam::Read};
 use std::collections::BinaryHeap;
 use std::error::Error;
 
@@ -61,6 +61,7 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
     let mut secondary_count: u64 = 0;
     let mut supplementary_count: u64 = 0;
     let mut unmapped_count: u64 = 0;
+    let mut reversed_count: u64 = 0;
 
     // create two read length heaps
     let mut seq_len_heap = BinaryHeap::<u64>::new();
@@ -82,51 +83,49 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
         };
 
         // set the read state using the type of alignment
+        // and increment read counter
         let mut curr_read_state = CurrRead::new();
-        if record.is_unmapped() {
-            curr_read_state.transition(ReadTransition::PrimaryToUnmapped);
-        }
-        if record.is_secondary() {
-            curr_read_state.transition(ReadTransition::PrimaryToSecondary);
-        }
-        if record.is_supplementary() {
-            curr_read_state.transition(ReadTransition::PrimaryToSupplementary);
-        }
-
-        // increment read counter suitably
+        curr_read_state.set_read_state(&record).expect("Error while setting read state!");
         match curr_read_state.state {
-            ReadState::Primary => primary_count += 1,
-            ReadState::Secondary => secondary_count += 1,
-            ReadState::Supplementary => supplementary_count += 1,
+            ReadState::Unknown => {},
+            ReadState::PrimaryFwd => primary_count += 1,
+            ReadState::SecondaryFwd => secondary_count += 1,
+            ReadState::SupplementaryFwd => supplementary_count += 1,
             ReadState::Unmapped => unmapped_count += 1,
+            ReadState::PrimaryRev => {primary_count += 1; reversed_count += 1 },
+            ReadState::SecondaryRev => {secondary_count += 1; reversed_count += 1 },
+            ReadState::SupplementaryRev => {supplementary_count += 1; reversed_count += 1},
         };
 
         // get length of alignment
-        match curr_read_state.state {
-            ReadState::Unmapped => {}
-            _ => {
-                let align_len: u64 = match (record.reference_end() - record.pos()).try_into() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        eprintln!("Problem getting alignment length");
-                        std::process::exit(1);
-                    }
-                };
-                align_len_heap.push(align_len);
-                align_len_total += align_len;
-            }
+        match curr_read_state.set_align_len(&record) {
+            Ok(true) => {
+                if let Some(v) = curr_read_state.align_len {
+                    align_len_total += v;
+                    align_len_heap.push(v);
+                }
+            },
+            Ok(false) => {},
+            Err(_) => {
+                eprintln!("Problem getting sequence length");
+                std::process::exit(1);
+            },
         };
 
         // get length of sequence
-        let seq_len: u64 = match record.seq_len().try_into() {
-            Ok(v) => v,
+        match curr_read_state.set_seq_len(&record){
+            Ok(true) => {
+                if let Some(v) = curr_read_state.seq_len {
+                    seq_len_total += v;
+                    seq_len_heap.push(v);
+                }
+            },
+            Ok(false) => {},
             Err(_) => {
-                eprintln!("Error while getting sequencing length!");
+                eprintln!("Problem getting sequence length");
                 std::process::exit(1);
             }
-        };
-        seq_len_heap.push(seq_len);
-        seq_len_total += seq_len;
+        }
     }
 
     // process heaps to get statistics
@@ -141,6 +140,7 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
     println!("n_secondary_alignments\t{secondary_count}");
     println!("n_supplementary_alignments\t{supplementary_count}");
     println!("n_unmapped_reads\t{unmapped_count}");
+    println!("n_reversed_reads\t{reversed_count}");
     println!("align_len_mean\t{align_len_mean}");
     println!("align_len_max\t{align_len_max}");
     println!("align_len_min\t{align_len_min}");

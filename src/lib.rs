@@ -3,7 +3,7 @@ use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use fibertools_rs::utils::bio_io::*;
 use lazy_static::lazy_static;
 use regex::Regex;
-use rust_htslib::{bam, bam::record::Aux};
+use rust_htslib::{bam, bam::record::Aux, bam::record::Record, bam::ext::BamRecordExtensions};
 use std::convert::TryFrom;
 use std::fmt;
 use std::collections::HashMap;
@@ -11,20 +11,33 @@ use std::collections::HashMap;
 // Declare the modules.
 pub mod subcommands;
 
-// A read can exist in four states
+// A read can exist in seven states + one unknown state
+#[derive(Debug, Clone, Copy)]
 pub enum ReadState {
-    Primary,
-    Secondary,
-    Supplementary,
+    Unknown,
+    PrimaryFwd,
+    PrimaryRev,
+    SecondaryFwd,
+    SecondaryRev,
+    SupplementaryFwd,
+    SupplementaryRev,
     Unmapped,
 }
 
-// Assume a read is primary unless otherwise stated,
-// so we have three possible transitions
-pub enum ReadTransition {
-    PrimaryToSecondary,
-    PrimaryToSupplementary,
-    PrimaryToUnmapped,
+impl fmt::Display for ReadState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let printable = match *self {
+            ReadState::Unknown => "unknown",
+            ReadState::PrimaryFwd => "primary_forward",
+            ReadState::SecondaryFwd => "secondary_forward",
+            ReadState::SupplementaryFwd => "supplementary_forward",
+            ReadState::PrimaryRev => "primary_reverse",
+            ReadState::SecondaryRev => "secondary_reverse",
+            ReadState::SupplementaryRev => "supplementary_reverse",
+            ReadState::Unmapped => "unmapped",
+        };
+        write!(f, "{printable}")
+    }
 }
 
 pub struct CurrRead {
@@ -38,28 +51,65 @@ pub struct CurrRead {
 impl CurrRead {
     fn new() -> Self {
         Self {
-            state: ReadState::Primary,
+            state: ReadState::PrimaryFwd,
             read_id: None,
             seq_len: None,
             align_len: None,
             mods: None,
         }
     }
-    fn transition(&mut self, transition: ReadTransition) {
-        match (&self.state, transition) {
-            (ReadState::Primary, ReadTransition::PrimaryToSecondary) => {
-                self.state = ReadState::Secondary
-            }
-            (ReadState::Primary, ReadTransition::PrimaryToSupplementary) => {
-                self.state = ReadState::Supplementary
-            }
-            (ReadState::Primary, ReadTransition::PrimaryToUnmapped) => {
-                self.state = ReadState::Unmapped
-            }
+    fn set_read_state(&mut self, record: &Record) -> Result<bool, String> {
+        match (record.is_reverse(), record.is_unmapped(), record.is_secondary(), record.is_supplementary()) {
+            (false, true, false, false) => self.state = ReadState::Unmapped,
+            (true, false, false, false) => self.state = ReadState::PrimaryRev,
+            (true, false, true, false) => self.state = ReadState::SecondaryRev,
+            (false, false, true, false) => self.state = ReadState::SecondaryFwd,
+            (true, false, false, true) => self.state = ReadState::SupplementaryRev,
+            (false, false, false, true) => self.state = ReadState::SupplementaryFwd,
+            (false, false, false, false) => self.state = ReadState::PrimaryFwd,
+            _ => self.state = ReadState::Unknown,
+        };
+        match self.state {
+            ReadState::Unknown => Err("Invalid read state reached!".to_string()),
+            _ => Ok(true),
+        }
+    }
+    fn set_seq_len(&mut self, record: &Record) -> Result<bool, String>{
+        // get length of sequence
+        let ln: u64 = record.seq_len().try_into().unwrap_or_default();
+        if ln > 0 {
+            self.seq_len = Some(ln);
+            Ok(true)
+        } else {
+            Err("Error while getting sequence length".to_string())
+        }
+    }
+    fn set_align_len(&mut self, record: &Record) -> Result<bool, String>{
+        match self.state {
+            ReadState::Unknown => Err("cannot retrieve alignment length before setting state!".to_string()),
+            ReadState::Unmapped => Ok(false),
             _ => {
-                eprintln!("Invalid state reached!");
-                std::process::exit(1);
-            }
+                let align_len: u64 = (record.reference_end() - record.pos()).try_into().unwrap_or_default();
+                if align_len > 0 {
+                    self.align_len = Some(align_len);
+                    Ok(true)
+                } else {
+                    Err("Error while getting alignment length".to_string())
+                }
+            },
+        }
+    }
+    fn set_read_id(&mut self, record: &Record) -> Result<bool, String>{
+        // get read id
+        let qname: String = match str::from_utf8(record.qname()) {
+            Ok(v) => v.to_string(),
+            Err(_) => String::from(""),
+        };
+        if ! qname.is_empty() {
+            self.read_id = Some(qname.clone());
+            Ok(true)
+        } else {
+            Err("Error while getting read id".to_string())
         }
     }
     fn header_string() -> String {
@@ -106,12 +156,7 @@ impl fmt::Display for CurrRead {
             output_string += "\tNA";
         }
 
-        match self.state {
-            ReadState::Primary => output_string = output_string + "\t" + "primary",
-            ReadState::Secondary => output_string = output_string + "\t" + "secondary",
-            ReadState::Supplementary => output_string = output_string + "\t" + "supplementary",
-            ReadState::Unmapped => output_string = output_string + "\t" + "unmapped",
-        }
+        output_string = output_string + "\t" + &self.state.to_string();
 
         if let Some(v) = &self.mods {
             if !v.is_empty() {

@@ -1,7 +1,7 @@
-use crate::{nanalogue_bam_reader, nanalogue_mm_ml_parser, CurrRead};
+use crate::{nanalogue_bam_reader, nanalogue_mm_ml_parser, CurrRead, ReadState};
 use csv::ReaderBuilder;
 use fibertools_rs::utils::basemods::BaseMods;
-use rust_htslib::{bam::Read, bam::ext::BamRecordExtensions};
+use rust_htslib::{bam::Read};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::error::Error;
@@ -16,71 +16,52 @@ use std::str;
 //   length from the sequencing summary file and the alignment length
 //   from the BAM file, discarding the sequence length from the BAM file.
 enum ReadLenState {
-    OnlyAlign { align_len: u64, seq_len: u64 },
+    OnlyAlign { align_len: u64, seq_len: u64, mod_count: Option<String>, read_state: ReadState },
     OnlyBc(u64),
-    BothAlignBc { align_len: u64, bc_len: u64 },
+    BothAlignBc { align_len: u64, bc_len: u64, mod_count: Option<String>, read_state: ReadState },
 }
 
 // Implement a structure representing the above state
-// and other information in the read
 struct ReadLen {
     state: ReadLenState,
-    mod_count: Option<String>,
 }
 
 impl ReadLen {
     fn new_bc_len(l: u64) -> Self {
         Self {
             state: ReadLenState::OnlyBc(l),
-            mod_count: None,
         }
     }
-    fn new_align_len(align_len: u64, seq_len: u64, mod_count: Option<String>) -> Self {
+
+    fn new_align_len(align_len: u64, seq_len: u64, mod_count: Option<String>, read_state: ReadState) -> Self {
         Self {
-            state: ReadLenState::OnlyAlign { align_len, seq_len },
-            mod_count,
+            state: ReadLenState::OnlyAlign { align_len, seq_len, mod_count, read_state },
         }
     }
-    fn add_align_len(&mut self, align_len: u64, mod_count: Option<String>) {
+
+    fn add_align_len(&mut self, align_len: u64, mod_count: Option<String>, read_state: ReadState) {
         match &self.state {
             ReadLenState::OnlyAlign {
                 align_len: _,
                 seq_len: _,
+                mod_count: _,
+                read_state: _,
             }
             | ReadLenState::BothAlignBc {
                 align_len: _,
                 bc_len: _,
+                mod_count: _,
+                read_state: _,
             } => {
                 eprintln!("Alignment statistics duplicate detected!");
                 std::process::exit(1);
-            }
+            },
             ReadLenState::OnlyBc(bl) => {
                 self.state = ReadLenState::BothAlignBc {
                     align_len,
                     bc_len: *bl,
-                };
-            }
-        }
-        self.mod_count = mod_count;
-    }
-
-    fn add_bc_len(&mut self, bc_len: u64) {
-        match &self.state {
-            ReadLenState::OnlyBc(_)
-            | ReadLenState::BothAlignBc {
-                align_len: _,
-                bc_len: _,
-            } => {
-                eprintln!("Basecalled length duplicate detected!");
-                std::process::exit(1);
-            }
-            ReadLenState::OnlyAlign {
-                align_len: al,
-                seq_len: _,
-            } => {
-                self.state = ReadLenState::BothAlignBc {
-                    align_len: *al,
-                    bc_len,
+                    mod_count,
+                    read_state
                 };
             }
         }
@@ -105,13 +86,16 @@ struct TSVRecord {
 ///
 /// A `Result` which is either a `HashMap` with `read_id` as the key and
 /// a `Read` as the value, or an error.
-fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Box<dyn Error>> {
+fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, String> {
     let mut data_map = HashMap::<String, ReadLen>::new();
 
     match file_path {
         "" => {}
         fp => {
-            let file = File::open(fp)?;
+            let file = match File::open(fp){
+                Ok(v) => v,
+                Err(e) => return Err(format!("This error occured while opening file {}: {}", file_path, e)),
+            };
 
             let mut rdr = ReaderBuilder::new()
                 .comment(Some(b'#'))
@@ -119,11 +103,13 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Box<dyn Erro
                 .from_reader(file);
 
             for result in rdr.deserialize() {
-                let record: TSVRecord = result?;
-                data_map
-                    .entry(record.read_id)
-                    .and_modify(|entry| entry.add_bc_len(record.sequence_length_template))
-                    .or_insert(ReadLen::new_bc_len(record.sequence_length_template));
+                let record: TSVRecord = match result{
+                    Ok(v) => v,
+                    Err(e) => return Err(format!("This error occured while reading {}: {}", file_path, e)),
+                };
+                if data_map.insert(record.read_id, ReadLen::new_bc_len(record.sequence_length_template)).is_some() {
+                    return Err(String::from("Error: duplicates detected in sequencing summary file!"))
+                };
             }
         }
     };
@@ -148,54 +134,60 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
     let mut bam = nanalogue_bam_reader(bam_path);
 
     // Go record by record in the BAM file,
-    // for primary alignments, get the read id and the alignment length,
-    // and put it in the hashmap
+    // get the read id and the alignment length, and put it in the hashmap
     for r in bam.records() {
-        // read primary records
-        let record = match r {
-            Ok(v) => {
-                if v.is_unmapped() || v.is_secondary() || v.is_supplementary() {
+
+        // read records
+        let record = r.unwrap_or_else(|e| {
+            eprintln!("Some error while reading records {e}");
+            std::process::exit(1)
+        });
+
+        // track information of current read
+        let mut curr_read_state = CurrRead::new();
+        let qname :String = match curr_read_state.set_read_id(&record){
+            Ok(false) | Err(_) => continue,
+            Ok(true) => {
+                let Some(ref v) = curr_read_state.read_id else {
                     continue;
-                } else {
-                    v
-                }
-            }
-            Err(e) => {
-                eprintln!("Some error while reading records {e}");
-                std::process::exit(1)
-            }
+                };
+                v.to_string()
+            },
         };
-
-        // get read id
-        let qname: String = match str::from_utf8(record.qname()) {
-            Ok(v) => v.to_string(),
-            Err(e) => {
-                eprintln!("Invalid UTF-8 sequence: {e}");
-                std::process::exit(1)
-            }
+        curr_read_state.set_read_state(&record).expect("Error while setting read state!");
+        let read_state = match curr_read_state.state {
+            ReadState::PrimaryFwd | ReadState::PrimaryRev => {
+                curr_read_state.state
+            },
+            _ => continue,
         };
-
-        // get length of alignment
-        let align_len: u64 = (record.reference_end() - record.pos()).try_into().unwrap_or_else(|_| {
-                eprintln!("Problem getting alignment length");
-                std::process::exit(1);
-        });
-
-        // get length of sequence
-        let seq_len: u64 = record.seq_len().try_into().unwrap_or_else(|_| {
-                eprintln!("Error while getting sequencing length!");
-                std::process::exit(1);
-        });
+        let align_len: u64 = match curr_read_state.set_align_len(&record){
+            Ok(false) | Err(_) => continue,
+            Ok(true) => {
+                let Some(v) = curr_read_state.align_len else {
+                    continue;
+                };
+                v
+            },
+        };
+        let seq_len = match curr_read_state.set_seq_len(&record){
+            Ok(false) | Err(_) => continue,
+            Ok(true) => {
+                let Some(v) = curr_read_state.seq_len else {
+                    continue;
+                };
+                v
+            },
+        };
 
         // get modification information
         let mod_count: Option<String> = match is_mod_count {
             false => None,
             true => {
                 let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(&record, 128);
-                let mut curr_read_state = CurrRead::new();
                 curr_read_state.mods = Some(v);
                 match curr_read_state.mod_count_per_mod() {
-                    None => Some("0;".to_string()),
+                    None => Some(String::from("0;")),
                     Some(v) => {
                         let mut output_string = String::from("");
                         for (key,value) in v.into_iter(){
@@ -215,8 +207,8 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
         // in the hashmap from the sequencing summary file
         data_map
             .entry(qname)
-            .and_modify(|entry| entry.add_align_len(align_len, mod_count.clone()))
-            .or_insert(ReadLen::new_align_len(align_len, seq_len, mod_count));
+            .and_modify(|entry| entry.add_align_len(align_len, mod_count.clone(), read_state))
+            .or_insert(ReadLen::new_align_len(align_len, seq_len, mod_count, read_state));
     }
 
     // set up an output header string
@@ -224,10 +216,9 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
     if is_seq_summ_data {
         output_header = output_header + "# seq summ file: " + seq_summ_path + "\n"
     }
+    output_header += "read_id\talign_length\tsequence_length_template\talignment_type";
     if is_mod_count {
-        output_header += "read_id\talign_length\tsequence_length_template\tmod_count";
-    } else {
-        output_header += "read_id\talign_length\tsequence_length_template";
+        output_header += "\tmod_count";
     }
 
     // This apparently helps writing to the terminal faster,
@@ -249,19 +240,19 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
     // summ file takes precedence. If only the BAM file is available, then
     // we use the sequence length in the BAM file as the basecalled sequence length.
     for (key, val) in data_map.iter() {
-        match (&val, is_seq_summ_data, is_mod_count) {
+        match (&val, is_seq_summ_data) {
             (
                 ReadLen {
                     state:
                         ReadLenState::BothAlignBc {
                             align_len: al,
                             bc_len: bl,
+                            mod_count: Some(ml),
+                            read_state: rs,
                         },
-                    mod_count: Some(ml),
                 },
                 true,
-                true,
-            ) => match writeln!(handle, "{key}\t{al}\t{bl}\t{ml}") {
+            ) => match writeln!(handle, "{key}\t{al}\t{bl}\t{rs}\t{ml}") {
                 Ok(_) => {}
                 Err(_) => {
                     eprintln!("Error while writing output!");
@@ -274,12 +265,12 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
                         ReadLenState::OnlyAlign {
                             align_len: al,
                             seq_len: sl,
+                            mod_count: Some(ml),
+                            read_state: rs,
                         },
-                    mod_count: Some(ml),
                 },
                 false,
-                true,
-            ) => match writeln!(handle, "{key}\t{al}\t{sl}\t{ml}") {
+            ) => match writeln!(handle, "{key}\t{al}\t{sl}\t{rs}\t{ml}") {
                 Ok(_) => {}
                 Err(_) => {
                     eprintln!("Error while writing output!");
@@ -292,12 +283,12 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
                         ReadLenState::BothAlignBc {
                             align_len: al,
                             bc_len: bl,
+                            mod_count: None,
+                            read_state: rs,
                         },
-                    mod_count: _,
                 },
                 true,
-                false,
-            ) => match writeln!(handle, "{key}\t{al}\t{bl}") {
+            ) => match writeln!(handle, "{key}\t{al}\t{bl}\t{rs}") {
                 Ok(_) => {}
                 Err(_) => {
                     eprintln!("Error while writing output!");
@@ -310,19 +301,49 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
                         ReadLenState::OnlyAlign {
                             align_len: al,
                             seq_len: sl,
+                            mod_count: None,
+                            read_state: rs,
                         },
-                    mod_count: _,
                 },
                 false,
-                false,
-            ) => match writeln!(handle, "{key}\t{al}\t{sl}") {
+            ) => match writeln!(handle, "{key}\t{al}\t{sl}\t{rs}") {
                 Ok(_) => {}
                 Err(_) => {
                     eprintln!("Error while writing output!");
                     std::process::exit(1);
                 }
             },
-            _ => {}
+            (
+                ReadLen {
+                    state: ReadLenState::OnlyBc(_)
+                },
+                _,
+            ) |
+            (
+                ReadLen {
+                    state: ReadLenState::OnlyAlign {
+                        align_len: _,
+                        seq_len: _,
+                        mod_count: _,
+                        read_state: _,
+                    }
+                },
+                true,
+            ) => {},
+            (
+                ReadLen {
+                    state: ReadLenState::BothAlignBc {
+                        align_len: _,
+                        bc_len: _,
+                        mod_count: _,
+                        read_state: _,
+                    }
+                },
+                false,
+            ) => {
+                eprintln!("Error while writing output, invalid state reached!");
+                std::process::exit(1);
+            },
         }
     }
 
