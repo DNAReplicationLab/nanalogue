@@ -11,14 +11,14 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Print basecalled len, align len, mod count per molecule
-    ReadTableWithMods {
+    ReadsTableWithMods {
         /// Input BAM file
         bam_file: String,
         #[clap(default_value_t = String::from(""))]
         /// Input sequence summary file from Guppy/Dorado (optional)
         seq_summ_file: String,
     },
-    ReadTableNoMods {
+    ReadsTableNoMods {
         /// Input BAM file
         bam_file: String,
         #[clap(default_value_t = String::from(""))]
@@ -44,13 +44,13 @@ fn main() -> Result<(), Error> {
 
     // Match on the subcommand and call the corresponding logic from the library
     let result = match cli.command {
-        Commands::ReadTableWithMods {
+        Commands::ReadsTableWithMods {
             bam_file,
             seq_summ_file,
         } => {
             subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file, true)
         },
-        Commands::ReadTableNoMods {
+        Commands::ReadsTableNoMods {
             bam_file,
             seq_summ_file,
         } => {

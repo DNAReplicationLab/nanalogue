@@ -366,15 +366,9 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
 }
 
 /// Opens BAM file, also copied and edited from fiberseq repo.
-pub fn nanalogue_bam_reader(bam_path: &str) -> bam::Reader {
+pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
     match bam_path {
-        "-" => bam::Reader::from_stdin().unwrap_or_else(|e| {
-            eprintln!("Problem opening file, error: {e}");
-            std::process::exit(1)
-        }),
-        s => bam::Reader::from_path(s).unwrap_or_else(|e| {
-            eprintln!("Problem opening file, error: {e}");
-            std::process::exit(1)
-        }),
+        "-" => Ok(bam::Reader::from_stdin()?),
+        s => Ok(bam::Reader::from_path(s)?),
     }
 }

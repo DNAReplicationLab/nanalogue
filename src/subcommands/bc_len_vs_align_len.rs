@@ -117,7 +117,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<bo
     let is_seq_summ_data: bool = !data_map.is_empty();
 
     // open BAM file
-    let mut bam = nanalogue_bam_reader(bam_path);
+    let mut bam = nanalogue_bam_reader(bam_path)?;
 
     // Go record by record in the BAM file,
     // get the read id and the alignment length, and put it in the hashmap

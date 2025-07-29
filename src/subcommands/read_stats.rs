@@ -50,7 +50,7 @@ fn get_stats_from_heap(
 
 pub fn run(bam_path: &str) -> Result<bool, Error> {
     // open BAM file
-    let mut bam = nanalogue_bam_reader(bam_path);
+    let mut bam = nanalogue_bam_reader(bam_path)?;
 
     // declare counts for different types of reads
     let mut primary_count: u64 = 0;

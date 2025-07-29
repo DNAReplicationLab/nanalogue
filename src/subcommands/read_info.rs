@@ -4,7 +4,7 @@ use rust_htslib::bam::Read;
 pub fn run(bam_path: &str, read_id: &str) -> Result<bool, Error> {
 
     // open BAM file
-    let mut bam = nanalogue_bam_reader(bam_path);
+    let mut bam = nanalogue_bam_reader(bam_path)?;
 
     let mut output_string = String::from("");
 
