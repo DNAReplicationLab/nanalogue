@@ -89,23 +89,16 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Error> {
     let mut data_map = HashMap::<String, ReadLen>::new();
 
     match file_path {
-        "" => {}
+        "" => {},
         fp => {
-            let file = match File::open(fp){
-                Ok(v) => v,
-                Err(e) => Err(Error::FileOpenError(format!("file {} led to error {}", file_path, e)))?,
-            };
-
+            let file = File::open(fp)?;
             let mut rdr = ReaderBuilder::new()
                 .comment(Some(b'#'))
                 .delimiter(b'\t')
                 .from_reader(file);
 
             for result in rdr.deserialize() {
-                let record: TSVRecord = match result{
-                    Ok(v) => v,
-                    Err(e) => Err(Error::FileReadError(format!("file {} led to error {}", file_path, e)))?,
-                };
+                let record: TSVRecord = result?;
                 if data_map.insert(record.read_id, ReadLen::new_bc_len(record.sequence_length_template)).is_some() {
                     Err(Error::InvalidDuplicates(file_path.to_string()))?;
                 };

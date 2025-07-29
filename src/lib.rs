@@ -235,7 +235,7 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
     lazy_static! {
         // MM:Z:([ACGTUN][-+]([A-Za-z]+|[0-9]+)[.?]?(,[0-9]+)*;)*
         static ref MM_RE: Regex =
-            Regex::new(r"((([ACGTUN])([-+])([A-Za-z]+|[0-9]+))[.?]?((,[0-9]+)*;)*)").unwrap();
+            Regex::new(r"((([ACGTUN])([-+])([A-Za-z]+|[0-9]+)([.?]?))((,[0-9]+)*;)*)").unwrap();
     }
     // Array to store all the different modifications within the MM tag
     let mut rtn = vec![];
@@ -250,7 +250,8 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
             let mod_base = cap.get(3).map(|m| m.as_str().as_bytes()[0]).unwrap();
             let mod_strand = cap.get(4).map_or("", |m| m.as_str());
             let modification_type = cap.get(5).map_or("", |m| m.as_str());
-            let mod_dists_str = cap.get(6).map_or("", |m| m.as_str());
+            let _implicit = cap.get(6).map_or(".", |m| m.as_str()).as_bytes().first();
+            let mod_dists_str = cap.get(7).map_or("", |m| m.as_str());
             // parse the string containing distances between modifications into a vector of i64
             let mod_dists: Vec<i64> = mod_dists_str
                 .trim_end_matches(';')

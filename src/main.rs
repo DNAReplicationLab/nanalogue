@@ -11,10 +11,14 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Print basecalled len, align len, mod count per molecule
-    BcLenAlignLenModCount {
-        /// Turn off mod counts
-        #[arg(short, long, default_value_t = false)]
-        no_mod_count: bool,
+    ReadTableWithMods {
+        /// Input BAM file
+        bam_file: String,
+        #[clap(default_value_t = String::from(""))]
+        /// Input sequence summary file from Guppy/Dorado (optional)
+        seq_summ_file: String,
+    },
+    ReadTableNoMods {
         /// Input BAM file
         bam_file: String,
         #[clap(default_value_t = String::from(""))]
@@ -40,19 +44,24 @@ fn main() -> Result<(), Error> {
 
     // Match on the subcommand and call the corresponding logic from the library
     let result = match cli.command {
-        Commands::BcLenAlignLenModCount {
+        Commands::ReadTableWithMods {
             bam_file,
             seq_summ_file,
-            no_mod_count,
         } => {
-            subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file, !no_mod_count)
-        }
+            subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file, true)
+        },
+        Commands::ReadTableNoMods {
+            bam_file,
+            seq_summ_file,
+        } => {
+            subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file, false)
+        },
         Commands::ReadStats { bam_file } => {
             subcommands::read_stats::run(&bam_file)
-        }
+        },
         Commands::ReadInfo { bam_file, read_id } => {
             subcommands::read_info::run(&bam_file, &read_id)
-        }
+        },
     };
 
     match result {
