@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
-use nanalogue_core::{self, subcommands};
-use std::error::Error;
+use nanalogue_core::{self, subcommands, Error};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -36,25 +35,31 @@ enum Commands {
     },
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Error> {
     let cli = Cli::parse();
 
     // Match on the subcommand and call the corresponding logic from the library
-    match cli.command {
+    let result = match cli.command {
         Commands::BcLenAlignLenModCount {
             bam_file,
             seq_summ_file,
             no_mod_count,
         } => {
-            subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file, !no_mod_count)?;
+            subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file, !no_mod_count)
         }
         Commands::ReadStats { bam_file } => {
-            subcommands::read_stats::run(&bam_file)?;
+            subcommands::read_stats::run(&bam_file)
         }
         Commands::ReadInfo { bam_file, read_id } => {
-            subcommands::read_info::run(&bam_file, &read_id)?;
+            subcommands::read_info::run(&bam_file, &read_id)
         }
-    }
+    };
 
-    Ok(())
+    match result {
+        Ok(true) | Ok(false) => Ok(()),
+        Err(e) => {
+            eprintln!("Error during execution: {e}");
+            std::process::exit(1);
+        },
+    }
 }

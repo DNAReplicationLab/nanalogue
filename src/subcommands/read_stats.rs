@@ -1,12 +1,11 @@
-use crate::{CurrRead, ReadState, nanalogue_bam_reader};
+use crate::{CurrRead, ReadState, nanalogue_bam_reader, Error};
 use rust_htslib::{bam::Read};
 use std::collections::BinaryHeap;
-use std::error::Error;
 
 fn get_stats_from_heap(
     mut input: BinaryHeap<u64>,
     total_length: u64,
-) -> (u64, f32, u64, u64, u64, u64) {
+) -> Result<(u64, f32, u64, u64, u64, u64), Error> {
     // process heaps to get statistics
     let mut counter: u64 = 0;
     let mut longest: u64 = 0;
@@ -16,10 +15,7 @@ fn get_stats_from_heap(
     let mut running_total_length: u64 = 0;
     let heap_size: u64 = match input.len().try_into() {
         Ok(v) => v,
-        Err(_) => {
-            eprintln!("Error while getting heap length. Is it too large?");
-            std::process::exit(1);
-        }
+        Err(_) => Err(Error::RareHeapTooLarge)?,
     };
 
     while let Some(v) = input.pop() {
@@ -49,10 +45,10 @@ fn get_stats_from_heap(
         v => (total_length as f32) / (v as f32 * 1.0),
     };
 
-    (counter, mean, longest, shortest, median, n50)
+    Ok((counter, mean, longest, shortest, median, n50))
 }
 
-pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
+pub fn run(bam_path: &str) -> Result<bool, Error> {
     // open BAM file
     let mut bam = nanalogue_bam_reader(bam_path);
 
@@ -73,19 +69,14 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
 
     // Go record by record in the BAM file,
     for r in bam.records() {
+
         // read records
-        let record = match r {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("Some error while reading records {e}");
-                std::process::exit(1)
-            }
-        };
+        let record = r?;
 
         // set the read state using the type of alignment
         // and increment read counter
         let mut curr_read_state = CurrRead::new();
-        curr_read_state.set_read_state(&record).expect("Error while setting read state!");
+        curr_read_state.set_read_state(&record)?;
         match curr_read_state.state {
             ReadState::Unknown => {},
             ReadState::PrimaryFwd => primary_count += 1,
@@ -98,41 +89,23 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
         };
 
         // get length of alignment
-        match curr_read_state.set_align_len(&record) {
-            Ok(true) => {
-                if let Some(v) = curr_read_state.align_len {
-                    align_len_total += v;
-                    align_len_heap.push(v);
-                }
-            },
-            Ok(false) => {},
-            Err(_) => {
-                eprintln!("Problem getting sequence length");
-                std::process::exit(1);
-            },
+        if let Some(v) = curr_read_state.set_align_len(&record)? {
+            align_len_total += v;
+            align_len_heap.push(v);
         };
 
         // get length of sequence
-        match curr_read_state.set_seq_len(&record){
-            Ok(true) => {
-                if let Some(v) = curr_read_state.seq_len {
-                    seq_len_total += v;
-                    seq_len_heap.push(v);
-                }
-            },
-            Ok(false) => {},
-            Err(_) => {
-                eprintln!("Problem getting sequence length");
-                std::process::exit(1);
-            }
-        }
+        if let Some(v) = curr_read_state.set_seq_len(&record)? {
+            seq_len_total += v;
+            seq_len_heap.push(v);
+        };
     }
 
     // process heaps to get statistics
     let (_, seq_len_mean, seq_len_max, seq_len_min, seq_len_median, seq_len_n50) =
-        get_stats_from_heap(seq_len_heap, seq_len_total);
+        get_stats_from_heap(seq_len_heap, seq_len_total)?;
     let (_, align_len_mean, align_len_max, align_len_min, align_len_median, align_len_n50) =
-        get_stats_from_heap(align_len_heap, align_len_total);
+        get_stats_from_heap(align_len_heap, align_len_total)?;
 
     println!("# input bam {bam_path}");
     println!("key\tvalue");
@@ -152,5 +125,5 @@ pub fn run(bam_path: &str) -> Result<(), Box<dyn Error>> {
     println!("seq_len_median\t{seq_len_median}");
     println!("seq_len_n50\t{seq_len_n50}");
 
-    Ok(())
+    Ok(true)
 }

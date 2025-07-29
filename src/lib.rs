@@ -6,6 +6,7 @@ use regex::Regex;
 use rust_htslib::{bam, bam::record::Aux, bam::record::Record, bam::ext::BamRecordExtensions};
 use std::convert::TryFrom;
 use std::fmt;
+use std::num::NonZeroU64;
 use std::collections::HashMap;
 use bio_types::genome::AbstractInterval;
 
@@ -66,7 +67,8 @@ impl CurrRead {
         }
     }
     fn set_read_state(&mut self, record: &Record) -> Result<bool, Error> {
-        match (record.is_reverse(), record.is_unmapped(), record.is_secondary(), record.is_supplementary()) {
+        match (record.is_reverse(), record.is_unmapped(), 
+                record.is_secondary(), record.is_supplementary()) {
             (false, true, false, false) => self.state = ReadState::Unmapped,
             (true, false, false, false) => self.state = ReadState::PrimaryRev,
             (true, false, true, false) => self.state = ReadState::SecondaryRev,
@@ -81,26 +83,22 @@ impl CurrRead {
             _ => Ok(true),
         }
     }
-    fn set_seq_len(&mut self, record: &Record) -> Result<bool, Error>{
+    fn set_seq_len(&mut self, record: &Record) -> Result<Option<u64>, Error>{
         // get length of sequence
-        let ln: u64 = record.seq_len().try_into().unwrap_or_default();
-        if ln > 0 {
-            self.seq_len = Some(ln);
-            Ok(true)
-        } else {
-            Err(Error::InvalidSeqLength)
-        }
+        self.seq_len = Some(NonZeroU64::new(record.seq_len().try_into()?)
+            .ok_or(Error::InvalidSeqLength)?.get());
+        Ok(self.seq_len)
     }
-    fn set_align_len(&mut self, record: &Record) -> Result<bool, Error>{
+    fn set_align_len(&mut self, record: &Record) -> Result<Option<u64>, Error>{
         match self.state {
             ReadState::Unknown => Err(Error::UnknownAlignState),
-            ReadState::Unmapped => Ok(false),
+            ReadState::Unmapped => Ok(None),
             _ => {
                 let st: i64 = record.pos();
                 let en: i64 = record.reference_end();
                 if en > st && st >= 0 {
-                    self.align_len = Some((en - st).try_into().unwrap());
-                    Ok(true)
+                    self.align_len = Some((en - st).try_into()?);
+                    Ok(self.align_len)
                 } else {
                     Err(Error::InvalidAlignLength)
                 }
@@ -222,21 +220,10 @@ fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
 fn process_mod_type(mod_type: &str) -> Result<char, Error> {
     // process the modification type, returning the first character if it is a letter,
     // or converting it to a character if it is a number
-    let first_char = match mod_type.chars().next() {
-        Some(c) => c,
-        None => return Err(Error::EmptyModType),
-    };
+    let first_char = mod_type.chars().next().ok_or(Error::EmptyModType)?; 
     match first_char {
         'A' ..= 'Z' | 'a' ..= 'z' => Ok(first_char),
-        '0' ..= '9' => {
-            let u: u32 = match mod_type.parse() {
-                Ok(num) => num,
-                Err(_) => return Err(Error::InvalidModType),
-            };
-            char::from_u32(u).ok_or({
-                Error::InvalidModType
-            })
-        },
+        '0' ..= '9' => char::from_u32(mod_type.parse()?).ok_or(Error::InvalidModType),
         _ => Err(Error::InvalidModType),
     }
 }

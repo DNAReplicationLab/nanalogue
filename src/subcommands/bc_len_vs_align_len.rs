@@ -1,9 +1,8 @@
-use crate::{nanalogue_bam_reader, CurrRead, ReadState};
+use crate::{nanalogue_bam_reader, CurrRead, ReadState, Error};
 use csv::ReaderBuilder;
 use rust_htslib::{bam::Read};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::error::Error;
 use std::fs::File;
 use std::io::{self, Write};
 use std::str;
@@ -38,7 +37,8 @@ impl ReadLen {
         }
     }
 
-    fn add_align_len(&mut self, align_len: u64, mod_count: Option<String>, read_state: ReadState) {
+    fn add_align_len(&mut self, align_len: u64, mod_count: Option<String>,
+        read_state: ReadState) {
         match &self.state {
             ReadLenState::OnlyAlign {
                 align_len: _,
@@ -52,7 +52,7 @@ impl ReadLen {
                 mod_count: _,
                 read_state: _,
             } => {
-                eprintln!("Alignment statistics duplicate detected!");
+                eprintln!("error, duplicates detected!");
                 std::process::exit(1);
             },
             ReadLenState::OnlyBc(bl) => {
@@ -62,7 +62,7 @@ impl ReadLen {
                     mod_count,
                     read_state
                 };
-            }
+            },
         }
     }
 }
@@ -85,7 +85,7 @@ struct TSVRecord {
 ///
 /// A `Result` which is either a `HashMap` with `read_id` as the key and
 /// a `Read` as the value, or an error.
-fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, String> {
+fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Error> {
     let mut data_map = HashMap::<String, ReadLen>::new();
 
     match file_path {
@@ -93,7 +93,7 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, String> {
         fp => {
             let file = match File::open(fp){
                 Ok(v) => v,
-                Err(e) => return Err(format!("This error occured while opening file {}: {}", file_path, e)),
+                Err(e) => Err(Error::FileOpenError(format!("file {} led to error {}", file_path, e)))?,
             };
 
             let mut rdr = ReaderBuilder::new()
@@ -104,10 +104,10 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, String> {
             for result in rdr.deserialize() {
                 let record: TSVRecord = match result{
                     Ok(v) => v,
-                    Err(e) => return Err(format!("This error occured while reading {}: {}", file_path, e)),
+                    Err(e) => Err(Error::FileReadError(format!("file {} led to error {}", file_path, e)))?,
                 };
                 if data_map.insert(record.read_id, ReadLen::new_bc_len(record.sequence_length_template)).is_some() {
-                    return Err(String::from("Error: duplicates detected in sequencing summary file!"))
+                    Err(Error::InvalidDuplicates(file_path.to_string()))?;
                 };
             }
         }
@@ -116,15 +116,9 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, String> {
     Ok(data_map)
 }
 
-pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<(), Box<dyn Error>> {
+pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<bool, Error> {
     // read TSV file and convert into hashmap
-    let mut data_map = match process_tsv(seq_summ_path) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("An error occurred: {e}");
-            std::process::exit(1);
-        }
-    };
+    let mut data_map = process_tsv(seq_summ_path)?;
 
     // set up a flag to check if sequencing summary file has data
     let is_seq_summ_data: bool = !data_map.is_empty();
@@ -137,12 +131,9 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
     for r in bam.records() {
 
         // read records
-        let record = r.unwrap_or_else(|e| {
-            eprintln!("Some error while reading records {e}");
-            std::process::exit(1)
-        });
+        let record = r?;
 
-        // track information of current read
+        // get information of current read
         let mut curr_read_state = CurrRead::new();
         let qname :String = match curr_read_state.set_read_id(&record){
             Ok(false) | Err(_) => continue,
@@ -153,30 +144,16 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
                 v.to_string()
             },
         };
-        curr_read_state.set_read_state(&record).expect("Error while setting read state!");
+        curr_read_state.set_read_state(&record)?;
         let read_state = match curr_read_state.state {
-            ReadState::PrimaryFwd | ReadState::PrimaryRev => {
-                curr_read_state.state
-            },
+            ReadState::PrimaryFwd | ReadState::PrimaryRev => curr_read_state.state,
             _ => continue,
         };
-        let align_len: u64 = match curr_read_state.set_align_len(&record){
-            Ok(false) | Err(_) => continue,
-            Ok(true) => {
-                let Some(v) = curr_read_state.align_len else {
-                    continue;
-                };
-                v
-            },
+        let Some(align_len) = curr_read_state.set_align_len(&record)? else {
+            continue;
         };
-        let seq_len = match curr_read_state.set_seq_len(&record){
-            Ok(false) | Err(_) => continue,
-            Ok(true) => {
-                let Some(v) = curr_read_state.seq_len else {
-                    continue;
-                };
-                v
-            },
+        let Some(seq_len) = curr_read_state.set_seq_len(&record)? else {
+            continue;
         };
 
         // get modification information
@@ -226,13 +203,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
     let mut handle = io::BufWriter::new(stdout);
 
     // print the output header
-    match writeln!(handle, "{output_header}") {
-        Ok(_) => {}
-        Err(_) => {
-            eprintln!("Error while writing output!");
-            std::process::exit(1);
-        }
-    };
+    writeln!(handle, "{output_header}")?;
 
     // print output tsv data
     // If both seq summ and BAM file are available, then the length in the seq
@@ -251,13 +222,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
                         },
                 },
                 true,
-            ) => match writeln!(handle, "{key}\t{al}\t{bl}\t{rs}\t{ml}") {
-                Ok(_) => {}
-                Err(_) => {
-                    eprintln!("Error while writing output!");
-                    std::process::exit(1);
-                }
-            },
+            ) => writeln!(handle, "{key}\t{al}\t{bl}\t{rs}\t{ml}")?, 
             (
                 ReadLen {
                     state:
@@ -269,13 +234,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
                         },
                 },
                 false,
-            ) => match writeln!(handle, "{key}\t{al}\t{sl}\t{rs}\t{ml}") {
-                Ok(_) => {}
-                Err(_) => {
-                    eprintln!("Error while writing output!");
-                    std::process::exit(1);
-                }
-            },
+            ) => writeln!(handle, "{key}\t{al}\t{sl}\t{rs}\t{ml}")?,
             (
                 ReadLen {
                     state:
@@ -287,13 +246,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
                         },
                 },
                 true,
-            ) => match writeln!(handle, "{key}\t{al}\t{bl}\t{rs}") {
-                Ok(_) => {}
-                Err(_) => {
-                    eprintln!("Error while writing output!");
-                    std::process::exit(1);
-                }
-            },
+            ) => writeln!(handle, "{key}\t{al}\t{bl}\t{rs}")?,
             (
                 ReadLen {
                     state:
@@ -305,13 +258,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
                         },
                 },
                 false,
-            ) => match writeln!(handle, "{key}\t{al}\t{sl}\t{rs}") {
-                Ok(_) => {}
-                Err(_) => {
-                    eprintln!("Error while writing output!");
-                    std::process::exit(1);
-                }
-            },
+            ) => writeln!(handle, "{key}\t{al}\t{sl}\t{rs}")?,
             (
                 ReadLen {
                     state: ReadLenState::OnlyBc(_)
@@ -339,12 +286,9 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<()
                     }
                 },
                 false,
-            ) => {
-                eprintln!("Error while writing output, invalid state reached!");
-                std::process::exit(1);
-            },
+            ) => Err(Error::InvalidState("invalid state while writing output".to_string()))?,
         }
     }
 
-    Ok(())
+    Ok(true)
 }
