@@ -11,7 +11,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Print basecalled len, align len, mod count per molecule
+    /// Prints basecalled len, align len, mod count per molecule
     ReadsTableWithMods {
         /// Input BAM file
         bam_file: String,
@@ -19,6 +19,7 @@ enum Commands {
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
     },
+    /// Prints basecalled len, align len per molecule
     ReadsTableNoMods {
         /// Input BAM file
         bam_file: String,

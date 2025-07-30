@@ -2578,7 +2578,6 @@ dependencies = [
  "fibertools-rs",
  "lazy_static",
  "log",
- "readonly",
  "regex",
  "rust-htslib",
  "serde",
@@ -3253,17 +3252,6 @@ checksum = "1465873a3dfdaa8ae7cb14b4383657caab0b3e8a0aa9ae8e04b044854c8dfce2"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
-]
-
-[[package]]
-name = "readonly"
-version = "0.2.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2a62d85ed81ca5305dc544bd42c8804c5060b78ffa5ad3c64b0fb6a8c13d062"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.90",
 ]
 
 [[package]]

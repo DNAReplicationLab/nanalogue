@@ -5,7 +5,7 @@ use rust_htslib::{bam::record::Record, bam::ext::BamRecordExtensions};
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use bio_types::genome::AbstractInterval;
 
-// import from our crate
+// Import from our crate
 use crate::nanalogue_mm_ml_parser;
 use crate::Error;
 
@@ -39,15 +39,27 @@ impl fmt::Display for ReadState {
     }
 }
 
-#[readonly::make]
+// Three types of thresholds can be applied to modification data
+#[derive(Debug, Clone, PartialEq)]
+pub enum ThresholdState{
+    Above(u8),
+    Below(u8),
+    Between(u8, u8),
+}
+
+impl Default for ThresholdState {
+    fn default () -> Self {
+        ThresholdState::Above(0)
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct CurrRead {
     state: ReadState,
     read_id: Option<String>,
     seq_len: Option<u64>,
     align_len: Option<u64>,
-    mods: Option<Vec<BaseMod>>,
-    mod_thres: Option<u8>,
+    mods: Option<(Vec<BaseMod>, ThresholdState)>,
     contig_and_start: Option<(String, u64)>,
 }
 
@@ -56,76 +68,94 @@ impl CurrRead {
         Default::default()
     }
     pub fn set_read_state(&mut self, record: &Record) -> Result<bool, Error> {
-        match self.state {
-            ReadState::Unknown => {},
-            _ => Err(Error::InvalidDuplicates("cannot set align state again!".to_string()))?,
-        };
-        match (record.is_reverse(), record.is_unmapped(), 
-                record.is_secondary(), record.is_supplementary()) {
-            (false, true, false, false) => self.state = ReadState::Unmapped,
-            (true, false, false, false) => self.state = ReadState::PrimaryRev,
-            (true, false, true, false) => self.state = ReadState::SecondaryRev,
-            (false, false, true, false) => self.state = ReadState::SecondaryFwd,
-            (true, false, false, true) => self.state = ReadState::SupplementaryRev,
-            (false, false, false, true) => self.state = ReadState::SupplementaryFwd,
-            (false, false, false, false) => self.state = ReadState::PrimaryFwd,
-            _ => self.state = ReadState::Unknown,
-        };
-        match self.state {
-            ReadState::Unknown => Err(Error::UnknownAlignState),
-            _ => Ok(true),
+        // set read state
+        match &self.state {
+            ReadState::Unknown => {
+                match (record.is_reverse(), record.is_unmapped(), 
+                        record.is_secondary(), record.is_supplementary()) {
+                    (false, true, false, false) => { self.state = ReadState::Unmapped; Ok(true) },
+                    (true, false, false, false) => { self.state = ReadState::PrimaryRev; Ok(true) },
+                    (true, false, true, false) => { self.state = ReadState::SecondaryRev; Ok(true) },
+                    (false, false, true, false) => { self.state = ReadState::SecondaryFwd; Ok(true) },
+                    (true, false, false, true) => { self.state = ReadState::SupplementaryRev; Ok(true) },
+                    (false, false, false, true) => { self.state = ReadState::SupplementaryFwd; Ok(true) },
+                    (false, false, false, false) => { self.state = ReadState::PrimaryFwd; Ok(true) },
+                    _ => Err(Error::UnknownAlignState),
+                }
+            },
+            _ => Err(Error::InvalidDuplicates("cannot set align state again!".to_string())),
         }
     }
     pub fn get_read_state(&self) -> ReadState {
+        // get read state
         self.state
     }
     pub fn set_seq_len(&mut self, record: &Record) -> Result<Option<u64>, Error>{
-        // get length of sequence
-        self.seq_len = Some(NonZeroU64::new(record.seq_len().try_into()?)
-            .ok_or(Error::InvalidSeqLength)?.get());
-        Ok(self.seq_len)
+        // set length of sequence from BAM record
+        match &self.seq_len {
+            Some(_) => Err(Error::InvalidDuplicates("cannot set sequence length again!".to_string())),
+            None => {
+                self.seq_len = Some(NonZeroU64::new(record.seq_len().try_into()?)
+                    .ok_or(Error::InvalidSeqLength)?.get());
+                Ok(self.seq_len)
+            }
+        }
     }
     pub fn set_align_len(&mut self, record: &Record) -> Result<Option<u64>, Error>{
-        match self.state {
-            ReadState::Unknown => Err(Error::UnknownAlignState),
-            ReadState::Unmapped => Ok(None),
-            _ => {
-                let st: i64 = record.pos();
-                let en: i64 = record.reference_end();
-                if en > st && st >= 0 {
-                    self.align_len = Some((en - st).try_into()?);
-                    Ok(self.align_len)
-                } else {
-                    Err(Error::InvalidAlignLength)
+        // set alignment length from BAM record if available
+        match &self.align_len {
+            Some(_) => Err(Error::InvalidDuplicates("cannot set alignment length again!".to_string())),
+            None => {
+                match self.state {
+                    ReadState::Unknown => Err(Error::UnknownAlignState),
+                    ReadState::Unmapped => Ok(None),
+                    _ => {
+                        let st: i64 = record.pos();
+                        let en: i64 = record.reference_end();
+                        if en > st && st >= 0 {
+                            self.align_len = Some((en - st).try_into()?);
+                            Ok(self.align_len)
+                        } else {
+                            Err(Error::InvalidAlignLength)
+                        }
+                    },
                 }
             },
         }
     }
     pub fn set_contig_and_start(&mut self, record: &Record) -> Result<bool, Error> {
-        match self.state {
-            ReadState::Unknown => Err(Error::UnknownAlignState),
-            ReadState::Unmapped => Ok(false),
-            _ => {
-                self.contig_and_start = Some((record.contig().to_string(),
-                    record.pos().try_into().unwrap()));
-                Ok(true)
+        match &self.contig_and_start{
+            Some(_) => Err(Error::InvalidDuplicates("cannot set contig and start again!".to_string())),
+            None => {
+                match self.state {
+                    ReadState::Unknown => Err(Error::UnknownAlignState),
+                    ReadState::Unmapped => Ok(false),
+                    _ => {
+                        self.contig_and_start = Some((record.contig().to_string(),
+                            record.pos().try_into().unwrap()));
+                        Ok(true)
+                    },
+                }
+            }
+        }
+    }
+    pub fn set_read_id(&mut self, record: &Record) -> Result<&str, Error>{
+        // sets read id
+        match &self.read_id {
+            Some(_) => Err(Error::InvalidDuplicates("cannot set read id again!".to_string())),
+            None => {
+                match str::from_utf8(record.qname()) {
+                    Ok(v) => {
+                        self.read_id = Some(v.to_string());
+                        self.get_read_id()
+                    },
+                    Err(_) => Err(Error::InvalidReadID),
+                }
             },
         }
     }
-    pub fn set_read_id(&mut self, record: &Record) -> Result<bool, Error>{
-        // get read id from BAM and set it
-        let qname: String = match str::from_utf8(record.qname()) {
-            Ok(v) => v.to_string(),
-            Err(_) => String::from(""),
-        };
-        if ! qname.is_empty() {
-            self.read_id = Some(qname.clone());
-            Ok(true)
-        } else {
-            Err(Error::InvalidReadID)
-        }
-    }
     pub fn get_read_id(&self) -> Result<&str, Error> {
+        // get read id
         match &self.read_id {
             None => Err(Error::InvalidState("read id not available".to_string())),
             Some(v) => Ok(v.as_str()),
@@ -133,41 +163,55 @@ impl CurrRead {
     }
     pub fn set_mod_data(&mut self, record: &Record, mod_thres: u8){
         let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(record, mod_thres, None);
-        self.mods = Some(v);
-        self.mod_thres = Some(mod_thres);
+        self.mods = Some((v, ThresholdState::Above(mod_thres)));
     }
     pub fn set_mod_data_one_tag(&mut self, record: &Record, mod_thres: u8, mod_tag: char){
         let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(record, mod_thres, Some(mod_tag));
-        self.mods = Some(v);
-        self.mod_thres = Some(mod_thres);
+        self.mods = Some((v, ThresholdState::Above(mod_thres)));
     }
-    pub fn windowed_mod_data(&self, win_size: usize, slide_size: usize) -> Result<Vec<f32>, Error>{
-        if let Some(v) = &self.mods {
-            if v.len() > 1 {
-                Err(Error::NotImplementedError("Cannot window on mod data on multiple tracks".to_string()))
-            } else if let Some(track) = v.first() {
-                let data = &track.ranges.qual;
-                if win_size > data.len(){
-                    return Ok(Vec::new());
+    pub fn windowed_mod_data(&self, win_size: usize, slide_size: usize, tag_char: char) -> Result<Vec<f32>, Error>{
+        let mut result = Vec::<f32>::new();
+        let mut is_track_seen: bool = false;
+        if let Some((v, _)) = &self.mods {
+            for k in v {
+                match k {
+                    BaseMod {
+                        modified_base: _, strand: _, record_is_reverse: _,
+                        modification_type: x, ranges: track,
+                    } if *x == tag_char && !is_track_seen => {
+                        is_track_seen = true;
+                        let data = &track.qual;
+                        if win_size > data.len(){
+                            continue;
+                        }
+                        result = (0..=data.len() - win_size).step_by(slide_size)
+                            .map(|i| {
+                                let window_slice = &data[i..i + win_size];
+                                let sum: f32 = window_slice.iter().map(|&val| val as f32).sum();
+                                sum / (256.0 * win_size as f32)
+                            }).collect();
+                    },
+                    BaseMod {
+                        modified_base: _, strand: _, record_is_reverse: _,
+                        modification_type: x, ranges: _,
+                    } if *x == tag_char && is_track_seen => {
+                        return Err(Error::NotImplementedError("cannot window on data on multiple tracks".to_string()));
+                    },
+                    _ => {},
                 }
-                let result = (0..=data.len() - win_size).step_by(slide_size)
-                    .map(|i| {
-                        let window_slice = &data[i..i + win_size];
-                        let sum: f32 = window_slice.iter().map(|&val| val as f32).sum();
-                        sum / (256.0 * win_size as f32)
-                    }).collect();
-                Ok(result)
-            } else {
-                Ok(Vec::new())
             }
+        }
+        if ! result.is_empty(){
+            Ok(result)
         } else {
-            Ok(Vec::new())
+            Err(Error::NoData)
         }
     }
+
     pub fn mod_count_per_mod(&self) -> Option<HashMap<char, u32>> {
         let mut output = HashMap::<char, u32>::new();
         match &self.mods {
-            Some(v) => {
+            Some((v, _)) => {
                 if v.is_empty() {
                     None
                 } else {
@@ -206,7 +250,7 @@ impl fmt::Display for CurrRead {
 
         output_string = output_string + "\t\"alignment_type\": \"" + &self.state.to_string() + "\",\n";
 
-        if let Some(v) = &self.mods {
+        if let Some((v, _)) = &self.mods {
             if !v.is_empty() {
                 output_string += "\t\"mod_count\": \"";
                 for k in v {
@@ -214,8 +258,8 @@ impl fmt::Display for CurrRead {
                         k.modified_base as char,
                         k.strand,
                         match k.modification_type {
-                            'A'..='Z' | 'a'..='z' => k.modification_type.to_string(),
-                            _ => format!("{}", k.modification_type as u32),
+                            w @ ('A'..='Z' | 'a'..='z') => w.to_string(),
+                            w => format!("{}", w as u32),
                         },
                         k.ranges.qual.len()
                     ).as_str();

@@ -5,7 +5,7 @@ stored in the modBAM format.
 
 # Commands
 
-### `nanalogue bc-len-vs-align-len`
+### `nanalogue read-table-no-mods`
 
 Given a BAM file and a sequencing summary file, or just the BAM file,
 this command outputs a table where each row contains the basecalled

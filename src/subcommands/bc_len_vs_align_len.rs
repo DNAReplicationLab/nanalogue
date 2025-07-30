@@ -129,10 +129,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<bo
 
         // get information of current read
         let mut curr_read_state = CurrRead::new();
-        let qname :String = match curr_read_state.set_read_id(&record){
-            Ok(false) | Err(_) => continue,
-            Ok(true) => curr_read_state.get_read_id()?.to_string(),
-        };
+        let qname = curr_read_state.set_read_id(&record)?.to_string();
         curr_read_state.set_read_state(&record)?;
         let read_state = match curr_read_state.get_read_state() {
             v @ (ReadState::PrimaryFwd | ReadState::PrimaryRev) => v,
