@@ -131,16 +131,11 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<bo
         let mut curr_read_state = CurrRead::new();
         let qname :String = match curr_read_state.set_read_id(&record){
             Ok(false) | Err(_) => continue,
-            Ok(true) => {
-                let Some(ref v) = curr_read_state.read_id else {
-                    continue;
-                };
-                v.to_string()
-            },
+            Ok(true) => curr_read_state.get_read_id()?.to_string(),
         };
         curr_read_state.set_read_state(&record)?;
-        let read_state = match curr_read_state.state {
-            ReadState::PrimaryFwd | ReadState::PrimaryRev => curr_read_state.state,
+        let read_state = match curr_read_state.get_read_state() {
+            v @ (ReadState::PrimaryFwd | ReadState::PrimaryRev) => v,
             _ => continue,
         };
         let Some(align_len) = curr_read_state.set_align_len(&record)? else {

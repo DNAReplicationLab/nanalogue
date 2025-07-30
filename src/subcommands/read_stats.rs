@@ -77,7 +77,7 @@ pub fn run(bam_path: &str) -> Result<bool, Error> {
         // and increment read counter
         let mut curr_read_state = CurrRead::new();
         curr_read_state.set_read_state(&record)?;
-        match curr_read_state.state {
+        match curr_read_state.get_read_state() {
             ReadState::Unknown => {},
             ReadState::PrimaryFwd => primary_count += 1,
             ReadState::SecondaryFwd => secondary_count += 1,
