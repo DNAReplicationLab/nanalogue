@@ -13,6 +13,7 @@ use std::str;
 // - both are available, in which case we retain only the sequence
 //   length from the sequencing summary file and the alignment length
 //   from the BAM file, discarding the sequence length from the BAM file.
+#[derive(Debug, Clone, PartialEq)]
 enum ReadLenState {
     OnlyAlign { align_len: u64, seq_len: u64, mod_count: Option<String>, read_state: ReadState },
     OnlyBc(u64),

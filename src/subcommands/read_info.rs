@@ -6,6 +6,7 @@ pub fn run(bam_path: &str, read_id: &str) -> Result<bool, Error> {
     // open BAM file
     let mut bam = nanalogue_bam_reader(bam_path)?;
 
+    // initialize output string
     let mut output_string = String::from("");
 
     // Go record by record in the BAM file,

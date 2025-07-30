@@ -18,8 +18,9 @@ pub mod error;
 pub use error::Error;
 
 // A read can exist in seven states + one unknown state
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Default, Copy, PartialEq)]
 pub enum ReadState {
+    #[default]
     Unknown,
     PrimaryFwd,
     PrimaryRev,
@@ -46,27 +47,27 @@ impl fmt::Display for ReadState {
     }
 }
 
+#[readonly::make]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct CurrRead {
     state: ReadState,
     read_id: Option<String>,
     seq_len: Option<u64>,
     align_len: Option<u64>,
     mods: Option<Vec<BaseMod>>,
+    mod_thres: Option<u8>,
     contig_and_start: Option<(String, u64)>,
 }
 
 impl CurrRead {
     fn new() -> Self {
-        Self {
-            state: ReadState::Unknown,
-            read_id: None,
-            seq_len: None,
-            align_len: None,
-            mods: None,
-            contig_and_start: None,
-        }
+        Default::default()
     }
     fn set_read_state(&mut self, record: &Record) -> Result<bool, Error> {
+        match self.state {
+            ReadState::Unknown => {},
+            _ => Err(Error::InvalidDuplicates("cannot set align state again!".to_string()))?,
+        };
         match (record.is_reverse(), record.is_unmapped(), 
                 record.is_secondary(), record.is_supplementary()) {
             (false, true, false, false) => self.state = ReadState::Unmapped,
@@ -130,8 +131,37 @@ impl CurrRead {
         }
     }
     fn set_mod_data(&mut self, record: &Record, mod_thres: u8){
-        let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(record, mod_thres);
+        let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(record, mod_thres, None);
         self.mods = Some(v);
+        self.mod_thres = Some(mod_thres);
+    }
+    fn set_mod_data_one_tag(&mut self, record: &Record, mod_thres: u8, mod_tag: char){
+        let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(record, mod_thres, Some(mod_tag));
+        self.mods = Some(v);
+        self.mod_thres = Some(mod_thres);
+    }
+    fn windowed_mod_data(&self, win_size: usize, slide_size: usize) -> Result<Vec<f32>, Error>{
+        if let Some(v) = &self.mods {
+            if v.len() > 1 {
+                Err(Error::NotImplementedError("Cannot window on mod data on multiple tracks".to_string()))
+            } else if let Some(track) = v.first() {
+                let data = &track.ranges.qual;
+                if win_size > data.len(){
+                    return Ok(Vec::new());
+                }
+                let result = (0..=data.len() - win_size).step_by(slide_size)
+                    .map(|i| {
+                        let window_slice = &data[i..i + win_size];
+                        let sum: f32 = window_slice.iter().map(|&val| val as f32).sum();
+                        sum / (256.0 * win_size as f32)
+                    }).collect();
+                Ok(result)
+            } else {
+                Ok(Vec::new())
+            }
+        } else {
+            Ok(Vec::new())
+        }
     }
     fn mod_count_per_mod(&self) -> Option<HashMap<char, u32>> {
         let mut output = HashMap::<char, u32>::new();
@@ -202,7 +232,7 @@ impl fmt::Display for CurrRead {
     }
 }
 
-fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
+pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     // convert seq to uppercase, ignoring invalid characters
     for base in &mut seq {
         match *base {
@@ -217,7 +247,7 @@ fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     seq
 }
 
-fn process_mod_type(mod_type: &str) -> Result<char, Error> {
+pub fn process_mod_type(mod_type: &str) -> Result<char, Error> {
     // process the modification type, returning the first character if it is a letter,
     // or converting it to a character if it is a number
     let first_char = mod_type.chars().next().ok_or(Error::EmptyModType)?; 
@@ -230,7 +260,8 @@ fn process_mod_type(mod_type: &str) -> Result<char, Error> {
 
 // We are copying and modifying code from the fibertools-rs repository.
 // https://github.com/fiberseq/fibertools-rs
-pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMods {
+pub fn nanalogue_mm_ml_parser(record: &bam::Record,
+    min_ml_score: u8, mod_tag: Option<char>) -> BaseMods {
     // regex for matching the MM tag
     lazy_static! {
         // MM:Z:([ACGTUN][-+]([A-Za-z]+|[0-9]+)[.?]?(,[0-9]+)*;)*
@@ -249,10 +280,20 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
         for cap in MM_RE.captures_iter(mm_text) {
             let mod_base = cap.get(3).map(|m| m.as_str().as_bytes()[0]).unwrap();
             let mod_strand = cap.get(4).map_or("", |m| m.as_str());
-            let modification_type = cap.get(5).map_or("", |m| m.as_str());
+
+            // get modification type and skip record if we don't find
+            // mod of interest (if specified)
+            let modification_type = process_mod_type(cap.get(5).map_or("", |m| m.as_str())).unwrap();
+            if let Some(v) = mod_tag {
+                if v != modification_type {
+                    continue;
+                }
+            }
+
             let _implicit = cap.get(6).map_or(".", |m| m.as_str()).as_bytes().first();
             let mod_dists_str = cap.get(7).map_or("", |m| m.as_str());
             // parse the string containing distances between modifications into a vector of i64
+
             let mod_dists: Vec<i64> = mod_dists_str
                 .trim_end_matches(';')
                 .split(',')
@@ -343,7 +384,7 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record, min_ml_score: u8) -> BaseMod
                 record,
                 mod_base,
                 mod_strand.chars().next().unwrap(),
-                process_mod_type(modification_type).unwrap(),
+                modification_type,
                 modified_positions,
                 modified_probabilities,
             );
