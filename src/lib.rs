@@ -10,12 +10,16 @@ use bio::alphabets::dna::revcomp;
 pub mod subcommands;
 pub mod error;
 pub mod read_utils;
+pub mod utils;
 
 // Re-export the error type
 pub use error::Error;
 
 // Re-export read utils
 pub use read_utils::{ReadState, CurrRead};
+
+// Re-export ordered pair
+pub use utils::OrdPair;
 
 pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     // convert seq to uppercase, ignoring invalid characters

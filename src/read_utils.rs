@@ -8,6 +8,7 @@ use bedrs::prelude::*;
 // Import from our crate
 use crate::nanalogue_mm_ml_parser;
 use crate::Error;
+use crate::OrdPair;
 
 // A read can exist in seven states + one unknown state
 #[derive(Debug, Clone, Default, Copy, PartialEq)]
@@ -23,6 +24,7 @@ pub enum ReadState {
     Unmapped,
 }
 
+// implement printing of read state
 impl fmt::Display for ReadState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
@@ -39,17 +41,18 @@ impl fmt::Display for ReadState {
     }
 }
 
-// Three types of thresholds can be applied to modification data
+// types of thresholds can be applied to modification data.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ThresholdState{
-    Above(u8),
-    Below(u8),
-    Between(u8, u8),
+    GtEq(u8),
+    LtEq(u8),
+    GtEqLtEq(OrdPair<u8>),
 }
 
+// default threshold is >= 0 i.e. all mods are allowed
 impl Default for ThresholdState {
     fn default () -> Self {
-        ThresholdState::Above(0)
+        ThresholdState::GtEq(0)
     }
 }
 
@@ -59,7 +62,7 @@ pub struct CurrRead {
     read_id: Option<String>,
     seq_len: Option<u64>,
     align_len: Option<u64>,
-    mods: Option<(Vec<BaseMod>, ThresholdState)>,
+    mods: Option<(BaseMods, ThresholdState)>,
     contig_and_start: Option<(i32, u64)>,
 }
 
@@ -161,18 +164,18 @@ impl CurrRead {
         }
     }
     pub fn set_mod_data(&mut self, record: &Record, mod_thres: u8){
-        let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(record, mod_thres, None);
-        self.mods = Some((v, ThresholdState::Above(mod_thres)));
+        self.mods = Some((nanalogue_mm_ml_parser(record, mod_thres, None),
+            ThresholdState::GtEq(mod_thres)));
     }
     pub fn set_mod_data_one_tag(&mut self, record: &Record, mod_thres: u8, mod_tag: char){
-        let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(record, mod_thres, Some(mod_tag));
-        self.mods = Some((v, ThresholdState::Above(mod_thres)));
+        self.mods = Some((nanalogue_mm_ml_parser(record, mod_thres, Some(mod_tag)),
+            ThresholdState::GtEq(mod_thres)));
     }
     pub fn windowed_mod_data(&self, win_size: usize, slide_size: usize, tag_char: char) 
         -> Result<Option<Vec<f32>>, Error>{
         let mut result = Vec::<f32>::new();
         let mut is_track_seen: bool = false;
-        if let Some((v, _)) = &self.mods {
+        if let Some((BaseMods { base_mods: v }, _)) = &self.mods {
             for k in v {
                 match k {
                     BaseMod {
@@ -207,11 +210,10 @@ impl CurrRead {
             Ok(None)
         }
     }
-
     pub fn mod_count_per_mod(&self) -> Option<HashMap<char, u32>> {
         let mut output = HashMap::<char, u32>::new();
         match &self.mods {
-            Some((v, _)) => {
+            Some((BaseMods { base_mods: v }, _)) => {
                 if v.is_empty() {
                     None
                 } else {
@@ -223,6 +225,35 @@ impl CurrRead {
                 }
             }
             None => None,
+        }
+    }
+    fn filter_by_ref_pos(&mut self, start_end: OrdPair<i64>) -> Result<bool, Error> {
+        macro_rules! subset {
+            ( $to_be_subset: expr, $vec_indices:expr ) => {
+                $to_be_subset = $vec_indices.iter().map(|&i| $to_be_subset[i]).collect();
+            }
+        }
+        let start = start_end.get_low();
+        let end = start_end.get_high();
+        match (self.state, &mut self.mods) {
+            (ReadState::Unknown, _) => Err(Error::UnknownAlignState),
+            (ReadState::Unmapped, _) | (_, None) => Ok(false),
+            (_, Some((BaseMods { base_mods: v }, _))) => {
+                for k in v {
+                    let w = &mut k.ranges;
+                    let to_keep = w.reference_starts.iter().enumerate()
+                        .filter_map(|(i, &s)| if s >= Some(start) && s <= Some(end) { Some(i) } else { None })
+                        .collect::<Vec<_>>();
+                    subset!(w.qual, to_keep);
+                    subset!(w.starts, to_keep);
+                    subset!(w.ends, to_keep);
+                    subset!(w.lengths, to_keep);
+                    subset!(w.reference_starts, to_keep);
+                    subset!(w.reference_ends, to_keep);
+                    subset!(w.reference_lengths, to_keep);
+                }
+                Ok(true)
+            },
         }
     }
 }
@@ -251,7 +282,7 @@ impl fmt::Display for CurrRead {
         output_string = output_string + "\t\"alignment_type\": \"" + &self.state.to_string() + "\",\n";
 
         output_string += "\t\"mod_count\": ";
-        if let Some((v, _)) = &self.mods {
+        if let Some((BaseMods { base_mods: v }, _)) = &self.mods {
             if !v.is_empty() {
                 for k in v {
                     output_string += format!("\"{}{}{}:{};",
@@ -285,10 +316,12 @@ impl TryFrom<CurrRead> for StrandedBed3<i32, u64>{
             (ReadState::Unknown | ReadState::Unmapped, _, _) => Err(Error::UnknownAlignState),
             (_, None, _)  => Err(Error::InvalidAlignLength),
             (_, _, None) => Err(Error::InvalidContigAndStart),
-            (ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd, Some(al), Some((cg, st))) => {
+            (ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd, 
+                Some(al), Some((cg, st))) => {
                 Ok(StrandedBed3::new(cg, st, st + al, Strand::Forward))
             },
-            (ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev, Some(al), Some((cg, st))) => {
+            (ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev, 
+                Some(al), Some((cg, st))) => {
                 Ok(StrandedBed3::new(cg, st, st + al, Strand::Reverse))
             },
         }
@@ -309,3 +342,4 @@ impl TryFrom<Record> for CurrRead{
         Ok(curr_read_state)
     }
 }
+

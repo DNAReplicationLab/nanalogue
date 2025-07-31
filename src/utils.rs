@@ -1,0 +1,42 @@
+use crate::Error;
+use std::fmt::Debug;
+
+#[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
+pub struct OrdPair<T: Clone + Copy + Debug + Default> {
+    low: T,
+    high: T,
+}
+
+impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd> OrdPair<T>{
+    pub fn new(low: T, high: T) -> Result<Self, Error> {
+        if low <= high {
+            Ok(OrdPair { low, high, })
+        } else {
+            Err(Error::WrongOrder)
+        }
+    }
+    pub fn get_low(&self) -> T {
+        self.low
+    }
+    pub fn get_high(&self) -> T {
+        self.high
+    }
+}
+
+#[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
+pub struct FloatBw0and1{
+    val: f32
+}
+
+impl FloatBw0and1{
+    pub fn new(val: f32) -> Result<Self, Error>{
+        if val >= 0.0 && val <= 1.0 {
+            Ok(FloatBw0and1{ val })
+        } else {
+            Err(Error::InvalidState("Please specify a num b/w 0 and 1".to_string()))
+        }
+    }
+    pub fn get_val(&self) -> f32 {
+        self.val
+    }
+}
