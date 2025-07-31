@@ -18,6 +18,7 @@ lazy_static = "1.4.0"
 regex = "1.11.1"
 log = "0.4.22"
 bio-types = "1.0.4"
+bedrs = "0.2.25"
 
 [lib]
 name = "nanalogue_core" 

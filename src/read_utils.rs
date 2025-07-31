@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use std::fmt;
 use rust_htslib::{bam::record::Record, bam::ext::BamRecordExtensions};
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
-use bio_types::genome::AbstractInterval;
+use bedrs::prelude::*;
 
 // Import from our crate
 use crate::nanalogue_mm_ml_parser;
@@ -60,7 +60,7 @@ pub struct CurrRead {
     seq_len: Option<u64>,
     align_len: Option<u64>,
     mods: Option<(Vec<BaseMod>, ThresholdState)>,
-    contig_and_start: Option<(String, u64)>,
+    contig_and_start: Option<(i32, u64)>,
 }
 
 impl CurrRead {
@@ -131,8 +131,7 @@ impl CurrRead {
                     ReadState::Unknown => Err(Error::UnknownAlignState),
                     ReadState::Unmapped => Ok(false),
                     _ => {
-                        self.contig_and_start = Some((record.contig().to_string(),
-                            record.pos().try_into().unwrap()));
+                        self.contig_and_start = Some((record.tid(), record.pos().try_into().unwrap()));
                         Ok(true)
                     },
                 }
@@ -169,7 +168,8 @@ impl CurrRead {
         let BaseMods { base_mods: v } = nanalogue_mm_ml_parser(record, mod_thres, Some(mod_tag));
         self.mods = Some((v, ThresholdState::Above(mod_thres)));
     }
-    pub fn windowed_mod_data(&self, win_size: usize, slide_size: usize, tag_char: char) -> Result<Vec<f32>, Error>{
+    pub fn windowed_mod_data(&self, win_size: usize, slide_size: usize, tag_char: char) 
+        -> Result<Option<Vec<f32>>, Error>{
         let mut result = Vec::<f32>::new();
         let mut is_track_seen: bool = false;
         if let Some((v, _)) = &self.mods {
@@ -202,9 +202,9 @@ impl CurrRead {
             }
         }
         if ! result.is_empty(){
-            Ok(result)
+            Ok(Some(result))
         } else {
-            Err(Error::NoData)
+            Ok(None)
         }
     }
 
@@ -274,5 +274,23 @@ impl fmt::Display for CurrRead {
         }
 
         write!(f, "{{\n{output_string}}}")
+    }
+}
+
+impl TryFrom<CurrRead> for StrandedBed3<i32, u64>{
+    type Error = crate::Error;
+
+    fn try_from(value: CurrRead) -> Result<Self, Self::Error> {
+        match (value.state, value.align_len, value.contig_and_start) {
+            (ReadState::Unknown | ReadState::Unmapped, _, _) => Err(Error::UnknownAlignState),
+            (_, None, _)  => Err(Error::InvalidAlignLength),
+            (_, _, None) => Err(Error::InvalidContigAndStart),
+            (ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd, Some(al), Some((cg, st))) => {
+                Ok(StrandedBed3::new(cg, st, st + al, Strand::Forward))
+            },
+            (ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev, Some(al), Some((cg, st))) => {
+                Ok(StrandedBed3::new(cg, st, st + al, Strand::Reverse))
+            },
+        }
     }
 }

@@ -180,6 +180,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
+name = "bedrs"
+version = "0.2.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "808354e861396b03405469514b12ef425d41ea88cc2489557696aff0d23cef53"
+dependencies = [
+ "anyhow",
+ "bedrs_derive",
+ "derive-new 0.6.0",
+ "getset",
+ "num-traits",
+ "rand",
+ "rand_chacha",
+ "thiserror 1.0.63",
+]
+
+[[package]]
+name = "bedrs_derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "175ba90281927a8fdf7c4e1a6a7dee5d530bd5965bde1978d982b442a84d042e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
+]
+
+[[package]]
 name = "bincode"
 version = "2.0.0-rc.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2571,6 +2598,7 @@ dependencies = [
 name = "nanalogue"
 version = "0.1.0"
 dependencies = [
+ "bedrs",
  "bio",
  "bio-types",
  "clap",
