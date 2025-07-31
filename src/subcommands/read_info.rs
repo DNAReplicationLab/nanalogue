@@ -1,5 +1,5 @@
 use crate::{nanalogue_bam_reader, CurrRead, Error};
-use rust_htslib::bam::Read;
+use rust_htslib::bam::{Read,Record};
 
 pub fn run(bam_path: &str, read_id: &str) -> Result<bool, Error> {
 
@@ -10,26 +10,17 @@ pub fn run(bam_path: &str, read_id: &str) -> Result<bool, Error> {
     let mut output_string = String::from("");
 
     // Go record by record in the BAM file,
-    for r in bam.records() {
-        // read records
-        let mut curr_read_state = CurrRead::new();
-        let record = r?;
-        if curr_read_state.set_read_id(&record)? != read_id {
-            continue
-        } else {
-            // set the read state
-            curr_read_state.set_read_state(&record)?;
-            curr_read_state.set_seq_len(&record)?;
-            curr_read_state.set_align_len(&record)?;
-            curr_read_state.set_mod_data(&record, 128);
-            curr_read_state.set_contig_and_start(&record)?;
+    // and collect entries that match our read id
+    for k in bam.records().filter(|r|{
+        match r {
+            Ok(v) => v.qname() == read_id.as_bytes(),
+            Err(_) => true,
         }
-        output_string = output_string + &curr_read_state.to_string() + "\n";
+    }).collect::<Result<Vec<Record>, _>>()?{
+        output_string = output_string + &CurrRead::try_from(k)?.to_string() + "\n";
     }
-
     if !output_string.is_empty() {
         print!("{output_string}");
     }
-
     Ok(true)
 }

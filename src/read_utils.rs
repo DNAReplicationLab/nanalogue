@@ -250,11 +250,11 @@ impl fmt::Display for CurrRead {
 
         output_string = output_string + "\t\"alignment_type\": \"" + &self.state.to_string() + "\",\n";
 
+        output_string += "\t\"mod_count\": ";
         if let Some((v, _)) = &self.mods {
             if !v.is_empty() {
-                output_string += "\t\"mod_count\": \"";
                 for k in v {
-                    output_string += format!("{}{}{}:{};",
+                    output_string += format!("\"{}{}{}:{};",
                         k.modified_base as char,
                         k.strand,
                         match k.modification_type {
@@ -292,5 +292,20 @@ impl TryFrom<CurrRead> for StrandedBed3<i32, u64>{
                 Ok(StrandedBed3::new(cg, st, st + al, Strand::Reverse))
             },
         }
+    }
+}
+
+impl TryFrom<Record> for CurrRead{
+    type Error = crate::Error;
+
+    fn try_from(record: Record) -> Result<Self, Self::Error>{
+        let mut curr_read_state = CurrRead::new();
+        curr_read_state.set_read_state(&record)?;
+        curr_read_state.set_read_id(&record)?;
+        curr_read_state.set_seq_len(&record)?;
+        curr_read_state.set_align_len(&record)?;
+        curr_read_state.set_mod_data(&record, 128);
+        curr_read_state.set_contig_and_start(&record)?;
+        Ok(curr_read_state)
     }
 }
