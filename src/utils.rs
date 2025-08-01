@@ -72,7 +72,7 @@ impl FromStr for F32Bw0and1 {
     }
 }
 
-#[derive(Debug, Clone, Default, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Default, Copy, Eq, Hash, PartialEq, PartialOrd)]
 pub struct ModChar{
     val: char
 }
@@ -106,6 +106,9 @@ impl FromStr for ModChar{
 
 impl fmt::Display for ModChar{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.get_val())
+        write!(f, "{}", match self.get_val() {
+            w @ ('A'..='Z' | 'a'..='z') => w.to_string(),
+            w => format!("{}", w as u32),
+        })
     }
 }

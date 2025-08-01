@@ -154,11 +154,7 @@ pub fn run(bam_options: &mut InputBam, seq_summ_path: &str, is_mod_count: bool) 
                     None => {output_string += "0;"},
                     Some(v) => {
                         for (key,value) in v.into_iter(){
-                            output_string = output_string + &format!("{}:{};",
-                                match key {
-                                    'A'..='Z' | 'a'..='z' => key.to_string(),
-                                    _ => format!("{}", key as u32),
-                                }, value).to_string();
+                            output_string = output_string + &format!("{}:{};", key, value).to_string();
                         }
                     }
                 }

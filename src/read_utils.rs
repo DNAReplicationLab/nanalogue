@@ -214,8 +214,8 @@ impl CurrRead {
             Ok(None)
         }
     }
-    pub fn mod_count_per_mod(&self) -> Option<HashMap<char, u32>> {
-        let mut output = HashMap::<char, u32>::new();
+    pub fn mod_count_per_mod(&self) -> Option<HashMap<ModChar, u32>> {
+        let mut output = HashMap::<ModChar, u32>::new();
         match &self.mods {
             Some((BaseMods { base_mods: v }, _)) => {
                 if v.is_empty() {
@@ -223,7 +223,8 @@ impl CurrRead {
                 } else {
                     for k in v {
                         let mod_count = k.ranges.qual.len() as u32;
-                        output.entry(k.modification_type).and_modify(|e| *e += mod_count ).or_insert(mod_count);
+                        output.entry(ModChar::new(k.modification_type))
+                            .and_modify(|e| *e += mod_count ).or_insert(mod_count);
                     }
                     Some(output)
                 }
@@ -299,10 +300,7 @@ impl fmt::Display for CurrRead {
                     output_string += format!("\"{}{}{}:{};",
                         k.modified_base as char,
                         k.strand,
-                        match k.modification_type {
-                            w @ ('A'..='Z' | 'a'..='z') => w.to_string(),
-                            w => format!("{}", w as u32),
-                        },
+                        ModChar::new(k.modification_type),
                         k.ranges.qual.len()
                     ).as_str();
                 }
