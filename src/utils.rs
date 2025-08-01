@@ -1,5 +1,6 @@
 use crate::Error;
 use std::fmt::Debug;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
 pub struct OrdPair<T: Clone + Copy + Debug + Default> {
@@ -24,19 +25,27 @@ impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd> OrdPair<T>{
 }
 
 #[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
-pub struct FloatBw0and1{
+pub struct F32Bw0and1{
     val: f32
 }
 
-impl FloatBw0and1{
+impl F32Bw0and1{
     pub fn new(val: f32) -> Result<Self, Error>{
-        if val >= 0.0 && val <= 1.0 {
-            Ok(FloatBw0and1{ val })
+        if (0.0..=1.0).contains(&val) {
+            Ok(F32Bw0and1{ val })
         } else {
-            Err(Error::InvalidState("Please specify a num b/w 0 and 1".to_string()))
+            Err(Error::InvalidState("Please specify a num b/w 0 and 1!".to_string()))
         }
     }
     pub fn get_val(&self) -> f32 {
         self.val
+    }
+}
+
+impl FromStr for F32Bw0and1 {
+    type Err = Error;
+
+    fn from_str(val_str: &str) -> Result<Self, Self::Err> {
+        Self::new(f32::from_str(val_str)?)
     }
 }

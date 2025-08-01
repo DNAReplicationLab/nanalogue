@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use nanalogue_core::{self, subcommands, Error};
+use nanalogue_core::{self, subcommands, Error, F32Bw0and1};
 use std::num::NonZeroU32;
 
 #[derive(Parser, Debug)]
@@ -54,7 +54,7 @@ enum Commands {
         slide: NonZeroU32,
         /// maximum density
         #[clap(long)]
-        dens_max: f32,
+        dens_max: F32Bw0and1,
         /// invert above filter
         #[clap(long, default_value = "false")]
         invert: bool,

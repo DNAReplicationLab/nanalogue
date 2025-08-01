@@ -256,6 +256,13 @@ impl CurrRead {
             },
         }
     }
+    pub fn try_from_only_alignment(record: Record) -> Result<Self, Error>{
+        let mut curr_read_state = CurrRead::new();
+        curr_read_state.set_read_state(&record)?;
+        curr_read_state.set_align_len(&record)?;
+        curr_read_state.set_contig_and_start(&record)?;
+        Ok(curr_read_state)
+    }
 }
 
 impl fmt::Display for CurrRead {
@@ -343,3 +350,9 @@ impl TryFrom<Record> for CurrRead{
     }
 }
 
+#[macro_export]
+macro_rules! bed3p1_from_bam_rec {
+    ( $bam_record: expr ) => {
+        StrandedBed3::try_from(CurrRead::try_from_only_alignment($bam_record)?)?
+    }
+}

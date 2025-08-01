@@ -19,6 +19,7 @@ regex = "1.11.1"
 log = "0.4.22"
 bio-types = "1.0.4"
 bedrs = "0.2.25"
+thiserror = "2.0.12"
 
 [lib]
 name = "nanalogue_core" 

@@ -127,7 +127,9 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<bo
         // read records
         let record = r?;
 
-        // get information of current read
+        // get information of current read,
+        // if it is not primary or we cannot get the alignment or
+        // sequence lengths, then discard it.
         let mut curr_read_state = CurrRead::new();
         let qname = curr_read_state.set_read_id(&record)?.to_string();
         curr_read_state.set_read_state(&record)?;

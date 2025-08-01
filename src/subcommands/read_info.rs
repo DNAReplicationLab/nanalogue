@@ -6,6 +6,9 @@ pub fn run(bam_path: &str, read_id: &str) -> Result<bool, Error> {
     // open BAM file
     let mut bam = nanalogue_bam_reader(bam_path)?;
 
+    // convert read id into bytes
+    let read_id_bytes = read_id.as_bytes();
+
     // initialize output string
     let mut output_string = String::from("");
 
@@ -13,7 +16,7 @@ pub fn run(bam_path: &str, read_id: &str) -> Result<bool, Error> {
     // and collect entries that match our read id
     for k in bam.records().filter(|r|{
         match r {
-            Ok(v) => v.qname() == read_id.as_bytes(),
+            Ok(v) => v.qname() == read_id_bytes,
             Err(_) => true,
         }
     }).collect::<Result<Vec<Record>, _>>()?{
