@@ -34,7 +34,7 @@ impl F32Bw0and1{
         if (0.0..=1.0).contains(&val) {
             Ok(F32Bw0and1{ val })
         } else {
-            Err(Error::InvalidState("Please specify a num b/w 0 and 1!".to_string()))
+            Err(Error::InvalidState("Num not b/w 0 and 1!".to_string()))
         }
     }
     pub fn get_val(&self) -> f32 {

@@ -9,6 +9,7 @@ use bedrs::prelude::*;
 use crate::nanalogue_mm_ml_parser;
 use crate::Error;
 use crate::OrdPair;
+use crate::F32Bw0and1;
 
 // A read can exist in seven states + one unknown state
 #[derive(Debug, Clone, Default, Copy, PartialEq)]
@@ -134,7 +135,7 @@ impl CurrRead {
                     ReadState::Unknown => Err(Error::UnknownAlignState),
                     ReadState::Unmapped => Ok(false),
                     _ => {
-                        self.contig_and_start = Some((record.tid(), record.pos().try_into().unwrap()));
+                        self.contig_and_start = Some((record.tid(), record.pos().try_into()?));
                         Ok(true)
                     },
                 }
@@ -172,8 +173,8 @@ impl CurrRead {
             ThresholdState::GtEq(mod_thres)));
     }
     pub fn windowed_mod_data(&self, win_size: usize, slide_size: usize, tag_char: char) 
-        -> Result<Option<Vec<f32>>, Error>{
-        let mut result = Vec::<f32>::new();
+        -> Result<Option<Vec<F32Bw0and1>>, Error>{
+        let mut result = Vec::<F32Bw0and1>::new();
         let mut is_track_seen: bool = false;
         if let Some((BaseMods { base_mods: v }, _)) = &self.mods {
             for k in v {
@@ -191,8 +192,8 @@ impl CurrRead {
                             .map(|i| {
                                 let window_slice = &data[i..i + win_size];
                                 let sum: f32 = window_slice.iter().map(|&val| val as f32).sum();
-                                sum / (256.0 * win_size as f32)
-                            }).collect();
+                                F32Bw0and1::new(sum / (256.0 * win_size as f32))
+                            }).collect::<Result<Vec<F32Bw0and1>,_>>()?;
                     },
                     BaseMod {
                         modified_base: _, strand: _, record_is_reverse: _,
