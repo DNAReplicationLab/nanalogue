@@ -1,4 +1,4 @@
-use crate::{CurrRead, ReadState, nanalogue_bam_reader, Error};
+use crate::{CurrRead, ReadState, nanalogue_bam_reader, Error, InputBam};
 use rust_htslib::{bam::Read};
 use std::collections::BinaryHeap;
 
@@ -48,9 +48,9 @@ fn get_stats_from_heap(
     Ok((counter, mean, longest, shortest, median, n50))
 }
 
-pub fn run(bam_path: &str) -> Result<bool, Error> {
+pub fn run(bam_options: &mut InputBam) -> Result<bool, Error> {
     // open BAM file
-    let mut bam = nanalogue_bam_reader(bam_path)?;
+    let mut bam = nanalogue_bam_reader(bam_options)?;
 
     // declare counts for different types of reads
     let mut primary_count: u64 = 0;
@@ -107,7 +107,7 @@ pub fn run(bam_path: &str) -> Result<bool, Error> {
     let (_, align_len_mean, align_len_max, align_len_min, align_len_median, align_len_n50) =
         get_stats_from_heap(align_len_heap, align_len_total)?;
 
-    println!("# input bam {bam_path}");
+    println!("# input bam {}", bam_options.bam_path);
     println!("key\tvalue");
     println!("n_primary_alignments\t{primary_count}");
     println!("n_secondary_alignments\t{secondary_count}");

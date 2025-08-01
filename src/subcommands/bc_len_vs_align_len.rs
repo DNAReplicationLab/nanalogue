@@ -1,4 +1,4 @@
-use crate::{nanalogue_bam_reader, CurrRead, ReadState, Error};
+use crate::{nanalogue_bam_reader, CurrRead, ReadState, Error, InputBam};
 use csv::ReaderBuilder;
 use rust_htslib::{bam::Read};
 use serde::Deserialize;
@@ -110,7 +110,7 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Error> {
     Ok(data_map)
 }
 
-pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<bool, Error> {
+pub fn run(bam_options: &mut InputBam, seq_summ_path: &str, is_mod_count: bool) -> Result<bool, Error> {
     // read TSV file and convert into hashmap
     let mut data_map = process_tsv(seq_summ_path)?;
 
@@ -118,7 +118,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<bo
     let is_seq_summ_data: bool = !data_map.is_empty();
 
     // open BAM file
-    let mut bam = nanalogue_bam_reader(bam_path)?;
+    let mut bam = nanalogue_bam_reader(bam_options)?;
 
     // Go record by record in the BAM file,
     // get the read id and the alignment length, and put it in the hashmap
@@ -176,7 +176,7 @@ pub fn run(bam_path: &str, seq_summ_path: &str, is_mod_count: bool) -> Result<bo
     }
 
     // set up an output header string
-    let mut output_header = "# bam file: ".to_owned() + bam_path + "\n";
+    let mut output_header = "# bam file: ".to_owned() + &bam_options.bam_path + "\n";
     if is_seq_summ_data {
         output_header = output_header + "# seq summ file: " + seq_summ_path + "\n"
     }

@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use nanalogue_core::{self, subcommands, Error, F32Bw0and1, OrdPair};
+use nanalogue_core::{self, subcommands, Error, F32Bw0and1, OrdPair, InputBam};
 use std::num::NonZeroU32;
 
 #[derive(Parser, Debug)]
@@ -14,7 +14,8 @@ enum Commands {
     /// Prints basecalled len, align len, mod count per molecule
     ReadsTableWithMods {
         /// Input BAM file
-        bam_file: String,
+        #[clap(flatten)]
+        bam: InputBam,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -22,7 +23,8 @@ enum Commands {
     /// Prints basecalled len, align len per molecule
     ReadsTableNoMods {
         /// Input BAM file
-        bam_file: String,
+        #[clap(flatten)]
+        bam: InputBam,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -30,19 +32,22 @@ enum Commands {
     /// Calculates various summary statistics on all reads.
     ReadStats {
         /// Input BAM file
-        bam_file: String,
+        #[clap(flatten)]
+        bam: InputBam,
     },
     /// Print information about a read
     ReadInfo {
         /// Input BAM file
-        bam_file: String,
+        #[clap(flatten)]
+        bam: InputBam,
         /// Input read id
         read_id: String,
     },
     /// Find reads with user-supplied limits of modifications
     FindModifiedReads {
         /// Input BAM file
-        bam_file: String,
+        #[clap(flatten)]
+        bam: InputBam,
         /// modified tag
         #[clap(long)]
         tag: String,
@@ -67,25 +72,25 @@ fn main() -> Result<(), Error> {
     // Match on the subcommand and call the corresponding logic from the library
     let result = match cli.command {
         Commands::ReadsTableWithMods {
-            bam_file,
+            mut bam,
             seq_summ_file,
         } => {
-            subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file, true)
+            subcommands::bc_len_vs_align_len::run(&mut bam, &seq_summ_file, true)
         },
         Commands::ReadsTableNoMods {
-            bam_file,
+            mut bam,
             seq_summ_file,
         } => {
-            subcommands::bc_len_vs_align_len::run(&bam_file, &seq_summ_file, false)
+            subcommands::bc_len_vs_align_len::run(&mut bam, &seq_summ_file, false)
         },
-        Commands::ReadStats { bam_file } => {
-            subcommands::read_stats::run(&bam_file)
+        Commands::ReadStats { mut bam } => {
+            subcommands::read_stats::run(&mut bam)
         },
-        Commands::ReadInfo { bam_file, read_id } => {
-            subcommands::read_info::run(&bam_file, &read_id)
+        Commands::ReadInfo { mut bam, read_id } => {
+            subcommands::read_info::run(&mut bam, &read_id)
         },
-        Commands::FindModifiedReads { bam_file, tag, win, slide, dens_limits, invert } => {
-            subcommands::find_modified_reads::run(&bam_file, &tag, win, slide, dens_limits, invert)
+        Commands::FindModifiedReads { mut bam, tag, win, slide, dens_limits, invert } => {
+            subcommands::find_modified_reads::run(&mut bam, &tag, win, slide, dens_limits, invert)
         },
     };
 

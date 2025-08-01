@@ -3,7 +3,8 @@ use std::num::NonZeroU64;
 use std::fmt;
 use rust_htslib::{bam::record::Record, bam::ext::BamRecordExtensions};
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
-use bedrs::prelude::*;
+use bedrs::prelude::StrandedBed3;
+use bedrs::Strand;
 
 // Import from our crate
 use crate::nanalogue_mm_ml_parser;

@@ -1,10 +1,10 @@
-use crate::{nanalogue_bam_reader, CurrRead, Error};
+use crate::{nanalogue_bam_reader, CurrRead, Error, InputBam};
 use rust_htslib::bam::{Read,Record};
 
-pub fn run(bam_path: &str, read_id: &str) -> Result<bool, Error> {
+pub fn run(bam_options: &mut InputBam, read_id: &str) -> Result<bool, Error> {
 
     // open BAM file
-    let mut bam = nanalogue_bam_reader(bam_path)?;
+    let mut bam = nanalogue_bam_reader(bam_options)?;
 
     // convert read id into bytes
     let read_id_bytes = read_id.as_bytes();

@@ -11,15 +11,13 @@ pub mod subcommands;
 pub mod error;
 pub mod read_utils;
 pub mod utils;
+pub mod cli;
 
-// Re-export the error type
+// Re-exports
 pub use error::Error;
-
-// Re-export read utils
 pub use read_utils::{ReadState, CurrRead};
-
-// Re-export ordered pair
 pub use utils::{OrdPair, F32Bw0and1};
+pub use cli::InputBam;
 
 pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     // convert seq to uppercase, ignoring invalid characters
@@ -196,9 +194,10 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record,
 }
 
 /// Opens BAM file, also copied and edited from fiberseq repo.
-pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
-    match bam_path {
-        "-" => Ok(bam::Reader::from_stdin()?),
-        s => Ok(bam::Reader::from_path(s)?),
+pub fn nanalogue_bam_reader(bam_options: &mut InputBam) -> Result<bam::Reader, Error> {
+    if bam_options.bam_path == "-" {
+        Ok(bam::Reader::from_stdin()?)
+    } else {
+        Ok(bam::Reader::from_path(bam_options.bam_path.clone())?)
     }
 }
