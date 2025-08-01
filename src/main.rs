@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use nanalogue_core::{self, subcommands, Error, F32Bw0and1, OrdPair, InputBam};
+use nanalogue_core::{self, subcommands, Error, F32Bw0and1, OrdPair, InputBam, ModChar};
 use std::num::NonZeroU32;
 
 #[derive(Parser, Debug)]
@@ -50,7 +50,7 @@ enum Commands {
         bam: InputBam,
         /// modified tag
         #[clap(long)]
-        tag: String,
+        tag: ModChar,
         /// window size
         #[clap(long)]
         win: NonZeroU32,
@@ -90,7 +90,7 @@ fn main() -> Result<(), Error> {
             subcommands::read_info::run(&mut bam, &read_id)
         },
         Commands::FindModifiedReads { mut bam, tag, win, slide, dens_limits, invert } => {
-            subcommands::find_modified_reads::run(&mut bam, &tag, win, slide, dens_limits, invert)
+            subcommands::find_modified_reads::run(&mut bam, tag, win, slide, dens_limits, invert)
         },
     };
 

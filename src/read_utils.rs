@@ -11,6 +11,7 @@ use crate::nanalogue_mm_ml_parser;
 use crate::Error;
 use crate::OrdPair;
 use crate::F32Bw0and1;
+use crate::ModChar;
 
 // A read can exist in seven states + one unknown state
 #[derive(Debug, Clone, Default, Copy, PartialEq)]
@@ -169,14 +170,15 @@ impl CurrRead {
         self.mods = Some((nanalogue_mm_ml_parser(record, mod_thres, None),
             ThresholdState::GtEq(mod_thres)));
     }
-    pub fn set_mod_data_one_tag(&mut self, record: &Record, mod_thres: u8, mod_tag: char){
+    pub fn set_mod_data_one_tag(&mut self, record: &Record, mod_thres: u8, mod_tag: ModChar){
         self.mods = Some((nanalogue_mm_ml_parser(record, mod_thres, Some(mod_tag)),
             ThresholdState::GtEq(mod_thres)));
     }
-    pub fn windowed_mod_data(&self, win_size: usize, slide_size: usize, tag_char: char) 
+    pub fn windowed_mod_data(&self, win_size: usize, slide_size: usize, tag: ModChar) 
         -> Result<Option<Vec<F32Bw0and1>>, Error>{
         let mut result = Vec::<F32Bw0and1>::new();
         let mut is_track_seen: bool = false;
+        let tag_char = tag.get_val();
         if let Some((BaseMods { base_mods: v }, _)) = &self.mods {
             for k in v {
                 match k {

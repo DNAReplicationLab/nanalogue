@@ -16,7 +16,7 @@ pub mod cli;
 // Re-exports
 pub use error::Error;
 pub use read_utils::{ReadState, CurrRead};
-pub use utils::{OrdPair, F32Bw0and1};
+pub use utils::{OrdPair, F32Bw0and1, ModChar};
 pub use cli::InputBam;
 
 pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
@@ -34,21 +34,10 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     seq
 }
 
-pub fn process_mod_type(mod_type: &str) -> Result<char, Error> {
-    // process the modification type, returning the first character if it is a letter,
-    // or converting it to a character if it is a number
-    let first_char = mod_type.chars().next().ok_or(Error::EmptyModType)?; 
-    match first_char {
-        'A' ..= 'Z' | 'a' ..= 'z' => Ok(first_char),
-        '0' ..= '9' => char::from_u32(mod_type.parse()?).ok_or(Error::InvalidModType),
-        _ => Err(Error::InvalidModType),
-    }
-}
-
 // We are copying and modifying code from the fibertools-rs repository.
 // https://github.com/fiberseq/fibertools-rs
 pub fn nanalogue_mm_ml_parser(record: &bam::Record,
-    min_ml_score: u8, mod_tag: Option<char>) -> BaseMods {
+    min_ml_score: u8, mod_tag: Option<ModChar>) -> BaseMods {
     // regex for matching the MM tag
     lazy_static! {
         // MM:Z:([ACGTUN][-+]([A-Za-z]+|[0-9]+)[.?]?(,[0-9]+)*;)*
@@ -70,7 +59,7 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record,
 
             // get modification type and skip record if we don't find
             // mod of interest (if specified)
-            let modification_type = process_mod_type(cap.get(5).map_or("", |m| m.as_str())).unwrap();
+            let modification_type: ModChar = cap.get(5).map_or("", |m| m.as_str()).parse().expect("error");
             if let Some(v) = mod_tag {
                 if v != modification_type {
                     continue;
@@ -171,7 +160,7 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record,
                 record,
                 mod_base,
                 mod_strand.chars().next().unwrap(),
-                modification_type,
+                modification_type.get_val(),
                 modified_positions,
                 modified_probabilities,
             );
