@@ -24,6 +24,27 @@ impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd> OrdPair<T>{
     }
 }
 
+impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> FromStr for OrdPair<T>{
+    type Err = Error;
+
+    fn from_str(val_str: &str) -> Result<Self, Self::Err>{
+        macro_rules! parse_error {
+            () => {
+                Err(Error::OrdPairConversionError("Bad ordered pair inputs!".to_string()))
+            }
+        }
+        let v: Vec<&str> = val_str.split(",").collect();
+        match v.len() {
+            2 => {
+                let Ok(low) = T::from_str(v[0]) else { parse_error!()? };
+                let Ok(high) = T::from_str(v[1]) else { parse_error!()? };
+                OrdPair::<T>::new(low, high)
+            }
+            _ => parse_error!(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
 pub struct F32Bw0and1{
     val: f32

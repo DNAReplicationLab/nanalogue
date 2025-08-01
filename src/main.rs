@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use nanalogue_core::{self, subcommands, Error, F32Bw0and1};
+use nanalogue_core::{self, subcommands, Error, F32Bw0and1, OrdPair};
 use std::num::NonZeroU32;
 
 #[derive(Parser, Debug)]
@@ -39,7 +39,7 @@ enum Commands {
         /// Input read id
         read_id: String,
     },
-    /// Find reads with user-supplied level of modifications
+    /// Find reads with user-supplied limits of modifications
     FindModifiedReads {
         /// Input BAM file
         bam_file: String,
@@ -52,9 +52,9 @@ enum Commands {
         /// slide
         #[clap(long)]
         slide: NonZeroU32,
-        /// maximum density
+        /// density limits, specify as min,max where these are 2 numbers between 0 and 1
         #[clap(long)]
-        dens_max: F32Bw0and1,
+        dens_limits: OrdPair<F32Bw0and1>,
         /// invert above filter
         #[clap(long, default_value = "false")]
         invert: bool,
@@ -84,8 +84,8 @@ fn main() -> Result<(), Error> {
         Commands::ReadInfo { bam_file, read_id } => {
             subcommands::read_info::run(&bam_file, &read_id)
         },
-        Commands::FindModifiedReads { bam_file, tag, win, slide, dens_max, invert } => {
-            subcommands::find_modified_reads::run(&bam_file, &tag, win, slide, dens_max, invert)
+        Commands::FindModifiedReads { bam_file, tag, win, slide, dens_limits, invert } => {
+            subcommands::find_modified_reads::run(&bam_file, &tag, win, slide, dens_limits, invert)
         },
     };
 
