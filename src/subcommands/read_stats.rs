@@ -1,5 +1,10 @@
-use crate::{CurrRead, ReadState, nanalogue_bam_reader, Error, InputBam};
-use rust_htslib::{bam::Read};
+//! # Gets statistics on reads
+//!
+//! This module calculates statistics such as mean, median, N50
+//! read and alignment lengths etc. from a BAM file.
+
+use crate::{CurrRead, Error, InputBam, ReadState, nanalogue_bam_reader};
+use rust_htslib::bam::Read;
 use std::collections::BinaryHeap;
 
 fn get_stats_from_heap(
@@ -48,6 +53,8 @@ fn get_stats_from_heap(
     Ok((counter, mean, longest, shortest, median, n50))
 }
 
+/// Reads the input BAM file and prints statistics
+/// such as mean and median read lengths, N50s etc.
 pub fn run(bam_options: &mut InputBam) -> Result<bool, Error> {
     // open BAM file
     let mut bam = nanalogue_bam_reader(bam_options)?;
@@ -69,23 +76,31 @@ pub fn run(bam_options: &mut InputBam) -> Result<bool, Error> {
 
     // Go record by record in the BAM file,
     for r in bam.records() {
-
         // read records
         let record = r?;
 
         // set the read state using the type of alignment
         // and increment read counter
-        let mut curr_read_state = CurrRead::new();
+        let mut curr_read_state = CurrRead::default();
         curr_read_state.set_read_state(&record)?;
         match curr_read_state.get_read_state() {
-            ReadState::Unknown => {},
+            ReadState::Unknown => {}
             ReadState::PrimaryFwd => primary_count += 1,
             ReadState::SecondaryFwd => secondary_count += 1,
             ReadState::SupplementaryFwd => supplementary_count += 1,
             ReadState::Unmapped => unmapped_count += 1,
-            ReadState::PrimaryRev => {primary_count += 1; reversed_count += 1 },
-            ReadState::SecondaryRev => {secondary_count += 1; reversed_count += 1 },
-            ReadState::SupplementaryRev => {supplementary_count += 1; reversed_count += 1},
+            ReadState::PrimaryRev => {
+                primary_count += 1;
+                reversed_count += 1
+            }
+            ReadState::SecondaryRev => {
+                secondary_count += 1;
+                reversed_count += 1
+            }
+            ReadState::SupplementaryRev => {
+                supplementary_count += 1;
+                reversed_count += 1
+            }
         };
 
         // get length of alignment

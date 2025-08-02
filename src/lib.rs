@@ -1,4 +1,4 @@
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 //! # Nanalogue Core
 //!
 //! We process and calculate data associated with DNA molecules, their alignments to

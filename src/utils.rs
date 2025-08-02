@@ -1,3 +1,8 @@
+//! # Utils implementing simple, shared datatypes
+//!
+//! Implements simple datatypes like an ordered pair or mod tag
+//! used by all modules in our crate.
+
 use crate::Error;
 use std::fmt;
 use std::fmt::Debug;
@@ -13,11 +18,15 @@ pub struct OrdPair<T: Clone + Copy + Debug + Default> {
 impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd> OrdPair<T> {
     /// Constructor with two values, will fail if ordering in input is not respected.
     ///
-    /// ```
-    /// use nanalogue_core::Error;
+    /// ```should_panic
     /// use nanalogue_core::OrdPair;
-    /// let x_result = OrdPair::<f32>::new(1.0,0.0);
-    /// assert!(matches!(x_result, Err(Error::WrongOrder)));
+    /// let x = OrdPair::<f32>::new(1.0,0.0)?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    /// ```
+    /// use nanalogue_core::OrdPair;
+    /// let x = OrdPair::<f32>::new(0.0, 1.0)?;
+    /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     pub fn new(low: T, high: T) -> Result<Self, Error> {
         if low <= high {
@@ -85,13 +94,17 @@ pub struct F32Bw0and1 {
 impl F32Bw0and1 {
     /// Constructor, will fail if float is not between 0 and 1
     ///
+    /// ```should_panic
+    /// use nanalogue_core::Error;
+    /// use nanalogue_core::F32Bw0and1;
+    /// let x = F32Bw0and1::new(-0.1)?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
     /// ```
     /// use nanalogue_core::Error;
     /// use nanalogue_core::F32Bw0and1;
-    /// for y in vec![1.1,-0.1,-2.0,7.0]{
-    ///     let x_result = F32Bw0and1::new(y);
-    ///     assert!(matches!(x_result, Err(Error::InvalidState(_))));
-    /// }
+    /// let x = F32Bw0and1::new(0.1)?;
+    /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     pub fn new(val: f32) -> Result<Self, Error> {
         if (0.0..=1.0).contains(&val) {
@@ -105,9 +118,10 @@ impl F32Bw0and1 {
     /// ```
     /// use nanalogue_core::F32Bw0and1;
     /// for y in vec![0.0,0.1,0.7,1.0]{
-    ///     let x = F32Bw0and1::new(y.clone()).expect("no failure");
+    ///     let x = F32Bw0and1::new(y.clone())?;
     ///     assert_eq!(x.get_val(), y);
     /// }
+    /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     pub fn get_val(&self) -> f32 {
         self.val

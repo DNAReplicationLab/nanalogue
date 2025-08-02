@@ -1,11 +1,23 @@
-use crate::{nanalogue_bam_reader, CurrRead, Error, 
-    F32Bw0and1, OrdPair, InputBam, ModChar};
+//! # Find modified reads using criteria on windowed mod data
+//!
+//! In this module, we window data along molecules, and then use
+//! filtration criteria on these windows using user-supplied parameters
+//! and output these reads.
+
+use crate::{CurrRead, Error, F32Bw0and1, InputBam, ModChar, OrdPair, nanalogue_bam_reader};
 use rust_htslib::bam::Read;
 use std::num::NonZeroU32;
 
-pub fn run(bam_options: &mut InputBam, tag: ModChar, win: NonZeroU32, slide: NonZeroU32, 
-    dens_limits: OrdPair<F32Bw0and1>, invert: bool) -> Result<bool, Error> {
-
+/// Finds read ids of molecules that fit filtration criteria on
+/// windowed modification data.
+pub fn run(
+    bam_options: &mut InputBam,
+    tag: ModChar,
+    win: NonZeroU32,
+    slide: NonZeroU32,
+    dens_limits: OrdPair<F32Bw0and1>,
+    invert: bool,
+) -> Result<bool, Error> {
     // open BAM file
     let mut bam = nanalogue_bam_reader(bam_options)?;
 
@@ -19,7 +31,7 @@ pub fn run(bam_options: &mut InputBam, tag: ModChar, win: NonZeroU32, slide: Non
     // Go record by record in the BAM file,
     for r in bam.records() {
         // read records
-        let mut curr_read_state = CurrRead::new();
+        let mut curr_read_state = CurrRead::default();
         let record = r?;
         curr_read_state.set_read_id(&record)?;
 
@@ -28,8 +40,12 @@ pub fn run(bam_options: &mut InputBam, tag: ModChar, win: NonZeroU32, slide: Non
 
         // catch if one window meets our criterion,
         // and react accordingly using invert's state
-        if match curr_read_state.windowed_mod_data(win.get().try_into()?, slide.get().try_into()?, tag)?{
-            Some(v) => ! (v.iter().any(|k| *k > dens_max || *k < dens_min) ^ invert),
+        if match curr_read_state.windowed_mod_data(
+            win.get().try_into()?,
+            slide.get().try_into()?,
+            tag,
+        )? {
+            Some(v) => !(v.iter().any(|k| *k > dens_max || *k < dens_min) ^ invert),
             None => false,
         } {
             output_string = output_string + curr_read_state.get_read_id()? + "\n";
