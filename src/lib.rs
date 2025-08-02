@@ -1,24 +1,42 @@
+#![warn(missing_docs)]
+//! # Nanalogue Core
+//!
+//! We process and calculate data associated with DNA molecules, their alignments to
+//! reference genomes, modification information on them, and other miscellaneous
+//! information.
+//!
+//! This file directly contains the functions associated with opening BAM files
+//! and parsing modification information directly from BAM files. Other functions
+//! in the crate are distributed over other files.
+
+use bio::alphabets::dna::revcomp;
+use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
+use fibertools_rs::utils::bio_io::get_u8_tag;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rust_htslib::{bam, bam::record::Aux};
 use std::convert::TryFrom;
-use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
-use fibertools_rs::utils::bio_io::get_u8_tag;
-use bio::alphabets::dna::revcomp;
 
 // Declare the modules.
-pub mod subcommands;
+pub mod cli;
 pub mod error;
 pub mod read_utils;
+pub mod subcommands;
 pub mod utils;
-pub mod cli;
 
 // Re-exports
-pub use error::Error;
-pub use read_utils::{ReadState, CurrRead};
-pub use utils::{OrdPair, F32Bw0and1, ModChar};
 pub use cli::InputBam;
+pub use error::Error;
+pub use read_utils::{CurrRead, ReadState};
+pub use utils::{F32Bw0and1, ModChar, OrdPair};
 
+/// Converts DNA bases to uppercase if needed, leaving other characters unchanged.
+///
+/// ```
+/// use nanalogue_core::convert_seq_uppercase;
+/// let x = convert_seq_uppercase(vec![b'a',b'b',b'c',b'g',b't',b'n',b'u',b'A',b'C',b'G',b'T',b'N']);
+/// assert_eq!(x, vec![b'A',b'b',b'C',b'G',b'T',b'N',b'u',b'A',b'C',b'G',b'T',b'N']);
+/// ```
 pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     // convert seq to uppercase, ignoring invalid characters
     for base in &mut seq {
@@ -34,10 +52,14 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     seq
 }
 
-// We are copying and modifying code from the fibertools-rs repository.
-// https://github.com/fiberseq/fibertools-rs
-pub fn nanalogue_mm_ml_parser(record: &bam::Record,
-    min_ml_score: u8, mod_tag: Option<ModChar>) -> BaseMods {
+/// Extracts mod information from BAM record to the Fibertools-rs BaseMods Struct.
+/// We are copying and modifying code from the fibertools-rs repository
+/// (<https://github.com/fiberseq/fibertools-rs>).
+pub fn nanalogue_mm_ml_parser(
+    record: &bam::Record,
+    min_ml_score: u8,
+    mod_tag: Option<ModChar>,
+) -> BaseMods {
     // regex for matching the MM tag
     lazy_static! {
         // MM:Z:([ACGTUN][-+]([A-Za-z]+|[0-9]+)[.?]?(,[0-9]+)*;)*
@@ -59,7 +81,11 @@ pub fn nanalogue_mm_ml_parser(record: &bam::Record,
 
             // get modification type and skip record if we don't find
             // mod of interest (if specified)
-            let modification_type: ModChar = cap.get(5).map_or("", |m| m.as_str()).parse().expect("error");
+            let modification_type: ModChar = cap
+                .get(5)
+                .map_or("", |m| m.as_str())
+                .parse()
+                .expect("error");
             if let Some(v) = mod_tag {
                 if v != modification_type {
                     continue;

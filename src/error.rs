@@ -1,0 +1,104 @@
+//! # Error
+//!
+//! Covers all errors in our module. These errors arise from us processing
+//! and calculating data associated with DNA molecules, their alignments to
+//! reference genomes, modification information on them, and other miscellaneous
+//! information. We convert errors from other packages to this error type so that
+//! error handling in our package becomes easier.
+//!
+//! Note: Below, sequence or molecule refer to DNA.
+//! In the future, could refer to RNA or other kinds of molecules.
+
+use std::num::{TryFromIntError, ParseIntError, ParseFloatError};
+use std::io;
+use csv;
+use rust_htslib;
+use thiserror::Error;
+
+/// Enum that covers errors in our module.
+#[derive(Debug, Error)]
+pub enum Error{
+    /// Alignment of sequence is not known
+    #[error("unknown alignment state")]
+    UnknownAlignState,
+
+    /// Failure upon extracting sequence length
+    #[error("invalid sequence length")]
+    InvalidSeqLength,
+
+    /// Failure upon extracting or calculating alignment length of molecule
+    #[error("invalid alignment length")]
+    InvalidAlignLength,
+
+    /// Contig and start of alignment of molecule are invalid
+    #[error("invalid contig and start")]
+    InvalidContigAndStart,
+
+    /// Read id of molecule is invalid
+    #[error("invalid read id")]
+    InvalidReadID,
+
+    /// Modification type is invalid. Mod types are indicated in
+    /// mod BAM files like so: ...C+m... where C is the base and
+    /// m is the modification type, in this case methylation.
+    #[error("invalid mod type")]
+    InvalidModType,
+
+    /// Modification type is empty
+    #[error("empty mod type")]
+    EmptyModType,
+
+    /// Some error from the rust htslib library we use to read BAM files
+    #[error("rust_htslib error: `{0}`")]
+    RustHtslibError(#[from] rust_htslib::errors::Error),
+
+    /// Error upon conversion from integer
+    #[error("integer conversion error: `{0}`")]
+    IntConversionError(#[from] TryFromIntError),
+
+    /// OrdPair is an ordered pair, which can be obtained from
+    /// a string of the correct format. This error says string
+    /// conversion failed.
+    #[error("ordered pair conversion error: `{0}`")]
+    OrdPairConversionError(String),
+
+    /// Problem parsing integers
+    #[error("integer parsing error: `{0}`")]
+    IntParseError(#[from] ParseIntError),
+
+    /// Problem parsing floats
+    #[error("float parsing error: `{0}`")]
+    FloatParseError(#[from] ParseFloatError),
+
+    /// Rare Error, should never happen
+    #[error("heap too large")]
+    RareHeapTooLarge,
+
+    /// Generic Input-Output error
+    #[error("input output error: `{0}`")]
+    InputOutputError(#[from] io::Error),
+
+    /// Problem reading or parsing CSV files
+    #[error("error parsing csv: `{0}`")]
+    CsvError(#[from] csv::Error),
+
+    /// Error when unexpected duplicates are seen
+    #[error("duplicates detected: `{0}`")]
+    InvalidDuplicates(String),
+
+    /// Generic error used when program hits an invalid state
+    #[error("`{0}`")]
+    InvalidState(String),
+
+    /// Error while writing output
+    #[error("error while writing output")]
+    WriteOutputError,
+
+    /// Generic not implemented error
+    #[error("not implemented: `{0}`")]
+    NotImplementedError(String),
+
+    /// General error when ordering of items in some context is wrong.
+    #[error("items in wrong order")]
+    WrongOrder,
+}

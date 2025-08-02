@@ -4,7 +4,7 @@ use std::fmt;
 use rust_htslib::{bam::record::Record, bam::ext::BamRecordExtensions};
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use bedrs::prelude::StrandedBed3;
-use bedrs::Strand;
+use bedrs::{Strand, Coordinates};
 
 // Import from our crate
 use crate::nanalogue_mm_ml_parser;
@@ -322,8 +322,9 @@ impl TryFrom<CurrRead> for StrandedBed3<i32, u64>{
 
     fn try_from(value: CurrRead) -> Result<Self, Self::Error> {
         match (value.state, value.align_len, value.contig_and_start) {
-            (ReadState::Unknown | ReadState::Unmapped, _, _) => Err(Error::UnknownAlignState),
-            (_, None, _)  => Err(Error::InvalidAlignLength),
+            (ReadState::Unknown, _, _) => Err(Error::UnknownAlignState),
+            (ReadState::Unmapped, _, _) => Ok(StrandedBed3::empty()),
+            (_, None, _) => Err(Error::InvalidAlignLength),
             (_, _, None) => Err(Error::InvalidContigAndStart),
             (ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd, 
                 Some(al), Some((cg, st))) => {
