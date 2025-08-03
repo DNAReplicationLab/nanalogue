@@ -4,6 +4,7 @@
 //! used by all modules in our crate.
 
 use crate::Error;
+use std::convert::From;
 use std::fmt;
 use std::fmt::Debug;
 use std::ops::RangeInclusive;
@@ -153,6 +154,13 @@ impl FromStr for F32Bw0and1 {
     /// Parse a string to obtain float and then convert if b/w 0 and 1
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
         Self::new(f32::from_str(val_str)?)
+    }
+}
+
+impl From<u8> for F32Bw0and1 {
+    /// Convert from a u8 i.e. a number >= 0 and <= 255
+    fn from(value: u8) -> Self {
+        F32Bw0and1::new((value as f32) / (u8::MAX as f32)).expect("no F32 conversion error")
     }
 }
 

@@ -11,13 +11,13 @@ use rust_htslib::{bam::ext::BamRecordExtensions, bam::record::Record};
 use std::collections::HashMap;
 use std::fmt;
 use std::num::NonZeroU64;
+use std::ops::RangeInclusive;
 use std::rc::Rc;
 
 // Import from our crate
 use crate::Error;
 use crate::F32Bw0and1;
 use crate::ModChar;
-use crate::OrdPair;
 use crate::nanalogue_mm_ml_parser;
 
 /// Alignment state of a read; seven possibilities + one unknown state
@@ -59,21 +59,41 @@ impl fmt::Display for ReadState {
     }
 }
 
-/// Types of thresholds on modification level that can be applied to modification data
+/// Types of thresholds on modification level that can be applied to modification data.
+/// Values are 0 to 255 below as that's how they are stored in a modBAM file and
+/// this struct is expected to be used in contexts dealing directly with this data.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ThresholdState {
-    /// modification probability >= this value
+    /// modification probability >= this value, values are 0 to 255
     GtEq(u8),
-    /// modification probability <= this value
+    /// modification probability <= this value, values are 0 to 255
     LtEq(u8),
-    /// modification probability >= low and <= high of this ordered pair
-    GtEqLtEq(OrdPair<u8>),
+    /// modification probability within this range, values are 0 to 255
+    GtEqLtEq(RangeInclusive<u8>),
 }
 
 /// default threshold is >= 0 i.e. all mods are allowed
 impl Default for ThresholdState {
     fn default() -> Self {
         ThresholdState::GtEq(0)
+    }
+}
+
+impl fmt::Display for ThresholdState {
+    /// display the u8 thresholds as a floating point number between 0 and 1
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let printable = match &self {
+            ThresholdState::GtEq(v) => format!("probabilities >= {}", F32Bw0and1::from(*v)),
+            ThresholdState::LtEq(v) => format!("probabilities <= {}", F32Bw0and1::from(*v)),
+            ThresholdState::GtEqLtEq(v) => {
+                format!(
+                    "{} <= probabilities <= {}",
+                    F32Bw0and1::from(*v.start()),
+                    F32Bw0and1::from(*v.end())
+                )
+            }
+        };
+        write!(f, "{printable}")
     }
 }
 
@@ -237,7 +257,6 @@ impl CurrRead {
         }
     }
     /// gets read id
-    #[must_use]
     pub fn get_read_id(&self) -> Result<&str, Error> {
         match &self.read_id {
             None => Err(Error::InvalidState("read id not available".to_string())),
@@ -260,7 +279,6 @@ impl CurrRead {
         ));
     }
     /// window modification data
-    #[must_use]
     pub fn windowed_mod_data(
         &self,
         win_size: usize,
@@ -342,14 +360,14 @@ impl CurrRead {
     /// filter modification data so that only data corresponding to the given
     /// range of positions is retained. We have copied and adapted code
     /// from the fibertools_rs repository here.
-    fn filter_by_ref_pos(&mut self, start_end: OrdPair<i64>) -> Result<bool, Error> {
+    fn filter_by_ref_pos(&mut self, start_end: RangeInclusive<i64>) -> Result<bool, Error> {
         macro_rules! subset {
             ( $to_be_subset: expr, $vec_indices:expr ) => {
                 $to_be_subset = $vec_indices.iter().map(|&i| $to_be_subset[i]).collect();
             };
         }
-        let start = start_end.get_low();
-        let end = start_end.get_high();
+        let start = *start_end.start();
+        let end = *start_end.end();
         match (self.state, &mut self.mods) {
             (ReadState::Unknown, _) => Err(Error::UnknownAlignState),
             (ReadState::Unmapped, _) | (_, None) => Ok(false),
