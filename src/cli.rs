@@ -11,4 +11,9 @@ pub struct InputBam {
     /// Input BAM file. If no path is provided stdin is used.
     #[clap(default_value = "-")]
     pub bam_path: String,
+    /// File with one column of read ids. If provided, only these
+    /// reads are considered in any operation. Defaults to unused
+    /// i.e. all reads in the BAM file are considered.
+    #[clap(default_value = "")]
+    pub read_list: String,
 }

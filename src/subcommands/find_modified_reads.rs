@@ -5,13 +5,14 @@
 //! and output these reads.
 
 use crate::{CurrRead, Error, F32Bw0and1, ModChar, ThresholdState};
-use rust_htslib::bam;
+use rust_htslib::bam::Record;
 use std::num::NonZeroU32;
+use std::rc::Rc;
 
 /// Finds read ids of molecules that fit filtration criteria on
 /// windowed modification data.
-pub fn run<'a, F>(
-    bam_records: bam::RcRecords<'a, bam::Reader>,
+pub fn run<F, D>(
+    bam_records: D,
     tag: ModChar,
     win: NonZeroU32,
     slide: NonZeroU32,
@@ -20,6 +21,7 @@ pub fn run<'a, F>(
 ) -> Result<bool, Error>
 where
     F: Fn(&F32Bw0and1) -> bool,
+    D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // prepare output string
     let mut output_string = String::from("");

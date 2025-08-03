@@ -6,6 +6,7 @@
 use crate::{CurrRead, Error, ReadState};
 use rust_htslib::bam;
 use std::collections::BinaryHeap;
+use std::rc::Rc;
 
 fn get_stats_from_heap(
     mut input: BinaryHeap<u64>,
@@ -55,7 +56,10 @@ fn get_stats_from_heap(
 
 /// Reads the input BAM file and prints statistics
 /// such as mean and median read lengths, N50s etc.
-pub fn run<'a>(bam_records: bam::RcRecords<'a, bam::Reader>) -> Result<bool, Error> {
+pub fn run<D>(bam_records: D) -> Result<bool, Error>
+where
+    D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
+{
     // declare counts for different types of reads
     let mut primary_count: u64 = 0;
     let mut secondary_count: u64 = 0;

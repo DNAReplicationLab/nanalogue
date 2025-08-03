@@ -10,7 +10,10 @@ use std::rc::Rc;
 
 /// Gets information on one read id and prints it to standard output
 /// in a JSON format.
-pub fn run<'a>(bam_records: bam::RcRecords<'a, bam::Reader>, read_id: &str) -> Result<bool, Error> {
+pub fn run<D>(bam_records: D, read_id: &str) -> Result<bool, Error>
+where
+    D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
+{
     // convert read id into bytes
     let read_id_bytes = read_id.as_bytes();
 
@@ -20,6 +23,7 @@ pub fn run<'a>(bam_records: bam::RcRecords<'a, bam::Reader>, read_id: &str) -> R
     // Go record by record in the BAM file,
     // and collect entries that match our read id
     for k in bam_records
+        .into_iter()
         .filter(|r| match r {
             Ok(v) => v.qname() == read_id_bytes,
             Err(_) => true,

@@ -13,6 +13,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Write};
+use std::rc::Rc;
 use std::str;
 
 /// Enum showing state of a read composed from BAM and optionally
@@ -148,11 +149,10 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Error> {
 /// Processes a BAM file and optionally a sequencing summary file
 /// to print a table of reads with alignment length, sequence length,
 /// and optionally modification count per row.
-pub fn run<'a>(
-    bam_records: bam::RcRecords<'a, bam::Reader>,
-    seq_summ_path: &str,
-    is_mod_count: bool,
-) -> Result<bool, Error> {
+pub fn run<D>(bam_records: D, seq_summ_path: &str, is_mod_count: bool) -> Result<bool, Error>
+where
+    D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
+{
     // read TSV file and convert into hashmap
     let mut data_map = process_tsv(seq_summ_path)?;
 
