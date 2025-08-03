@@ -4,26 +4,25 @@
 //! filtration criteria on these windows using user-supplied parameters
 //! and output these reads.
 
-use crate::{CurrRead, Error, F32Bw0and1, InputBam, ModChar, OrdPair, nanalogue_bam_reader};
+use crate::{CurrRead, Error, F32Bw0and1, InputBam, ModChar, nanalogue_bam_reader};
 use rust_htslib::bam::Read;
 use std::num::NonZeroU32;
 
 /// Finds read ids of molecules that fit filtration criteria on
 /// windowed modification data.
-pub fn run(
+pub fn run<F>(
     bam_options: &mut InputBam,
     tag: ModChar,
     win: NonZeroU32,
     slide: NonZeroU32,
-    dens_limits: OrdPair<F32Bw0and1>,
+    dens_filter: F,
     invert: bool,
-) -> Result<bool, Error> {
+) -> Result<bool, Error>
+where
+    F: Fn(&F32Bw0and1) -> bool,
+{
     // open BAM file
     let mut bam = nanalogue_bam_reader(bam_options)?;
-
-    // get density limits
-    let dens_min = dens_limits.get_low();
-    let dens_max = dens_limits.get_high();
 
     // prepare output string
     let mut output_string = String::from("");
@@ -45,7 +44,7 @@ pub fn run(
             slide.get().try_into()?,
             tag,
         )? {
-            Some(v) => !(v.iter().any(|k| *k > dens_max || *k < dens_min) ^ invert),
+            Some(v) => !(v.iter().any(|k| !dens_filter(k)) ^ invert),
             None => false,
         } {
             output_string = output_string + curr_read_state.get_read_id()? + "\n";

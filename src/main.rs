@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
-use nanalogue_core::{self, subcommands, Error, F32Bw0and1, OrdPair, InputBam, ModChar};
+use nanalogue_core::{self, Error, F32Bw0and1, InputBam, ModChar, OrdPair, subcommands};
 use std::num::NonZeroU32;
+use std::ops::RangeInclusive;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -57,13 +58,16 @@ enum Commands {
         /// slide
         #[clap(long)]
         slide: NonZeroU32,
-        /// density limits, specify as min,max where these are 2 numbers between 0 and 1
+        /// only find reads such that all windowed density values are in these limits.
+        /// specify as low,high e.g. 0.2,0.7 so that the condition is that all windowed_values
+        /// satisfy low <= windowed_value <= high.
         #[clap(long)]
-        dens_limits: OrdPair<F32Bw0and1>,
-        /// invert above filter
+        all_dens_between: OrdPair<F32Bw0and1>,
+        /// invert above filter, so the filter is now: atleast one windowed_value is < low or
+        /// at least one windowed_value is > high.
         #[clap(long, default_value = "false")]
         invert: bool,
-    }
+    },
 }
 
 fn main() -> Result<(), Error> {
@@ -74,24 +78,28 @@ fn main() -> Result<(), Error> {
         Commands::ReadsTableWithMods {
             mut bam,
             seq_summ_file,
-        } => {
-            subcommands::bc_len_vs_align_len::run(&mut bam, &seq_summ_file, true)
-        },
+        } => subcommands::bc_len_vs_align_len::run(&mut bam, &seq_summ_file, true),
         Commands::ReadsTableNoMods {
             mut bam,
             seq_summ_file,
-        } => {
-            subcommands::bc_len_vs_align_len::run(&mut bam, &seq_summ_file, false)
-        },
-        Commands::ReadStats { mut bam } => {
-            subcommands::read_stats::run(&mut bam)
-        },
-        Commands::ReadInfo { mut bam, read_id } => {
-            subcommands::read_info::run(&mut bam, &read_id)
-        },
-        Commands::FindModifiedReads { mut bam, tag, win, slide, dens_limits, invert } => {
-            subcommands::find_modified_reads::run(&mut bam, tag, win, slide, dens_limits, invert)
-        },
+        } => subcommands::bc_len_vs_align_len::run(&mut bam, &seq_summ_file, false),
+        Commands::ReadStats { mut bam } => subcommands::read_stats::run(&mut bam),
+        Commands::ReadInfo { mut bam, read_id } => subcommands::read_info::run(&mut bam, &read_id),
+        Commands::FindModifiedReads {
+            mut bam,
+            tag,
+            win,
+            slide,
+            all_dens_between,
+            invert,
+        } => subcommands::find_modified_reads::run(
+            &mut bam,
+            tag,
+            win,
+            slide,
+            |x| RangeInclusive::from(all_dens_between).contains(x),
+            invert,
+        ),
     };
 
     match result {
@@ -99,6 +107,6 @@ fn main() -> Result<(), Error> {
         Err(e) => {
             eprintln!("Error during execution: {e}");
             std::process::exit(1);
-        },
+        }
     }
 }

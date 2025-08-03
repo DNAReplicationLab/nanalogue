@@ -6,6 +6,7 @@
 use crate::Error;
 use std::fmt;
 use std::fmt::Debug;
+use std::ops::RangeInclusive;
 use std::str::FromStr;
 
 /// Datatype holding two values low, high such that low <= high is guaranteed at creation.
@@ -85,6 +86,24 @@ impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> FromS
     }
 }
 
+impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> From<OrdPair<T>>
+    for RangeInclusive<T>
+{
+    /// Convert the OrdPair into a RangeInclusive i.e. (start..=end)
+    fn from(value: OrdPair<T>) -> Self {
+        RangeInclusive::<T>::new(value.get_low(), value.get_high())
+    }
+}
+
+impl<T: Clone + Copy + Debug + Default + fmt::Display + PartialEq + PartialOrd> fmt::Display
+    for OrdPair<T>
+{
+    /// converts to string for display i.e. "low, high"
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}, {}", self.get_low(), self.get_high())
+    }
+}
+
 /// Datatype holding a float (f32) between 0 and 1 (both inclusive) guaranteed at creation.
 #[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
 pub struct F32Bw0and1 {
@@ -134,6 +153,13 @@ impl FromStr for F32Bw0and1 {
     /// Parse a string to obtain float and then convert if b/w 0 and 1
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
         Self::new(f32::from_str(val_str)?)
+    }
+}
+
+impl fmt::Display for F32Bw0and1 {
+    /// converts to string for display.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.get_val())
     }
 }
 
@@ -249,6 +275,15 @@ mod tests {
             OrdPair::<u8>::from_str("2,1"),
             Err(Error::WrongOrder)
         ));
+    }
+
+    /// Tests if OrdPair can be converted into a range
+    #[test]
+    fn test_ord_pair_to_range() {
+        assert_eq!(
+            (3..=5),
+            RangeInclusive::from(OrdPair::new(3, 5).expect("no failure"))
+        )
     }
 
     /// Tests if ModChar is displayed correctly
