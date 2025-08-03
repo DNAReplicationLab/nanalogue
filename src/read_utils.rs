@@ -434,12 +434,12 @@ impl fmt::Display for CurrRead {
         output_string =
             output_string + "\t\"alignment_type\": \"" + &self.state.to_string() + "\",\n";
 
-        output_string += "\t\"mod_count\": ";
-        if let Some((BaseMods { base_mods: v }, _)) = &self.mods {
+        let mut mod_count_str = String::from("");
+        if let Some((BaseMods { base_mods: v }, w)) = &self.mods {
             if !v.is_empty() {
                 for k in v {
-                    output_string += format!(
-                        "\"{}{}{}:{};",
+                    mod_count_str += format!(
+                        "{}{}{}:{};",
                         k.modified_base as char,
                         k.strand,
                         ModChar::new(k.modification_type),
@@ -447,14 +447,15 @@ impl fmt::Display for CurrRead {
                     )
                     .as_str();
                 }
-                output_string.pop();
-                output_string += "\"\n";
+                mod_count_str.pop();
             } else {
-                output_string += " \"0\"\n";
+                mod_count_str += "0";
             }
+            mod_count_str += format!(";({})", w).as_str();
         } else {
-            output_string += " \"0\"\n";
+            mod_count_str += "NA";
         }
+        output_string += format!("\t\"mod_count\": \"{}\"\n", mod_count_str).as_str();
 
         write!(f, "{{\n{output_string}}}")
     }

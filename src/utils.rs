@@ -160,7 +160,7 @@ impl FromStr for F32Bw0and1 {
 impl From<u8> for F32Bw0and1 {
     /// Convert from a u8 i.e. a number >= 0 and <= 255
     fn from(value: u8) -> Self {
-        F32Bw0and1::new((value as f32) / (u8::MAX as f32)).expect("no F32 conversion error")
+        F32Bw0and1::new((value as f32) / (u8::MAX as f32 + 1.0)).expect("no F32 conversion error")
     }
 }
 
