@@ -4,7 +4,7 @@
 //! filtration criteria on these windows using user-supplied parameters
 //! and output these reads.
 
-use crate::{CurrRead, Error, F32Bw0and1, InputBam, ModChar, nanalogue_bam_reader};
+use crate::{CurrRead, Error, F32Bw0and1, InputBam, ModChar, ThresholdState, nanalogue_bam_reader};
 use rust_htslib::bam::Read;
 use std::num::NonZeroU32;
 
@@ -35,7 +35,7 @@ where
         curr_read_state.set_read_id(&record)?;
 
         // set the modified read state
-        curr_read_state.set_mod_data_one_tag(&record, 0, tag);
+        curr_read_state.set_mod_data_one_tag(&record, ThresholdState::GtEq(0), tag);
 
         // catch if one window meets our criterion,
         // and react accordingly using invert's state
@@ -43,6 +43,7 @@ where
             win.get().try_into()?,
             slide.get().try_into()?,
             tag,
+            ThresholdState::GtEq(128),
         )? {
             Some(v) => !(v.iter().any(|k| !dens_filter(k)) ^ invert),
             None => false,

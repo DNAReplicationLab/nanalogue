@@ -6,7 +6,7 @@
 //! function. The routine reads both BAM and sequencing summary files
 //! if available, otherwise only reads the BAM file.
 
-use crate::{CurrRead, Error, InputBam, ReadState, nanalogue_bam_reader};
+use crate::{CurrRead, Error, InputBam, ReadState, ThresholdState, nanalogue_bam_reader};
 use csv::ReaderBuilder;
 use rust_htslib::bam::Read;
 use serde::Deserialize;
@@ -189,7 +189,7 @@ pub fn run(
         let mod_count: Option<String> = match is_mod_count {
             false => None,
             true => {
-                curr_read_state.set_mod_data(&record, 128);
+                curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
                 let mut output_string = String::from("");
                 match curr_read_state.mod_count_per_mod() {
                     None => output_string += "0;",

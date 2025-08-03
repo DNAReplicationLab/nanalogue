@@ -16,6 +16,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use rust_htslib::{bam, bam::record::Aux};
 use std::convert::TryFrom;
+use std::ops::RangeInclusive;
 
 // Declare the modules.
 pub mod cli;
@@ -27,7 +28,7 @@ pub mod utils;
 // Re-exports
 pub use cli::InputBam;
 pub use error::Error;
-pub use read_utils::{CurrRead, ReadState};
+pub use read_utils::{CurrRead, ReadState, ThresholdState};
 pub use utils::{F32Bw0and1, ModChar, OrdPair};
 
 /// Converts DNA bases to uppercase if needed, leaving other characters unchanged.
@@ -57,7 +58,7 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
 /// (<https://github.com/fiberseq/fibertools-rs>).
 pub fn nanalogue_mm_ml_parser(
     record: &bam::Record,
-    min_ml_score: u8,
+    ml_score_range: RangeInclusive<u8>,
     mod_tag: Option<ModChar>,
 ) -> BaseMods {
     // regex for matching the MM tag
@@ -174,7 +175,7 @@ pub fn nanalogue_mm_ml_parser(
                 unfiltered_modified_probabilities
                     .iter()
                     .zip(unfiltered_modified_positions.iter())
-                    .filter(|&(&ml, &_mm)| ml >= min_ml_score)
+                    .filter(|&(&ml, &_mm)| ml_score_range.contains(&ml))
                     .unzip();
 
             // don't add empty basemods
@@ -209,7 +210,7 @@ pub fn nanalogue_mm_ml_parser(
 }
 
 /// Opens BAM file, also copied and edited from fiberseq repo.
-pub fn nanalogue_bam_reader(bam_options: &mut InputBam) -> Result<bam::Reader, Error> {
+pub fn nanalogue_bam_reader(bam_options: &InputBam) -> Result<bam::Reader, Error> {
     if bam_options.bam_path == "-" {
         Ok(bam::Reader::from_stdin()?)
     } else {

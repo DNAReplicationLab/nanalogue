@@ -97,6 +97,17 @@ impl fmt::Display for ThresholdState {
     }
 }
 
+impl From<ThresholdState> for RangeInclusive<u8> {
+    // convert threshold state into an inclusive range
+    fn from(value: ThresholdState) -> Self {
+        match value {
+            ThresholdState::GtEq(v) => v..=u8::MAX,
+            ThresholdState::LtEq(v) => 0..=v,
+            ThresholdState::GtEqLtEq(w) => w,
+        }
+    }
+}
+
 /// Our main struct that receives and stores from one BAM record.
 /// Also has methods for processing this information.
 /// The information within the struct can only be manipulated by
@@ -264,18 +275,27 @@ impl CurrRead {
         }
     }
     /// sets modification data using the BAM record
-    pub fn set_mod_data(&mut self, record: &Record, mod_thres: u8) {
+    pub fn set_mod_data(&mut self, record: &Record, mod_thres: ThresholdState) {
         self.mods = Some((
-            nanalogue_mm_ml_parser(record, mod_thres, None),
-            ThresholdState::GtEq(mod_thres),
+            nanalogue_mm_ml_parser(record, RangeInclusive::from(mod_thres.clone()), None),
+            mod_thres,
         ));
     }
     /// sets modification data using BAM record but restricted to the specified
     /// type of modification
-    pub fn set_mod_data_one_tag(&mut self, record: &Record, mod_thres: u8, mod_tag: ModChar) {
+    pub fn set_mod_data_one_tag(
+        &mut self,
+        record: &Record,
+        mod_thres: ThresholdState,
+        mod_tag: ModChar,
+    ) {
         self.mods = Some((
-            nanalogue_mm_ml_parser(record, mod_thres, Some(mod_tag)),
-            ThresholdState::GtEq(mod_thres),
+            nanalogue_mm_ml_parser(
+                record,
+                RangeInclusive::from(mod_thres.clone()),
+                Some(mod_tag),
+            ),
+            mod_thres,
         ));
     }
     /// window modification data
@@ -284,10 +304,18 @@ impl CurrRead {
         win_size: usize,
         slide_size: usize,
         tag: ModChar,
+        threshold: ThresholdState,
     ) -> Result<Option<Vec<F32Bw0and1>>, Error> {
         let mut result = Vec::<F32Bw0and1>::new();
         let mut is_track_seen: bool = false;
         let tag_char = tag.get_val();
+        let threshold_fn = |val: &u8| -> f32 {
+            if RangeInclusive::from(threshold.clone()).contains(val) {
+                *val as f32
+            } else {
+                0 as f32
+            }
+        };
         if let Some((BaseMods { base_mods: v }, _)) = &self.mods {
             for k in v {
                 match k {
@@ -307,7 +335,7 @@ impl CurrRead {
                             .step_by(slide_size)
                             .map(|i| {
                                 let window_slice = &data[i..i + win_size];
-                                let sum: f32 = window_slice.iter().map(|&val| val as f32).sum();
+                                let sum: f32 = window_slice.iter().map(threshold_fn).sum();
                                 F32Bw0and1::new(sum / (256.0 * win_size as f32))
                             })
                             .collect::<Result<Vec<F32Bw0and1>, _>>()?;
@@ -493,7 +521,7 @@ impl TryFrom<Record> for CurrRead {
         curr_read_state.set_read_id(&record)?;
         curr_read_state.set_seq_len(&record)?;
         curr_read_state.set_align_len(&record)?;
-        curr_read_state.set_mod_data(&record, 128);
+        curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
         curr_read_state.set_contig_and_start(&record)?;
         Ok(curr_read_state)
     }
@@ -508,7 +536,7 @@ impl TryFrom<Rc<Record>> for CurrRead {
         curr_read_state.set_read_id(&record)?;
         curr_read_state.set_seq_len(&record)?;
         curr_read_state.set_align_len(&record)?;
-        curr_read_state.set_mod_data(&record, 128);
+        curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
         curr_read_state.set_contig_and_start(&record)?;
         Ok(curr_read_state)
     }
