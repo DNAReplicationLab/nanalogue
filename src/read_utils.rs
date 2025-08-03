@@ -570,7 +570,7 @@ impl TryFrom<Record> for CurrRead {
 /// I think the rc datatype is just like the normal record,
 /// except the record datatype is not destroyed and created
 /// every time a new record is read (or something like that).
-/// All comments I've made for the TryFrom<Record> function
+/// All comments I've made for the `TryFrom<Record>` function
 /// apply here as well.
 impl TryFrom<Rc<Record>> for CurrRead {
     type Error = crate::Error;

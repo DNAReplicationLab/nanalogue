@@ -14,7 +14,7 @@ use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use fibertools_rs::utils::bio_io::get_u8_tag;
 use lazy_static::lazy_static;
 use regex::Regex;
-use rust_htslib::{bam, bam::record::Aux};
+use rust_htslib::{bam, bam::Read, bam::record::Aux};
 use std::convert::TryFrom;
 use std::ops::RangeInclusive;
 
@@ -209,11 +209,33 @@ pub fn nanalogue_mm_ml_parser(
     BaseMods { base_mods: rtn }
 }
 
+/// A global struct which contains BAM records for further usage.
+/// TODO: Filtering. If any filtering is done here, it is using non-base-mod
+/// information in the BAM file such as alignment lengths or coordinates etc.
+/// NOTE: we don't derive many traits here as the RcRecords object
+/// does not have many traits.
+#[derive(Debug)]
+pub struct BamRcRecords<'a> {
+    /// RcRecords object output by rust htslib which we can iterate over
+    pub rc_records: bam::RcRecords<'a, bam::Reader>,
+    /// Header of the bam file
+    pub header: bam::Header,
+}
+
+impl<'a> BamRcRecords<'a> {
+    /// Extracts RcRecords from a BAM Reader
+    pub fn new(bam_reader: &'a mut bam::Reader) -> Result<Self, Error> {
+        let header = bam::Header::from_template(bam_reader.header());
+        let rc_records = bam_reader.rc_records();
+        Ok(BamRcRecords { rc_records, header })
+    }
+}
+
 /// Opens BAM file, also copied and edited from fiberseq repo.
-pub fn nanalogue_bam_reader(bam_options: &InputBam) -> Result<bam::Reader, Error> {
-    if bam_options.bam_path == "-" {
+pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
+    if bam_path == "-" {
         Ok(bam::Reader::from_stdin()?)
     } else {
-        Ok(bam::Reader::from_path(bam_options.bam_path.clone())?)
+        Ok(bam::Reader::from_path(bam_path)?)
     }
 }

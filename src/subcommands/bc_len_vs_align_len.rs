@@ -6,9 +6,9 @@
 //! function. The routine reads both BAM and sequencing summary files
 //! if available, otherwise only reads the BAM file.
 
-use crate::{CurrRead, Error, InputBam, ReadState, ThresholdState, nanalogue_bam_reader};
+use crate::{CurrRead, Error, ReadState, ThresholdState};
 use csv::ReaderBuilder;
-use rust_htslib::bam::Read;
+use rust_htslib::bam;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;
@@ -148,8 +148,8 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Error> {
 /// Processes a BAM file and optionally a sequencing summary file
 /// to print a table of reads with alignment length, sequence length,
 /// and optionally modification count per row.
-pub fn run(
-    bam_options: &mut InputBam,
+pub fn run<'a>(
+    bam_records: bam::RcRecords<'a, bam::Reader>,
     seq_summ_path: &str,
     is_mod_count: bool,
 ) -> Result<bool, Error> {
@@ -159,12 +159,9 @@ pub fn run(
     // set up a flag to check if sequencing summary file has data
     let is_seq_summ_data: bool = !data_map.is_empty();
 
-    // open BAM file
-    let mut bam = nanalogue_bam_reader(bam_options)?;
-
     // Go record by record in the BAM file,
     // get the read id and the alignment length, and put it in the hashmap
-    for r in bam.rc_records() {
+    for r in bam_records {
         // read records
         let record = r?;
 
@@ -216,7 +213,7 @@ pub fn run(
     }
 
     // set up an output header string
-    let mut output_header = "# bam file: ".to_owned() + &bam_options.bam_path + "\n";
+    let mut output_header = String::from("");
     if is_seq_summ_data {
         output_header = output_header + "# seq summ file: " + seq_summ_path + "\n"
     }

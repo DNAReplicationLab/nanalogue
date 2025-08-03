@@ -3,8 +3,8 @@
 //! This module calculates statistics such as mean, median, N50
 //! read and alignment lengths etc. from a BAM file.
 
-use crate::{CurrRead, Error, InputBam, ReadState, nanalogue_bam_reader};
-use rust_htslib::bam::Read;
+use crate::{CurrRead, Error, ReadState};
+use rust_htslib::bam;
 use std::collections::BinaryHeap;
 
 fn get_stats_from_heap(
@@ -55,10 +55,7 @@ fn get_stats_from_heap(
 
 /// Reads the input BAM file and prints statistics
 /// such as mean and median read lengths, N50s etc.
-pub fn run(bam_options: &mut InputBam) -> Result<bool, Error> {
-    // open BAM file
-    let mut bam = nanalogue_bam_reader(bam_options)?;
-
+pub fn run<'a>(bam_records: bam::RcRecords<'a, bam::Reader>) -> Result<bool, Error> {
     // declare counts for different types of reads
     let mut primary_count: u64 = 0;
     let mut secondary_count: u64 = 0;
@@ -75,7 +72,7 @@ pub fn run(bam_options: &mut InputBam) -> Result<bool, Error> {
     let mut align_len_total = 0;
 
     // Go record by record in the BAM file,
-    for r in bam.rc_records() {
+    for r in bam_records {
         // read records
         let record = r?;
 
@@ -122,7 +119,6 @@ pub fn run(bam_options: &mut InputBam) -> Result<bool, Error> {
     let (_, align_len_mean, align_len_max, align_len_min, align_len_median, align_len_n50) =
         get_stats_from_heap(align_len_heap, align_len_total)?;
 
-    println!("# input bam {}", bam_options.bam_path);
     println!("key\tvalue");
     println!("n_primary_alignments\t{primary_count}");
     println!("n_secondary_alignments\t{secondary_count}");

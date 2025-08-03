@@ -4,14 +4,14 @@
 //! filtration criteria on these windows using user-supplied parameters
 //! and output these reads.
 
-use crate::{CurrRead, Error, F32Bw0and1, InputBam, ModChar, ThresholdState, nanalogue_bam_reader};
-use rust_htslib::bam::Read;
+use crate::{CurrRead, Error, F32Bw0and1, ModChar, ThresholdState};
+use rust_htslib::bam;
 use std::num::NonZeroU32;
 
 /// Finds read ids of molecules that fit filtration criteria on
 /// windowed modification data.
-pub fn run<F>(
-    bam_options: &mut InputBam,
+pub fn run<'a, F>(
+    bam_records: bam::RcRecords<'a, bam::Reader>,
     tag: ModChar,
     win: NonZeroU32,
     slide: NonZeroU32,
@@ -21,14 +21,11 @@ pub fn run<F>(
 where
     F: Fn(&F32Bw0and1) -> bool,
 {
-    // open BAM file
-    let mut bam = nanalogue_bam_reader(bam_options)?;
-
     // prepare output string
     let mut output_string = String::from("");
 
     // Go record by record in the BAM file,
-    for r in bam.rc_records() {
+    for r in bam_records {
         // read records
         let mut curr_read_state = CurrRead::default();
         let record = r?;
@@ -53,7 +50,6 @@ where
     }
 
     if !output_string.is_empty() {
-        println!("# input bam {}", bam_options.bam_path);
         print!("{output_string}");
     }
 
