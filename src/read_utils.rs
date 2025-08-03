@@ -11,6 +11,7 @@ use rust_htslib::{bam::ext::BamRecordExtensions, bam::record::Record};
 use std::collections::HashMap;
 use std::fmt;
 use std::num::NonZeroU64;
+use std::rc::Rc;
 
 // Import from our crate
 use crate::Error;
@@ -338,6 +339,9 @@ impl CurrRead {
             None => None,
         }
     }
+    /// filter modification data so that only data corresponding to the given
+    /// range of positions is retained. We have copied and adapted code
+    /// from the fibertools_rs repository here.
     fn filter_by_ref_pos(&mut self, start_end: OrdPair<i64>) -> Result<bool, Error> {
         macro_rules! subset {
             ( $to_be_subset: expr, $vec_indices:expr ) => {
@@ -465,6 +469,21 @@ impl TryFrom<Record> for CurrRead {
     type Error = crate::Error;
 
     fn try_from(record: Record) -> Result<Self, Self::Error> {
+        let mut curr_read_state = CurrRead::default();
+        curr_read_state.set_read_state(&record)?;
+        curr_read_state.set_read_id(&record)?;
+        curr_read_state.set_seq_len(&record)?;
+        curr_read_state.set_align_len(&record)?;
+        curr_read_state.set_mod_data(&record, 128);
+        curr_read_state.set_contig_and_start(&record)?;
+        Ok(curr_read_state)
+    }
+}
+
+impl TryFrom<Rc<Record>> for CurrRead {
+    type Error = crate::Error;
+
+    fn try_from(record: Rc<Record>) -> Result<Self, Self::Error> {
         let mut curr_read_state = CurrRead::default();
         curr_read_state.set_read_state(&record)?;
         curr_read_state.set_read_id(&record)?;

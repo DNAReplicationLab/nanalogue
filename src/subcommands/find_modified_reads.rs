@@ -28,7 +28,7 @@ where
     let mut output_string = String::from("");
 
     // Go record by record in the BAM file,
-    for r in bam.records() {
+    for r in bam.rc_records() {
         // read records
         let mut curr_read_state = CurrRead::default();
         let record = r?;

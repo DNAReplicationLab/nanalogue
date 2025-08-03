@@ -75,7 +75,7 @@ pub fn run(bam_options: &mut InputBam) -> Result<bool, Error> {
     let mut align_len_total = 0;
 
     // Go record by record in the BAM file,
-    for r in bam.records() {
+    for r in bam.rc_records() {
         // read records
         let record = r?;
 

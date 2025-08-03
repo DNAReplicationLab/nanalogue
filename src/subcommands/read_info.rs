@@ -6,6 +6,7 @@
 //! then both are output.
 use crate::{CurrRead, Error, InputBam, nanalogue_bam_reader};
 use rust_htslib::bam::{Read, Record};
+use std::rc::Rc;
 
 /// Gets information on one read id and prints it to standard output
 /// in a JSON format.
@@ -22,12 +23,12 @@ pub fn run(bam_options: &mut InputBam, read_id: &str) -> Result<bool, Error> {
     // Go record by record in the BAM file,
     // and collect entries that match our read id
     for k in bam
-        .records()
+        .rc_records()
         .filter(|r| match r {
             Ok(v) => v.qname() == read_id_bytes,
             Err(_) => true,
         })
-        .collect::<Result<Vec<Record>, _>>()?
+        .collect::<Result<Vec<Rc<Record>>, _>>()?
     {
         output_string = output_string + &CurrRead::try_from(k)?.to_string() + "\n";
     }

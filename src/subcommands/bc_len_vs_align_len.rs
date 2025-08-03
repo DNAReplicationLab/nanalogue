@@ -164,7 +164,7 @@ pub fn run(
 
     // Go record by record in the BAM file,
     // get the read id and the alignment length, and put it in the hashmap
-    for r in bam.records() {
+    for r in bam.rc_records() {
         // read records
         let record = r?;
 
