@@ -48,7 +48,7 @@ where
             Some(v) => !(v.iter().any(|k| !dens_filter(k)) ^ invert),
             None => false,
         } {
-            output_string = output_string + curr_read_state.get_read_id()? + "\n";
+            output_string = output_string + curr_read_state.read_id()? + "\n";
         }
     }
 

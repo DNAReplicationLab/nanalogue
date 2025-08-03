@@ -38,7 +38,9 @@ pub enum ReadState {
     SupplementaryFwd,
     /// Supplementary alignment opposite the reference strand
     SupplementaryRev,
-    /// Marked as unmapped in the BAM file
+    /// Marked as unmapped in the BAM file. We are assuming
+    /// that unmapped sequences will not be stored as reversed
+    /// complements, as what would be the point of that?
     Unmapped,
 }
 
@@ -195,7 +197,7 @@ impl CurrRead {
     }
     /// gets the read state
     #[must_use]
-    pub fn get_read_state(&self) -> ReadState {
+    pub fn read_state(&self) -> ReadState {
         self.state
     }
     /// set length of sequence from BAM record
@@ -212,6 +214,13 @@ impl CurrRead {
                 );
                 Ok(self.seq_len)
             }
+        }
+    }
+    /// gets length of sequence
+    pub fn seq_len(&self) -> Result<Option<u64>, Error> {
+        match self.state {
+            ReadState::Unknown => Err(Error::UnknownAlignState),
+            _ => Ok(self.seq_len),
         }
     }
     /// set alignment length from BAM record if available
@@ -236,6 +245,14 @@ impl CurrRead {
             },
         }
     }
+    /// gets alignment length
+    pub fn align_len(&self) -> Result<Option<u64>, Error> {
+        match self.state {
+            ReadState::Unknown => Err(Error::UnknownAlignState),
+            ReadState::Unmapped => Ok(None),
+            _ => Ok(self.align_len),
+        }
+    }
     /// sets contig and start from BAM record if available
     pub fn set_contig_and_start(&mut self, record: &Record) -> Result<bool, Error> {
         match &self.contig_and_start {
@@ -252,6 +269,14 @@ impl CurrRead {
             },
         }
     }
+    /// gets contig and start
+    pub fn contig_and_start(&self) -> Result<Option<(i32, u64)>, Error> {
+        match self.state {
+            ReadState::Unknown => Err(Error::UnknownAlignState),
+            ReadState::Unmapped => Ok(None),
+            _ => Ok(self.contig_and_start),
+        }
+    }
     /// sets read ID (also called query name) from BAM record
     pub fn set_read_id(&mut self, record: &Record) -> Result<&str, Error> {
         match &self.read_id {
@@ -261,14 +286,14 @@ impl CurrRead {
             None => match str::from_utf8(record.qname()) {
                 Ok(v) => {
                     self.read_id = Some(v.to_string());
-                    self.get_read_id()
+                    self.read_id()
                 }
                 Err(_) => Err(Error::InvalidReadID),
             },
         }
     }
     /// gets read id
-    pub fn get_read_id(&self) -> Result<&str, Error> {
+    pub fn read_id(&self) -> Result<&str, Error> {
         match &self.read_id {
             None => Err(Error::InvalidState("read id not available".to_string())),
             Some(v) => Ok(v.as_str()),
@@ -297,6 +322,13 @@ impl CurrRead {
             ),
             mod_thres,
         ));
+    }
+    /// gets modification data
+    pub fn mod_data(&self) -> Result<&Option<(BaseMods, ThresholdState)>, Error> {
+        match self.state {
+            ReadState::Unknown => Err(Error::UnknownAlignState),
+            _ => Ok(&self.mods),
+        }
     }
     /// window modification data
     pub fn windowed_mod_data(
@@ -512,6 +544,13 @@ impl TryFrom<CurrRead> for StrandedBed3<i32, u64> {
     }
 }
 
+/// Convert a rust htslib record to our CurrRead struct.
+/// NOTE: This operation loads many types of data from the
+/// record and you may not be interested in all of them.
+/// So, unless you know for sure that you are dealing with
+/// a small number of reads, please do not use this function,
+/// and call only a subset of the individual invocations below
+/// in your program for the sake of speed and/or memory.
 impl TryFrom<Record> for CurrRead {
     type Error = crate::Error;
 
@@ -527,6 +566,12 @@ impl TryFrom<Record> for CurrRead {
     }
 }
 
+/// Convert a rust htslib rc record into our struct.
+/// I think the rc datatype is just like the normal record,
+/// except the record datatype is not destroyed and created
+/// every time a new record is read (or something like that).
+/// All comments I've made for the TryFrom<Record> function
+/// apply here as well.
 impl TryFrom<Rc<Record>> for CurrRead {
     type Error = crate::Error;
 

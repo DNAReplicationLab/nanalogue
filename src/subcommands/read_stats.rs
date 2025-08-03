@@ -83,7 +83,7 @@ pub fn run(bam_options: &mut InputBam) -> Result<bool, Error> {
         // and increment read counter
         let mut curr_read_state = CurrRead::default();
         curr_read_state.set_read_state(&record)?;
-        match curr_read_state.get_read_state() {
+        match curr_read_state.read_state() {
             ReadState::Unknown => {}
             ReadState::PrimaryFwd => primary_count += 1,
             ReadState::SecondaryFwd => secondary_count += 1,

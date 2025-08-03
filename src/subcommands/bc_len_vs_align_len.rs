@@ -174,7 +174,7 @@ pub fn run(
         let mut curr_read_state = CurrRead::default();
         let qname = curr_read_state.set_read_id(&record)?.to_string();
         curr_read_state.set_read_state(&record)?;
-        let read_state = match curr_read_state.get_read_state() {
+        let read_state = match curr_read_state.read_state() {
             v @ (ReadState::PrimaryFwd | ReadState::PrimaryRev) => v,
             _ => continue,
         };
