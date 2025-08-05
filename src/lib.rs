@@ -10,6 +10,7 @@
 //! in the crate are distributed over other files.
 
 use bio::alphabets::dna::revcomp;
+use bio_types::sequence::SequenceRead;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use fibertools_rs::utils::bio_io::get_u8_tag;
 use lazy_static::lazy_static;
@@ -220,14 +221,26 @@ pub struct BamRcRecords<'a> {
     pub rc_records: bam::RcRecords<'a, bam::Reader>,
     /// Header of the bam file
     pub header: bam::Header,
+    /// List of contig names
+    pub contig_names: Vec<String>,
 }
 
 impl<'a> BamRcRecords<'a> {
     /// Extracts RcRecords from a BAM Reader
     pub fn new(bam_reader: &'a mut bam::Reader) -> Result<Self, Error> {
+        let contig_names = bam_reader
+            .header()
+            .target_names()
+            .iter()
+            .map(|r| str::from_utf8(r).map(String::from))
+            .collect::<Result<Vec<String>, _>>()?;
         let header = bam::Header::from_template(bam_reader.header());
         let rc_records = bam_reader.rc_records();
-        Ok(BamRcRecords { rc_records, header })
+        Ok(BamRcRecords {
+            rc_records,
+            header,
+            contig_names,
+        })
     }
 }
 
@@ -239,3 +252,14 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
         Ok(bam::Reader::from_path(bam_path)?)
     }
 }
+
+/// Trait that performs filtration on structs implementing SequenceRead
+/// such as a rust_htslib Record
+pub trait BamPreFilt: SequenceRead {
+    /// apply some default filtration e.g. by read length
+    fn pre_filt(&self, bam_opts: &InputBam) -> bool {
+        self.len() as u64 >= bam_opts.min_seq_len.get()
+    }
+}
+
+impl BamPreFilt for bam::record::Record {}

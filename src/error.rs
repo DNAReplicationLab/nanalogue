@@ -9,15 +9,16 @@
 //! Note: Below, sequence or molecule refer to DNA.
 //! In the future, could refer to RNA or other kinds of molecules.
 
-use std::num::{TryFromIntError, ParseIntError, ParseFloatError};
-use std::io;
 use csv;
 use rust_htslib;
+use std::io;
+use std::num::{ParseFloatError, ParseIntError, TryFromIntError};
+use std::str::Utf8Error;
 use thiserror::Error;
 
 /// Enum that covers errors in our module.
 #[derive(Debug, Error)]
-pub enum Error{
+pub enum Error {
     /// Alignment of sequence is not known
     #[error("unknown alignment state")]
     UnknownAlignState,
@@ -49,12 +50,18 @@ pub enum Error{
     EmptyModType,
 
     /// Some error from the rust htslib library we use to read BAM files
-    #[error("rust_htslib error: `{0}`")]
+    #[error(
+        "rust_htslib error: `{0}` \nIf piping in a samtools view command, please include header with -h in samtools. "
+    )]
     RustHtslibError(#[from] rust_htslib::errors::Error),
 
     /// Error upon conversion from integer
     #[error("integer conversion error: `{0}`")]
     IntConversionError(#[from] TryFromIntError),
+
+    /// Error involving string conversion
+    #[error("error involving string conversion: `{0}`")]
+    StringConversionError(#[from] Utf8Error),
 
     /// OrdPair is an ordered pair, which can be obtained from
     /// a string of the correct format. This error says string

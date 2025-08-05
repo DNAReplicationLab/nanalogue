@@ -62,6 +62,9 @@ impl fmt::Display for ReadState {
 }
 
 /// Types of thresholds on modification level that can be applied to modification data.
+/// Two possible use cases: (1) to specify that reading mod data should be restricted
+/// to bases at least this level of modified, or (2) to specify that only bases
+/// in this range should be regarded as modified.
 /// Values are 0 to 255 below as that's how they are stored in a modBAM file and
 /// this struct is expected to be used in contexts dealing directly with this data.
 #[derive(Debug, Clone, PartialEq)]
@@ -118,12 +121,17 @@ impl From<ThresholdState> for RangeInclusive<u8> {
 /// in calculations associated with the struct. For example:
 /// if I want to measure mean modification density along windows
 /// of the raw modification data, I need a guarantee that the
-/// modification data is stored in a sorted way. We can guarantee
+/// modification data is sorted by position. We can guarantee
 /// this when the modification data is parsed, but we cannot
-/// guarantee this if we allow free access to the internals
-/// of the struct, as a user can mess with this, making results
-/// of the windowing function invalid. To prevent these kinds
+/// guarantee this if we allow free access to the struct,
+/// as a user can mess with this. To prevent these kinds
 /// of problems, all internals of this struct are private.
+/// NOTE: we could have implemented these as a trait extension
+/// to the rust htslib Record struct, but we have chosen not to,
+/// as we may want to persist data like modifications and do
+/// multiple operations on them. And Record has inconvenient
+/// return types like i64 instead of u64 for positions along the
+/// genome.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct CurrRead {
     /// Stores alignment type
@@ -144,7 +152,14 @@ pub struct CurrRead {
 
     /// Name of the reference genome contig and the starting position on
     /// contig that the molecule maps or aligns to.
+    /// NOTE: the contig here is numeric and refers to an index on the BAM
+    /// header. To convert this into an alphanumeric string, you have to
+    /// process the header and store it in `contig_name` below.
+    /// We have left it this way as it is easier to store and process integers.
     contig_and_start: Option<(i32, u64)>,
+
+    /// Contig name.
+    contig_name: Option<String>,
 }
 
 impl CurrRead {
@@ -218,7 +233,7 @@ impl CurrRead {
     }
     /// gets length of sequence
     pub fn seq_len(&self) -> Result<Option<u64>, Error> {
-        match self.state {
+        match self.read_state() {
             ReadState::Unknown => Err(Error::UnknownAlignState),
             _ => Ok(self.seq_len),
         }
@@ -229,7 +244,7 @@ impl CurrRead {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set alignment length again!".to_string(),
             )),
-            None => match self.state {
+            None => match self.read_state() {
                 ReadState::Unknown => Err(Error::UnknownAlignState),
                 ReadState::Unmapped => Ok(None),
                 _ => {
@@ -247,7 +262,7 @@ impl CurrRead {
     }
     /// gets alignment length
     pub fn align_len(&self) -> Result<Option<u64>, Error> {
-        match self.state {
+        match self.read_state() {
             ReadState::Unknown => Err(Error::UnknownAlignState),
             ReadState::Unmapped => Ok(None),
             _ => Ok(self.align_len),
@@ -259,7 +274,7 @@ impl CurrRead {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set contig and start again!".to_string(),
             )),
-            None => match self.state {
+            None => match self.read_state() {
                 ReadState::Unknown => Err(Error::UnknownAlignState),
                 ReadState::Unmapped => Ok(false),
                 _ => {
@@ -271,10 +286,41 @@ impl CurrRead {
     }
     /// gets contig and start
     pub fn contig_and_start(&self) -> Result<Option<(i32, u64)>, Error> {
-        match self.state {
+        match self.read_state() {
             ReadState::Unknown => Err(Error::UnknownAlignState),
             ReadState::Unmapped => Ok(None),
             _ => Ok(self.contig_and_start),
+        }
+    }
+    /// sets contig name
+    pub fn set_contig_name(&mut self, names: &Vec<String>) -> Result<bool, Error> {
+        match &self.contig_name {
+            Some(_) => Err(Error::InvalidDuplicates(
+                "cannot set contig name again!".to_string(),
+            )),
+            None => match self.contig_and_start() {
+                Err(v) => Err(v),
+                Ok(None) => Err(Error::InvalidState(
+                    "no contig in current read!".to_string(),
+                )),
+                Ok(Some((v, _))) if 0 <= v && v < names.len() as i32 => {
+                    self.contig_name = Some(names[v as usize].clone());
+                    Ok(true)
+                }
+                Ok(Some((_, _))) => Err(Error::InvalidState(
+                    "could not assign contig name!".to_string(),
+                )),
+            },
+        }
+    }
+    /// gets contig name
+    pub fn contig_name(&self) -> Result<&str, Error> {
+        match (self.read_state(), &self.contig_name) {
+            (ReadState::Unknown | ReadState::Unmapped, _) => Err(Error::InvalidState(
+                "cannot get contig name from unknown or unmapped read".to_string(),
+            )),
+            (_, None) => Err(Error::InvalidState("contig name not available".to_string())),
+            (_, Some(v)) => Ok(v.as_str()),
         }
     }
     /// sets read ID (also called query name) from BAM record
@@ -474,20 +520,28 @@ impl fmt::Display for CurrRead {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut output_string = String::from("");
 
-        if let Some(v) = &self.read_id {
+        if let Some(v) = &self.read_id().ok() {
             output_string = output_string + "\t\"read_id\": \"" + v + "\",\n";
         }
 
-        if let Some(v) = self.seq_len {
+        if let Some(Some(v)) = self.seq_len().ok() {
             output_string = output_string + "\t\"sequence_length\": " + &v.to_string() + ",\n";
         }
 
-        if let Some(v) = self.align_len {
+        if let Some(Some(v)) = self.align_len().ok() {
             output_string = output_string + "\t\"alignment_length\": " + &v.to_string() + ",\n";
         }
 
-        if let Some((v, w)) = &self.contig_and_start {
-            output_string = output_string + "\t\"contig\": \"" + &v.to_string() + "\",\n";
+        if let Some(Some((v, w))) = self.contig_and_start().ok() {
+            let num_str = &v.to_string();
+            output_string = output_string
+                + "\t\"contig\": \""
+                + if let Some(x) = &self.contig_name().ok() {
+                    x
+                } else {
+                    num_str
+                }
+                + "\",\n";
             output_string = output_string + "\t\"reference_start\": " + &w.to_string() + ",\n";
         }
 

@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
-    self, BamRcRecords, Error, F32Bw0and1, InputBam, ModChar, OrdPair, nanalogue_bam_reader,
-    subcommands,
+    self, BamPreFilt, BamRcRecords, Error, F32Bw0and1, InputBam, ModChar, OrdPair,
+    nanalogue_bam_reader, subcommands,
 };
 use std::num::NonZeroU32;
 use std::ops::RangeInclusive;
@@ -76,27 +76,50 @@ enum Commands {
 fn main() -> Result<(), Error> {
     let cli = Cli::parse();
 
+    /// pre filtering the BAM file according to input options
+    macro_rules! pre_filt {
+        ( $b : expr, $c : expr) => {
+            $b.rc_records.filter(|r| match r {
+                Ok(v) => v.pre_filt($c),
+                Err(_) => true,
+            })
+        };
+    }
+
     // Match on the subcommand and call the corresponding logic from the library
     let result = match cli.command {
         Commands::ReadsTableWithMods { bam, seq_summ_file } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader)?;
-            subcommands::bc_len_vs_align_len::run(bam_rc_records.rc_records, &seq_summ_file, true)
+            subcommands::bc_len_vs_align_len::run(
+                pre_filt!(bam_rc_records, &bam),
+                &seq_summ_file,
+                true,
+            )
         }
         Commands::ReadsTableNoMods { bam, seq_summ_file } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader)?;
-            subcommands::bc_len_vs_align_len::run(bam_rc_records.rc_records, &seq_summ_file, false)
+            subcommands::bc_len_vs_align_len::run(
+                pre_filt!(bam_rc_records, &bam),
+                &seq_summ_file,
+                false,
+            )
         }
         Commands::ReadStats { bam } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader)?;
-            subcommands::read_stats::run(bam_rc_records.rc_records)
+            subcommands::read_stats::run(pre_filt!(bam_rc_records, &bam))
         }
         Commands::ReadInfo { bam, read_id } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader)?;
-            subcommands::read_info::run(bam_rc_records.rc_records, &read_id)
+            let contig_names = bam_rc_records.contig_names.clone();
+            subcommands::read_info::run(
+                pre_filt!(bam_rc_records, &bam),
+                &read_id,
+                Some(contig_names),
+            )
         }
         Commands::FindModifiedReads {
             bam,
@@ -109,7 +132,7 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader)?;
             subcommands::find_modified_reads::run(
-                bam_rc_records.rc_records,
+                pre_filt!(bam_rc_records, &bam),
                 tag,
                 win,
                 slide,
