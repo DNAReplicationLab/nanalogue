@@ -17,10 +17,9 @@ pub fn run<F, D>(
     win: NonZeroU32,
     step: NonZeroU32,
     dens_filter: F,
-    invert: bool,
 ) -> Result<bool, Error>
 where
-    F: Fn(&F32Bw0and1) -> bool,
+    F: Fn(Vec<F32Bw0and1>) -> bool,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // prepare output string
@@ -44,7 +43,7 @@ where
             tag,
             ThresholdState::GtEq(128),
         )? {
-            Some(v) => !(v.iter().any(|k| !dens_filter(k)) ^ invert),
+            Some(v) => dens_filter(v),
             None => false,
         } {
             output_string = output_string + curr_read_state.read_id()? + "\n";

@@ -146,6 +146,14 @@ impl F32Bw0and1 {
     pub fn get_val(&self) -> f32 {
         self.val
     }
+    /// Shortcut for 1.0
+    pub fn one() -> Self {
+        F32Bw0and1::new(1.0).expect("no error")
+    }
+    /// Shortcut for 0.0
+    pub fn zero() -> Self {
+        F32Bw0and1::new(0.0).expect("no error")
+    }
 }
 
 impl FromStr for F32Bw0and1 {
