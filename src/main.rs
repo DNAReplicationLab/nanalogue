@@ -90,7 +90,7 @@ fn main() -> Result<(), Error> {
     let result = match cli.command {
         Commands::ReadsTableWithMods { bam, seq_summ_file } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::bc_len_vs_align_len::run(
                 pre_filt!(bam_rc_records, &bam),
                 &seq_summ_file,
@@ -99,7 +99,7 @@ fn main() -> Result<(), Error> {
         }
         Commands::ReadsTableNoMods { bam, seq_summ_file } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::bc_len_vs_align_len::run(
                 pre_filt!(bam_rc_records, &bam),
                 &seq_summ_file,
@@ -108,12 +108,12 @@ fn main() -> Result<(), Error> {
         }
         Commands::ReadStats { bam } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::read_stats::run(pre_filt!(bam_rc_records, &bam))
         }
         Commands::ReadInfo { bam, read_id } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let contig_names = bam_rc_records.contig_names.clone();
             subcommands::read_info::run(
                 pre_filt!(bam_rc_records, &bam),
@@ -130,7 +130,7 @@ fn main() -> Result<(), Error> {
             invert,
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 tag,

@@ -2,7 +2,7 @@
 //!
 //! This file provides some global options in the command line interface.
 use clap::Args;
-use std::num::NonZeroU64;
+use std::num::{NonZeroU32, NonZeroU64};
 
 /// This struct is used to parse the input bam file and the filters that should be applied to the bam file.
 /// This struct is parsed to create command line arguments and then passed to many functions.
@@ -24,4 +24,7 @@ pub struct InputBam {
     /// sequencing summary file.
     #[clap(long, default_value_t = NonZeroU64::new(1).expect("no error"))]
     pub min_seq_len: NonZeroU64,
+    /// Number of threads used during some aspects of program execution
+    #[clap(long, default_value_t = NonZeroU32::new(4).expect("no error"))]
+    pub threads: NonZeroU32,
 }

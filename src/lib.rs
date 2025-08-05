@@ -15,7 +15,7 @@ use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use fibertools_rs::utils::bio_io::get_u8_tag;
 use lazy_static::lazy_static;
 use regex::Regex;
-use rust_htslib::{bam, bam::Read, bam::record::Aux};
+use rust_htslib::{bam, bam::Read, bam::record::Aux, tpool};
 use std::convert::TryFrom;
 use std::ops::RangeInclusive;
 
@@ -227,7 +227,7 @@ pub struct BamRcRecords<'a> {
 
 impl<'a> BamRcRecords<'a> {
     /// Extracts RcRecords from a BAM Reader
-    pub fn new(bam_reader: &'a mut bam::Reader) -> Result<Self, Error> {
+    pub fn new(bam_reader: &'a mut bam::Reader, bam_opts: &InputBam) -> Result<Self, Error> {
         let contig_names = bam_reader
             .header()
             .target_names()
@@ -235,6 +235,8 @@ impl<'a> BamRcRecords<'a> {
             .map(|r| str::from_utf8(r).map(String::from))
             .collect::<Result<Vec<String>, _>>()?;
         let header = bam::Header::from_template(bam_reader.header());
+        let tp = tpool::ThreadPool::new(bam_opts.threads.get())?;
+        bam_reader.set_thread_pool(&tp)?;
         let rc_records = bam_reader.rc_records();
         Ok(BamRcRecords {
             rc_records,
