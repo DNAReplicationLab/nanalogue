@@ -22,9 +22,9 @@ pub struct InputBam {
     /// NOTE: This is applied using the BAM file and not on
     /// any other files possibly used by subcommands such as the
     /// sequencing summary file.
-    #[clap(long, default_value_t = NonZeroU64::new(1).expect("no error"))]
-    pub min_seq_len: NonZeroU64,
+    #[clap(long, default_value = None)]
+    pub min_seq_len: Option<NonZeroU64>,
     /// Number of threads used during some aspects of program execution
-    #[clap(long, default_value_t = NonZeroU32::new(4).expect("no error"))]
+    #[clap(long, default_value_t = NonZeroU32::new(2).expect("no error"))]
     pub threads: NonZeroU32,
 }
