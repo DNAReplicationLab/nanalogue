@@ -47,8 +47,17 @@ enum Commands {
         /// Input read id
         read_id: String,
     },
-    /// Find reads with user-supplied limits of modifications
+    /// Find names of modified reads through criteria specified by sub commands
     FindModifiedReads {
+        #[command(subcommand)]
+        command: FindModReadsCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum FindModReadsCommands {
+    /// Find reads with all windowed modification densities within specified limits
+    AllDensBetween {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
@@ -58,18 +67,52 @@ enum Commands {
         /// window size
         #[clap(long)]
         win: NonZeroU32,
-        /// slide
+        /// step window by this size
         #[clap(long)]
-        slide: NonZeroU32,
+        step: NonZeroU32,
         /// only find reads such that all windowed density values are in these limits.
         /// specify as low,high e.g. 0.2,0.7 so that the condition is that all windowed_values
         /// satisfy low <= windowed_value <= high.
         #[clap(long)]
-        all_dens_between: OrdPair<F32Bw0and1>,
-        /// invert above filter, so the filter is now: atleast one windowed_value is < low or
-        /// at least one windowed_value is > high.
-        #[clap(long, default_value = "false")]
-        invert: bool,
+        dens_limits: OrdPair<F32Bw0and1>,
+    },
+    /// Find reads with windowed modification density such that at least one window is
+    /// greater than the high value.
+    AnyDensAbove {
+        /// Input BAM file
+        #[clap(flatten)]
+        bam: InputBam,
+        /// modified tag
+        #[clap(long)]
+        tag: ModChar,
+        /// window size
+        #[clap(long)]
+        win: NonZeroU32,
+        /// step window by this size
+        #[clap(long)]
+        step: NonZeroU32,
+        /// high value of criterion i.e. at least one window > high
+        #[clap(long)]
+        high: F32Bw0and1,
+    },
+    /// Find reads with windowed modification density such that at least one window is
+    /// below the low value
+    AnyDensBelow {
+        /// Input BAM file
+        #[clap(flatten)]
+        bam: InputBam,
+        /// modified tag
+        #[clap(long)]
+        tag: ModChar,
+        /// window size
+        #[clap(long)]
+        win: NonZeroU32,
+        /// step window by this size
+        #[clap(long)]
+        step: NonZeroU32,
+        /// low value of criterion i.e. at least one window < low
+        #[clap(long)]
+        low: F32Bw0and1,
     },
 }
 
@@ -122,12 +165,14 @@ fn main() -> Result<(), Error> {
             )
         }
         Commands::FindModifiedReads {
-            bam,
-            tag,
-            win,
-            slide,
-            all_dens_between,
-            invert,
+            command:
+                FindModReadsCommands::AllDensBetween {
+                    bam,
+                    tag,
+                    win,
+                    step,
+                    dens_limits,
+                },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
@@ -135,9 +180,53 @@ fn main() -> Result<(), Error> {
                 pre_filt!(bam_rc_records, &bam),
                 tag,
                 win,
-                slide,
-                |x| RangeInclusive::from(all_dens_between).contains(x),
-                invert,
+                step,
+                |x| RangeInclusive::from(dens_limits).contains(x),
+                false,
+            )
+        }
+        Commands::FindModifiedReads {
+            command:
+                FindModReadsCommands::AnyDensAbove {
+                    bam,
+                    tag,
+                    win,
+                    step,
+                    high,
+                },
+        } => {
+            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let interval_0_to_high = OrdPair::<F32Bw0and1>::new(F32Bw0and1::new(0.0)?, high)?;
+            subcommands::find_modified_reads::run(
+                pre_filt!(bam_rc_records, &bam),
+                tag,
+                win,
+                step,
+                |x| RangeInclusive::from(interval_0_to_high).contains(x),
+                true,
+            )
+        }
+        Commands::FindModifiedReads {
+            command:
+                FindModReadsCommands::AnyDensBelow {
+                    bam,
+                    tag,
+                    win,
+                    step,
+                    low,
+                },
+        } => {
+            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let interval_low_to_1 = OrdPair::<F32Bw0and1>::new(low, F32Bw0and1::new(1.0)?)?;
+            subcommands::find_modified_reads::run(
+                pre_filt!(bam_rc_records, &bam),
+                tag,
+                win,
+                step,
+                |x| RangeInclusive::from(interval_low_to_1).contains(x),
+                true,
             )
         }
     };

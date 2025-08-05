@@ -15,7 +15,7 @@ pub fn run<F, D>(
     bam_records: D,
     tag: ModChar,
     win: NonZeroU32,
-    slide: NonZeroU32,
+    step: NonZeroU32,
     dens_filter: F,
     invert: bool,
 ) -> Result<bool, Error>
@@ -40,7 +40,7 @@ where
         // and react accordingly using invert's state
         if match curr_read_state.windowed_mod_data(
             win.get().try_into()?,
-            slide.get().try_into()?,
+            step.get().try_into()?,
             tag,
             ThresholdState::GtEq(128),
         )? {
