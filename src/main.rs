@@ -177,7 +177,9 @@ enum FindModReadsCommands {
         step: NonZeroU32,
         /// gradient is at least this value. e.g. a gradient of 0.005 with a window
         /// size of 100 means you expect a variation of 0.005 * 100 = 0.5 over at least
-        /// one window i.e. greater than 0.5 or smaller than -0.5.
+        /// one window i.e. greater than 0.5 or smaller than -0.5. For your guidance,
+        /// the theoretical maximum gradient in a window of size W for our data is approximately
+        /// 3/(2W), so you can use this to think what gradient level you want to set.
         #[clap(long)]
         min_grad: F32Bw0and1,
     },
