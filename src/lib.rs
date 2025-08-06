@@ -260,11 +260,7 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 pub trait BamPreFilt: SequenceRead {
     /// apply some default filtration e.g. by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
-        if let Some(v) = bam_opts.min_seq_len {
-            self.len() as u64 >= v.get()
-        } else {
-            true
-        }
+        self.len() as u64 >= bam_opts.min_seq_len
     }
 }
 

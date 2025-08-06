@@ -116,7 +116,7 @@ enum FindModReadsCommands {
     },
     /// Find reads with windowed modification density such that at least one window is
     /// at or below the low value and at least one window is at or above the high value.
-    /// This operation helps enrich for reads with spatial gradients in modification density.
+    /// This operation may enrich for reads with spatial gradients in modification density.
     AnyDensBelowAndAnyDensAbove {
         /// Input BAM file
         #[clap(flatten)]
@@ -138,6 +138,27 @@ enum FindModReadsCommands {
         /// anded with the low criterion
         #[clap(long)]
         high: F32Bw0and1,
+    },
+    /// Find reads with windowed modification density such that max of all densities
+    /// minus min of all densities is at least the value specified.
+    /// This operation may enrich for reads with spatial gradients in modification density.
+    DensRangeAbove {
+        /// Input BAM file
+        #[clap(flatten)]
+        bam: InputBam,
+        /// modified tag
+        #[clap(long)]
+        tag: ModChar,
+        /// window size
+        #[clap(long)]
+        win: NonZeroU32,
+        /// step window by this size
+        #[clap(long)]
+        step: NonZeroU32,
+        /// max(windowed densities) - min(windowed densities)
+        /// is at least this value
+        #[clap(long)]
+        min_range: F32Bw0and1,
     },
 }
 
@@ -285,6 +306,36 @@ fn main() -> Result<(), Error> {
                         .any(|r| RangeInclusive::from(interval_0_to_low).contains(r))
                         && x.iter()
                             .any(|r| RangeInclusive::from(interval_high_to_1).contains(r))
+                },
+            )
+        }
+        Commands::FindModifiedReads {
+            command:
+                FindModReadsCommands::DensRangeAbove {
+                    bam,
+                    tag,
+                    win,
+                    step,
+                    min_range,
+                },
+        } => {
+            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            subcommands::find_modified_reads::run(
+                pre_filt!(bam_rc_records, &bam),
+                tag,
+                win,
+                step,
+                |x| {
+                    x.iter()
+                        .map(|r| r.get_val())
+                        .reduce(f32::max)
+                        .unwrap_or(0.0)
+                        - x.iter()
+                            .map(|r| r.get_val())
+                            .reduce(f32::min)
+                            .unwrap_or(0.0)
+                        >= min_range.get_val()
                 },
             )
         }

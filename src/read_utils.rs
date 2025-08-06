@@ -387,11 +387,11 @@ impl CurrRead {
         let mut result = Vec::<F32Bw0and1>::new();
         let mut is_track_seen: bool = false;
         let tag_char = tag.get_val();
-        let threshold_fn = |val: &u8| -> f32 {
+        let threshold_convert_to_0to1 = |val: &u8| -> f32 {
             if RangeInclusive::from(threshold.clone()).contains(val) {
-                *val as f32
+                (*val as f32) / 256.0
             } else {
-                0 as f32
+                0.0
             }
         };
         if let Some((BaseMods { base_mods: v }, _)) = &self.mods {
@@ -413,8 +413,16 @@ impl CurrRead {
                             .step_by(slide_size)
                             .map(|i| {
                                 let window_slice = &data[i..i + win_size];
-                                let sum: f32 = window_slice.iter().map(threshold_fn).sum();
-                                F32Bw0and1::new(sum / (256.0 * win_size as f32))
+                                window_slice.iter().map(threshold_convert_to_0to1)
+                            })
+                            .map(|i| {
+                                let mut sum: f32 = 0.0;
+                                let mut count: u64 = 0;
+                                for k in i {
+                                    sum += k;
+                                    count += 1;
+                                }
+                                F32Bw0and1::new(sum / count as f32)
                             })
                             .collect::<Result<Vec<F32Bw0and1>, _>>()?;
                     }
