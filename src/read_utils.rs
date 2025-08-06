@@ -377,23 +377,19 @@ impl CurrRead {
         }
     }
     /// window modification data
-    pub fn windowed_mod_data(
+    pub fn windowed_mod_data<F>(
         &self,
+        window_function: &F,
         win_size: usize,
         slide_size: usize,
         tag: ModChar,
-        threshold: ThresholdState,
-    ) -> Result<Option<Vec<F32Bw0and1>>, Error> {
+    ) -> Result<Option<Vec<F32Bw0and1>>, Error>
+    where
+        F: Fn(&[u8]) -> Result<F32Bw0and1, Error>,
+    {
         let mut result = Vec::<F32Bw0and1>::new();
         let mut is_track_seen: bool = false;
         let tag_char = tag.get_val();
-        let threshold_convert_to_0to1 = |val: &u8| -> f32 {
-            if RangeInclusive::from(threshold.clone()).contains(val) {
-                (*val as f32) / 256.0
-            } else {
-                0.0
-            }
-        };
         if let Some((BaseMods { base_mods: v }, _)) = &self.mods {
             for k in v {
                 match k {
@@ -411,19 +407,7 @@ impl CurrRead {
                         }
                         result = (0..=data.len() - win_size)
                             .step_by(slide_size)
-                            .map(|i| {
-                                let window_slice = &data[i..i + win_size];
-                                window_slice.iter().map(threshold_convert_to_0to1)
-                            })
-                            .map(|i| {
-                                let mut sum: f32 = 0.0;
-                                let mut count: u64 = 0;
-                                for k in i {
-                                    sum += k;
-                                    count += 1;
-                                }
-                                F32Bw0and1::new(sum / count as f32)
-                            })
+                            .map(|i| window_function(&data[i..i + win_size]))
                             .collect::<Result<Vec<F32Bw0and1>, _>>()?;
                     }
                     BaseMod {

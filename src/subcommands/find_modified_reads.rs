@@ -11,15 +11,17 @@ use std::rc::Rc;
 
 /// Finds read ids of molecules that fit filtration criteria on
 /// windowed modification data.
-pub fn run<F, D>(
+pub fn run<F, G, D>(
     bam_records: D,
     tag: ModChar,
     win: NonZeroU32,
     step: NonZeroU32,
-    dens_filter: F,
+    window_function: F,
+    window_filter: G,
 ) -> Result<bool, Error>
 where
-    F: Fn(Vec<F32Bw0and1>) -> bool,
+    F: Fn(&[u8]) -> Result<F32Bw0and1, Error>,
+    G: Fn(Vec<F32Bw0and1>) -> bool,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // prepare output string
@@ -35,15 +37,14 @@ where
         // set the modified read state
         curr_read_state.set_mod_data_one_tag(&record, ThresholdState::GtEq(0), tag);
 
-        // catch if one window meets our criterion,
-        // and react accordingly using invert's state
+        // apply our windowing function and then the windowing filter
         if match curr_read_state.windowed_mod_data(
+            &window_function,
             win.get().try_into()?,
             step.get().try_into()?,
             tag,
-            ThresholdState::GtEq(128),
         )? {
-            Some(v) => dens_filter(v),
+            Some(v) => window_filter(v),
             None => false,
         } {
             output_string = output_string + curr_read_state.read_id()? + "\n";

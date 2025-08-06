@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
-    self, BamPreFilt, BamRcRecords, Error, F32Bw0and1, InputBam, ModChar, OrdPair,
+    self, BamPreFilt, BamRcRecords, Error, F32Bw0and1, InputBam, ModChar, OrdPair, ThresholdState,
     nanalogue_bam_reader, subcommands,
 };
 use std::num::NonZeroU32;
@@ -160,10 +160,71 @@ enum FindModReadsCommands {
         #[clap(long)]
         min_range: F32Bw0and1,
     },
+    /// Find reads such that absolute value of gradient in modification density
+    /// measured in windows is at least the value specified.
+    AnyAbsGradAbove {
+        /// Input BAM file
+        #[clap(flatten)]
+        bam: InputBam,
+        /// modified tag
+        #[clap(long)]
+        tag: ModChar,
+        /// window size
+        #[clap(long)]
+        win: NonZeroU32,
+        /// step window by this size
+        #[clap(long)]
+        step: NonZeroU32,
+        /// gradient is at least this value. e.g. a gradient of 0.005 with a window
+        /// size of 100 means you expect a variation of 0.005 * 100 = 0.5 over at least
+        /// one window i.e. greater than 0.5 or smaller than -0.5.
+        #[clap(long)]
+        min_grad: F32Bw0and1,
+    },
 }
 
 fn main() -> Result<(), Error> {
     let cli = Cli::parse();
+
+    // threshold and calculate mean modification density per window
+    let threshold_and_mean = |mod_list: &[u8]| -> Result<F32Bw0and1, Error> {
+        let win_size: usize = mod_list.len();
+        let count_mod: usize = mod_list
+            .iter()
+            .filter(|x| RangeInclusive::from(ThresholdState::GtEq(128)).contains(x))
+            .count();
+        F32Bw0and1::new(count_mod as f32 / win_size as f32)
+    };
+
+    // threshold and calculate gradient of mod density per window.
+    // NOTE: to calculate gradient, we need (x, y) data where x is the
+    // coordinate along the read and y is 0 or 1 depending on whether the
+    // base is modified or not. But, in the calculation below, we use only
+    // the y values i.e. the modified values and assume even spacing
+    // along the x direction i.e. along the read coordinate. This assumption
+    // will break down if modifications occur in bursts, or if positions
+    // are missing along the read, or in other scenarios. As our goal
+    // here is to use a simple method to calculate gradients and select
+    // interesting reads, we are o.k. with an approximate calculation.
+    let threshold_and_abs_gradient = |mod_list: &[u8]| -> Result<F32Bw0and1, Error> {
+        let win_size = mod_list.len();
+        let x_mean: f32 = (win_size as f32 + 1.0) / 2.0;
+        let numerator: f32 = mod_list
+            .iter()
+            .enumerate()
+            .map(|(i, x)| {
+                if RangeInclusive::from(ThresholdState::GtEq(128)).contains(x) {
+                    i as f32 + 1.0 - x_mean
+                } else {
+                    0.0
+                }
+            })
+            .sum();
+        let denominator: f32 = (1..=win_size)
+            .map(|x| (x as f32 - x_mean) * (x as f32 - x_mean))
+            .sum();
+        F32Bw0and1::new(f32::abs(numerator) / denominator)
+    };
 
     /// pre filtering the BAM file according to input options
     macro_rules! pre_filt {
@@ -227,6 +288,7 @@ fn main() -> Result<(), Error> {
                 tag,
                 win,
                 step,
+                threshold_and_mean,
                 |x| {
                     x.iter()
                         .all(|r| RangeInclusive::from(dens_limits).contains(r))
@@ -245,12 +307,13 @@ fn main() -> Result<(), Error> {
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
-            let interval_high_to_1 = OrdPair::<F32Bw0and1>::new(high, F32Bw0and1::one())?;
+            let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 tag,
                 win,
                 step,
+                threshold_and_mean,
                 |x| {
                     x.iter()
                         .any(|r| RangeInclusive::from(interval_high_to_1).contains(r))
@@ -269,12 +332,13 @@ fn main() -> Result<(), Error> {
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
-            let interval_0_to_low = OrdPair::<F32Bw0and1>::new(F32Bw0and1::zero(), low)?;
+            let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 tag,
                 win,
                 step,
+                threshold_and_mean,
                 |x| {
                     x.iter()
                         .any(|r| RangeInclusive::from(interval_0_to_low).contains(r))
@@ -294,13 +358,14 @@ fn main() -> Result<(), Error> {
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
-            let interval_0_to_low = OrdPair::<F32Bw0and1>::new(F32Bw0and1::zero(), low)?;
-            let interval_high_to_1 = OrdPair::<F32Bw0and1>::new(high, F32Bw0and1::one())?;
+            let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
+            let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 tag,
                 win,
                 step,
+                threshold_and_mean,
                 |x| {
                     x.iter()
                         .any(|r| RangeInclusive::from(interval_0_to_low).contains(r))
@@ -326,6 +391,7 @@ fn main() -> Result<(), Error> {
                 tag,
                 win,
                 step,
+                threshold_and_mean,
                 |x| {
                     x.iter()
                         .map(|r| r.get_val())
@@ -336,6 +402,31 @@ fn main() -> Result<(), Error> {
                             .reduce(f32::min)
                             .unwrap_or(0.0)
                         >= min_range.get_val()
+                },
+            )
+        }
+        Commands::FindModifiedReads {
+            command:
+                FindModReadsCommands::AnyAbsGradAbove {
+                    bam,
+                    tag,
+                    win,
+                    step,
+                    min_grad,
+                },
+        } => {
+            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let interval_min_grad_to_1 = OrdPair::new(min_grad, F32Bw0and1::one())?;
+            subcommands::find_modified_reads::run(
+                pre_filt!(bam_rc_records, &bam),
+                tag,
+                win,
+                step,
+                threshold_and_abs_gradient,
+                |x| {
+                    x.iter()
+                        .any(|r| RangeInclusive::from(interval_min_grad_to_1).contains(r))
                 },
             )
         }
