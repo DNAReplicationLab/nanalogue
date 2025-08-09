@@ -15,10 +15,7 @@ use std::ops::RangeInclusive;
 use std::rc::Rc;
 
 // Import from our crate
-use crate::Error;
-use crate::F32Bw0and1;
-use crate::ModChar;
-use crate::nanalogue_mm_ml_parser;
+use crate::{Error, F32Bw0and1, ModChar, nanalogue_mm_ml_parser};
 
 /// Alignment state of a read; seven possibilities + one unknown state
 #[derive(Debug, Clone, Default, Copy, PartialEq)]
@@ -293,7 +290,7 @@ impl CurrRead {
         }
     }
     /// sets contig name
-    pub fn set_contig_name(&mut self, names: &Vec<String>) -> Result<bool, Error> {
+    pub fn set_contig_name(&mut self, names: &[String]) -> Result<bool, Error> {
         match &self.contig_name {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set contig name again!".to_string(),
@@ -388,19 +385,46 @@ impl CurrRead {
         F: Fn(&[u8], &[Option<i64>], &[Option<i64>]) -> Result<F32Bw0and1, Error>,
     {
         let mut result = Vec::<F32Bw0and1>::new();
-        let mut is_track_seen: bool = false;
+        let mut plus_mod_strand_seen = false;
+        let mut minus_mod_strand_seen = false;
         let tag_char = tag.get_val();
         if let Some((BaseMods { base_mods: v }, _)) = &self.mods {
             for k in v {
                 match k {
                     BaseMod {
                         modified_base: _,
-                        strand: _,
+                        strand: '+',
+                        record_is_reverse: _,
+                        modification_type: x,
+                        ranges: _,
+                    } if *x == tag_char && plus_mod_strand_seen => {
+                        return Err(Error::InvalidDuplicates(
+                            "mod type has multiple plus tracks!".to_string(),
+                        ));
+                    }
+                    BaseMod {
+                        modified_base: _,
+                        strand: '-',
+                        record_is_reverse: _,
+                        modification_type: x,
+                        ranges: _,
+                    } if *x == tag_char && minus_mod_strand_seen => {
+                        return Err(Error::InvalidDuplicates(
+                            "mod type has multiple minus tracks!".to_string(),
+                        ));
+                    }
+                    BaseMod {
+                        modified_base: _,
+                        strand: s,
                         record_is_reverse: _,
                         modification_type: x,
                         ranges: track,
-                    } if *x == tag_char && !is_track_seen => {
-                        is_track_seen = true;
+                    } if *x == tag_char => {
+                        match s {
+                            '+' => plus_mod_strand_seen = true,
+                            '-' => minus_mod_strand_seen = true,
+                            _ => return Err(Error::InvalidModType),
+                        }
                         let mod_data = &track.qual;
                         let mod_starts = &track.starts;
                         let mod_ref_starts = &track.reference_starts;
@@ -417,17 +441,6 @@ impl CurrRead {
                                 )
                             })
                             .collect::<Result<Vec<F32Bw0and1>, _>>()?;
-                    }
-                    BaseMod {
-                        modified_base: _,
-                        strand: _,
-                        record_is_reverse: _,
-                        modification_type: x,
-                        ranges: _,
-                    } if *x == tag_char && is_track_seen => {
-                        return Err(Error::NotImplementedError(
-                            "cannot window on data on multiple tracks".to_string(),
-                        ));
                     }
                     _ => {}
                 }
@@ -520,19 +533,19 @@ impl fmt::Display for CurrRead {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut output_string = String::from("");
 
-        if let Some(v) = &self.read_id().ok() {
+        if let Ok(v) = &self.read_id() {
             output_string = output_string + "\t\"read_id\": \"" + v + "\",\n";
         }
 
-        if let Some(Some(v)) = self.seq_len().ok() {
+        if let Ok(Some(v)) = self.seq_len() {
             output_string = output_string + "\t\"sequence_length\": " + &v.to_string() + ",\n";
         }
 
-        if let Some(Some(v)) = self.align_len().ok() {
+        if let Ok(Some(v)) = self.align_len() {
             output_string = output_string + "\t\"alignment_length\": " + &v.to_string() + ",\n";
         }
 
-        if let Some(Some((v, w))) = self.contig_and_start().ok() {
+        if let Ok(Some((v, w))) = self.contig_and_start() {
             let num_str = &v.to_string();
             output_string = output_string
                 + "\t\"contig\": \""
