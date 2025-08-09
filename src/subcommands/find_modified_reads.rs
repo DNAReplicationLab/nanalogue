@@ -20,7 +20,7 @@ pub fn run<F, G, D>(
     window_filter: G,
 ) -> Result<bool, Error>
 where
-    F: Fn(&[u8]) -> Result<F32Bw0and1, Error>,
+    F: Fn(&[u8], &[Option<i64>], &[Option<i64>]) -> Result<F32Bw0and1, Error>,
     G: Fn(Vec<F32Bw0and1>) -> bool,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
