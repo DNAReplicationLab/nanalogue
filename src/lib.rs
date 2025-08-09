@@ -17,7 +17,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use rust_htslib::{bam, bam::Read, bam::record::Aux, tpool};
 use std::convert::TryFrom;
-use std::ops::RangeInclusive;
 
 // Declare the modules.
 pub mod cli;
@@ -57,11 +56,15 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
 /// Extracts mod information from BAM record to the Fibertools-rs BaseMods Struct.
 /// We are copying and modifying code from the fibertools-rs repository
 /// (<https://github.com/fiberseq/fibertools-rs>).
-pub fn nanalogue_mm_ml_parser(
+pub fn nanalogue_mm_ml_parser<F, G>(
     record: &bam::Record,
-    ml_score_range: RangeInclusive<u8>,
-    mod_tag: Option<ModChar>,
-) -> BaseMods {
+    filter_mod_prob_pos: F,
+    filter_mod_base_strand_tag: G,
+) -> BaseMods
+where
+    F: Fn(&u8, &i64) -> bool,
+    G: Fn(u8, char, ModChar) -> bool,
+{
     // regex for matching the MM tag
     lazy_static! {
         // MM:Z:([ACGTUN][-+]([A-Za-z]+|[0-9]+)[.?]?(,[0-9]+)*;)*
@@ -79,7 +82,12 @@ pub fn nanalogue_mm_ml_parser(
     if let Ok(Aux::String(mm_text)) = record.aux(b"MM") {
         for cap in MM_RE.captures_iter(mm_text) {
             let mod_base = cap.get(3).map(|m| m.as_str().as_bytes()[0]).unwrap();
-            let mod_strand = cap.get(4).map_or("", |m| m.as_str());
+            let mod_strand = cap
+                .get(4)
+                .map_or("", |m| m.as_str())
+                .chars()
+                .next()
+                .unwrap();
 
             // get modification type and skip record if we don't find
             // mod of interest (if specified)
@@ -88,10 +96,8 @@ pub fn nanalogue_mm_ml_parser(
                 .map_or("", |m| m.as_str())
                 .parse()
                 .expect("error");
-            if let Some(v) = mod_tag {
-                if v != modification_type {
-                    continue;
-                }
+            if !filter_mod_base_strand_tag(mod_base, mod_strand, modification_type) {
+                continue;
             }
 
             let _implicit = cap.get(6).map_or(".", |m| m.as_str()).as_bytes().first();
@@ -176,7 +182,7 @@ pub fn nanalogue_mm_ml_parser(
                 unfiltered_modified_probabilities
                     .iter()
                     .zip(unfiltered_modified_positions.iter())
-                    .filter(|&(&ml, &_mm)| ml_score_range.contains(&ml))
+                    .filter(|&(&ml, &mm)| filter_mod_prob_pos(&ml, &mm))
                     .unzip();
 
             // don't add empty basemods
@@ -187,7 +193,7 @@ pub fn nanalogue_mm_ml_parser(
             let mods = BaseMod::new(
                 record,
                 mod_base,
-                mod_strand.chars().next().unwrap(),
+                mod_strand,
                 modification_type.get_val(),
                 modified_positions,
                 modified_probabilities,

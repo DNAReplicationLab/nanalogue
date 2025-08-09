@@ -345,7 +345,11 @@ impl CurrRead {
     /// sets modification data using the BAM record
     pub fn set_mod_data(&mut self, record: &Record, mod_thres: ThresholdState) {
         self.mods = Some((
-            nanalogue_mm_ml_parser(record, RangeInclusive::from(mod_thres.clone()), None),
+            nanalogue_mm_ml_parser(
+                record,
+                |x, _| RangeInclusive::from(mod_thres.clone()).contains(x),
+                |_, _, _| true,
+            ),
             mod_thres,
         ));
     }
@@ -360,8 +364,8 @@ impl CurrRead {
         self.mods = Some((
             nanalogue_mm_ml_parser(
                 record,
-                RangeInclusive::from(mod_thres.clone()),
-                Some(mod_tag),
+                |x, _| RangeInclusive::from(mod_thres.clone()).contains(x),
+                |_, _, x| x == mod_tag,
             ),
             mod_thres,
         ));
@@ -474,47 +478,6 @@ impl CurrRead {
                 }
             }
             None => None,
-        }
-    }
-    /// filter modification data so that only data corresponding to the given
-    /// range of positions is retained. We have copied and adapted code
-    /// from the fibertools_rs repository here.
-    fn filter_by_ref_pos(&mut self, start_end: RangeInclusive<i64>) -> Result<bool, Error> {
-        macro_rules! subset {
-            ( $to_be_subset: expr, $vec_indices:expr ) => {
-                $to_be_subset = $vec_indices.iter().map(|&i| $to_be_subset[i]).collect();
-            };
-        }
-        let start = *start_end.start();
-        let end = *start_end.end();
-        match (self.state, &mut self.mods) {
-            (ReadState::Unknown, _) => Err(Error::UnknownAlignState),
-            (ReadState::Unmapped, _) | (_, None) => Ok(false),
-            (_, Some((BaseMods { base_mods: v }, _))) => {
-                for k in v {
-                    let w = &mut k.ranges;
-                    let to_keep = w
-                        .reference_starts
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, &s)| {
-                            if s >= Some(start) && s <= Some(end) {
-                                Some(i)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    subset!(w.qual, to_keep);
-                    subset!(w.starts, to_keep);
-                    subset!(w.ends, to_keep);
-                    subset!(w.lengths, to_keep);
-                    subset!(w.reference_starts, to_keep);
-                    subset!(w.reference_ends, to_keep);
-                    subset!(w.reference_lengths, to_keep);
-                }
-                Ok(true)
-            }
         }
     }
     /// Uses only alignment information and no modification information to
