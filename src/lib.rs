@@ -28,8 +28,8 @@ pub mod utils;
 // Re-exports
 pub use cli::InputBam;
 pub use error::Error;
-pub use read_utils::{Contains, CurrRead, ReadState, ThresholdState};
-pub use utils::{F32Bw0and1, ModChar, OrdPair};
+pub use read_utils::{CurrRead, ReadState, ThresholdState};
+pub use utils::{Contains, F32Bw0and1, ModChar, OrdPair};
 
 /// Converts DNA bases to uppercase if needed, leaving other characters unchanged.
 ///

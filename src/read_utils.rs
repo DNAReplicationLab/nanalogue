@@ -15,7 +15,7 @@ use std::ops::RangeInclusive;
 use std::rc::Rc;
 
 // Import from our crate
-use crate::{Error, F32Bw0and1, ModChar, nanalogue_mm_ml_parser};
+use crate::{Contains, Error, F32Bw0and1, ModChar, nanalogue_mm_ml_parser};
 
 /// Alignment state of a read; seven possibilities + one unknown state
 #[derive(Debug, Clone, Default, Copy, PartialEq)]
@@ -101,12 +101,6 @@ impl fmt::Display for ThresholdState {
         };
         write!(f, "{printable}")
     }
-}
-
-/// Implements function that tests if a value is within some interval
-pub trait Contains<T> {
-    /// see if value is contained within
-    fn contains(&self, val: &T) -> bool;
 }
 
 impl Contains<u8> for ThresholdState {

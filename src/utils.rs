@@ -10,6 +10,12 @@ use std::fmt::Debug;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 
+/// Implements function that tests if a value is within some interval
+pub trait Contains<T> {
+    /// see if value is contained within
+    fn contains(&self, val: &T) -> bool;
+}
+
 /// Datatype holding two values low, high such that low <= high is guaranteed at creation.
 #[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
 pub struct OrdPair<T: Clone + Copy + Debug + Default> {
