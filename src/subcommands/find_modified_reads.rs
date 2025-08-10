@@ -35,7 +35,8 @@ where
         curr_read_state.set_read_id(&record)?;
 
         // set the modified read state
-        curr_read_state.set_mod_data_one_tag(&record, ThresholdState::GtEq(0), tag);
+        curr_read_state
+            .set_mod_data_restrictive(&record, ThresholdState::GtEq(0), |_, _, x| x == tag);
 
         // apply our windowing function and then the windowing filter
         if match curr_read_state.windowed_mod_data(

@@ -360,16 +360,22 @@ impl CurrRead {
             mod_thres,
         ));
     }
-    /// sets modification data using BAM record but restricted to the specified
-    /// type of modification
-    pub fn set_mod_data_one_tag(
+    /// sets modification data using BAM record but restricted to the
+    /// specified filters
+    pub fn set_mod_data_restrictive<G>(
         &mut self,
         record: &Record,
         mod_thres: ThresholdState,
-        mod_tag: ModChar,
-    ) {
+        mod_filter_base_strand_tag: G,
+    ) where
+        G: Fn(u8, char, ModChar) -> bool,
+    {
         self.mods = Some((
-            nanalogue_mm_ml_parser(record, |x, _| mod_thres.contains(x), |_, _, x| x == mod_tag),
+            nanalogue_mm_ml_parser(
+                record,
+                |x, _| mod_thres.contains(x),
+                mod_filter_base_strand_tag,
+            ),
             mod_thres,
         ));
     }
