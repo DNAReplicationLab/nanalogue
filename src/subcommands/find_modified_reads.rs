@@ -4,7 +4,7 @@
 //! filtration criteria on these windows using user-supplied parameters
 //! and output these reads.
 
-use crate::{CurrRead, Error, F32Bw0and1, ModChar, ThresholdState};
+use crate::{CurrRead, Error, F32Bw0and1, ModChar, RestrictModCalledStrand, ThresholdState};
 use rust_htslib::bam::Record;
 use std::num::NonZeroU32;
 use std::rc::Rc;
@@ -14,6 +14,7 @@ use std::rc::Rc;
 pub fn run<F, G, D>(
     bam_records: D,
     tag: ModChar,
+    strand: Option<RestrictModCalledStrand>,
     win: NonZeroU32,
     step: NonZeroU32,
     window_function: F,
@@ -35,8 +36,19 @@ where
         curr_read_state.set_read_id(&record)?;
 
         // set the modified read state
-        curr_read_state
-            .set_mod_data_restrictive(&record, ThresholdState::GtEq(0), |_, _, x| x == tag);
+        if let Some(v) = strand {
+            curr_read_state.set_mod_data_restrictive(
+                &record,
+                ThresholdState::GtEq(0),
+                |_, s, t| t == tag && s == char::from(v),
+            );
+        } else {
+            curr_read_state.set_mod_data_restrictive(
+                &record,
+                ThresholdState::GtEq(0),
+                |_, _, t| t == tag,
+            );
+        }
 
         // apply our windowing function and then the windowing filter
         if match curr_read_state.windowed_mod_data(

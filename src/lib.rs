@@ -29,7 +29,7 @@ pub mod utils;
 pub use cli::InputBam;
 pub use error::Error;
 pub use read_utils::{CurrRead, ReadState, ThresholdState};
-pub use utils::{Contains, F32Bw0and1, ModChar, OrdPair};
+pub use utils::{Contains, F32Bw0and1, ModChar, OrdPair, RestrictModCalledStrand};
 
 /// Converts DNA bases to uppercase if needed, leaving other characters unchanged.
 ///
@@ -271,10 +271,10 @@ pub trait BamPreFilt: SequenceRead {
                 "{}{}{}",
                 "Cannot deal with 0 length seq in BAM file. ",
                 "For instance, this could happen when some or all seq fields are set to '*', ",
-                "although this is valid BAM. See the input options for how to avoid this. "
+                "although this is valid BAM. See the input options for how to avoid this error. "
             ),
             0 if bam_opts.exclude_zero_len => false,
-            v @ _ => v >= bam_opts.min_seq_len,
+            v => v >= bam_opts.min_seq_len,
         }
     }
 }

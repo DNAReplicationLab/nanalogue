@@ -267,6 +267,58 @@ impl fmt::Display for ModChar {
     }
 }
 
+/// Struct to mark if we want data only from the "+"
+/// or the "-" mod-called strand.
+/// NOTE: this doesn't mean the strand from the alignment,
+/// but the strand from the modification data i.e. the strand
+/// in the MM tag e.g. T+T, T-a where the strand is "+" and "-"
+/// respectively. This denotes if mod data is from the basecalled
+/// strand or the complementary strand. To not confuse users of the
+/// command line interface, we allow creation of this from a string
+/// "bc" or "bc_comp" i.e. basecalled or basecalled complement instead
+/// of "+" and "-", which may be mistaken for the alignment strand.
+#[derive(Debug, Clone, Copy)]
+pub struct RestrictModCalledStrand(bool);
+
+/// default mod strand restriction is unknown
+impl Default for RestrictModCalledStrand {
+    fn default() -> Self {
+        RestrictModCalledStrand(true)
+    }
+}
+
+impl FromStr for RestrictModCalledStrand {
+    type Err = Error;
+
+    /// Parse a string to obtain float and then convert if b/w 0 and 1
+    fn from_str(val_str: &str) -> Result<Self, Self::Err> {
+        match val_str {
+            "bc" => Ok(RestrictModCalledStrand(true)),
+            "bc_comp" => Ok(RestrictModCalledStrand(false)),
+            _ => Err(Error::InvalidState(
+                "Please specify bc or bc_rev for mod-called strand!".to_string(),
+            )),
+        }
+    }
+}
+
+impl fmt::Display for RestrictModCalledStrand {
+    /// converts to string for display i.e. "+" or "-"
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", char::from(*self))
+    }
+}
+
+impl From<RestrictModCalledStrand> for char {
+    /// converts to char
+    fn from(val: RestrictModCalledStrand) -> char {
+        match val {
+            RestrictModCalledStrand(true) => '+',
+            RestrictModCalledStrand(false) => '-',
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
