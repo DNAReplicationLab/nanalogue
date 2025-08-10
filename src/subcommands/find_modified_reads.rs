@@ -4,8 +4,9 @@
 //! filtration criteria on these windows using user-supplied parameters
 //! and output these reads.
 
-use crate::{CurrRead, Error, F32Bw0and1, InputWindowing, ThresholdState};
+use crate::{CurrRead, Error, F32Bw0and1, InputWindowing};
 use rust_htslib::bam::Record;
+use std::io::{self, Write};
 use std::rc::Rc;
 
 /// Finds read ids of molecules that fit filtration criteria on
@@ -21,8 +22,10 @@ where
     G: Fn(Vec<F32Bw0and1>) -> bool,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
-    // prepare output string
-    let mut output_string = String::from("");
+    // This apparently helps writing to the terminal faster,
+    // according to https://rust-cli.github.io/book/tutorial/output.html
+    let stdout = io::stdout();
+    let mut handle = io::BufWriter::new(stdout);
 
     // Go record by record in the BAM file,
     for r in bam_records {
@@ -35,13 +38,13 @@ where
         if let Some(v) = window_options.mod_strand {
             curr_read_state.set_mod_data_restrictive(
                 &record,
-                ThresholdState::GtEq(0),
+                window_options.mod_prob_filter,
                 |_, s, t| t == window_options.tag && s == char::from(v),
             );
         } else {
             curr_read_state.set_mod_data_restrictive(
                 &record,
-                ThresholdState::GtEq(0),
+                window_options.mod_prob_filter,
                 |_, _, t| t == window_options.tag,
             );
         }
@@ -56,12 +59,8 @@ where
             Some(v) => window_filter(v),
             None => false,
         } {
-            output_string = output_string + curr_read_state.read_id()? + "\n";
+            writeln!(handle, "{}", curr_read_state.read_id()?)?;
         }
-    }
-
-    if !output_string.is_empty() {
-        print!("{output_string}");
     }
 
     Ok(true)

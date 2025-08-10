@@ -1,7 +1,7 @@
 //! # Cli
 //!
 //! This file provides some global options in the command line interface.
-use crate::{ModChar, RestrictModCalledStrand};
+use crate::{ModChar, RestrictModCalledStrand, ThresholdState};
 use clap::Args;
 use std::num::NonZeroU32;
 
@@ -48,4 +48,8 @@ pub struct InputWindowing {
     /// step window by this size
     #[clap(long)]
     pub step: NonZeroU32,
+    /// Filter to reject mods before windowing,
+    /// we allow all mods through.
+    #[clap(skip)]
+    pub mod_prob_filter: ThresholdState,
 }

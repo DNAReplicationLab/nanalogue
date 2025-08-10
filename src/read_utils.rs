@@ -11,11 +11,10 @@ use rust_htslib::{bam::ext::BamRecordExtensions, bam::record::Record};
 use std::collections::HashMap;
 use std::fmt;
 use std::num::NonZeroU64;
-use std::ops::RangeInclusive;
 use std::rc::Rc;
 
 // Import from our crate
-use crate::{Contains, Error, F32Bw0and1, ModChar, nanalogue_mm_ml_parser};
+use crate::{Contains, Error, F32Bw0and1, ModChar, OrdPair, nanalogue_mm_ml_parser};
 
 /// Alignment state of a read; seven possibilities + one unknown state
 #[derive(Debug, Clone, Default, Copy, PartialEq)]
@@ -64,7 +63,7 @@ impl fmt::Display for ReadState {
 /// in this range should be regarded as modified.
 /// Values are 0 to 255 below as that's how they are stored in a modBAM file and
 /// this struct is expected to be used in contexts dealing directly with this data.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ThresholdState {
     /// modification probability >= this value, values are 0 to 255
     GtEq(u8),
@@ -75,7 +74,7 @@ pub enum ThresholdState {
     /// around 0.5 i.e. ones with the most uncertainty, although
     /// users of this crate are free to set this to an interval
     /// not including 0.5
-    InvertGtEqLtEq(RangeInclusive<u8>),
+    InvertGtEqLtEq(OrdPair<u8>),
 }
 
 /// default threshold is >= 0 i.e. all mods are allowed
@@ -94,8 +93,8 @@ impl fmt::Display for ThresholdState {
             ThresholdState::InvertGtEqLtEq(v) => {
                 format!(
                     "probabilities < {} or > {}",
-                    F32Bw0and1::from(*v.start()),
-                    F32Bw0and1::from(*v.end())
+                    F32Bw0and1::from(v.get_low()),
+                    F32Bw0and1::from(v.get_high())
                 )
             }
         };
