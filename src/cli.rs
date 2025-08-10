@@ -16,11 +16,17 @@ pub struct InputBam {
     /// below this value.
     /// NOTE: This is applied using the BAM file and not on
     /// any other files possibly used by subcommands such as the
-    /// sequencing summary file. Also, records with '*' in the
-    /// sequence field are marked as zero length.
+    /// sequencing summary file.
     #[clap(long, default_value_t = 0)]
     pub min_seq_len: u64,
     /// Number of threads used during some aspects of program execution
     #[clap(long, default_value_t = NonZeroU32::new(2).expect("no error"))]
     pub threads: NonZeroU32,
+    /// Exclude "zero-length" sequences e.g. sequences with "*" in the sequence
+    /// field. Please use this flag if you encounter this error in our program.
+    /// NOTE: due to a technical reason, we need a DNA sequence
+    /// in the sequence field and cannot infer sequence length from other sources
+    /// e.g. CIGAR strings.
+    #[clap(long, default_value_t = false)]
+    pub exclude_zero_len: bool,
 }

@@ -266,7 +266,16 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 pub trait BamPreFilt: SequenceRead {
     /// apply some default filtration e.g. by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
-        self.len() as u64 >= bam_opts.min_seq_len
+        match self.len() as u64 {
+            0 if !bam_opts.exclude_zero_len => panic!(
+                "{}{}{}",
+                "Cannot deal with 0 length seq in BAM file. ",
+                "For instance, this could happen when some or all seq fields are set to '*', ",
+                "although this is valid BAM. See the input options for how to avoid this. "
+            ),
+            0 if bam_opts.exclude_zero_len => false,
+            v @ _ => v >= bam_opts.min_seq_len,
+        }
     }
 }
 

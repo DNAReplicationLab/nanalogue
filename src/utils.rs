@@ -102,6 +102,15 @@ impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> From<
     }
 }
 
+impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> Contains<T>
+    for OrdPair<T>
+{
+    /// Check if the provided value is within the Range of the OrdPair
+    fn contains(&self, val: &T) -> bool {
+        RangeInclusive::<T>::from(*self).contains(val)
+    }
+}
+
 impl<T: Clone + Copy + Debug + Default + fmt::Display + PartialEq + PartialOrd> fmt::Display
     for OrdPair<T>
 {
