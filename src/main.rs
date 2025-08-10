@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
-    self, BamPreFilt, BamRcRecords, Error, F32Bw0and1, InputBam, ModChar, OrdPair, ThresholdState,
-    nanalogue_bam_reader, subcommands,
+    self, BamPreFilt, BamRcRecords, Contains, Error, F32Bw0and1, InputBam, ModChar, OrdPair,
+    ThresholdState, nanalogue_bam_reader, subcommands,
 };
 use std::num::NonZeroU32;
 use std::ops::RangeInclusive;
@@ -195,7 +195,7 @@ fn main() -> Result<(), Error> {
             let win_size: usize = mod_list.len();
             let count_mod: usize = mod_list
                 .iter()
-                .filter(|x| RangeInclusive::from(ThresholdState::GtEq(128)).contains(x))
+                .filter(|x| ThresholdState::GtEq(128).contains(x))
                 .count();
             F32Bw0and1::new(count_mod as f32 / win_size as f32)
         };
@@ -218,7 +218,7 @@ fn main() -> Result<(), Error> {
                 .iter()
                 .enumerate()
                 .map(|(i, x)| {
-                    if RangeInclusive::from(ThresholdState::GtEq(128)).contains(x) {
+                    if ThresholdState::GtEq(128).contains(x) {
                         i as f32 + 1.0 - x_mean
                     } else {
                         0.0

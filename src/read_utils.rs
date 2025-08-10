@@ -70,8 +70,12 @@ pub enum ThresholdState {
     GtEq(u8),
     /// modification probability <= this value, values are 0 to 255
     LtEq(u8),
-    /// modification probability within this range, values are 0 to 255
-    GtEqLtEq(RangeInclusive<u8>),
+    /// modification probability not within this range.
+    /// We expect this to be used to filter out modification calls
+    /// around 0.5 i.e. ones with the most uncertainty, although
+    /// users of this crate are free to set this to an interval
+    /// not including 0.5
+    InvertGtEqLtEq(RangeInclusive<u8>),
 }
 
 /// default threshold is >= 0 i.e. all mods are allowed
@@ -87,9 +91,9 @@ impl fmt::Display for ThresholdState {
         let printable = match &self {
             ThresholdState::GtEq(v) => format!("probabilities >= {}", F32Bw0and1::from(*v)),
             ThresholdState::LtEq(v) => format!("probabilities <= {}", F32Bw0and1::from(*v)),
-            ThresholdState::GtEqLtEq(v) => {
+            ThresholdState::InvertGtEqLtEq(v) => {
                 format!(
-                    "{} <= probabilities <= {}",
+                    "probabilities < {} or > {}",
                     F32Bw0and1::from(*v.start()),
                     F32Bw0and1::from(*v.end())
                 )
@@ -99,13 +103,20 @@ impl fmt::Display for ThresholdState {
     }
 }
 
-impl From<ThresholdState> for RangeInclusive<u8> {
-    // convert threshold state into an inclusive range
-    fn from(value: ThresholdState) -> Self {
-        match value {
-            ThresholdState::GtEq(v) => v..=u8::MAX,
-            ThresholdState::LtEq(v) => 0..=v,
-            ThresholdState::GtEqLtEq(w) => w,
+/// Implements function that tests if a value is within some interval
+pub trait Contains<T> {
+    /// see if value is contained within
+    fn contains(&self, val: &T) -> bool;
+}
+
+impl Contains<u8> for ThresholdState {
+    /// see if value is contained within the interval
+    /// specified by the threshold state
+    fn contains(&self, val: &u8) -> bool {
+        match &self {
+            ThresholdState::GtEq(v) => val >= v,
+            ThresholdState::LtEq(v) => val <= v,
+            ThresholdState::InvertGtEqLtEq(w) => !w.contains(val),
         }
     }
 }
@@ -147,13 +158,13 @@ pub struct CurrRead {
     /// Stores modification information along with any applied thresholds
     mods: Option<(BaseMods, ThresholdState)>,
 
-    /// Name of the reference genome contig and the starting position on
+    /// ID of the reference genome contig and the starting position on
     /// contig that the molecule maps or aligns to.
     /// NOTE: the contig here is numeric and refers to an index on the BAM
     /// header. To convert this into an alphanumeric string, you have to
     /// process the header and store it in `contig_name` below.
     /// We have left it this way as it is easier to store and process integers.
-    contig_and_start: Option<(i32, u64)>,
+    contig_id_and_start: Option<(i32, u64)>,
 
     /// Contig name.
     contig_name: Option<String>,
@@ -265,9 +276,9 @@ impl CurrRead {
             _ => Ok(self.align_len),
         }
     }
-    /// sets contig and start from BAM record if available
-    pub fn set_contig_and_start(&mut self, record: &Record) -> Result<bool, Error> {
-        match &self.contig_and_start {
+    /// sets contig ID and start from BAM record if available
+    pub fn set_contig_id_and_start(&mut self, record: &Record) -> Result<bool, Error> {
+        match &self.contig_id_and_start {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set contig and start again!".to_string(),
             )),
@@ -275,18 +286,18 @@ impl CurrRead {
                 ReadState::Unknown => Err(Error::UnknownAlignState),
                 ReadState::Unmapped => Ok(false),
                 _ => {
-                    self.contig_and_start = Some((record.tid(), record.pos().try_into()?));
+                    self.contig_id_and_start = Some((record.tid(), record.pos().try_into()?));
                     Ok(true)
                 }
             },
         }
     }
-    /// gets contig and start
-    pub fn contig_and_start(&self) -> Result<Option<(i32, u64)>, Error> {
+    /// gets contig ID and start
+    pub fn contig_id_and_start(&self) -> Result<Option<(i32, u64)>, Error> {
         match self.read_state() {
             ReadState::Unknown => Err(Error::UnknownAlignState),
             ReadState::Unmapped => Ok(None),
-            _ => Ok(self.contig_and_start),
+            _ => Ok(self.contig_id_and_start),
         }
     }
     /// sets contig name
@@ -295,7 +306,7 @@ impl CurrRead {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set contig name again!".to_string(),
             )),
-            None => match self.contig_and_start() {
+            None => match self.contig_id_and_start() {
                 Err(v) => Err(v),
                 Ok(None) => Err(Error::InvalidState(
                     "no contig in current read!".to_string(),
@@ -345,11 +356,7 @@ impl CurrRead {
     /// sets modification data using the BAM record
     pub fn set_mod_data(&mut self, record: &Record, mod_thres: ThresholdState) {
         self.mods = Some((
-            nanalogue_mm_ml_parser(
-                record,
-                |x, _| RangeInclusive::from(mod_thres.clone()).contains(x),
-                |_, _, _| true,
-            ),
+            nanalogue_mm_ml_parser(record, |x, _| mod_thres.contains(x), |_, _, _| true),
             mod_thres,
         ));
     }
@@ -362,11 +369,7 @@ impl CurrRead {
         mod_tag: ModChar,
     ) {
         self.mods = Some((
-            nanalogue_mm_ml_parser(
-                record,
-                |x, _| RangeInclusive::from(mod_thres.clone()).contains(x),
-                |_, _, x| x == mod_tag,
-            ),
+            nanalogue_mm_ml_parser(record, |x, _| mod_thres.contains(x), |_, _, x| x == mod_tag),
             mod_thres,
         ));
     }
@@ -456,11 +459,11 @@ impl CurrRead {
             Ok(None)
         }
     }
-    /// Performs a count of number of modified bases per modified type.
+    /// Performs a count of number of bases per modified type.
     /// Note that this result depends on the type of filtering done
     /// while the struct was created e.g. by modification threshold.
     #[must_use]
-    pub fn mod_count_per_mod(&self) -> Option<HashMap<ModChar, u32>> {
+    pub fn base_count_per_mod(&self) -> Option<HashMap<ModChar, u32>> {
         let mut output = HashMap::<ModChar, u32>::new();
         match &self.mods {
             Some((BaseMods { base_mods: v }, _)) => {
@@ -468,11 +471,11 @@ impl CurrRead {
                     None
                 } else {
                     for k in v {
-                        let mod_count = k.ranges.qual.len() as u32;
+                        let base_count = k.ranges.qual.len() as u32;
                         output
                             .entry(ModChar::new(k.modification_type))
-                            .and_modify(|e| *e += mod_count)
-                            .or_insert(mod_count);
+                            .and_modify(|e| *e += base_count)
+                            .or_insert(base_count);
                     }
                     Some(output)
                 }
@@ -487,7 +490,7 @@ impl CurrRead {
         let mut curr_read_state = CurrRead::default();
         curr_read_state.set_read_state(&record)?;
         curr_read_state.set_align_len(&record)?;
-        curr_read_state.set_contig_and_start(&record)?;
+        curr_read_state.set_contig_id_and_start(&record)?;
         Ok(curr_read_state)
     }
 }
@@ -508,7 +511,7 @@ impl fmt::Display for CurrRead {
             output_string = output_string + "\t\"alignment_length\": " + &v.to_string() + ",\n";
         }
 
-        if let Ok(Some((v, w))) = self.contig_and_start() {
+        if let Ok(Some((v, w))) = self.contig_id_and_start() {
             let num_str = &v.to_string();
             output_string = output_string
                 + "\t\"contig\": \""
@@ -555,7 +558,7 @@ impl TryFrom<CurrRead> for StrandedBed3<i32, u64> {
     type Error = crate::Error;
 
     fn try_from(value: CurrRead) -> Result<Self, Self::Error> {
-        match (value.state, value.align_len, value.contig_and_start) {
+        match (value.state, value.align_len, value.contig_id_and_start) {
             (ReadState::Unknown, _, _) => Err(Error::UnknownAlignState),
             (ReadState::Unmapped, _, _) => Ok(StrandedBed3::empty()),
             (_, None, _) => Err(Error::InvalidAlignLength),
@@ -591,7 +594,7 @@ impl TryFrom<Record> for CurrRead {
         curr_read_state.set_seq_len(&record)?;
         curr_read_state.set_align_len(&record)?;
         curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
-        curr_read_state.set_contig_and_start(&record)?;
+        curr_read_state.set_contig_id_and_start(&record)?;
         Ok(curr_read_state)
     }
 }
@@ -612,7 +615,7 @@ impl TryFrom<Rc<Record>> for CurrRead {
         curr_read_state.set_seq_len(&record)?;
         curr_read_state.set_align_len(&record)?;
         curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
-        curr_read_state.set_contig_and_start(&record)?;
+        curr_read_state.set_contig_id_and_start(&record)?;
         Ok(curr_read_state)
     }
 }

@@ -188,7 +188,7 @@ where
             true => {
                 curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
                 let mut output_string = String::from("");
-                match curr_read_state.mod_count_per_mod() {
+                match curr_read_state.base_count_per_mod() {
                     None => output_string += "0;",
                     Some(v) => {
                         for (key, value) in v.into_iter() {
