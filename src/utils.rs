@@ -296,7 +296,7 @@ impl FromStr for RestrictModCalledStrand {
             "bc" => Ok(RestrictModCalledStrand(true)),
             "bc_comp" => Ok(RestrictModCalledStrand(false)),
             _ => Err(Error::InvalidState(
-                "Please specify bc or bc_rev for mod-called strand!".to_string(),
+                "Please specify bc or bc_comp for mod-called strand!".to_string(),
             )),
         }
     }

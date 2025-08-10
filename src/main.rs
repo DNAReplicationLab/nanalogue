@@ -66,7 +66,7 @@ enum FindModReadsCommands {
         tag: ModChar,
         /// modified strand
         #[clap(long)]
-        strand: Option<RestrictModCalledStrand>,
+        mod_strand: Option<RestrictModCalledStrand>,
         /// window size
         #[clap(long)]
         win: NonZeroU32,
@@ -90,7 +90,7 @@ enum FindModReadsCommands {
         tag: ModChar,
         /// modified strand
         #[clap(long)]
-        strand: Option<RestrictModCalledStrand>,
+        mod_strand: Option<RestrictModCalledStrand>,
         /// window size
         #[clap(long)]
         win: NonZeroU32,
@@ -112,7 +112,7 @@ enum FindModReadsCommands {
         tag: ModChar,
         /// modified strand
         #[clap(long)]
-        strand: Option<RestrictModCalledStrand>,
+        mod_strand: Option<RestrictModCalledStrand>,
         /// window size
         #[clap(long)]
         win: NonZeroU32,
@@ -135,7 +135,7 @@ enum FindModReadsCommands {
         tag: ModChar,
         /// modified strand
         #[clap(long)]
-        strand: Option<RestrictModCalledStrand>,
+        mod_strand: Option<RestrictModCalledStrand>,
         /// window size
         #[clap(long)]
         win: NonZeroU32,
@@ -163,7 +163,7 @@ enum FindModReadsCommands {
         tag: ModChar,
         /// modified strand
         #[clap(long)]
-        strand: Option<RestrictModCalledStrand>,
+        mod_strand: Option<RestrictModCalledStrand>,
         /// window size
         #[clap(long)]
         win: NonZeroU32,
@@ -186,7 +186,7 @@ enum FindModReadsCommands {
         tag: ModChar,
         /// modified strand
         #[clap(long)]
-        strand: Option<RestrictModCalledStrand>,
+        mod_strand: Option<RestrictModCalledStrand>,
         /// window size
         #[clap(long)]
         win: NonZeroU32,
@@ -299,7 +299,7 @@ fn main() -> Result<(), Error> {
                 FindModReadsCommands::AllDensBetween {
                     bam,
                     tag,
-                    strand,
+                    mod_strand,
                     win,
                     step,
                     dens_limits,
@@ -310,7 +310,7 @@ fn main() -> Result<(), Error> {
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 tag,
-                strand,
+                mod_strand,
                 win,
                 step,
                 threshold_and_mean,
@@ -325,7 +325,7 @@ fn main() -> Result<(), Error> {
                 FindModReadsCommands::AnyDensAbove {
                     bam,
                     tag,
-                    strand,
+                    mod_strand,
                     win,
                     step,
                     high,
@@ -337,7 +337,7 @@ fn main() -> Result<(), Error> {
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 tag,
-                strand,
+                mod_strand,
                 win,
                 step,
                 threshold_and_mean,
@@ -352,7 +352,7 @@ fn main() -> Result<(), Error> {
                 FindModReadsCommands::AnyDensBelow {
                     bam,
                     tag,
-                    strand,
+                    mod_strand,
                     win,
                     step,
                     low,
@@ -364,7 +364,7 @@ fn main() -> Result<(), Error> {
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 tag,
-                strand,
+                mod_strand,
                 win,
                 step,
                 threshold_and_mean,
@@ -379,7 +379,7 @@ fn main() -> Result<(), Error> {
                 FindModReadsCommands::AnyDensBelowAndAnyDensAbove {
                     bam,
                     tag,
-                    strand,
+                    mod_strand,
                     win,
                     step,
                     low,
@@ -393,7 +393,7 @@ fn main() -> Result<(), Error> {
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 tag,
-                strand,
+                mod_strand,
                 win,
                 step,
                 threshold_and_mean,
@@ -410,7 +410,7 @@ fn main() -> Result<(), Error> {
                 FindModReadsCommands::DensRangeAbove {
                     bam,
                     tag,
-                    strand,
+                    mod_strand,
                     win,
                     step,
                     min_range,
@@ -421,7 +421,7 @@ fn main() -> Result<(), Error> {
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 tag,
-                strand,
+                mod_strand,
                 win,
                 step,
                 threshold_and_mean,
@@ -443,7 +443,7 @@ fn main() -> Result<(), Error> {
                 FindModReadsCommands::AnyAbsGradAbove {
                     bam,
                     tag,
-                    strand,
+                    mod_strand,
                     win,
                     step,
                     min_grad,
@@ -455,7 +455,7 @@ fn main() -> Result<(), Error> {
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 tag,
-                strand,
+                mod_strand,
                 win,
                 step,
                 threshold_and_abs_gradient,
