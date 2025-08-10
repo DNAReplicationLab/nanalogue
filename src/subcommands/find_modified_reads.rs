@@ -4,19 +4,15 @@
 //! filtration criteria on these windows using user-supplied parameters
 //! and output these reads.
 
-use crate::{CurrRead, Error, F32Bw0and1, ModChar, RestrictModCalledStrand, ThresholdState};
+use crate::{CurrRead, Error, F32Bw0and1, InputWindowing, ThresholdState};
 use rust_htslib::bam::Record;
-use std::num::NonZeroU32;
 use std::rc::Rc;
 
 /// Finds read ids of molecules that fit filtration criteria on
 /// windowed modification data.
 pub fn run<F, G, D>(
     bam_records: D,
-    tag: ModChar,
-    strand: Option<RestrictModCalledStrand>,
-    win: NonZeroU32,
-    step: NonZeroU32,
+    window_options: InputWindowing,
     window_function: F,
     window_filter: G,
 ) -> Result<bool, Error>
@@ -36,26 +32,26 @@ where
         curr_read_state.set_read_id(&record)?;
 
         // set the modified read state
-        if let Some(v) = strand {
+        if let Some(v) = window_options.mod_strand {
             curr_read_state.set_mod_data_restrictive(
                 &record,
                 ThresholdState::GtEq(0),
-                |_, s, t| t == tag && s == char::from(v),
+                |_, s, t| t == window_options.tag && s == char::from(v),
             );
         } else {
             curr_read_state.set_mod_data_restrictive(
                 &record,
                 ThresholdState::GtEq(0),
-                |_, _, t| t == tag,
+                |_, _, t| t == window_options.tag,
             );
         }
 
         // apply our windowing function and then the windowing filter
         if match curr_read_state.windowed_mod_data(
             &window_function,
-            win.get().try_into()?,
-            step.get().try_into()?,
-            tag,
+            window_options.win.get().try_into()?,
+            window_options.step.get().try_into()?,
+            window_options.tag,
         )? {
             Some(v) => window_filter(v),
             None => false,

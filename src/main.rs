@@ -1,9 +1,8 @@
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
-    self, BamPreFilt, BamRcRecords, Contains, Error, F32Bw0and1, InputBam, ModChar, OrdPair,
-    RestrictModCalledStrand, ThresholdState, nanalogue_bam_reader, subcommands,
+    self, BamPreFilt, BamRcRecords, Contains, Error, F32Bw0and1, InputBam, InputWindowing, OrdPair,
+    ThresholdState, nanalogue_bam_reader, subcommands,
 };
-use std::num::NonZeroU32;
 use std::ops::RangeInclusive;
 
 #[derive(Parser, Debug)]
@@ -61,18 +60,9 @@ enum FindModReadsCommands {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
-        /// modified tag
-        #[clap(long)]
-        tag: ModChar,
-        /// modified strand
-        #[clap(long)]
-        mod_strand: Option<RestrictModCalledStrand>,
-        /// window size
-        #[clap(long)]
-        win: NonZeroU32,
-        /// step window by this size
-        #[clap(long)]
-        step: NonZeroU32,
+        /// Input windowing options
+        #[clap(flatten)]
+        win: InputWindowing,
         /// only find reads such that all windowed density values are in these limits.
         /// specify as low,high e.g. 0.2,0.7 so that the condition is that all windowed_values
         /// satisfy low <= windowed_value <= high.
@@ -85,18 +75,9 @@ enum FindModReadsCommands {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
-        /// modified tag
-        #[clap(long)]
-        tag: ModChar,
-        /// modified strand
-        #[clap(long)]
-        mod_strand: Option<RestrictModCalledStrand>,
-        /// window size
-        #[clap(long)]
-        win: NonZeroU32,
-        /// step window by this size
-        #[clap(long)]
-        step: NonZeroU32,
+        /// Input windowing options
+        #[clap(flatten)]
+        win: InputWindowing,
         /// high value of criterion i.e. at least one window >= high
         #[clap(long)]
         high: F32Bw0and1,
@@ -107,18 +88,9 @@ enum FindModReadsCommands {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
-        /// modified tag
-        #[clap(long)]
-        tag: ModChar,
-        /// modified strand
-        #[clap(long)]
-        mod_strand: Option<RestrictModCalledStrand>,
-        /// window size
-        #[clap(long)]
-        win: NonZeroU32,
-        /// step window by this size
-        #[clap(long)]
-        step: NonZeroU32,
+        /// Input windowing options
+        #[clap(flatten)]
+        win: InputWindowing,
         /// low value of criterion i.e. at least one window <= low
         #[clap(long)]
         low: F32Bw0and1,
@@ -130,18 +102,9 @@ enum FindModReadsCommands {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
-        /// modified tag
-        #[clap(long)]
-        tag: ModChar,
-        /// modified strand
-        #[clap(long)]
-        mod_strand: Option<RestrictModCalledStrand>,
-        /// window size
-        #[clap(long)]
-        win: NonZeroU32,
-        /// step window by this size
-        #[clap(long)]
-        step: NonZeroU32,
+        /// Input windowing options
+        #[clap(flatten)]
+        win: InputWindowing,
         /// low criterion i.e. at least one window <= low,
         /// anded with the high criterion
         #[clap(long)]
@@ -158,18 +121,9 @@ enum FindModReadsCommands {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
-        /// modified tag
-        #[clap(long)]
-        tag: ModChar,
-        /// modified strand
-        #[clap(long)]
-        mod_strand: Option<RestrictModCalledStrand>,
-        /// window size
-        #[clap(long)]
-        win: NonZeroU32,
-        /// step window by this size
-        #[clap(long)]
-        step: NonZeroU32,
+        /// Input windowing options
+        #[clap(flatten)]
+        win: InputWindowing,
         /// max(windowed densities) - min(windowed densities)
         /// is at least this value
         #[clap(long)]
@@ -177,22 +131,14 @@ enum FindModReadsCommands {
     },
     /// Find reads such that absolute value of gradient in modification density
     /// measured in windows is at least the value specified.
+    /// This operation enriches for reads with spatial gradients in modification density.
     AnyAbsGradAbove {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
-        /// modified tag
-        #[clap(long)]
-        tag: ModChar,
-        /// modified strand
-        #[clap(long)]
-        mod_strand: Option<RestrictModCalledStrand>,
-        /// window size
-        #[clap(long)]
-        win: NonZeroU32,
-        /// step window by this size
-        #[clap(long)]
-        step: NonZeroU32,
+        /// Input windowing options
+        #[clap(flatten)]
+        win: InputWindowing,
         /// gradient is at least this value. e.g. a gradient of 0.005 with a window
         /// size of 100 means you expect a variation of 0.005 * 100 = 0.5 over at least
         /// one window i.e. greater than 0.5 or smaller than -0.5. For your guidance,
@@ -298,10 +244,7 @@ fn main() -> Result<(), Error> {
             command:
                 FindModReadsCommands::AllDensBetween {
                     bam,
-                    tag,
-                    mod_strand,
                     win,
-                    step,
                     dens_limits,
                 },
         } => {
@@ -309,10 +252,7 @@ fn main() -> Result<(), Error> {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
-                tag,
-                mod_strand,
                 win,
-                step,
                 threshold_and_mean,
                 |x| {
                     x.iter()
@@ -321,25 +261,14 @@ fn main() -> Result<(), Error> {
             )
         }
         Commands::FindModifiedReads {
-            command:
-                FindModReadsCommands::AnyDensAbove {
-                    bam,
-                    tag,
-                    mod_strand,
-                    win,
-                    step,
-                    high,
-                },
+            command: FindModReadsCommands::AnyDensAbove { bam, win, high },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
-                tag,
-                mod_strand,
                 win,
-                step,
                 threshold_and_mean,
                 |x| {
                     x.iter()
@@ -348,25 +277,14 @@ fn main() -> Result<(), Error> {
             )
         }
         Commands::FindModifiedReads {
-            command:
-                FindModReadsCommands::AnyDensBelow {
-                    bam,
-                    tag,
-                    mod_strand,
-                    win,
-                    step,
-                    low,
-                },
+            command: FindModReadsCommands::AnyDensBelow { bam, win, low },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
-                tag,
-                mod_strand,
                 win,
-                step,
                 threshold_and_mean,
                 |x| {
                     x.iter()
@@ -378,10 +296,7 @@ fn main() -> Result<(), Error> {
             command:
                 FindModReadsCommands::AnyDensBelowAndAnyDensAbove {
                     bam,
-                    tag,
-                    mod_strand,
                     win,
-                    step,
                     low,
                     high,
                 },
@@ -392,10 +307,7 @@ fn main() -> Result<(), Error> {
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
-                tag,
-                mod_strand,
                 win,
-                step,
                 threshold_and_mean,
                 |x| {
                     x.iter()
@@ -409,10 +321,7 @@ fn main() -> Result<(), Error> {
             command:
                 FindModReadsCommands::DensRangeAbove {
                     bam,
-                    tag,
-                    mod_strand,
                     win,
-                    step,
                     min_range,
                 },
         } => {
@@ -420,10 +329,7 @@ fn main() -> Result<(), Error> {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
-                tag,
-                mod_strand,
                 win,
-                step,
                 threshold_and_mean,
                 |x| {
                     x.iter()
@@ -439,25 +345,14 @@ fn main() -> Result<(), Error> {
             )
         }
         Commands::FindModifiedReads {
-            command:
-                FindModReadsCommands::AnyAbsGradAbove {
-                    bam,
-                    tag,
-                    mod_strand,
-                    win,
-                    step,
-                    min_grad,
-                },
+            command: FindModReadsCommands::AnyAbsGradAbove { bam, win, min_grad },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let interval_min_grad_to_1 = OrdPair::new(min_grad, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
-                tag,
-                mod_strand,
                 win,
-                step,
                 threshold_and_abs_gradient,
                 |x| {
                     x.iter()

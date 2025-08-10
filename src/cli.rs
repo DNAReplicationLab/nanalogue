@@ -1,6 +1,7 @@
 //! # Cli
 //!
 //! This file provides some global options in the command line interface.
+use crate::{ModChar, RestrictModCalledStrand};
 use clap::Args;
 use std::num::NonZeroU32;
 
@@ -29,4 +30,22 @@ pub struct InputBam {
     /// e.g. CIGAR strings.
     #[clap(long, default_value_t = false)]
     pub exclude_zero_len: bool,
+}
+
+/// This struct contains the options input to our
+/// modification-data-windowing functions
+#[derive(Debug, Args)]
+pub struct InputWindowing {
+    /// modified tag
+    #[clap(long)]
+    pub tag: ModChar,
+    /// modified strand
+    #[clap(long)]
+    pub mod_strand: Option<RestrictModCalledStrand>,
+    /// window size
+    #[clap(long)]
+    pub win: NonZeroU32,
+    /// step window by this size
+    #[clap(long)]
+    pub step: NonZeroU32,
 }

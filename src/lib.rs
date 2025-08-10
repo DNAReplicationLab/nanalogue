@@ -26,7 +26,7 @@ pub mod subcommands;
 pub mod utils;
 
 // Re-exports
-pub use cli::InputBam;
+pub use cli::{InputBam, InputWindowing};
 pub use error::Error;
 pub use read_utils::{CurrRead, ReadState, ThresholdState};
 pub use utils::{Contains, F32Bw0and1, ModChar, OrdPair, RestrictModCalledStrand};
