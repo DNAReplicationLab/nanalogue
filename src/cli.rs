@@ -39,7 +39,8 @@ pub struct InputWindowing {
     /// modified tag
     #[clap(long)]
     pub tag: ModChar,
-    /// modified strand
+    /// modified strand, set this to bc or bc_comp, meaning
+    /// on basecalled strand or its complement
     #[clap(long)]
     pub mod_strand: Option<RestrictModCalledStrand>,
     /// size of window in units of base being queried i.e.
