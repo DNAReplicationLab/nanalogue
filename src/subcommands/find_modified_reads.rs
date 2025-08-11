@@ -49,6 +49,11 @@ where
             );
         }
 
+        match window_options.trim_read_ends {
+            0 => {}
+            v => curr_read_state.filter_starts_at_read_ends(v),
+        }
+
         // apply our windowing function and then the windowing filter
         if match curr_read_state.windowed_mod_data(
             &window_function,

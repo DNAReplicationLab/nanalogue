@@ -482,6 +482,15 @@ impl CurrRead {
             None => None,
         }
     }
+    /// Filter read by throwing out so many bp at the
+    /// start and end of reads.
+    pub fn filter_starts_at_read_ends(&mut self, trim_size: u64) {
+        if let Some((v, _)) = &mut self.mods {
+            for k in &mut v.base_mods {
+                k.ranges.filter_starts_at_read_ends(trim_size as i64);
+            }
+        }
+    }
     /// Uses only alignment information and no modification information to
     /// create the struct. Use this if you want to perform operations that
     /// do not involve reading or manipulating the modification data.

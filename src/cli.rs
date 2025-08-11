@@ -42,14 +42,24 @@ pub struct InputWindowing {
     /// modified strand
     #[clap(long)]
     pub mod_strand: Option<RestrictModCalledStrand>,
-    /// window size
+    /// size of window in units of base being queried i.e.
+    /// if you are looking for cytosine modifications, then
+    /// a window of a value 300 means create windows each with
+    /// 300 cytosines irrespective of their modification status.
     #[clap(long)]
     pub win: NonZeroU32,
-    /// step window by this size
+    /// step window by this size in units of base being queried.
     #[clap(long)]
     pub step: NonZeroU32,
-    /// Filter to reject mods before windowing,
-    /// we allow all mods through.
+    /// Filter to reject mods before windowing;
+    /// we allow all mods through for now and
+    /// do not expose this to the user.
     #[clap(skip)]
     pub mod_prob_filter: ThresholdState,
+    /// Filter this many bp at the start and
+    /// end of a read before any windowing.
+    /// Please note that the units here are bp and
+    /// not units of base being queried.
+    #[clap(long, default_value_t = 0)]
+    pub trim_read_ends: u64,
 }
