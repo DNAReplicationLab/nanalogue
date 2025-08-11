@@ -40,7 +40,13 @@ pub struct InputWindowing {
     #[clap(long)]
     pub tag: ModChar,
     /// modified strand, set this to bc or bc_comp, meaning
-    /// on basecalled strand or its complement
+    /// on basecalled strand or its complement. Some technologies
+    /// like PacBio or ONT duplex can call mod data on both a strand
+    /// and its complementary DNA and store it in the record corresponding
+    /// to the strand, so you can use this filter to select only for
+    /// mod data on a strand or its complement. Please note that this
+    /// filter is different from selecting for forward or reverse
+    /// aligned reads using the BAM flags.
     #[clap(long)]
     pub mod_strand: Option<RestrictModCalledStrand>,
     /// size of window in units of base being queried i.e.

@@ -154,15 +154,14 @@ fn main() -> Result<(), Error> {
     let cli = Cli::parse();
 
     // threshold and calculate mean modification density per window
-    let threshold_and_mean =
-        |mod_list: &[u8], _: &[Option<i64>], _: &[Option<i64>]| -> Result<F32Bw0and1, Error> {
-            let win_size: usize = mod_list.len();
-            let count_mod: usize = mod_list
-                .iter()
-                .filter(|x| ThresholdState::GtEq(128).contains(x))
-                .count();
-            F32Bw0and1::new(count_mod as f32 / win_size as f32)
-        };
+    let threshold_and_mean = |mod_list: &[u8]| -> Result<F32Bw0and1, Error> {
+        let win_size: usize = mod_list.len();
+        let count_mod: usize = mod_list
+            .iter()
+            .filter(|x| ThresholdState::GtEq(128).contains(x))
+            .count();
+        F32Bw0and1::new(count_mod as f32 / win_size as f32)
+    };
 
     // threshold and calculate gradient of mod density per window.
     // NOTE: to calculate gradient, we need (x, y) data where x is the
@@ -174,26 +173,25 @@ fn main() -> Result<(), Error> {
     // are missing along the read, or in other scenarios. As our goal
     // here is to use a simple method to calculate gradients and select
     // interesting reads, we are o.k. with an approximate calculation.
-    let threshold_and_abs_gradient =
-        |mod_list: &[u8], _: &[Option<i64>], _: &[Option<i64>]| -> Result<F32Bw0and1, Error> {
-            let win_size = mod_list.len();
-            let x_mean: f32 = (win_size as f32 + 1.0) / 2.0;
-            let numerator: f32 = mod_list
-                .iter()
-                .enumerate()
-                .map(|(i, x)| {
-                    if ThresholdState::GtEq(128).contains(x) {
-                        i as f32 + 1.0 - x_mean
-                    } else {
-                        0.0
-                    }
-                })
-                .sum();
-            let denominator: f32 = (1..=win_size)
-                .map(|x| (x as f32 - x_mean) * (x as f32 - x_mean))
-                .sum();
-            F32Bw0and1::new(f32::abs(numerator) / denominator)
-        };
+    let threshold_and_abs_gradient = |mod_list: &[u8]| -> Result<F32Bw0and1, Error> {
+        let win_size = mod_list.len();
+        let x_mean: f32 = (win_size as f32 + 1.0) / 2.0;
+        let numerator: f32 = mod_list
+            .iter()
+            .enumerate()
+            .map(|(i, x)| {
+                if ThresholdState::GtEq(128).contains(x) {
+                    i as f32 + 1.0 - x_mean
+                } else {
+                    0.0
+                }
+            })
+            .sum();
+        let denominator: f32 = (1..=win_size)
+            .map(|x| (x as f32 - x_mean) * (x as f32 - x_mean))
+            .sum();
+        F32Bw0and1::new(f32::abs(numerator) / denominator)
+    };
 
     /// pre filtering the BAM file according to input options
     macro_rules! pre_filt {

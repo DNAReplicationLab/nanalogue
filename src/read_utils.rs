@@ -388,7 +388,7 @@ impl CurrRead {
         tag: ModChar,
     ) -> Result<Option<Vec<F32Bw0and1>>, Error>
     where
-        F: Fn(&[u8], &[Option<i64>], &[Option<i64>]) -> Result<F32Bw0and1, Error>,
+        F: Fn(&[u8]) -> Result<F32Bw0and1, Error>,
     {
         let mut result = Vec::<F32Bw0and1>::new();
         let mut plus_mod_strand_seen = false;
@@ -432,20 +432,12 @@ impl CurrRead {
                             _ => return Err(Error::InvalidModType),
                         }
                         let mod_data = &track.qual;
-                        let mod_starts = &track.starts;
-                        let mod_ref_starts = &track.reference_starts;
                         if win_size > mod_data.len() {
                             continue;
                         }
                         result = (0..=mod_data.len() - win_size)
                             .step_by(slide_size)
-                            .map(|i| {
-                                window_function(
-                                    &mod_data[i..i + win_size],
-                                    &mod_starts[i..i + win_size],
-                                    &mod_ref_starts[i..i + win_size],
-                                )
-                            })
+                            .map(|i| window_function(&mod_data[i..i + win_size]))
                             .collect::<Result<Vec<F32Bw0and1>, _>>()?;
                     }
                     _ => {}

@@ -18,8 +18,8 @@ pub fn run<F, G, D>(
     window_filter: G,
 ) -> Result<bool, Error>
 where
-    F: Fn(&[u8], &[Option<i64>], &[Option<i64>]) -> Result<F32Bw0and1, Error>,
-    G: Fn(Vec<F32Bw0and1>) -> bool,
+    F: Fn(&[u8]) -> Result<F32Bw0and1, Error>,
+    G: Fn(&Vec<F32Bw0and1>) -> bool,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // This apparently helps writing to the terminal faster,
@@ -62,7 +62,7 @@ where
             window_options.step.get().try_into()?,
             window_options.tag,
         )? {
-            Some(v) => window_filter(v),
+            Some(v) => window_filter(&v),
             None => false,
         } {
             writeln!(handle, "{}", curr_read_state.read_id()?)?;
