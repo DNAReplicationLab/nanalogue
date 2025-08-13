@@ -4,7 +4,7 @@
 //! filtration criteria on these windows using user-supplied parameters
 //! and output these reads.
 
-use crate::{CurrRead, Error, F32Bw0and1, InputWindowing};
+use crate::{CurrRead, Error, F32Bw0and1, InputWindowingRestricted};
 use rust_htslib::bam::Record;
 use std::io::{self, Write};
 use std::rc::Rc;
@@ -13,7 +13,7 @@ use std::rc::Rc;
 /// windowed modification data.
 pub fn run<F, G, D>(
     bam_records: D,
-    window_options: InputWindowing,
+    window_options: InputWindowingRestricted,
     window_function: F,
     window_filter: G,
 ) -> Result<bool, Error>
@@ -36,13 +36,13 @@ where
 
         // set the modified read state
         if let Some(v) = window_options.mod_strand {
-            curr_read_state.set_mod_data_restrictive(
+            curr_read_state.set_mod_data_restricted(
                 &record,
                 window_options.mod_prob_filter,
                 |_, s, t| t == window_options.tag && s == char::from(v),
             );
         } else {
-            curr_read_state.set_mod_data_restrictive(
+            curr_read_state.set_mod_data_restricted(
                 &record,
                 window_options.mod_prob_filter,
                 |_, _, t| t == window_options.tag,
@@ -56,7 +56,7 @@ where
         }
 
         // apply our windowing function and then the windowing filter
-        if match curr_read_state.windowed_mod_data(
+        if match curr_read_state.windowed_mod_data_restricted(
             &window_function,
             window_options.win.get().try_into()?,
             window_options.step.get().try_into()?,

@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
-    self, BamPreFilt, BamRcRecords, Contains, Error, F32Bw0and1, InputBam, InputWindowing, OrdPair,
-    ThresholdState, nanalogue_bam_reader, subcommands,
+    self, BamPreFilt, BamRcRecords, Contains, Error, F32AbsValBelow1, F32Bw0and1, InputBam,
+    InputWindowing, InputWindowingRestricted, OrdPair, ThresholdState, nanalogue_bam_reader,
+    subcommands,
 };
 use std::ops::RangeInclusive;
 
@@ -51,6 +52,24 @@ enum Commands {
         #[command(subcommand)]
         command: FindModReadsCommands,
     },
+    /// Output windowed densities of all reads
+    OutputWindowDens {
+        /// Input BAM file
+        #[clap(flatten)]
+        bam: InputBam,
+        /// Input windowing options
+        #[clap(flatten)]
+        win: InputWindowing,
+    },
+    /// Output windowed gradients of all reads
+    OutputWindowGrad {
+        /// Input BAM file
+        #[clap(flatten)]
+        bam: InputBam,
+        /// Input windowing options
+        #[clap(flatten)]
+        win: InputWindowing,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -62,7 +81,7 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowing,
+        win: InputWindowingRestricted,
         /// only find reads such that all windowed density values are in these limits.
         /// specify as low,high e.g. 0.2,0.7 so that the condition is that all windowed_values
         /// satisfy low <= windowed_value <= high.
@@ -77,7 +96,7 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowing,
+        win: InputWindowingRestricted,
         /// high value of criterion i.e. at least one window >= high
         #[clap(long)]
         high: F32Bw0and1,
@@ -90,7 +109,7 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowing,
+        win: InputWindowingRestricted,
         /// low value of criterion i.e. at least one window <= low
         #[clap(long)]
         low: F32Bw0and1,
@@ -104,7 +123,7 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowing,
+        win: InputWindowingRestricted,
         /// low criterion i.e. at least one window <= low,
         /// anded with the high criterion
         #[clap(long)]
@@ -123,7 +142,7 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowing,
+        win: InputWindowingRestricted,
         /// max(windowed densities) - min(windowed densities)
         /// is at least this value
         #[clap(long)]
@@ -138,7 +157,7 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowing,
+        win: InputWindowingRestricted,
         /// gradient is at least this value. e.g. a gradient of 0.005 with a window
         /// size of 100 means you expect a variation of 0.005 * 100 = 0.5 over at least
         /// one window i.e. greater than 0.5 or smaller than -0.5. For your guidance,
@@ -173,7 +192,7 @@ fn main() -> Result<(), Error> {
     // are missing along the read, or in other scenarios. As our goal
     // here is to use a simple method to calculate gradients and select
     // interesting reads, we are o.k. with an approximate calculation.
-    let threshold_and_abs_gradient = |mod_list: &[u8]| -> Result<F32Bw0and1, Error> {
+    let threshold_and_gradient = |mod_list: &[u8]| -> Result<F32AbsValBelow1, Error> {
         let win_size = mod_list.len();
         let x_mean: f32 = (win_size as f32 + 1.0) / 2.0;
         let numerator: f32 = mod_list
@@ -190,7 +209,7 @@ fn main() -> Result<(), Error> {
         let denominator: f32 = (1..=win_size)
             .map(|x| (x as f32 - x_mean) * (x as f32 - x_mean))
             .sum();
-        F32Bw0and1::new(f32::abs(numerator) / denominator)
+        F32AbsValBelow1::new(numerator / denominator)
     };
 
     /// pre filtering the BAM file according to input options
@@ -351,11 +370,37 @@ fn main() -> Result<(), Error> {
             subcommands::find_modified_reads::run(
                 pre_filt!(bam_rc_records, &bam),
                 win,
-                threshold_and_abs_gradient,
+                |x| {
+                    Ok(F32Bw0and1::abs_f32_abs_val_below_1(threshold_and_gradient(
+                        x,
+                    )?))
+                },
                 |x| {
                     x.iter()
                         .any(|r| RangeInclusive::from(interval_min_grad_to_1).contains(r))
                 },
+            )
+        }
+        Commands::OutputWindowDens { bam, win } => {
+            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let contig_names = bam_rc_records.contig_names.clone();
+            subcommands::window_reads::run(
+                pre_filt!(bam_rc_records, &bam),
+                win,
+                |x| Ok(F32AbsValBelow1::from(threshold_and_mean(x)?)),
+                Some(contig_names),
+            )
+        }
+        Commands::OutputWindowGrad { bam, win } => {
+            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let contig_names = bam_rc_records.contig_names.clone();
+            subcommands::window_reads::run(
+                pre_filt!(bam_rc_records, &bam),
+                win,
+                threshold_and_gradient,
+                Some(contig_names),
             )
         }
     };

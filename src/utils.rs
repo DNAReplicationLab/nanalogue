@@ -169,6 +169,10 @@ impl F32Bw0and1 {
     pub fn zero() -> Self {
         F32Bw0and1::new(0.0).expect("no error")
     }
+    /// Converts from F32AbsValBelow1 using the absolute value
+    pub fn abs_f32_abs_val_below_1(val: F32AbsValBelow1) -> Self {
+        F32Bw0and1::new(f32::abs(val.get_val())).expect("no error")
+    }
 }
 
 impl FromStr for F32Bw0and1 {
@@ -188,6 +192,84 @@ impl From<u8> for F32Bw0and1 {
 }
 
 impl fmt::Display for F32Bw0and1 {
+    /// converts to string for display.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.get_val())
+    }
+}
+
+/// Datatype holding a float (f32) between 0 and 1 (both inclusive) guaranteed at creation.
+#[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
+pub struct F32AbsValBelow1 {
+    val: f32,
+}
+
+impl F32AbsValBelow1 {
+    /// Constructor, will fail if float is not between -1 and 1
+    ///
+    /// ```should_panic
+    /// use nanalogue_core::Error;
+    /// use nanalogue_core::F32AbsValBelow1;
+    /// let x = F32AbsValBelow1::new(-1.1)?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    /// ```should_panic
+    /// use nanalogue_core::Error;
+    /// use nanalogue_core::F32AbsValBelow1;
+    /// let x = F32AbsValBelow1::new(1.1)?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    /// ```
+    /// use nanalogue_core::Error;
+    /// use nanalogue_core::F32AbsValBelow1;
+    /// let x = F32AbsValBelow1::new(0.1)?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    /// ```
+    /// use nanalogue_core::Error;
+    /// use nanalogue_core::F32AbsValBelow1;
+    /// let x = F32AbsValBelow1::new(-0.5)?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    pub fn new(val: f32) -> Result<Self, Error> {
+        if (-1.0..=1.0).contains(&val) {
+            Ok(F32AbsValBelow1 { val })
+        } else {
+            Err(Error::InvalidState("Num not b/w -1 and 1!".to_string()))
+        }
+    }
+    /// Returns the value of the float.
+    ///
+    /// ```
+    /// use nanalogue_core::F32AbsValBelow1;
+    /// for y in vec![0.0,0.1,-0.7,1.0,-1.0]{
+    ///     let x = F32AbsValBelow1::new(y.clone())?;
+    ///     assert_eq!(x.get_val(), y);
+    /// }
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    pub fn get_val(&self) -> f32 {
+        self.val
+    }
+}
+
+impl FromStr for F32AbsValBelow1 {
+    type Err = Error;
+
+    /// Parse a string to obtain float and then convert if b/w -1 and 1
+    fn from_str(val_str: &str) -> Result<Self, Self::Err> {
+        Self::new(f32::from_str(val_str)?)
+    }
+}
+
+impl From<F32Bw0and1> for F32AbsValBelow1 {
+    /// Convert between the two types of floats
+    fn from(value: F32Bw0and1) -> Self {
+        F32AbsValBelow1::new(value.get_val()).expect("no F32 conversion error")
+    }
+}
+
+impl fmt::Display for F32AbsValBelow1 {
     /// converts to string for display.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.get_val())

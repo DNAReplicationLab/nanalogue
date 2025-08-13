@@ -355,7 +355,7 @@ impl CurrRead {
     }
     /// sets modification data using BAM record but restricted to the
     /// specified filters
-    pub fn set_mod_data_restrictive<G>(
+    pub fn set_mod_data_restricted<G>(
         &mut self,
         record: &Record,
         mod_thres: ThresholdState,
@@ -379,8 +379,8 @@ impl CurrRead {
             _ => Ok(&self.mods),
         }
     }
-    /// window modification data
-    pub fn windowed_mod_data<F>(
+    /// window modification data with restrictions
+    pub fn windowed_mod_data_restricted<F>(
         &self,
         window_function: &F,
         win_size: usize,
@@ -492,6 +492,19 @@ impl CurrRead {
         curr_read_state.set_align_len(&record)?;
         curr_read_state.set_contig_id_and_start(&record)?;
         Ok(curr_read_state)
+    }
+    /// Returns the character corresponding to the strand
+    pub fn strand(&self) -> Result<char, Error> {
+        match &self.state {
+            ReadState::Unknown => Err(Error::UnknownAlignState),
+            ReadState::Unmapped => Ok('.'),
+            ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd => {
+                Ok('+')
+            }
+            ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
+                Ok('-')
+            }
+        }
     }
 }
 

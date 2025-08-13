@@ -33,9 +33,10 @@ pub struct InputBam {
 }
 
 /// This struct contains the options input to our
-/// modification-data-windowing functions
+/// modification-data-windowing functions with restrictions
+/// on data before windowing is done
 #[derive(Debug, Args)]
-pub struct InputWindowing {
+pub struct InputWindowingRestricted {
     /// modified tag
     #[clap(long)]
     pub tag: ModChar,
@@ -69,4 +70,19 @@ pub struct InputWindowing {
     /// not units of base being queried.
     #[clap(long, default_value_t = 0)]
     pub trim_read_ends: u64,
+}
+
+/// This struct contains the options input to our
+/// modification-data-windowing functions
+#[derive(Debug, Args)]
+pub struct InputWindowing {
+    /// size of window in units of base being queried i.e.
+    /// if you are looking for cytosine modifications, then
+    /// a window of a value 300 means create windows each with
+    /// 300 cytosines irrespective of their modification status.
+    #[clap(long)]
+    pub win: NonZeroU32,
+    /// step window by this size in units of base being queried.
+    #[clap(long)]
+    pub step: NonZeroU32,
 }
