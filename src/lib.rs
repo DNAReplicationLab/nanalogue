@@ -221,6 +221,16 @@ where
 /// information in the BAM file such as alignment lengths or coordinates etc.
 /// NOTE: we don't derive many traits here as the RcRecords object
 /// does not have many traits.
+///
+/// ```
+/// use nanalogue_core::{Error, nanalogue_bam_reader, BamRcRecords, InputBam};
+/// use rust_htslib::bam::Read;
+/// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+/// let mut bam_opts = InputBam::default();
+/// let BamRcRecords = BamRcRecords::new(&mut reader, &bam_opts)?;
+/// assert_eq!(BamRcRecords.contig_names, vec!["dummyI".to_string(), "dummyII".to_string(), "dummyIII".to_string()]);
+/// # Ok::<(), Error>(())
+/// ```
 #[derive(Debug)]
 pub struct BamRcRecords<'a> {
     /// RcRecords object output by rust htslib which we can iterate over
@@ -253,6 +263,20 @@ impl<'a> BamRcRecords<'a> {
 }
 
 /// Opens BAM file, also copied and edited from fiberseq repo.
+///
+/// ```
+/// use nanalogue_core::{Error, nanalogue_bam_reader};
+/// use rust_htslib::bam::Read;
+/// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+/// // the above file should contain three reads, so we are checking
+/// // if we load three records.
+/// let mut count = 0;
+/// for r in reader.records() {
+///     count = count + 1;
+/// }
+/// assert_eq!(count, 3);
+/// # Ok::<(), Error>(())
+/// ```
 pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
     if bam_path == "-" {
         Ok(bam::Reader::from_stdin()?)
@@ -275,6 +299,30 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 /// bam_opts.min_seq_len = 20;
 /// assert_eq!(bam_record.pre_filt(&bam_opts), true);
 /// bam_opts.min_seq_len = 120;
+/// assert_eq!(bam_record.pre_filt(&bam_opts), false);
+/// # Ok::<(), Error>(())
+/// ```
+/// ```should_panic
+/// use nanalogue_core::{BamPreFilt, InputBam, Error};
+/// use rust_htslib::bam::record;
+/// use rust_htslib::bam::record::{Cigar, CigarString};
+/// let mut bam_record = record::Record::new();
+/// let mut bam_opts = InputBam::default();
+/// bam_opts.min_seq_len = 20;
+/// bam_opts.exclude_zero_len = false;
+/// // as this is a zero-length record, setting exclude zero len to false
+/// // should cause a panic
+/// assert_eq!(bam_record.pre_filt(&bam_opts), false);
+/// # Ok::<(), Error>(())
+/// ```
+/// ```
+/// use nanalogue_core::{BamPreFilt, InputBam, Error};
+/// use rust_htslib::bam::record;
+/// use rust_htslib::bam::record::{Cigar, CigarString};
+/// let mut bam_record = record::Record::new();
+/// let mut bam_opts = InputBam::default();
+/// bam_opts.min_seq_len = 20;
+/// bam_opts.exclude_zero_len = true;
 /// assert_eq!(bam_record.pre_filt(&bam_opts), false);
 /// # Ok::<(), Error>(())
 /// ```
