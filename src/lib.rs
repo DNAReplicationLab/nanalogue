@@ -288,6 +288,8 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 /// Trait that performs filtration on structs implementing SequenceRead
 /// such as a rust_htslib Record
 ///
+/// Filter in action below, 100 bp read passed with a 20 bp filter
+/// but fails with a 120 bp filter
 /// ```
 /// use nanalogue_core::{BamPreFilt, InputBam, Error};
 /// use rust_htslib::bam::record;
@@ -302,23 +304,25 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 /// assert_eq!(bam_record.pre_filt(&bam_opts), false);
 /// # Ok::<(), Error>(())
 /// ```
+/// If zero-length records are expected, a specific input
+/// flag is needed for the program to ignore them. Otherwise,
+/// we get a panic.
 /// ```should_panic
-/// use nanalogue_core::{BamPreFilt, InputBam, Error};
-/// use rust_htslib::bam::record;
-/// use rust_htslib::bam::record::{Cigar, CigarString};
+/// # use nanalogue_core::{BamPreFilt, InputBam, Error};
+/// # use rust_htslib::bam::record;
+/// # use rust_htslib::bam::record::{Cigar, CigarString};
 /// let mut bam_record = record::Record::new();
 /// let mut bam_opts = InputBam::default();
 /// bam_opts.min_seq_len = 20;
 /// bam_opts.exclude_zero_len = false;
-/// // as this is a zero-length record, setting exclude zero len to false
-/// // should cause a panic
 /// assert_eq!(bam_record.pre_filt(&bam_opts), false);
 /// # Ok::<(), Error>(())
 /// ```
+/// No panic when the filter is set.
 /// ```
-/// use nanalogue_core::{BamPreFilt, InputBam, Error};
-/// use rust_htslib::bam::record;
-/// use rust_htslib::bam::record::{Cigar, CigarString};
+/// # use nanalogue_core::{BamPreFilt, InputBam, Error};
+/// # use rust_htslib::bam::record;
+/// # use rust_htslib::bam::record::{Cigar, CigarString};
 /// let mut bam_record = record::Record::new();
 /// let mut bam_opts = InputBam::default();
 /// bam_opts.min_seq_len = 20;
