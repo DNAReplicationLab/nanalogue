@@ -26,6 +26,13 @@ where
     // according to https://rust-cli.github.io/book/tutorial/output.html
     let stdout = io::stdout();
     let mut handle = io::BufWriter::new(stdout);
+    let trim_end_bp = match window_options.trim_read_ends {
+        v if v <= i64::MAX as u64 => Ok(v as i64),
+        _ => Err(Error::NotImplementedError(format!(
+            "cannot trim ends beyond {}",
+            i64::MAX
+        ))),
+    }?;
 
     // Go record by record in the BAM file,
     for r in bam_records {
@@ -33,26 +40,41 @@ where
         let mut curr_read_state = CurrRead::default();
         let record = r?;
         curr_read_state.set_read_id(&record)?;
+        let seq_len: i64 = match curr_read_state.set_seq_len(&record) {
+            Err(_) | Ok(None) => Err(Error::InvalidSeqLength),
+            Ok(Some(v)) if v <= i64::MAX as u64 => Ok(v as i64),
+            Ok(Some(_)) => Err(Error::NotImplementedError(format!(
+                "sequence length larger than {}!",
+                i64::MAX
+            ))),
+        }?;
 
         // set the modified read state
-        if let Some(v) = window_options.mod_strand {
-            curr_read_state.set_mod_data_restricted(
+        match (&trim_end_bp, &window_options.mod_strand) {
+            (0, &Some(v)) => curr_read_state.set_mod_data_restricted(
                 &record,
                 window_options.mod_prob_filter,
-                |_, s, t| t == window_options.tag && s == char::from(v),
-            );
-        } else {
-            curr_read_state.set_mod_data_restricted(
+                |&_| true,
+                |_, &s, &t| t == window_options.tag && s == char::from(v),
+            ),
+            (&w, &Some(v)) => curr_read_state.set_mod_data_restricted(
                 &record,
                 window_options.mod_prob_filter,
-                |_, _, t| t == window_options.tag,
-            );
-        }
-
-        // trim ends of reads if requested
-        match window_options.trim_read_ends {
-            0 => {}
-            v => curr_read_state.filter_starts_at_read_ends(v),
+                |&x| x >= w && x <= seq_len - w,
+                |_, &s, &t| t == window_options.tag && s == char::from(v),
+            ),
+            (0, None) => curr_read_state.set_mod_data_restricted(
+                &record,
+                window_options.mod_prob_filter,
+                |&_| true,
+                |_, _, &t| t == window_options.tag,
+            ),
+            (&w, None) => curr_read_state.set_mod_data_restricted(
+                &record,
+                window_options.mod_prob_filter,
+                |&x| x >= w && x <= seq_len - w,
+                |_, _, &t| t == window_options.tag,
+            ),
         }
 
         // apply our windowing function and then the windowing filter

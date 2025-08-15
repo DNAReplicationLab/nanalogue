@@ -3,12 +3,13 @@
 //! This file provides some global options in the command line interface.
 use crate::{ModChar, RestrictModCalledStrand, ThresholdState};
 use clap::Args;
+use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 
 /// This struct is used to parse the input bam file and the filters that should be applied to the bam file.
 /// This struct is parsed to create command line arguments and then passed to many functions.
 /// We have copied and edited a similar struct from the fibertools-rs repository.
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Serialize, Deserialize)]
 pub struct InputBam {
     /// Input BAM file. If no path is provided stdin is used.
     #[clap(default_value = "-")]
@@ -32,10 +33,22 @@ pub struct InputBam {
     pub exclude_zero_len: bool,
 }
 
+/// Implements a default class for InputBAM
+impl Default for InputBam {
+    fn default() -> Self {
+        InputBam {
+            bam_path: "".to_string(),
+            min_seq_len: 0,
+            threads: NonZeroU32::new(1).expect("no error"),
+            exclude_zero_len: false,
+        }
+    }
+}
+
 /// This struct contains the options input to our
 /// modification-data-windowing functions with restrictions
 /// on data before windowing is done
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Serialize, Deserialize)]
 pub struct InputWindowingRestricted {
     /// modified tag
     #[clap(long)]
@@ -72,9 +85,25 @@ pub struct InputWindowingRestricted {
     pub trim_read_ends: u64,
 }
 
+/// Implements a default for InputWindowingRestricted
+/// NOTE: we choose an arbitrary default value of 100
+/// for win and step.
+impl Default for InputWindowingRestricted {
+    fn default() -> Self {
+        InputWindowingRestricted {
+            tag: ModChar::new('N'),
+            mod_strand: None,
+            win: NonZeroU32::new(100).expect("no error"),
+            step: NonZeroU32::new(100).expect("no error"),
+            mod_prob_filter: ThresholdState::GtEq(0),
+            trim_read_ends: 0,
+        }
+    }
+}
+
 /// This struct contains the options input to our
 /// modification-data-windowing functions
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Serialize, Deserialize)]
 pub struct InputWindowing {
     /// size of window in units of base being queried i.e.
     /// if you are looking for cytosine modifications, then
@@ -85,4 +114,15 @@ pub struct InputWindowing {
     /// step window by this size in units of base being queried.
     #[clap(long)]
     pub step: NonZeroU32,
+}
+
+/// Implements a default for InputWindowing
+/// NOTE: we just choose 100 as the default value arbitrarily.
+impl Default for InputWindowing {
+    fn default() -> Self {
+        InputWindowing {
+            win: NonZeroU32::new(100).expect("no error"),
+            step: NonZeroU32::new(100).expect("no error"),
+        }
+    }
 }

@@ -53,7 +53,7 @@ enum Commands {
         command: FindModReadsCommands,
     },
     /// Output windowed densities of all reads
-    OutputWindowDens {
+    WindowDens {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
@@ -62,7 +62,7 @@ enum Commands {
         win: InputWindowing,
     },
     /// Output windowed gradients of all reads
-    OutputWindowGrad {
+    WindowGrad {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
@@ -381,7 +381,7 @@ fn main() -> Result<(), Error> {
                 },
             )
         }
-        Commands::OutputWindowDens { bam, win } => {
+        Commands::WindowDens { bam, win } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let contig_names = bam_rc_records.contig_names.clone();
@@ -392,7 +392,7 @@ fn main() -> Result<(), Error> {
                 Some(contig_names),
             )
         }
-        Commands::OutputWindowGrad { bam, win } => {
+        Commands::WindowGrad { bam, win } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let contig_names = bam_rc_records.contig_names.clone();

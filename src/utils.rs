@@ -4,6 +4,7 @@
 //! used by all modules in our crate.
 
 use crate::Error;
+use serde::{Deserialize, Serialize};
 use std::convert::From;
 use std::fmt;
 use std::fmt::Debug;
@@ -17,7 +18,7 @@ pub trait Contains<T> {
 }
 
 /// Datatype holding two values low, high such that low <= high is guaranteed at creation.
-#[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
 pub struct OrdPair<T: Clone + Copy + Debug + Default> {
     low: T,
     high: T,
@@ -198,7 +199,7 @@ impl fmt::Display for F32Bw0and1 {
     }
 }
 
-/// Datatype holding a float (f32) between 0 and 1 (both inclusive) guaranteed at creation.
+/// Datatype holding a float (f32) between -1 and 1 (both inclusive) guaranteed at creation.
 #[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
 pub struct F32AbsValBelow1 {
     val: f32,
@@ -291,7 +292,7 @@ impl fmt::Display for F32AbsValBelow1 {
 /// and 59000. We have chosen to live with this problem. I think the probability of
 /// having a DNA modification with a CheBI code overlapping with ASCII values or
 /// within this narrow range of values near 59000 is very small.
-#[derive(Debug, Clone, Default, Copy, Eq, Hash, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Default, Copy, Eq, Hash, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct ModChar {
     val: char,
 }
@@ -359,7 +360,7 @@ impl fmt::Display for ModChar {
 /// command line interface, we allow creation of this from a string
 /// "bc" or "bc_comp" i.e. basecalled or basecalled complement instead
 /// of "+" and "-", which may be mistaken for the alignment strand.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct RestrictModCalledStrand(bool);
 
 /// default mod strand restriction is unknown

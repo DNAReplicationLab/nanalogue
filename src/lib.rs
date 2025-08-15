@@ -63,7 +63,7 @@ pub fn nanalogue_mm_ml_parser<F, G>(
 ) -> BaseMods
 where
     F: Fn(&u8, &i64) -> bool,
-    G: Fn(u8, char, ModChar) -> bool,
+    G: Fn(&u8, &char, &ModChar) -> bool,
 {
     // regex for matching the MM tag
     lazy_static! {
@@ -96,7 +96,7 @@ where
                 .map_or("", |m| m.as_str())
                 .parse()
                 .expect("error");
-            if !filter_mod_base_strand_tag(mod_base, mod_strand, modification_type) {
+            if !filter_mod_base_strand_tag(&mod_base, &mod_strand, &modification_type) {
                 continue;
             }
 
@@ -263,6 +263,21 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 
 /// Trait that performs filtration on structs implementing SequenceRead
 /// such as a rust_htslib Record
+///
+/// ```
+/// use nanalogue_core::{BamPreFilt, InputBam, Error};
+/// use rust_htslib::bam::record;
+/// use rust_htslib::bam::record::{Cigar, CigarString};
+/// let mut bam_record = record::Record::new();
+/// bam_record.set(&vec![b'r',b'e',b'a',b'd'], Some(&CigarString(vec![Cigar::Match(100)])),
+///       &vec![ b'A' as u8; 100], &vec![255 as u8; 100]);
+/// let mut bam_opts = InputBam::default();
+/// bam_opts.min_seq_len = 20;
+/// assert_eq!(bam_record.pre_filt(&bam_opts), true);
+/// bam_opts.min_seq_len = 120;
+/// assert_eq!(bam_record.pre_filt(&bam_opts), false);
+/// # Ok::<(), Error>(())
+/// ```
 pub trait BamPreFilt: SequenceRead {
     /// apply some default filtration e.g. by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {

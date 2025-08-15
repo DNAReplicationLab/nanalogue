@@ -8,6 +8,7 @@ use bedrs::prelude::StrandedBed3;
 use bedrs::{Coordinates, Strand};
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use rust_htslib::{bam::ext::BamRecordExtensions, bam::record::Record};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::num::NonZeroU64;
@@ -17,7 +18,7 @@ use std::rc::Rc;
 use crate::{Contains, Error, F32Bw0and1, ModChar, OrdPair, nanalogue_mm_ml_parser};
 
 /// Alignment state of a read; seven possibilities + one unknown state
-#[derive(Debug, Clone, Default, Copy, PartialEq)]
+#[derive(Debug, Clone, Default, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ReadState {
     /// Unknown alignment
     #[default]
@@ -63,7 +64,7 @@ impl fmt::Display for ReadState {
 /// in this range should be regarded as modified.
 /// Values are 0 to 255 below as that's how they are stored in a modBAM file and
 /// this struct is expected to be used in contexts dealing directly with this data.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ThresholdState {
     /// modification probability >= this value, values are 0 to 255
     GtEq(u8),
@@ -355,18 +356,20 @@ impl CurrRead {
     }
     /// sets modification data using BAM record but restricted to the
     /// specified filters
-    pub fn set_mod_data_restricted<G>(
+    pub fn set_mod_data_restricted<G, H>(
         &mut self,
         record: &Record,
         mod_thres: ThresholdState,
-        mod_filter_base_strand_tag: G,
+        mod_fwd_pos_filter: G,
+        mod_filter_base_strand_tag: H,
     ) where
-        G: Fn(u8, char, ModChar) -> bool,
+        G: Fn(&i64) -> bool,
+        H: Fn(&u8, &char, &ModChar) -> bool,
     {
         self.mods = Some((
             nanalogue_mm_ml_parser(
                 record,
-                |x, _| mod_thres.contains(x),
+                |x, y| mod_thres.contains(x) && mod_fwd_pos_filter(y),
                 mod_filter_base_strand_tag,
             ),
             mod_thres,
@@ -472,15 +475,6 @@ impl CurrRead {
                 }
             }
             None => None,
-        }
-    }
-    /// Filter read by throwing out so many bp at the
-    /// start and end of reads.
-    pub fn filter_starts_at_read_ends(&mut self, trim_size: u64) {
-        if let Some((v, _)) = &mut self.mods {
-            for k in &mut v.base_mods {
-                k.ranges.filter_starts_at_read_ends(trim_size as i64);
-            }
         }
     }
     /// Uses only alignment information and no modification information to
