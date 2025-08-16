@@ -483,7 +483,14 @@ impl CurrRead {
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
     ///     curr_read.set_read_state(&r);
+    ///
     ///     let Ok(read_id) = curr_read.set_read_id(&r) else { unreachable!() };
+    ///     let read_id_clone = String::from(read_id);
+    ///     drop(read_id);
+    ///     let Ok(read_id) = curr_read.read_id() else { unreachable!() };
+    ///     assert_eq!(read_id_clone, read_id);
+    ///     drop(read_id_clone);
+    ///
     ///     match (count, read_id) {
     ///         (0,"5d10eb9a-aae1-4db8-8ec6-7ebb34d32575") |
     ///         (1,"a4f36092-b4d5-47a9-813e-c22c3b477a0c") |
@@ -641,6 +648,33 @@ impl CurrRead {
     /// Performs a count of number of bases per modified type.
     /// Note that this result depends on the type of filtering done
     /// while the struct was created e.g. by modification threshold.
+    ///
+    /// ```
+    /// use nanalogue_core::{CurrRead, Error, ModChar, nanalogue_bam_reader, ThresholdState};
+    /// use rust_htslib::bam::Read;
+    /// use std::collections::HashMap;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// let mut count = 0;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_mod_data(&r, ThresholdState::GtEq(180));
+    ///
+    ///     let mod_count = curr_read.base_count_per_mod();
+    ///     let a = Some(HashMap::from([(ModChar::new('T'), 3)]));
+    ///     let b = Some(HashMap::from([(ModChar::new('T'), 1)]));
+    ///     match (count, mod_count) {
+    ///         (0, None) => {},
+    ///         (1, v) => assert_eq!(v, a),
+    ///         (2, v) => assert_eq!(v, b),
+    ///         (3, v) => assert_eq!(v, a),
+    ///         _ => unreachable!(),
+    ///     }
+    ///     count = count + 1;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
     #[must_use]
     pub fn base_count_per_mod(&self) -> Option<HashMap<ModChar, u32>> {
         let mut output = HashMap::<ModChar, u32>::new();
