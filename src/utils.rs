@@ -33,7 +33,7 @@ impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd> OrdPair<T> {
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     /// ```
-    /// use nanalogue_core::OrdPair;
+    /// # use nanalogue_core::OrdPair;
     /// let x = OrdPair::<f32>::new(0.0, 1.0)?;
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
@@ -137,8 +137,8 @@ impl F32Bw0and1 {
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     /// ```
-    /// use nanalogue_core::Error;
-    /// use nanalogue_core::F32Bw0and1;
+    /// # use nanalogue_core::Error;
+    /// # use nanalogue_core::F32Bw0and1;
     /// let x = F32Bw0and1::new(0.1)?;
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
@@ -215,20 +215,20 @@ impl F32AbsValBelow1 {
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     /// ```should_panic
-    /// use nanalogue_core::Error;
-    /// use nanalogue_core::F32AbsValBelow1;
+    /// # use nanalogue_core::Error;
+    /// # use nanalogue_core::F32AbsValBelow1;
     /// let x = F32AbsValBelow1::new(1.1)?;
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     /// ```
-    /// use nanalogue_core::Error;
-    /// use nanalogue_core::F32AbsValBelow1;
+    /// # use nanalogue_core::Error;
+    /// # use nanalogue_core::F32AbsValBelow1;
     /// let x = F32AbsValBelow1::new(0.1)?;
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     /// ```
-    /// use nanalogue_core::Error;
-    /// use nanalogue_core::F32AbsValBelow1;
+    /// # use nanalogue_core::Error;
+    /// # use nanalogue_core::F32AbsValBelow1;
     /// let x = F32AbsValBelow1::new(-0.5)?;
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
@@ -363,13 +363,22 @@ impl fmt::Display for ModChar {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct RestrictModCalledStrand(bool);
 
-/// default mod strand restriction is unknown
+/// default mod strand restriction is +
 impl Default for RestrictModCalledStrand {
     fn default() -> Self {
         RestrictModCalledStrand(true)
     }
 }
 
+/// Set states according to if we receive "bc" or "bc_comp"
+///
+/// ```
+/// use nanalogue_core::RestrictModCalledStrand;
+/// use std::str::FromStr;
+/// assert_eq!('+', char::from(RestrictModCalledStrand::from_str("bc")?));
+/// assert_eq!('-', char::from(RestrictModCalledStrand::from_str("bc_comp")?));
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
 impl FromStr for RestrictModCalledStrand {
     type Err = Error;
 
@@ -385,6 +394,16 @@ impl FromStr for RestrictModCalledStrand {
     }
 }
 
+/// Prints the true state as "+" and the false state as "-"
+///
+/// ```
+/// use nanalogue_core::RestrictModCalledStrand;
+/// use std::fmt::Display;
+/// use std::str::FromStr;
+/// assert_eq!("+", format!("{}",RestrictModCalledStrand::from_str("bc")?));
+/// assert_eq!("-", format!("{}",RestrictModCalledStrand::from_str("bc_comp")?));
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
 impl fmt::Display for RestrictModCalledStrand {
     /// converts to string for display i.e. "+" or "-"
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -392,6 +411,15 @@ impl fmt::Display for RestrictModCalledStrand {
     }
 }
 
+/// Converts the true state to the '+' character, and false to '-'
+///
+/// ```
+/// use nanalogue_core::RestrictModCalledStrand;
+/// use std::str::FromStr;
+/// assert_eq!('+', char::from(RestrictModCalledStrand::from_str("bc")?));
+/// assert_eq!('-', char::from(RestrictModCalledStrand::from_str("bc_comp")?));
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
 impl From<RestrictModCalledStrand> for char {
     /// converts to char
     fn from(val: RestrictModCalledStrand) -> char {

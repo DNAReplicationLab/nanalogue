@@ -56,6 +56,62 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
 /// Extracts mod information from BAM record to the Fibertools-rs BaseMods Struct.
 /// We are copying and modifying code from the fibertools-rs repository
 /// (<https://github.com/fiberseq/fibertools-rs>).
+///
+/// Following is an example of reading and parsing modification data, with
+/// no filters applied.
+/// We are using an example mod BAM file which has very short reads and very few
+/// modified positions, and just examining two reads in it below.
+/// ```
+/// use nanalogue_core::{Error, nanalogue_bam_reader, nanalogue_mm_ml_parser};
+/// use rust_htslib::bam::Read;
+/// use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
+/// use fibertools_rs::utils::bamranges::Ranges;
+/// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+/// let mut count = 0;
+/// for record in reader.records(){
+///     let r = record?;
+///     let BaseMods{base_mods: v} = nanalogue_mm_ml_parser(&r, |&_, &_| true, |&_, &_, &_| true);
+///     match count {
+///     0 => assert_eq!(v, vec![BaseMod{
+///             modified_base: b'T',
+///             strand: '+',
+///             modification_type: 'T',
+///             ranges: Ranges {
+///                 starts: vec![Some(0), Some(3), Some(4), Some(7)],
+///                 ends: vec![Some(1), Some(4), Some(5), Some(8)],
+///                 lengths: vec![Some(1); 4],
+///                 qual: vec![4, 7, 9, 6],
+///                 reference_starts: vec![Some(9), Some(12), Some(13), Some(16)],
+///                 reference_ends: vec![Some(9), Some(12), Some(13), Some(16)],
+///                 reference_lengths: vec![Some(0); 4],
+///                 seq_len: 8,
+///                 reverse: false,
+///             },
+///             record_is_reverse: false,
+///     }]),
+///     2 => assert_eq!(v, vec![BaseMod{
+///             modified_base: b'T',
+///             strand: '+',
+///             modification_type: 'T',
+///             ranges: Ranges {
+///                 starts: vec![Some(12), Some(13), Some(16), Some(19), Some(20)],
+///                 ends: vec![Some(13), Some(14), Some(17), Some(20), Some(21)],
+///                 lengths: vec![Some(1); 5],
+///                 qual: vec![3, 3, 4, 3, 182],
+///                 reference_starts: vec![Some(15), Some(16), Some(19), Some(22), Some(23)],
+///                 reference_ends: vec![Some(15), Some(16), Some(19), Some(22), Some(23)],
+///                 reference_lengths: vec![Some(0); 5],
+///                 seq_len: 33,
+///                 reverse: true,
+///             },
+///             record_is_reverse: true,
+///     }]),
+///     _ => {},
+///     }
+///     count = count + 1;
+/// }
+/// # Ok::<(), Error>(())
+/// ```
 pub fn nanalogue_mm_ml_parser<F, G>(
     record: &bam::Record,
     filter_mod_prob_pos: F,
