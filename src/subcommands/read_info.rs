@@ -10,12 +10,14 @@ use std::rc::Rc;
 
 /// Gets information on one read id and prints it to standard output
 /// in a JSON format.
-pub fn run<D>(
+pub fn run<W, D>(
+    handle: &mut W,
     bam_records: D,
     read_id: &str,
     contig_names: Option<Vec<String>>,
 ) -> Result<bool, Error>
 where
+    W: std::io::Write,
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
 {
     // convert read id into bytes
@@ -41,7 +43,7 @@ where
         output_string = output_string + &record.to_string() + "\n";
     }
     if !output_string.is_empty() {
-        print!("{output_string}");
+        writeln!(handle, "{output_string}")?;
     }
     Ok(true)
 }

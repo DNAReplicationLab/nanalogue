@@ -6,26 +6,23 @@
 
 use crate::{CurrRead, Error, F32Bw0and1, InputWindowingRestricted};
 use rust_htslib::bam::Record;
-use std::io::{self, Write};
 use std::rc::Rc;
 
 /// Finds read ids of molecules that fit filtration criteria on
 /// windowed modification data.
-pub fn run<F, G, D>(
+pub fn run<W, F, G, D>(
+    handle: &mut W,
     bam_records: D,
     window_options: InputWindowingRestricted,
     window_function: F,
     window_filter: G,
 ) -> Result<bool, Error>
 where
+    W: std::io::Write,
     F: Fn(&[u8]) -> Result<F32Bw0and1, Error>,
     G: Fn(&Vec<F32Bw0and1>) -> bool,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
-    // This apparently helps writing to the terminal faster,
-    // according to https://rust-cli.github.io/book/tutorial/output.html
-    let stdout = io::stdout();
-    let mut handle = io::BufWriter::new(stdout);
     let trim_end_bp = match window_options.trim_read_ends {
         v if v <= i64::MAX as u64 => Ok(v as i64),
         _ => Err(Error::NotImplementedError(format!(

@@ -4,6 +4,7 @@ use nanalogue_core::{
     InputWindowing, InputWindowingRestricted, OrdPair, ThresholdState, nanalogue_bam_reader,
     subcommands,
 };
+use std::io;
 use std::ops::RangeInclusive;
 
 #[derive(Parser, Debug)]
@@ -212,6 +213,10 @@ fn main() -> Result<(), Error> {
         F32AbsValBelow1::new(numerator / denominator)
     };
 
+    // set up writers to stdout
+    let stdout = io::stdout();
+    let mut handle = io::BufWriter::new(stdout);
+
     /// pre filtering the BAM file according to input options
     macro_rules! pre_filt {
         ( $b : expr, $c : expr) => {
@@ -228,6 +233,7 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::bc_len_vs_align_len::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 &seq_summ_file,
                 true,
@@ -237,6 +243,7 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::bc_len_vs_align_len::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 &seq_summ_file,
                 false,
@@ -245,13 +252,14 @@ fn main() -> Result<(), Error> {
         Commands::ReadStats { bam } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
-            subcommands::read_stats::run(pre_filt!(bam_rc_records, &bam))
+            subcommands::read_stats::run(&mut handle, pre_filt!(bam_rc_records, &bam))
         }
         Commands::ReadInfo { bam, read_id } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let contig_names = bam_rc_records.contig_names.clone();
             subcommands::read_info::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 &read_id,
                 Some(contig_names),
@@ -268,6 +276,7 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::find_modified_reads::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 threshold_and_mean,
@@ -284,6 +293,7 @@ fn main() -> Result<(), Error> {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 threshold_and_mean,
@@ -300,6 +310,7 @@ fn main() -> Result<(), Error> {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             subcommands::find_modified_reads::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 threshold_and_mean,
@@ -323,6 +334,7 @@ fn main() -> Result<(), Error> {
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 threshold_and_mean,
@@ -345,6 +357,7 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::find_modified_reads::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 threshold_and_mean,
@@ -368,6 +381,7 @@ fn main() -> Result<(), Error> {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let interval_min_grad_to_1 = OrdPair::new(min_grad, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 |x| {
@@ -386,6 +400,7 @@ fn main() -> Result<(), Error> {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let contig_names = bam_rc_records.contig_names.clone();
             subcommands::window_reads::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 |x| Ok(F32AbsValBelow1::from(threshold_and_mean(x)?)),
@@ -397,6 +412,7 @@ fn main() -> Result<(), Error> {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             let contig_names = bam_rc_records.contig_names.clone();
             subcommands::window_reads::run(
+                &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 threshold_and_gradient,

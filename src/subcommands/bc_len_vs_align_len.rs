@@ -12,7 +12,6 @@ use rust_htslib::bam;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, Write};
 use std::rc::Rc;
 use std::str;
 
@@ -149,8 +148,14 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Error> {
 /// Processes a BAM file and optionally a sequencing summary file
 /// to print a table of reads with alignment length, sequence length,
 /// and optionally modification count per row.
-pub fn run<D>(bam_records: D, seq_summ_path: &str, is_mod_count: bool) -> Result<bool, Error>
+pub fn run<W, D>(
+    handle: &mut W,
+    bam_records: D,
+    seq_summ_path: &str,
+    is_mod_count: bool,
+) -> Result<bool, Error>
 where
+    W: std::io::Write,
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
 {
     // read TSV file and convert into hashmap
@@ -221,11 +226,6 @@ where
     if is_mod_count {
         output_header += "\tmod_count";
     }
-
-    // This apparently helps writing to the terminal faster,
-    // according to https://rust-cli.github.io/book/tutorial/output.html
-    let stdout = io::stdout();
-    let mut handle = io::BufWriter::new(stdout);
 
     // print the output header
     writeln!(handle, "{output_header}")?;

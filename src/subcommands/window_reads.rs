@@ -6,25 +6,21 @@
 use crate::{CurrRead, Error, F32AbsValBelow1, InputWindowing, ModChar, ReadState, ThresholdState};
 use fibertools_rs::utils::basemods::BaseMods;
 use rust_htslib::bam::Record;
-use std::io::{self, Write};
 use std::rc::Rc;
 
 /// Windowed modification data along molecules
-pub fn run<F, D>(
+pub fn run<W, F, D>(
+    handle: &mut W,
     bam_records: D,
     window_options: InputWindowing,
     window_function: F,
     contig_names: Option<Vec<String>>,
 ) -> Result<bool, Error>
 where
+    W: std::io::Write,
     F: Fn(&[u8]) -> Result<F32AbsValBelow1, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
-    // This apparently helps writing to the terminal faster,
-    // according to https://rust-cli.github.io/book/tutorial/output.html
-    let stdout = io::stdout();
-    let mut handle = io::BufWriter::new(stdout);
-
     // Get windowing parameters
     let win_size: usize = window_options.win.get().try_into()?;
     let slide_size: usize = window_options.step.get().try_into()?;

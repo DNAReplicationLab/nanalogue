@@ -56,8 +56,9 @@ fn get_stats_from_heap(
 
 /// Reads the input BAM file and prints statistics
 /// such as mean and median read lengths, N50s etc.
-pub fn run<D>(bam_records: D) -> Result<bool, Error>
+pub fn run<W, D>(handle: &mut W, bam_records: D) -> Result<bool, Error>
 where
+    W: std::io::Write,
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
 {
     // declare counts for different types of reads
@@ -123,22 +124,22 @@ where
     let (_, align_len_mean, align_len_max, align_len_min, align_len_median, align_len_n50) =
         get_stats_from_heap(align_len_heap, align_len_total)?;
 
-    println!("key\tvalue");
-    println!("n_primary_alignments\t{primary_count}");
-    println!("n_secondary_alignments\t{secondary_count}");
-    println!("n_supplementary_alignments\t{supplementary_count}");
-    println!("n_unmapped_reads\t{unmapped_count}");
-    println!("n_reversed_reads\t{reversed_count}");
-    println!("align_len_mean\t{align_len_mean}");
-    println!("align_len_max\t{align_len_max}");
-    println!("align_len_min\t{align_len_min}");
-    println!("align_len_median\t{align_len_median}");
-    println!("align_len_n50\t{align_len_n50}");
-    println!("seq_len_mean\t{seq_len_mean}");
-    println!("seq_len_max\t{seq_len_max}");
-    println!("seq_len_min\t{seq_len_min}");
-    println!("seq_len_median\t{seq_len_median}");
-    println!("seq_len_n50\t{seq_len_n50}");
+    writeln!(handle, "key\tvalue")?;
+    writeln!(handle, "n_primary_alignments\t{primary_count}")?;
+    writeln!(handle, "n_secondary_alignments\t{secondary_count}")?;
+    writeln!(handle, "n_supplementary_alignments\t{supplementary_count}")?;
+    writeln!(handle, "n_unmapped_reads\t{unmapped_count}")?;
+    writeln!(handle, "n_reversed_reads\t{reversed_count}")?;
+    writeln!(handle, "align_len_mean\t{align_len_mean}")?;
+    writeln!(handle, "align_len_max\t{align_len_max}")?;
+    writeln!(handle, "align_len_min\t{align_len_min}")?;
+    writeln!(handle, "align_len_median\t{align_len_median}")?;
+    writeln!(handle, "align_len_n50\t{align_len_n50}")?;
+    writeln!(handle, "seq_len_mean\t{seq_len_mean}")?;
+    writeln!(handle, "seq_len_max\t{seq_len_max}")?;
+    writeln!(handle, "seq_len_min\t{seq_len_min}")?;
+    writeln!(handle, "seq_len_median\t{seq_len_median}")?;
+    writeln!(handle, "seq_len_n50\t{seq_len_n50}")?;
 
     Ok(true)
 }
