@@ -324,13 +324,13 @@ impl<'a> BamRcRecords<'a> {
 /// use nanalogue_core::{Error, nanalogue_bam_reader};
 /// use rust_htslib::bam::Read;
 /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
-/// // the above file should contain three reads, so we are checking
-/// // if we load three records.
+/// // the above file should contain four reads, so we are checking
+/// // if we load four records.
 /// let mut count = 0;
 /// for r in reader.records() {
 ///     count = count + 1;
 /// }
-/// assert_eq!(count, 3);
+/// assert_eq!(count, 4);
 /// # Ok::<(), Error>(())
 /// ```
 pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {

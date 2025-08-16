@@ -85,6 +85,26 @@ impl Default for ThresholdState {
     }
 }
 
+/// Displays thresholds but using floating point numbers between 0 and 1
+///
+/// Example 1:
+/// ```
+/// use nanalogue_core::{ThresholdState, OrdPair};
+/// let b = ThresholdState::GtEq(100);
+/// assert_eq!("probabilities >= 0.390625", format!("{}", b));
+/// ```
+/// Example 2:
+/// ```
+/// # use nanalogue_core::ThresholdState;
+/// let b = ThresholdState::LtEq(10);
+/// assert_eq!("probabilities <= 0.0390625", format!("{}", b));
+/// ```
+/// Example 3:
+/// ```
+/// # use nanalogue_core::{ThresholdState, OrdPair};
+/// let b = ThresholdState::InvertGtEqLtEq(OrdPair::new(200, 220).expect("no error"));
+/// assert_eq!("probabilities < 0.78125 or > 0.859375", format!("{}", b));
+/// ```
 impl fmt::Display for ThresholdState {
     /// display the u8 thresholds as a floating point number between 0 and 1
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -103,6 +123,34 @@ impl fmt::Display for ThresholdState {
     }
 }
 
+/// Check if a given u8 is within the interval covered
+///
+/// Example 1:
+/// ```
+/// use nanalogue_core::{Error, OrdPair, ThresholdState, Contains};
+/// let b = ThresholdState::GtEq(100);
+/// assert!(b.contains(&101));
+/// assert!(b.contains(&100));
+/// assert!(!b.contains(&99));
+/// ```
+/// Example 2:
+/// ```
+/// # use nanalogue_core::{Error, OrdPair, ThresholdState, Contains};
+/// let b = ThresholdState::LtEq(10);
+/// assert!(!b.contains(&11));
+/// assert!(b.contains(&10));
+/// assert!(b.contains(&9));
+/// ```
+/// Example 3:
+/// ```
+/// # use nanalogue_core::{Error, OrdPair, ThresholdState, Contains};
+/// let b = ThresholdState::InvertGtEqLtEq(OrdPair::new(200, 220).expect("no error"));
+/// assert!(b.contains(&100));
+/// assert!(!b.contains(&200));
+/// assert!(!b.contains(&210));
+/// assert!(!b.contains(&220));
+/// assert!(b.contains(&250));
+/// ```
 impl Contains<u8> for ThresholdState {
     /// see if value is contained within the interval
     /// specified by the threshold state
@@ -166,6 +214,27 @@ pub struct CurrRead {
 
 impl CurrRead {
     /// sets the alignment of the read using BAM record
+    ///
+    /// ```
+    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader, ReadState};
+    /// use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// let mut count = 0;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     match count {
+    ///         0 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
+    ///         1 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
+    ///         2 => assert_eq!(curr_read.read_state(), ReadState::PrimaryRev),
+    ///         3 => assert_eq!(curr_read.read_state(), ReadState::Unmapped),
+    ///         _ => unreachable!(),
+    ///     }
+    ///     count = count + 1;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
     pub fn set_read_state(&mut self, record: &Record) -> Result<bool, Error> {
         // set read state
         match &self.state {
@@ -218,6 +287,46 @@ impl CurrRead {
         self.state
     }
     /// set length of sequence from BAM record
+    ///
+    /// ```
+    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// let mut count = 0;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     let Ok(Some(len)) = curr_read.set_seq_len(&r) else { unreachable!() };
+    ///     let Ok(Some(len2)) = curr_read.seq_len() else { unreachable!() };
+    ///     assert_eq!(len, len2);
+    ///     match count {
+    ///         0 => assert_eq!(len, 8),
+    ///         1 => assert_eq!(len, 48),
+    ///         2 => assert_eq!(len, 33),
+    ///         3 => assert_eq!(len, 48),
+    ///         _ => unreachable!(),
+    ///     }
+    ///     count = count + 1;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// If we call the method twice, we should hit a panic
+    /// ```should_panic
+    /// # use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// # use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_seq_len(&r)?;
+    ///     curr_read.set_seq_len(&r)?;
+    ///     break;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
     pub fn set_seq_len(&mut self, record: &Record) -> Result<Option<u64>, Error> {
         match &self.seq_len {
             Some(_) => Err(Error::InvalidDuplicates(
@@ -271,6 +380,44 @@ impl CurrRead {
         }
     }
     /// sets contig ID and start from BAM record if available
+    ///
+    /// ```
+    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// let mut count = 0;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_contig_id_and_start(&r);
+    ///     match (count, curr_read.contig_id_and_start()) {
+    ///         (0, Ok(Some((0, 9)))) |
+    ///         (1, Ok(Some((2, 23)))) |
+    ///         (2, Ok(Some((1, 3)))) |
+    ///         (3, Ok(None)) => {},
+    ///         _ => unreachable!(),
+    ///     }
+    ///     count = count + 1;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// If we call the method twice, we should hit a panic
+    /// ```should_panic
+    /// # use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// # use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_contig_id_and_start(&r)?;
+    ///     curr_read.set_contig_id_and_start(&r)?;
+    ///     break;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
     pub fn set_contig_id_and_start(&mut self, record: &Record) -> Result<bool, Error> {
         match &self.contig_id_and_start {
             Some(_) => Err(Error::InvalidDuplicates(
@@ -326,6 +473,44 @@ impl CurrRead {
         }
     }
     /// sets read ID (also called query name) from BAM record
+    ///
+    /// ```
+    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// let mut count = 0;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     let Ok(read_id) = curr_read.set_read_id(&r) else { unreachable!() };
+    ///     match (count, read_id) {
+    ///         (0,"5d10eb9a-aae1-4db8-8ec6-7ebb34d32575") |
+    ///         (1,"a4f36092-b4d5-47a9-813e-c22c3b477a0c") |
+    ///         (2,"fffffff1-10d2-49cb-8ca3-e8d48979001b") |
+    ///         (3,"a4f36092-b4d5-47a9-813e-c22c3b477a0c") => {},
+    ///         _ => unreachable!(),
+    ///     }
+    ///     count = count + 1;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// If we call the method twice, we should hit a panic
+    /// ```should_panic
+    /// # use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// # use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_read_id(&r)?;
+    ///     curr_read.set_read_id(&r)?;
+    ///     break;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
     pub fn set_read_id(&mut self, record: &Record) -> Result<&str, Error> {
         match &self.read_id {
             Some(_) => Err(Error::InvalidDuplicates(
@@ -488,6 +673,25 @@ impl CurrRead {
         Ok(curr_read_state)
     }
     /// Returns the character corresponding to the strand
+    ///
+    /// ```
+    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// let mut count = 0;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     let Ok(strand) = curr_read.strand() else { unreachable!() };
+    ///     match (count, strand) {
+    ///         (0, '+') | (1, '+') | (2, '-') | (3, '.') => {},
+    ///         _ => unreachable!(),
+    ///     }
+    ///     count = count + 1;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
     pub fn strand(&self) -> Result<char, Error> {
         match &self.state {
             ReadState::Unknown => Err(Error::UnknownAlignState),
@@ -561,6 +765,37 @@ impl fmt::Display for CurrRead {
     }
 }
 
+/// Converts CurrRead to StrandedBed3
+///
+/// ```
+/// use bedrs::{Coordinates, Strand};
+/// use bedrs::prelude::StrandedBed3;
+/// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+/// use rust_htslib::bam::Read;
+/// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+/// let mut count = 0;
+/// for record in reader.records(){
+///     let r = record?;
+///     let mut curr_read = CurrRead::default();
+///     curr_read.set_read_state(&r);
+///     curr_read.set_align_len(&r);
+///     curr_read.set_contig_id_and_start(&r);
+///     let Ok(bed3_stranded) = StrandedBed3::try_from(curr_read) else {unreachable!()};
+///     let exp_bed3_stranded = match count {
+///         0 => StrandedBed3::new(0, 9, 17, Strand::Forward),
+///         1 => StrandedBed3::new(2, 23, 71, Strand::Forward),
+///         2 => StrandedBed3::new(1, 3, 36, Strand::Reverse),
+///         3 => StrandedBed3::empty(),
+///         _ => unreachable!(),
+///     };
+///     assert_eq!(*bed3_stranded.chr(), *exp_bed3_stranded.chr());
+///     assert_eq!(bed3_stranded.start(), exp_bed3_stranded.start());
+///     assert_eq!(bed3_stranded.end(), exp_bed3_stranded.end());
+///     assert_eq!(bed3_stranded.strand(), exp_bed3_stranded.strand());
+///     count = count + 1;
+/// }
+/// # Ok::<(), Error>(())
+/// ```
 impl TryFrom<CurrRead> for StrandedBed3<i32, u64> {
     type Error = crate::Error;
 
