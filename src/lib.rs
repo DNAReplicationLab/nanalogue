@@ -273,8 +273,6 @@ where
 }
 
 /// A global struct which contains BAM records for further usage.
-/// TODO: Filtering. If any filtering is done here, it is using non-base-mod
-/// information in the BAM file such as alignment lengths or coordinates etc.
 /// NOTE: we don't derive many traits here as the RcRecords object
 /// does not have many traits.
 ///

@@ -442,6 +442,53 @@ impl CurrRead {
         }
     }
     /// sets contig name
+    ///
+    /// ```
+    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// let mut count = 0;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_contig_id_and_start(&r);
+    ///     curr_read.set_contig_name(&vec!["name1".to_string(), "name2".to_string(),
+    ///         "name3".to_string()])?;
+    ///     let Ok(contig_name) = curr_read.contig_name() else {unreachable!()};
+    ///     match (count, contig_name) {
+    ///         (0, "name1") |
+    ///         (1, "name3") |
+    ///         (2, "name2") => {},
+    ///         _ => unreachable!(),
+    ///     }
+    ///     count = count + 1;
+    ///     if count == 3 { break; } // the fourth entry is unmapped, and will lead to an error.
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// If we try to set contig name on an unmapped read, we will get an error
+    ///
+    /// ```should_panic
+    /// # use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// # use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// let mut count = 0;
+    /// for record in reader.records(){
+    ///     if count < 3 {
+    ///         count = count + 1;
+    ///         continue;
+    ///     }
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_contig_id_and_start(&r);
+    ///     curr_read.set_contig_name(&vec!["name1".to_string(), "name2".to_string(),
+    ///         "num3".to_string()])?;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
     pub fn set_contig_name(&mut self, names: &[String]) -> Result<bool, Error> {
         match &self.contig_name {
             Some(_) => Err(Error::InvalidDuplicates(
