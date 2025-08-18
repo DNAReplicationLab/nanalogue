@@ -31,11 +31,13 @@ where
         ))),
     }?;
 
+    let mut curr_read_state = CurrRead::default();
+
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
-        let mut curr_read_state = CurrRead::default();
         let record = r?;
+        curr_read_state.reset();
         curr_read_state.set_read_id(&record)?;
         let seq_len: i64 = match curr_read_state.set_seq_len(&record) {
             Err(_) | Ok(None) => Err(Error::InvalidSeqLength),

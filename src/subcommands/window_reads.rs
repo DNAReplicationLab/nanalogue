@@ -25,11 +25,13 @@ where
     let win_size: usize = window_options.win.get().try_into()?;
     let slide_size: usize = window_options.step.get().try_into()?;
 
+    let mut curr_read_state = CurrRead::default();
+
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
         let record = r?;
-        let mut curr_read_state = CurrRead::default();
+        curr_read_state.reset();
 
         // set data in records
         curr_read_state.set_read_state(&record)?;
