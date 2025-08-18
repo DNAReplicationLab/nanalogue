@@ -385,8 +385,12 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 /// # Ok::<(), Error>(())
 /// ```
 pub trait BamPreFilt: SequenceRead {
-    /// apply some default filtration e.g. by read length
+    /// apply default filtration by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
+        self.filt_by_len(&bam_opts) & self.filt_by_read_id(&bam_opts)
+    }
+    /// filtration by read length
+    fn filt_by_len(&self, bam_opts: &InputBam) -> bool {
         match self.len() as u64 {
             0 if !bam_opts.exclude_zero_len => panic!(
                 "{}{}{}",
@@ -396,6 +400,13 @@ pub trait BamPreFilt: SequenceRead {
             ),
             0 if bam_opts.exclude_zero_len => false,
             v => v >= bam_opts.min_seq_len,
+        }
+    }
+    /// filtration by read id
+    fn filt_by_read_id(&self, bam_opts: &InputBam) -> bool {
+        match &bam_opts.read_id {
+            Some(v) => v.as_bytes() == self.name(),
+            None => true,
         }
     }
 }

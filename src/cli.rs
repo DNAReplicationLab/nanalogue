@@ -21,6 +21,11 @@ pub struct InputBam {
     /// sequencing summary file.
     #[clap(long, default_value_t = 0)]
     pub min_seq_len: u64,
+    /// Only include this read id, defaults to unused i.e. all reads are used.
+    /// NOTE: if there are multiple alignments corresponding
+    /// to this read id, all of them are used.
+    #[clap(long)]
+    pub read_id: Option<String>,
     /// Number of threads used during some aspects of program execution
     #[clap(long, default_value_t = NonZeroU32::new(2).expect("no error"))]
     pub threads: NonZeroU32,
@@ -39,6 +44,7 @@ impl Default for InputBam {
         InputBam {
             bam_path: "".to_string(),
             min_seq_len: 0,
+            read_id: None,
             threads: NonZeroU32::new(1).expect("no error"),
             exclude_zero_len: false,
         }
