@@ -257,13 +257,7 @@ fn main() -> Result<(), Error> {
         Commands::ReadInfo { bam, read_id } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
-            let contig_names = bam_rc_records.contig_names.clone();
-            subcommands::read_info::run(
-                &mut handle,
-                pre_filt!(bam_rc_records, &bam),
-                &read_id,
-                Some(contig_names),
-            )
+            subcommands::read_info::run(&mut handle, pre_filt!(bam_rc_records, &bam), &read_id)
         }
         Commands::FindModifiedReads {
             command:
@@ -398,25 +392,18 @@ fn main() -> Result<(), Error> {
         Commands::WindowDens { bam, win } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
-            let contig_names = bam_rc_records.contig_names.clone();
-            subcommands::window_reads::run(
-                &mut handle,
-                pre_filt!(bam_rc_records, &bam),
-                win,
-                |x| Ok(F32AbsValBelow1::from(threshold_and_mean(x)?)),
-                Some(contig_names),
-            )
+            subcommands::window_reads::run(&mut handle, pre_filt!(bam_rc_records, &bam), win, |x| {
+                Ok(F32AbsValBelow1::from(threshold_and_mean(x)?))
+            })
         }
         Commands::WindowGrad { bam, win } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
-            let contig_names = bam_rc_records.contig_names.clone();
             subcommands::window_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 threshold_and_gradient,
-                Some(contig_names),
             )
         }
     };

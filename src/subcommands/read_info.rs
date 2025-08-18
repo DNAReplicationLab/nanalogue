@@ -10,12 +10,7 @@ use std::rc::Rc;
 
 /// Gets information on one read id and prints it to standard output
 /// in a JSON format.
-pub fn run<W, D>(
-    handle: &mut W,
-    bam_records: D,
-    read_id: &str,
-    contig_names: Option<Vec<String>>,
-) -> Result<bool, Error>
+pub fn run<W, D>(handle: &mut W, bam_records: D, read_id: &str) -> Result<bool, Error>
 where
     W: std::io::Write,
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
@@ -36,10 +31,7 @@ where
         })
         .collect::<Result<Vec<Rc<bam::Record>>, _>>()?
     {
-        let mut record = CurrRead::try_from(k)?;
-        if let Some(v) = &contig_names {
-            record.set_contig_name(v)?;
-        }
+        let record = CurrRead::try_from(k)?;
         output_string = output_string + &record.to_string() + "\n";
     }
     if !output_string.is_empty() {

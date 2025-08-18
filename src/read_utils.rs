@@ -6,6 +6,7 @@
 
 use bedrs::prelude::StrandedBed3;
 use bedrs::{Coordinates, Strand};
+use bio_types::genome::AbstractInterval;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use rust_htslib::{bam::ext::BamRecordExtensions, bam::record::Record};
 use serde::{Deserialize, Serialize};
@@ -306,7 +307,7 @@ impl CurrRead {
     /// for record in reader.records(){
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
-    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_read_state(&r)?;
     ///     let Ok(Some(len)) = curr_read.set_seq_len(&r) else { unreachable!() };
     ///     let Ok(Some(len2)) = curr_read.seq_len() else { unreachable!() };
     ///     assert_eq!(len, len2);
@@ -399,8 +400,8 @@ impl CurrRead {
     /// for record in reader.records(){
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
-    ///     curr_read.set_read_state(&r);
-    ///     curr_read.set_contig_id_and_start(&r);
+    ///     curr_read.set_read_state(&r)?;
+    ///     curr_read.set_contig_id_and_start(&r)?;
     ///     match (count, curr_read.contig_id_and_start()) {
     ///         (0, Ok(Some((0, 9)))) |
     ///         (1, Ok(Some((2, 23)))) |
@@ -421,7 +422,7 @@ impl CurrRead {
     /// for record in reader.records(){
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
-    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_read_state(&r)?;
     ///     curr_read.set_contig_id_and_start(&r)?;
     ///     curr_read.set_contig_id_and_start(&r)?;
     ///     break;
@@ -461,15 +462,13 @@ impl CurrRead {
     /// for record in reader.records(){
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
-    ///     curr_read.set_read_state(&r);
-    ///     curr_read.set_contig_id_and_start(&r);
-    ///     curr_read.set_contig_name(&vec!["name1".to_string(), "name2".to_string(),
-    ///         "name3".to_string()])?;
+    ///     curr_read.set_read_state(&r)?;
+    ///     curr_read.set_contig_name(&r)?;
     ///     let Ok(contig_name) = curr_read.contig_name() else {unreachable!()};
     ///     match (count, contig_name) {
-    ///         (0, "name1") |
-    ///         (1, "name3") |
-    ///         (2, "name2") => {},
+    ///         (0, "dummyI") |
+    ///         (1, "dummyIII") |
+    ///         (2, "dummyII") => {},
     ///         _ => unreachable!(),
     ///     }
     ///     count = count + 1;
@@ -492,31 +491,39 @@ impl CurrRead {
     ///     }
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
-    ///     curr_read.set_read_state(&r);
-    ///     curr_read.set_contig_id_and_start(&r);
-    ///     curr_read.set_contig_name(&vec!["name1".to_string(), "name2".to_string(),
-    ///         "num3".to_string()])?;
+    ///     curr_read.set_read_state(&r)?;
+    ///     curr_read.set_contig_name(&r)?;
     /// }
     /// # Ok::<(), Error>(())
     /// ```
-    pub fn set_contig_name(&mut self, names: &[String]) -> Result<bool, Error> {
-        match &self.contig_name {
-            Some(_) => Err(Error::InvalidDuplicates(
+    ///
+    /// If we call the method twice, we should hit a panic
+    /// ```should_panic
+    /// # use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// # use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     let mut curr_read = CurrRead::default();
+    ///     curr_read.set_read_state(&r)?;
+    ///     curr_read.set_contig_name(&r)?;
+    ///     curr_read.set_contig_name(&r)?;
+    ///     break;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    pub fn set_contig_name(&mut self, record: &Record) -> Result<&str, Error> {
+        match (self.read_state(), &self.contig_name) {
+            (ReadState::Unknown | ReadState::Unmapped, _) => Err(Error::InvalidState(
+                "cannot set contig name for unknown or unmapped read".to_string(),
+            )),
+            (_, Some(_)) => Err(Error::InvalidDuplicates(
                 "cannot set contig name again!".to_string(),
             )),
-            None => match self.contig_id_and_start() {
-                Err(v) => Err(v),
-                Ok(None) => Err(Error::InvalidState(
-                    "no contig in current read!".to_string(),
-                )),
-                Ok(Some((v, _))) if 0 <= v && v < names.len() as i32 => {
-                    self.contig_name = Some(names[v as usize].clone());
-                    Ok(true)
-                }
-                Ok(Some((_, _))) => Err(Error::InvalidState(
-                    "could not assign contig name!".to_string(),
-                )),
-            },
+            (_, None) => {
+                self.contig_name = Some(String::from(record.contig()));
+                self.contig_name()
+            }
         }
     }
     /// gets contig name
@@ -539,7 +546,7 @@ impl CurrRead {
     /// for record in reader.records(){
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
-    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_read_state(&r)?;
     ///
     ///     let Ok(read_id) = curr_read.set_read_id(&r) else { unreachable!() };
     ///     let read_id_clone = String::from(read_id);
@@ -568,7 +575,7 @@ impl CurrRead {
     /// for record in reader.records(){
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
-    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_read_state(&r)?;
     ///     curr_read.set_read_id(&r)?;
     ///     curr_read.set_read_id(&r)?;
     ///     break;
@@ -715,7 +722,7 @@ impl CurrRead {
     /// for record in reader.records(){
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
-    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_read_state(&r)?;
     ///     curr_read.set_mod_data(&r, ThresholdState::GtEq(180));
     ///
     ///     let mod_count = curr_read.base_count_per_mod();
@@ -773,7 +780,7 @@ impl CurrRead {
     /// for record in reader.records(){
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
-    ///     curr_read.set_read_state(&r);
+    ///     curr_read.set_read_state(&r)?;
     ///     let Ok(strand) = curr_read.strand() else { unreachable!() };
     ///     match (count, strand) {
     ///         (0, '+') | (1, '+') | (2, '-') | (3, '.') => {},
@@ -868,9 +875,9 @@ impl fmt::Display for CurrRead {
 /// for record in reader.records(){
 ///     let r = record?;
 ///     let mut curr_read = CurrRead::default();
-///     curr_read.set_read_state(&r);
-///     curr_read.set_align_len(&r);
-///     curr_read.set_contig_id_and_start(&r);
+///     curr_read.set_read_state(&r)?;
+///     curr_read.set_align_len(&r)?;
+///     curr_read.set_contig_id_and_start(&r)?;
 ///     let Ok(bed3_stranded) = StrandedBed3::try_from(curr_read) else {unreachable!()};
 ///     let exp_bed3_stranded = match count {
 ///         0 => StrandedBed3::new(0, 9, 17, Strand::Forward),
@@ -928,6 +935,7 @@ impl TryFrom<Record> for CurrRead {
         curr_read_state.set_align_len(&record)?;
         curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
         curr_read_state.set_contig_id_and_start(&record)?;
+        curr_read_state.set_contig_name(&record)?;
         Ok(curr_read_state)
     }
 }
@@ -949,6 +957,7 @@ impl TryFrom<Rc<Record>> for CurrRead {
         curr_read_state.set_align_len(&record)?;
         curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
         curr_read_state.set_contig_id_and_start(&record)?;
+        curr_read_state.set_contig_name(&record)?;
         Ok(curr_read_state)
     }
 }

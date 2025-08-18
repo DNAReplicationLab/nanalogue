@@ -14,7 +14,6 @@ pub fn run<W, F, D>(
     bam_records: D,
     window_options: InputWindowing,
     window_function: F,
-    contig_names: Option<Vec<String>>,
 ) -> Result<bool, Error>
 where
     W: std::io::Write,
@@ -35,23 +34,15 @@ where
 
         // set data in records
         curr_read_state.set_read_state(&record)?;
-        let qname = curr_read_state.set_read_id(&record)?.to_string();
         curr_read_state.set_mod_data(&record, ThresholdState::GtEq(0));
-
-        let (contig, strand) = match curr_read_state.read_state() {
+        let qname = curr_read_state.set_read_id(&record)?.to_string();
+        let strand = curr_read_state.strand()?;
+        let contig = match curr_read_state.read_state() {
             ReadState::Unknown => Err(Error::InvalidState(
                 "unclear why we are in an invalid state!".to_string(),
             )),
-            ReadState::Unmapped => Ok((".", '.')),
-            _ => {
-                curr_read_state.set_contig_id_and_start(&record)?;
-                if let Some(v) = &contig_names {
-                    curr_read_state.set_contig_name(v)?;
-                }
-                let contig_name = curr_read_state.contig_name()?;
-                let strand = curr_read_state.strand()?;
-                Ok((contig_name, strand))
-            }
+            ReadState::Unmapped => Ok(".".to_string()),
+            _ => Ok(String::from(curr_read_state.set_contig_name(&record)?)),
         }?;
 
         // read and window modification data, then print the output

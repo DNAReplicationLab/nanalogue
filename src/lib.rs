@@ -400,4 +400,4 @@ pub trait BamPreFilt: SequenceRead {
     }
 }
 
-impl BamPreFilt for bam::record::Record {}
+impl<I: SequenceRead> BamPreFilt for I {}
