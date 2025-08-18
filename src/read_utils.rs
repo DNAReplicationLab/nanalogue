@@ -286,6 +286,16 @@ impl CurrRead {
     pub fn read_state(&self) -> ReadState {
         self.state
     }
+    /// resets the read state
+    pub fn reset(&mut self) {
+        self.state = ReadState::Unknown;
+        self.read_id = None;
+        self.seq_len = None;
+        self.align_len = None;
+        self.mods = None;
+        self.contig_id_and_start = None;
+        self.contig_name = None;
+    }
     /// set length of sequence from BAM record
     ///
     /// ```

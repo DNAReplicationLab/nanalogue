@@ -77,8 +77,8 @@ where
         // apply our windowing function and then the windowing filter
         if match curr_read_state.windowed_mod_data_restricted(
             &window_function,
-            window_options.win.get().try_into()?,
-            window_options.step.get().try_into()?,
+            window_options.win_params.win.get().try_into()?,
+            window_options.win_params.step.get().try_into()?,
             window_options.tag,
         )? {
             Some(v) => window_filter(&v),

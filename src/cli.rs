@@ -63,15 +63,9 @@ pub struct InputWindowingRestricted {
     /// aligned reads using the BAM flags.
     #[clap(long)]
     pub mod_strand: Option<RestrictModCalledStrand>,
-    /// size of window in units of base being queried i.e.
-    /// if you are looking for cytosine modifications, then
-    /// a window of a value 300 means create windows each with
-    /// 300 cytosines irrespective of their modification status.
-    #[clap(long)]
-    pub win: NonZeroU32,
-    /// step window by this size in units of base being queried.
-    #[clap(long)]
-    pub step: NonZeroU32,
+    /// Basic windowing parameters
+    #[clap(flatten)]
+    pub win_params: InputWindowing,
     /// Filter to reject mods before windowing;
     /// we allow all mods through for now and
     /// do not expose this to the user.
@@ -93,8 +87,7 @@ impl Default for InputWindowingRestricted {
         InputWindowingRestricted {
             tag: ModChar::new('N'),
             mod_strand: None,
-            win: NonZeroU32::new(100).expect("no error"),
-            step: NonZeroU32::new(100).expect("no error"),
+            win_params: InputWindowing::default(),
             mod_prob_filter: ThresholdState::GtEq(0),
             trim_read_ends: 0,
         }
