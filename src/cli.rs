@@ -15,12 +15,13 @@ pub struct InputBam {
     #[clap(default_value = "-")]
     pub bam_path: String,
     /// Exclude reads whose sequence length in the BAM file is
-    /// below this value.
-    /// NOTE: This is applied using the BAM file and not on
-    /// any other files possibly used by subcommands such as the
-    /// sequencing summary file.
+    /// below this value. Defaults to 0.
     #[clap(long, default_value_t = 0)]
     pub min_seq_len: u64,
+    /// Exclude reads whose alignment length in the BAM file is
+    /// below this value. Defaults to unused.
+    #[clap(long)]
+    pub min_align_len: Option<i64>,
     /// Only include this read id, defaults to unused i.e. all reads are used.
     /// NOTE: if there are multiple alignments corresponding
     /// to this read id, all of them are used.
@@ -44,6 +45,7 @@ impl Default for InputBam {
         InputBam {
             bam_path: "".to_string(),
             min_seq_len: 0,
+            min_align_len: None,
             read_id: None,
             threads: NonZeroU32::new(1).expect("no error"),
             exclude_zero_len: false,

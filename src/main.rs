@@ -257,6 +257,10 @@ fn main() -> Result<(), Error> {
         Commands::ReadInfo { bam, read_id } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            match bam.read_id {
+                Some(ref v) if *v != read_id => Err(Error::InvalidReadID),
+                _ => Ok(true),
+            }?;
             subcommands::read_info::run(&mut handle, pre_filt!(bam_rc_records, &bam), &read_id)
         }
         Commands::FindModifiedReads {

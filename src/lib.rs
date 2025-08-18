@@ -15,7 +15,7 @@ use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use fibertools_rs::utils::bio_io::get_u8_tag;
 use lazy_static::lazy_static;
 use regex::Regex;
-use rust_htslib::{bam, bam::Read, bam::record::Aux, tpool};
+use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions, bam::record::Aux, tpool};
 use std::convert::TryFrom;
 
 // Declare the modules.
@@ -339,8 +339,27 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
     }
 }
 
-/// Trait that performs filtration on structs implementing SequenceRead
-/// such as a rust_htslib Record
+/// Trait that performs filtration
+pub trait BamPreFilt {
+    /// apply default filtration
+    fn pre_filt(&self, _bam_opts: &InputBam) -> bool {
+        todo!()
+    }
+    /// filtration by length
+    fn filt_by_len(&self, _bam_opts: &InputBam) -> bool {
+        todo!()
+    }
+    /// filtration by alignment length
+    fn filt_by_align_len(&self, _bam_opts: &InputBam) -> bool {
+        todo!()
+    }
+    /// filtration by read id
+    fn filt_by_read_id(&self, _bam_opts: &InputBam) -> bool {
+        todo!()
+    }
+}
+
+/// Trait that performs filtration on rust_htslib Record
 ///
 /// Filter in action below, 100 bp read passed with a 20 bp filter
 /// but fails with a 120 bp filter
@@ -384,10 +403,12 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 /// assert_eq!(bam_record.pre_filt(&bam_opts), false);
 /// # Ok::<(), Error>(())
 /// ```
-pub trait BamPreFilt: SequenceRead {
+impl BamPreFilt for bam::Record {
     /// apply default filtration by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
-        self.filt_by_len(&bam_opts) & self.filt_by_read_id(&bam_opts)
+        self.filt_by_len(&bam_opts)
+            & self.filt_by_read_id(&bam_opts)
+            & self.filt_by_align_len(&bam_opts)
     }
     /// filtration by read length
     fn filt_by_len(&self, bam_opts: &InputBam) -> bool {
@@ -402,6 +423,14 @@ pub trait BamPreFilt: SequenceRead {
             v => v >= bam_opts.min_seq_len,
         }
     }
+    /// filtration by alignment length
+    fn filt_by_align_len(&self, bam_opts: &InputBam) -> bool {
+        match (&bam_opts.min_align_len, self.is_unmapped()) {
+            (None, _) => true,
+            (_, true) => false,
+            (Some(v), false) => self.reference_end() - self.pos() >= *v,
+        }
+    }
     /// filtration by read id
     fn filt_by_read_id(&self, bam_opts: &InputBam) -> bool {
         match &bam_opts.read_id {
@@ -410,5 +439,3 @@ pub trait BamPreFilt: SequenceRead {
         }
     }
 }
-
-impl<I: SequenceRead> BamPreFilt for I {}
