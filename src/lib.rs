@@ -165,7 +165,7 @@ where
             let mod_dists_str = cap.get(7).map_or("", |m| m.as_str());
             // parse the string containing distances between modifications into a vector of i64
 
-            let mod_dists: Vec<i64> = mod_dists_str
+            let mod_dists: Vec<usize> = mod_dists_str
                 .trim_end_matches(';')
                 .split(',')
                 .map(|s| s.trim())
@@ -188,10 +188,20 @@ where
             );
             // find real positions in the forward sequence
             let mut cur_mod_idx: usize = 0;
-            let mut dist_from_last_mod_base: i64 = 0;
+            let mut dist_from_last_mod_base: usize = 0;
 
-            let mut modified_positions: Vec<i64> = vec![];
-            let mut modified_probabilities: Vec<u8> = vec![];
+            // declare vectors with an approximate with_capacity
+            let mod_data_len_approx = if is_implicit {
+                // In implicit mode, there may be any number of bases
+                // after the MM data is over, which must be assumed as unmodified.
+                // So we cannot know the exact length of the data before actually
+                // parsing it, and this is just a lower bound of the length.
+                mod_dists.len() + mod_dists.iter().sum::<usize>()
+            } else {
+                mod_dists.len()
+            };
+            let mut modified_positions: Vec<i64> = Vec::with_capacity(mod_data_len_approx);
+            let mut modified_probabilities: Vec<u8> = Vec::with_capacity(mod_data_len_approx);
 
             for (cur_seq_idx, &_) in forward_bases
                 .iter()
