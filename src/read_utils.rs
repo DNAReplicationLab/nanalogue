@@ -606,7 +606,7 @@ impl CurrRead {
     /// sets modification data using the BAM record
     pub fn set_mod_data(&mut self, record: &Record, mod_thres: ThresholdState) {
         self.mods = Some((
-            nanalogue_mm_ml_parser(record, |x, _| mod_thres.contains(x), |_, _, _| true),
+            nanalogue_mm_ml_parser(record, |x| mod_thres.contains(x), |_| true, |_, _, _| true),
             mod_thres,
         ));
     }
@@ -625,7 +625,8 @@ impl CurrRead {
         self.mods = Some((
             nanalogue_mm_ml_parser(
                 record,
-                |x, y| mod_thres.contains(x) && mod_fwd_pos_filter(y),
+                |x| mod_thres.contains(x),
+                mod_fwd_pos_filter,
                 mod_filter_base_strand_tag,
             ),
             mod_thres,

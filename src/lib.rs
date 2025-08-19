@@ -70,7 +70,7 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
 /// let mut count = 0;
 /// for record in reader.records(){
 ///     let r = record?;
-///     let BaseMods{base_mods: v} = nanalogue_mm_ml_parser(&r, |&_, &_| true, |&_, &_, &_| true);
+///     let BaseMods{base_mods: v} = nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true);
 ///     match count {
 ///     0 => assert_eq!(v, vec![BaseMod{
 ///             modified_base: b'T',
@@ -112,14 +112,16 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
 /// }
 /// # Ok::<(), Error>(())
 /// ```
-pub fn nanalogue_mm_ml_parser<F, G>(
+pub fn nanalogue_mm_ml_parser<F, G, H>(
     record: &bam::Record,
-    filter_mod_prob_pos: F,
-    filter_mod_base_strand_tag: G,
+    filter_mod_prob: F,
+    filter_mod_pos: G,
+    filter_mod_base_strand_tag: H,
 ) -> BaseMods
 where
-    F: Fn(&u8, &usize) -> bool,
-    G: Fn(&u8, &char, &ModChar) -> bool,
+    F: Fn(&u8) -> bool,
+    G: Fn(&usize) -> bool,
+    H: Fn(&u8, &char, &ModChar) -> bool,
 {
     // regex for matching the MM tag
     lazy_static! {
@@ -186,6 +188,10 @@ where
                 modification_type,
                 mod_dists
             );
+
+            // do we include bases with zero probabilities?
+            let is_include_zero_prob = filter_mod_prob(&0);
+
             // find real positions in the forward sequence
             let mut cur_mod_idx: usize = 0;
             let mut dist_from_last_mod_base: usize = 0;
@@ -212,14 +218,14 @@ where
                     && dist_from_last_mod_base == mod_dists[cur_mod_idx]
                 {
                     let prob = &ml_tag[cur_mod_idx + num_mods_seen];
-                    if filter_mod_prob_pos(prob, &cur_seq_idx) {
+                    if filter_mod_prob(prob) && filter_mod_pos(&cur_seq_idx) {
                         modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
                         modified_probabilities.push(*prob);
                     }
                     dist_from_last_mod_base = 0;
                     cur_mod_idx += 1;
                 } else {
-                    if is_implicit && filter_mod_prob_pos(&0, &cur_seq_idx) {
+                    if is_include_zero_prob && is_implicit && filter_mod_pos(&cur_seq_idx) {
                         modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
                         modified_probabilities.push(0);
                     }
@@ -443,7 +449,7 @@ mod tests {
         for record in reader.records() {
             let r = record?;
             let BaseMods { base_mods: v } =
-                nanalogue_mm_ml_parser(&r, |&_, &_| true, |&_, &_, &_| true);
+                nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true);
             match count {
                 0 => assert_eq!(
                     v,
