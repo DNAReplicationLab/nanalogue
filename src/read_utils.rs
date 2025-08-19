@@ -619,7 +619,7 @@ impl CurrRead {
         mod_fwd_pos_filter: G,
         mod_filter_base_strand_tag: H,
     ) where
-        G: Fn(&i64) -> bool,
+        G: Fn(&usize) -> bool,
         H: Fn(&u8, &char, &ModChar) -> bool,
     {
         self.mods = Some((

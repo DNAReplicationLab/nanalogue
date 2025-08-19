@@ -84,7 +84,7 @@ pub struct InputWindowingRestricted {
     /// Please note that the units here are bp and
     /// not units of base being queried.
     #[clap(long, default_value_t = 0)]
-    pub trim_read_ends: u64,
+    pub trim_read_ends: usize,
 }
 
 /// Implements a default for InputWindowingRestricted

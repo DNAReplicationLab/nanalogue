@@ -118,7 +118,7 @@ pub fn nanalogue_mm_ml_parser<F, G>(
     filter_mod_base_strand_tag: G,
 ) -> BaseMods
 where
-    F: Fn(&u8, &i64) -> bool,
+    F: Fn(&u8, &usize) -> bool,
     G: Fn(&u8, &char, &ModChar) -> bool,
 {
     // regex for matching the MM tag
@@ -156,7 +156,12 @@ where
                 continue;
             }
 
-            let _implicit = cap.get(6).map_or(".", |m| m.as_str()).as_bytes().first();
+            let is_implicit = match cap.get(6).map_or("", |m| m.as_str()).as_bytes() {
+                b"" => true,
+                b"." => true,
+                b"?" => false,
+                _ => panic!("unknown modification annotation!"),
+            };
             let mod_dists_str = cap.get(7).map_or("", |m| m.as_str());
             // parse the string containing distances between modifications into a vector of i64
 
@@ -182,64 +187,40 @@ where
                 mod_dists
             );
             // find real positions in the forward sequence
-            let mut cur_mod_idx = 0;
-            let mut cur_seq_idx = 0;
-            let mut dist_from_last_mod_base = 0;
-            let mut unfiltered_modified_positions: Vec<i64> = vec![0; mod_dists.len()];
-            while cur_seq_idx < forward_bases.len() && cur_mod_idx < mod_dists.len() {
-                let cur_base = forward_bases[cur_seq_idx];
-                if (cur_base == mod_base || mod_base == b'N')
+            let mut cur_mod_idx: usize = 0;
+            let mut dist_from_last_mod_base: i64 = 0;
+
+            let mut modified_positions: Vec<i64> = vec![];
+            let mut modified_probabilities: Vec<u8> = vec![];
+
+            for (cur_seq_idx, &_) in forward_bases
+                .iter()
+                .enumerate()
+                .filter(|&(_, &k)| mod_base == b'N' || k == mod_base)
+            {
+                if cur_mod_idx < mod_dists.len()
                     && dist_from_last_mod_base == mod_dists[cur_mod_idx]
                 {
-                    unfiltered_modified_positions[cur_mod_idx] =
-                        i64::try_from(cur_seq_idx).unwrap();
+                    let prob = &ml_tag[cur_mod_idx + num_mods_seen];
+                    if filter_mod_prob_pos(prob, &cur_seq_idx) {
+                        modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
+                        modified_probabilities.push(*prob);
+                    }
                     dist_from_last_mod_base = 0;
                     cur_mod_idx += 1;
-                } else if cur_base == mod_base {
+                } else {
+                    if is_implicit && filter_mod_prob_pos(&0, &cur_seq_idx) {
+                        modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
+                        modified_probabilities.push(0);
+                    }
                     dist_from_last_mod_base += 1
                 }
-                cur_seq_idx += 1;
             }
-            // assert that we extract the same number of modifications as we have distances
-            assert_eq!(
-                cur_mod_idx,
-                mod_dists.len(),
-                "{:?} {}",
-                String::from_utf8_lossy(record.qname()),
-                record.is_reverse()
-            );
 
-            // check for the probability of modification.
-            let num_mods_cur_end = num_mods_seen + unfiltered_modified_positions.len();
-            let unfiltered_modified_probabilities = if num_mods_cur_end > ml_tag.len() {
-                let needed_num_of_zeros = num_mods_cur_end - ml_tag.len();
-                let mut to_add = vec![0; needed_num_of_zeros];
-                let mut has = ml_tag[num_mods_seen..ml_tag.len()].to_vec();
-                has.append(&mut to_add);
-                log::warn!(
-                    "{} {}",
-                    "ML tag is too short for the number of modifications found in the MM tag.",
-                    "Assuming an ML value of 0 after the first {num_mods_cur_end} modifications."
-                );
-                has
-            } else {
-                ml_tag[num_mods_seen..num_mods_cur_end].to_vec()
-            };
-            num_mods_seen = num_mods_cur_end;
+            num_mods_seen += cur_mod_idx;
 
-            // must be true for filtering, and at this point
-            assert_eq!(
-                unfiltered_modified_positions.len(),
-                unfiltered_modified_probabilities.len()
-            );
-
-            // Filter mods based on probabilities
-            let (modified_probabilities, modified_positions): (Vec<u8>, Vec<i64>) =
-                unfiltered_modified_probabilities
-                    .iter()
-                    .zip(unfiltered_modified_positions.iter())
-                    .filter(|&(&ml, &mm)| filter_mod_prob_pos(&ml, &mm))
-                    .unzip();
+            // ensure equal lengths for either type of data
+            assert_eq!(modified_positions.len(), modified_probabilities.len());
 
             // don't add empty basemods
             if modified_positions.is_empty() {
@@ -257,16 +238,12 @@ where
             rtn.push(mods);
         }
     } else {
-        log::trace!("No MM tag found");
+        panic!("No MM tag found!")
     }
 
-    if ml_tag.len() != num_mods_seen {
-        log::warn!(
-            "ML tag ({}) different number than MM tag ({}).",
-            ml_tag.len(),
-            num_mods_seen
-        );
-    }
+    // ensure that we have seen all mods
+    assert_eq!(ml_tag.len(), num_mods_seen);
+
     // needed so I can compare methods
     rtn.sort();
     BaseMods { base_mods: rtn }
@@ -406,9 +383,9 @@ pub trait BamPreFilt {
 impl BamPreFilt for bam::Record {
     /// apply default filtration by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
-        self.filt_by_len(&bam_opts)
-            & self.filt_by_read_id(&bam_opts)
-            & self.filt_by_align_len(&bam_opts)
+        self.filt_by_len(bam_opts)
+            & self.filt_by_read_id(bam_opts)
+            & self.filt_by_align_len(bam_opts)
     }
     /// filtration by read length
     fn filt_by_len(&self, bam_opts: &InputBam) -> bool {
@@ -437,5 +414,156 @@ impl BamPreFilt for bam::Record {
             Some(v) => v.as_bytes() == self.name(),
             None => true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fibertools_rs::utils::bamranges::Ranges;
+    use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
+    use rust_htslib::bam::Read;
+
+    /// Tests if Mod BAM modification parsing is alright,
+    /// some of the test cases here may be a repeat of the doctest above.
+    #[test]
+    fn test_mod_bam_parsing_from_example_1_bam() -> Result<(), Error> {
+        let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+        let mut count = 0;
+        for record in reader.records() {
+            let r = record?;
+            let BaseMods { base_mods: v } =
+                nanalogue_mm_ml_parser(&r, |&_, &_| true, |&_, &_, &_| true);
+            match count {
+                0 => assert_eq!(
+                    v,
+                    vec![BaseMod {
+                        modified_base: b'T',
+                        strand: '+',
+                        modification_type: 'T',
+                        ranges: Ranges {
+                            starts: vec![Some(0), Some(3), Some(4), Some(7)],
+                            ends: vec![Some(1), Some(4), Some(5), Some(8)],
+                            lengths: vec![Some(1); 4],
+                            qual: vec![4, 7, 9, 6],
+                            reference_starts: vec![Some(9), Some(12), Some(13), Some(16)],
+                            reference_ends: vec![Some(9), Some(12), Some(13), Some(16)],
+                            reference_lengths: vec![Some(0); 4],
+                            seq_len: 8,
+                            reverse: false,
+                        },
+                        record_is_reverse: false,
+                    }]
+                ),
+                1 => assert_eq!(
+                    v,
+                    vec![BaseMod {
+                        modified_base: b'T',
+                        strand: '+',
+                        modification_type: 'T',
+                        ranges: Ranges {
+                            starts: vec![Some(3), Some(8), Some(27), Some(39), Some(47)],
+                            ends: vec![Some(4), Some(9), Some(28), Some(40), Some(48)],
+                            lengths: vec![Some(1); 5],
+                            qual: vec![221, 242, 3, 47, 239],
+                            reference_starts: vec![
+                                Some(26),
+                                Some(31),
+                                Some(50),
+                                Some(62),
+                                Some(70)
+                            ],
+                            reference_ends: vec![Some(26), Some(31), Some(50), Some(62), Some(70)],
+                            reference_lengths: vec![Some(0); 5],
+                            seq_len: 48,
+                            reverse: false,
+                        },
+                        record_is_reverse: false,
+                    }]
+                ),
+                2 => assert_eq!(
+                    v,
+                    vec![BaseMod {
+                        modified_base: b'T',
+                        strand: '+',
+                        modification_type: 'T',
+                        ranges: Ranges {
+                            starts: vec![Some(12), Some(13), Some(16), Some(19), Some(20)],
+                            ends: vec![Some(13), Some(14), Some(17), Some(20), Some(21)],
+                            lengths: vec![Some(1); 5],
+                            qual: vec![3, 3, 4, 3, 182],
+                            reference_starts: vec![
+                                Some(15),
+                                Some(16),
+                                Some(19),
+                                Some(22),
+                                Some(23)
+                            ],
+                            reference_ends: vec![Some(15), Some(16), Some(19), Some(22), Some(23)],
+                            reference_lengths: vec![Some(0); 5],
+                            seq_len: 33,
+                            reverse: true,
+                        },
+                        record_is_reverse: true,
+                    }]
+                ),
+                3 => assert_eq!(
+                    v,
+                    vec![
+                        BaseMod {
+                            modified_base: b'G',
+                            strand: '-',
+                            modification_type: '\u{1C20}',
+                            ranges: Ranges {
+                                starts: vec![
+                                    Some(28),
+                                    Some(29),
+                                    Some(30),
+                                    Some(32),
+                                    Some(43),
+                                    Some(44)
+                                ],
+                                ends: vec![
+                                    Some(29),
+                                    Some(30),
+                                    Some(31),
+                                    Some(33),
+                                    Some(44),
+                                    Some(45)
+                                ],
+                                lengths: vec![Some(1); 6],
+                                qual: vec![0, 0, 0, 0, 77, 0],
+                                reference_starts: vec![None; 6],
+                                reference_ends: vec![None; 6],
+                                reference_lengths: vec![None; 6],
+                                seq_len: 48,
+                                reverse: false,
+                            },
+                            record_is_reverse: false,
+                        },
+                        BaseMod {
+                            modified_base: b'T',
+                            strand: '+',
+                            modification_type: 'T',
+                            ranges: Ranges {
+                                starts: vec![Some(3), Some(8), Some(27), Some(39), Some(47)],
+                                ends: vec![Some(4), Some(9), Some(28), Some(40), Some(48)],
+                                lengths: vec![Some(1); 5],
+                                qual: vec![221, 242, 0, 47, 239],
+                                reference_starts: vec![None; 5],
+                                reference_ends: vec![None; 5],
+                                reference_lengths: vec![None; 5],
+                                seq_len: 48,
+                                reverse: false,
+                            },
+                            record_is_reverse: false,
+                        }
+                    ]
+                ),
+                _ => {}
+            }
+            count = count + 1;
+        }
+        Ok(())
     }
 }

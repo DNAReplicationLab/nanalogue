@@ -23,14 +23,7 @@ where
     G: Fn(&Vec<F32Bw0and1>) -> bool,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
-    let trim_end_bp = match window_options.trim_read_ends {
-        v if v <= i64::MAX as u64 => Ok(v as i64),
-        _ => Err(Error::NotImplementedError(format!(
-            "cannot trim ends beyond {}",
-            i64::MAX
-        ))),
-    }?;
-
+    let trim_end_bp = window_options.trim_read_ends;
     let mut curr_read_state = CurrRead::default();
 
     // Go record by record in the BAM file,
@@ -39,13 +32,9 @@ where
         let record = r?;
         curr_read_state.reset();
         curr_read_state.set_read_id(&record)?;
-        let seq_len: i64 = match curr_read_state.set_seq_len(&record) {
+        let seq_len: usize = match curr_read_state.set_seq_len(&record) {
             Err(_) | Ok(None) => Err(Error::InvalidSeqLength),
-            Ok(Some(v)) if v <= i64::MAX as u64 => Ok(v as i64),
-            Ok(Some(_)) => Err(Error::NotImplementedError(format!(
-                "sequence length larger than {}!",
-                i64::MAX
-            ))),
+            Ok(Some(v)) => Ok(v as usize),
         }?;
 
         // set the modified read state
