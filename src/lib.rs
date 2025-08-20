@@ -16,7 +16,6 @@ use fibertools_rs::utils::bio_io::get_u8_tag;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions, bam::record::Aux, tpool};
-use std::collections::HashMap;
 use std::convert::TryFrom;
 
 // Declare the modules.
@@ -276,9 +275,9 @@ where
 /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
 /// let mut bam_opts = InputBam::default();
 /// let BamRcRecords = BamRcRecords::new(&mut reader, &bam_opts)?;
-/// assert_eq!(BamRcRecords.contig_names.get("dummyI"), Some(&0));
-/// assert_eq!(BamRcRecords.contig_names.get("dummyII"), Some(&1));
-/// assert_eq!(BamRcRecords.contig_names.get("dummyIII"), Some(&2));
+/// assert_eq!(BamRcRecords.header.tid(b"dummyI"), Some(0));
+/// assert_eq!(BamRcRecords.header.tid(b"dummyII"), Some(1));
+/// assert_eq!(BamRcRecords.header.tid(b"dummyIII"), Some(2));
 /// # Ok::<(), Error>(())
 /// ```
 #[derive(Debug)]
@@ -286,44 +285,17 @@ pub struct BamRcRecords<'a> {
     /// RcRecords object output by rust htslib which we can iterate over
     pub rc_records: bam::RcRecords<'a, bam::Reader>,
     /// Header of the bam file
-    pub header: bam::Header,
-    /// List of contig names as a HashMap
-    pub contig_names: HashMap<String, usize>,
+    pub header: bam::HeaderView,
 }
 
 impl<'a> BamRcRecords<'a> {
     /// Extracts RcRecords from a BAM Reader
     pub fn new(bam_reader: &'a mut bam::Reader, bam_opts: &InputBam) -> Result<Self, Error> {
-        let contig_names: HashMap<String, usize> = bam_reader
-            .header()
-            .target_names()
-            .iter()
-            .enumerate()
-            .map(|(i, r)| str::from_utf8(r).map(|s| (s.to_owned(), i)))
-            .collect::<Result<_, _>>()?;
-        let header = bam::Header::from_template(bam_reader.header());
+        let header = bam_reader.header().clone();
         let tp = tpool::ThreadPool::new(bam_opts.threads.get())?;
         bam_reader.set_thread_pool(&tp)?;
         let rc_records = bam_reader.rc_records();
-        Ok(BamRcRecords {
-            rc_records,
-            header,
-            contig_names,
-        })
-    }
-    /// Get the numeric id corresponding to a contig name
-    ///
-    /// ```
-    /// use nanalogue_core::{Error, nanalogue_bam_reader, BamRcRecords, InputBam};
-    /// use rust_htslib::bam::Read;
-    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
-    /// let mut bam_opts = InputBam::default();
-    /// let BamRcRecords = BamRcRecords::new(&mut reader, &bam_opts)?;
-    /// assert_eq!(BamRcRecords.get_contig_tid("dummyIII"), Some(&2));
-    /// # Ok::<(), Error>(())
-    /// ```
-    pub fn get_contig_tid(&self, name: &str) -> Option<&usize> {
-        self.contig_names.get(name)
+        Ok(BamRcRecords { rc_records, header })
     }
 }
 
