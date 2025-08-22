@@ -29,7 +29,10 @@ pub mod utils;
 pub use cli::{InputBam, InputWindowing, InputWindowingRestricted};
 pub use error::Error;
 pub use read_utils::{CurrRead, ReadState, ThresholdState};
-pub use utils::{Contains, F32AbsValBelow1, F32Bw0and1, ModChar, OrdPair, RestrictModCalledStrand};
+pub use utils::{
+    Contains, F32AbsValBelow1, F32Bw0and1, FilterByRefCoords, ModChar, OrdPair,
+    RestrictModCalledStrand,
+};
 
 /// Converts DNA bases to uppercase if needed, leaving other characters unchanged.
 ///

@@ -46,7 +46,7 @@ where
         }?;
 
         // read and window modification data, then print the output
-        if let Ok(Some((BaseMods { base_mods: v }, _))) = curr_read_state.mod_data() {
+        if let Ok((BaseMods { base_mods: v }, _)) = curr_read_state.mod_data() {
             for k in v {
                 let mod_data = &k.ranges.qual;
                 let start = &k.ranges.starts;

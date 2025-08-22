@@ -32,10 +32,7 @@ where
         let record = r?;
         curr_read_state.reset();
         curr_read_state.set_read_id(&record)?;
-        let seq_len: usize = match curr_read_state.set_seq_len(&record) {
-            Err(_) | Ok(None) => Err(Error::InvalidSeqLength),
-            Ok(Some(v)) => Ok(v as usize),
-        }?;
+        let seq_len: usize = curr_read_state.set_seq_len(&record)?.try_into().unwrap();
 
         // set the modified read state
         match (&trim_end_bp, &window_options.mod_strand) {
@@ -72,8 +69,8 @@ where
             window_options.win_params.step.get().try_into()?,
             window_options.tag,
         )? {
-            Some(v) => window_filter(&v),
-            None => false,
+            v if !v.is_empty() => window_filter(&v),
+            _ => false,
         } {
             writeln!(handle, "{}", curr_read_state.read_id()?)?;
         }

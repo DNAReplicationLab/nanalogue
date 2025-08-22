@@ -76,6 +76,9 @@ where
     let mut seq_len_total = 0;
     let mut align_len_total = 0;
 
+    // set read state
+    let mut curr_read_state = CurrRead::default();
+
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
@@ -83,9 +86,8 @@ where
 
         // set the read state using the type of alignment
         // and increment read counter
-        let mut curr_read_state = CurrRead::default();
-        curr_read_state.set_read_state(&record)?;
-        match curr_read_state.read_state() {
+        curr_read_state.reset();
+        match curr_read_state.set_read_state(&record)? {
             ReadState::Unknown => {}
             ReadState::PrimaryFwd => primary_count += 1,
             ReadState::SecondaryFwd => secondary_count += 1,
@@ -106,16 +108,16 @@ where
         };
 
         // get length of alignment
-        if let Some(v) = curr_read_state.set_align_len(&record)? {
+        if let Ok(v) = curr_read_state.set_align_len(&record) {
             align_len_total += v;
             align_len_heap.push(v);
         };
 
-        // get length of sequence
-        if let Some(v) = curr_read_state.set_seq_len(&record)? {
+        // get length of sequence.
+        if let Ok(v) = curr_read_state.set_seq_len(&record) {
             seq_len_total += v;
             seq_len_heap.push(v);
-        };
+        }
     }
 
     // process heaps to get statistics

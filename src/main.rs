@@ -46,7 +46,7 @@ enum Commands {
         #[clap(flatten)]
         bam: InputBam,
         /// Input read id
-        read_id: String,
+        read: String,
     },
     /// Find names of modified reads through criteria specified by sub commands
     FindModifiedReads {
@@ -254,14 +254,14 @@ fn main() -> Result<(), Error> {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::read_stats::run(&mut handle, pre_filt!(bam_rc_records, &bam))
         }
-        Commands::ReadInfo { bam, read_id } => {
+        Commands::ReadInfo { bam, read } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             match bam.read_id {
-                Some(ref v) if *v != read_id => Err(Error::InvalidReadID),
+                Some(ref v) if *v != read => Err(Error::InvalidReadID),
                 _ => Ok(true),
             }?;
-            subcommands::read_info::run(&mut handle, pre_filt!(bam_rc_records, &bam), &read_id)
+            subcommands::read_info::run(&mut handle, pre_filt!(bam_rc_records, &bam), &read)
         }
         Commands::FindModifiedReads {
             command:

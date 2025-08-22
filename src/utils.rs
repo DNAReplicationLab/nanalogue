@@ -4,6 +4,7 @@
 //! used by all modules in our crate.
 
 use crate::Error;
+use rust_htslib::bam::FetchDefinition;
 use serde::{Deserialize, Serialize};
 use std::convert::From;
 use std::fmt;
@@ -11,10 +12,23 @@ use std::fmt::Debug;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 
-/// Implements function that tests if a value is within some interval
+/// Implements test if a value is within some interval
 pub trait Contains<T> {
     /// see if value is contained within
     fn contains(&self, val: &T) -> bool;
+}
+
+/// Implements filter by coordinates on the reference genome.
+pub trait FilterByRefCoords {
+    /// filters by reference position i.e. all pos such that start <= pos < end
+    /// are retained. does not use contig in filtering.
+    fn filter_by_ref_pos(&mut self, _: i64, _: i64) {
+        todo!()
+    }
+    /// filters by coordinates contained in FetchDefinition
+    fn filter_by_ref_pos_fd(&mut self, _: FetchDefinition) {
+        todo!()
+    }
 }
 
 /// Datatype holding two values low, high such that low <= high is guaranteed at creation.

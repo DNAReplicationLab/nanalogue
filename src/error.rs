@@ -108,4 +108,17 @@ pub enum Error {
     /// General error when ordering of items in some context is wrong.
     #[error("items in wrong order")]
     WrongOrder,
+
+    /// Data not available
+    #[error("data not available")]
+    UnavailableData,
+
+    /// Unknown error
+    #[error("unknown error")]
+    UnknownError,
+
+    /// Read is unmapped, use this whenever some function
+    /// meant for a mapped read is called on an unmapped read
+    #[error("read is unmapped")]
+    Unmapped,
 }

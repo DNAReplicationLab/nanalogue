@@ -180,10 +180,10 @@ where
             v @ (ReadState::PrimaryFwd | ReadState::PrimaryRev) => v,
             _ => continue,
         };
-        let Some(align_len) = curr_read_state.set_align_len(&record)? else {
+        let Ok(align_len) = curr_read_state.set_align_len(&record) else {
             continue;
         };
-        let Some(seq_len) = curr_read_state.set_seq_len(&record)? else {
+        let Ok(seq_len) = curr_read_state.set_seq_len(&record) else {
             continue;
         };
 

@@ -7,6 +7,7 @@
 use bedrs::prelude::StrandedBed3;
 use bedrs::{Coordinates, Strand};
 use bio_types::genome::AbstractInterval;
+use fibertools_rs::utils::bamranges::Ranges;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use rust_htslib::{bam::ext::BamRecordExtensions, bam::record::Record};
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,9 @@ use std::num::NonZeroU64;
 use std::rc::Rc;
 
 // Import from our crate
-use crate::{Contains, Error, F32Bw0and1, ModChar, OrdPair, nanalogue_mm_ml_parser};
+use crate::{
+    Contains, Error, F32Bw0and1, FilterByRefCoords, ModChar, OrdPair, nanalogue_mm_ml_parser,
+};
 
 /// Alignment state of a read; seven possibilities + one unknown state
 #[derive(Debug, Clone, Default, Copy, PartialEq, Serialize, Deserialize)]
@@ -236,7 +239,7 @@ impl CurrRead {
     /// }
     /// # Ok::<(), Error>(())
     /// ```
-    pub fn set_read_state(&mut self, record: &Record) -> Result<bool, Error> {
+    pub fn set_read_state(&mut self, record: &Record) -> Result<ReadState, Error> {
         // set read state
         match &self.state {
             ReadState::Unknown => {
@@ -248,31 +251,31 @@ impl CurrRead {
                 ) {
                     (false, true, false, false) => {
                         self.state = ReadState::Unmapped;
-                        Ok(true)
+                        Ok(self.state)
                     }
                     (true, false, false, false) => {
                         self.state = ReadState::PrimaryRev;
-                        Ok(true)
+                        Ok(self.state)
                     }
                     (true, false, true, false) => {
                         self.state = ReadState::SecondaryRev;
-                        Ok(true)
+                        Ok(self.state)
                     }
                     (false, false, true, false) => {
                         self.state = ReadState::SecondaryFwd;
-                        Ok(true)
+                        Ok(self.state)
                     }
                     (true, false, false, true) => {
                         self.state = ReadState::SupplementaryRev;
-                        Ok(true)
+                        Ok(self.state)
                     }
                     (false, false, false, true) => {
                         self.state = ReadState::SupplementaryFwd;
-                        Ok(true)
+                        Ok(self.state)
                     }
                     (false, false, false, false) => {
                         self.state = ReadState::PrimaryFwd;
-                        Ok(true)
+                        Ok(self.state)
                     }
                     _ => Err(Error::UnknownAlignState),
                 }
@@ -293,9 +296,13 @@ impl CurrRead {
         self.read_id = None;
         self.seq_len = None;
         self.align_len = None;
-        self.mods = None;
         self.contig_id_and_start = None;
         self.contig_name = None;
+        self.reset_mod_data();
+    }
+    /// resets the mod data
+    pub fn reset_mod_data(&mut self) {
+        self.mods = None;
     }
     /// set length of sequence from BAM record
     ///
@@ -308,8 +315,8 @@ impl CurrRead {
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
     ///     curr_read.set_read_state(&r)?;
-    ///     let Ok(Some(len)) = curr_read.set_seq_len(&r) else { unreachable!() };
-    ///     let Ok(Some(len2)) = curr_read.seq_len() else { unreachable!() };
+    ///     let Ok(len) = curr_read.set_seq_len(&r) else { unreachable!() };
+    ///     let Ok(len2) = curr_read.seq_len() else { unreachable!() };
     ///     assert_eq!(len, len2);
     ///     match count {
     ///         0 => assert_eq!(len, 8),
@@ -338,7 +345,7 @@ impl CurrRead {
     /// }
     /// # Ok::<(), Error>(())
     /// ```
-    pub fn set_seq_len(&mut self, record: &Record) -> Result<Option<u64>, Error> {
+    pub fn set_seq_len(&mut self, record: &Record) -> Result<u64, Error> {
         match &self.seq_len {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set sequence length again!".to_string(),
@@ -349,32 +356,32 @@ impl CurrRead {
                         .ok_or(Error::InvalidSeqLength)?
                         .get(),
                 );
-                Ok(self.seq_len)
+                self.seq_len.ok_or(Error::UnknownError)
             }
         }
     }
     /// gets length of sequence
-    pub fn seq_len(&self) -> Result<Option<u64>, Error> {
+    pub fn seq_len(&self) -> Result<u64, Error> {
         match self.read_state() {
             ReadState::Unknown => Err(Error::UnknownAlignState),
-            _ => Ok(self.seq_len),
+            _ => self.seq_len.ok_or(Error::UnavailableData),
         }
     }
     /// set alignment length from BAM record if available
-    pub fn set_align_len(&mut self, record: &Record) -> Result<Option<u64>, Error> {
+    pub fn set_align_len(&mut self, record: &Record) -> Result<u64, Error> {
         match &self.align_len {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set alignment length again!".to_string(),
             )),
             None => match self.read_state() {
                 ReadState::Unknown => Err(Error::UnknownAlignState),
-                ReadState::Unmapped => Ok(None),
+                ReadState::Unmapped => Err(Error::Unmapped),
                 _ => {
                     let st: i64 = record.pos();
                     let en: i64 = record.reference_end();
                     if en > st && st >= 0 {
                         self.align_len = Some((en - st).try_into()?);
-                        Ok(self.align_len)
+                        self.align_len.ok_or(Error::UnknownError)
                     } else {
                         Err(Error::InvalidAlignLength)
                     }
@@ -383,11 +390,11 @@ impl CurrRead {
         }
     }
     /// gets alignment length
-    pub fn align_len(&self) -> Result<Option<u64>, Error> {
+    pub fn align_len(&self) -> Result<u64, Error> {
         match self.read_state() {
             ReadState::Unknown => Err(Error::UnknownAlignState),
-            ReadState::Unmapped => Ok(None),
-            _ => Ok(self.align_len),
+            ReadState::Unmapped => Err(Error::Unmapped),
+            _ => self.align_len.ok_or(Error::UnavailableData),
         }
     }
     /// sets contig ID and start from BAM record if available
@@ -401,12 +408,11 @@ impl CurrRead {
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
     ///     curr_read.set_read_state(&r)?;
-    ///     curr_read.set_contig_id_and_start(&r)?;
-    ///     match (count, curr_read.contig_id_and_start()) {
-    ///         (0, Ok(Some((0, 9)))) |
-    ///         (1, Ok(Some((2, 23)))) |
-    ///         (2, Ok(Some((1, 3)))) |
-    ///         (3, Ok(None)) => {},
+    ///     match (count, curr_read.set_contig_id_and_start(&r)) {
+    ///         (0, Ok((0, 9))) |
+    ///         (1, Ok((2, 23))) |
+    ///         (2, Ok((1, 3))) |
+    ///         (3, Err(Error::Unmapped)) => {},
     ///         _ => unreachable!(),
     ///     }
     ///     count = count + 1;
@@ -429,27 +435,27 @@ impl CurrRead {
     /// }
     /// # Ok::<(), Error>(())
     /// ```
-    pub fn set_contig_id_and_start(&mut self, record: &Record) -> Result<bool, Error> {
+    pub fn set_contig_id_and_start(&mut self, record: &Record) -> Result<(i32, u64), Error> {
         match &self.contig_id_and_start {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set contig and start again!".to_string(),
             )),
             None => match self.read_state() {
                 ReadState::Unknown => Err(Error::UnknownAlignState),
-                ReadState::Unmapped => Ok(false),
+                ReadState::Unmapped => Err(Error::Unmapped),
                 _ => {
                     self.contig_id_and_start = Some((record.tid(), record.pos().try_into()?));
-                    Ok(true)
+                    self.contig_id_and_start.ok_or(Error::UnknownError)
                 }
             },
         }
     }
     /// gets contig ID and start
-    pub fn contig_id_and_start(&self) -> Result<Option<(i32, u64)>, Error> {
+    pub fn contig_id_and_start(&self) -> Result<(i32, u64), Error> {
         match self.read_state() {
             ReadState::Unknown => Err(Error::UnknownAlignState),
-            ReadState::Unmapped => Ok(None),
-            _ => Ok(self.contig_id_and_start),
+            ReadState::Unmapped => Err(Error::Unmapped),
+            _ => self.contig_id_and_start.ok_or(Error::UnavailableData),
         }
     }
     /// sets contig name
@@ -514,25 +520,26 @@ impl CurrRead {
     /// ```
     pub fn set_contig_name(&mut self, record: &Record) -> Result<&str, Error> {
         match (self.read_state(), &self.contig_name) {
-            (ReadState::Unknown | ReadState::Unmapped, _) => Err(Error::InvalidState(
-                "cannot set contig name for unknown or unmapped read".to_string(),
-            )),
+            (ReadState::Unknown, _) => Err(Error::UnknownAlignState),
+            (ReadState::Unmapped, _) => Err(Error::Unmapped),
             (_, Some(_)) => Err(Error::InvalidDuplicates(
                 "cannot set contig name again!".to_string(),
             )),
             (_, None) => {
                 self.contig_name = Some(String::from(record.contig()));
-                self.contig_name()
+                match &self.contig_name {
+                    None => unreachable!(),
+                    Some(v) => Ok(v.as_str()),
+                }
             }
         }
     }
     /// gets contig name
     pub fn contig_name(&self) -> Result<&str, Error> {
         match (self.read_state(), &self.contig_name) {
-            (ReadState::Unknown | ReadState::Unmapped, _) => Err(Error::InvalidState(
-                "cannot get contig name from unknown or unmapped read".to_string(),
-            )),
-            (_, None) => Err(Error::InvalidState("contig name not available".to_string())),
+            (ReadState::Unknown, _) => Err(Error::UnknownAlignState),
+            (ReadState::Unmapped, _) => Err(Error::Unmapped),
+            (_, None) => Err(Error::UnavailableData),
             (_, Some(v)) => Ok(v.as_str()),
         }
     }
@@ -599,7 +606,7 @@ impl CurrRead {
     /// gets read id
     pub fn read_id(&self) -> Result<&str, Error> {
         match &self.read_id {
-            None => Err(Error::InvalidState("read id not available".to_string())),
+            None => Err(Error::UnavailableData),
             Some(v) => Ok(v.as_str()),
         }
     }
@@ -633,10 +640,13 @@ impl CurrRead {
         ));
     }
     /// gets modification data
-    pub fn mod_data(&self) -> Result<&Option<(BaseMods, ThresholdState)>, Error> {
+    pub fn mod_data(&self) -> Result<&(BaseMods, ThresholdState), Error> {
         match self.state {
             ReadState::Unknown => Err(Error::UnknownAlignState),
-            _ => Ok(&self.mods),
+            _ => match &self.mods {
+                Some(v) => Ok(v),
+                None => Err(Error::UnavailableData),
+            },
         }
     }
     /// window modification data with restrictions
@@ -646,7 +656,7 @@ impl CurrRead {
         win_size: usize,
         slide_size: usize,
         tag: ModChar,
-    ) -> Result<Option<Vec<F32Bw0and1>>, Error>
+    ) -> Result<Vec<F32Bw0and1>, Error>
     where
         F: Fn(&[u8]) -> Result<F32Bw0and1, Error>,
     {
@@ -704,11 +714,7 @@ impl CurrRead {
                 }
             }
         }
-        if !result.is_empty() {
-            Ok(Some(result))
-        } else {
-            Ok(None)
-        }
+        Ok(result)
     }
     /// Performs a count of number of bases per modified type.
     /// Note that this result depends on the type of filtering done
@@ -764,11 +770,20 @@ impl CurrRead {
     /// Uses only alignment information and no modification information to
     /// create the struct. Use this if you want to perform operations that
     /// do not involve reading or manipulating the modification data.
-    pub fn try_from_only_alignment(record: Record) -> Result<Self, Error> {
+    pub fn try_from_only_alignment(record: &Record) -> Result<Self, Error> {
         let mut curr_read_state = CurrRead::default();
-        curr_read_state.set_read_state(&record)?;
-        curr_read_state.set_align_len(&record)?;
-        curr_read_state.set_contig_id_and_start(&record)?;
+        let read_state: ReadState = curr_read_state.set_read_state(&record)?;
+        curr_read_state.set_read_id(&record)?;
+        curr_read_state.set_seq_len(&record)?;
+        match read_state {
+            ReadState::Unknown => unreachable!(),
+            ReadState::Unmapped => {}
+            _ => {
+                curr_read_state.set_align_len(&record)?;
+                curr_read_state.set_contig_id_and_start(&record)?;
+                curr_read_state.set_contig_name(&record)?;
+            }
+        }
         Ok(curr_read_state)
     }
     /// Returns the character corresponding to the strand
@@ -813,15 +828,15 @@ impl fmt::Display for CurrRead {
             output_string = output_string + "\t\"read_id\": \"" + v + "\",\n";
         }
 
-        if let Ok(Some(v)) = self.seq_len() {
+        if let Ok(v) = self.seq_len() {
             output_string = output_string + "\t\"sequence_length\": " + &v.to_string() + ",\n";
         }
 
-        if let Ok(Some(v)) = self.align_len() {
+        if let Ok(v) = self.align_len() {
             output_string = output_string + "\t\"alignment_length\": " + &v.to_string() + ",\n";
         }
 
-        if let Ok(Some((v, w))) = self.contig_id_and_start() {
+        if let Ok((v, w)) = self.contig_id_and_start() {
             let num_str = &v.to_string();
             output_string = output_string
                 + "\t\"contig\": \""
@@ -876,9 +891,9 @@ impl fmt::Display for CurrRead {
 /// for record in reader.records(){
 ///     let r = record?;
 ///     let mut curr_read = CurrRead::default();
-///     curr_read.set_read_state(&r)?;
-///     curr_read.set_align_len(&r)?;
-///     curr_read.set_contig_id_and_start(&r)?;
+///     curr_read.set_read_state(&r);
+///     curr_read.set_align_len(&r);
+///     curr_read.set_contig_id_and_start(&r);
 ///     let Ok(bed3_stranded) = StrandedBed3::try_from(curr_read) else {unreachable!()};
 ///     let exp_bed3_stranded = match count {
 ///         0 => StrandedBed3::new(0, 9, 17, Strand::Forward),
@@ -899,7 +914,11 @@ impl TryFrom<CurrRead> for StrandedBed3<i32, u64> {
     type Error = crate::Error;
 
     fn try_from(value: CurrRead) -> Result<Self, Self::Error> {
-        match (value.state, value.align_len, value.contig_id_and_start) {
+        match (
+            value.read_state(),
+            value.align_len().ok(),
+            value.contig_id_and_start().ok(),
+        ) {
             (ReadState::Unknown, _, _) => Err(Error::UnknownAlignState),
             (ReadState::Unmapped, _, _) => Ok(StrandedBed3::empty()),
             (_, None, _) => Err(Error::InvalidAlignLength),
@@ -929,14 +948,8 @@ impl TryFrom<Record> for CurrRead {
     type Error = crate::Error;
 
     fn try_from(record: Record) -> Result<Self, Self::Error> {
-        let mut curr_read_state = CurrRead::default();
-        curr_read_state.set_read_state(&record)?;
-        curr_read_state.set_read_id(&record)?;
-        curr_read_state.set_seq_len(&record)?;
-        curr_read_state.set_align_len(&record)?;
+        let mut curr_read_state = CurrRead::try_from_only_alignment(&record)?;
         curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
-        curr_read_state.set_contig_id_and_start(&record)?;
-        curr_read_state.set_contig_name(&record)?;
         Ok(curr_read_state)
     }
 }
@@ -951,14 +964,70 @@ impl TryFrom<Rc<Record>> for CurrRead {
     type Error = crate::Error;
 
     fn try_from(record: Rc<Record>) -> Result<Self, Self::Error> {
-        let mut curr_read_state = CurrRead::default();
-        curr_read_state.set_read_state(&record)?;
-        curr_read_state.set_read_id(&record)?;
-        curr_read_state.set_seq_len(&record)?;
-        curr_read_state.set_align_len(&record)?;
+        let mut curr_read_state = CurrRead::try_from_only_alignment(&record)?;
         curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
-        curr_read_state.set_contig_id_and_start(&record)?;
-        curr_read_state.set_contig_name(&record)?;
         Ok(curr_read_state)
+    }
+}
+
+/// Implements filter by reference coordinates for the Ranges
+/// struct that contains our modification information.
+/// NOTE: Ranges does not contain contig information, so we cannot
+/// filter by that here.
+impl FilterByRefCoords for Ranges {
+    /// filters by reference position i.e. all pos such that start <= pos < end
+    /// are retained. does not use contig in filtering.
+    /// Copied and edited from the fibertools-rs repository.
+    fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
+        let to_keep = self
+            .reference_starts
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &s)| {
+                if let Some(s) = s {
+                    if s < start || s >= end { None } else { Some(i) }
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        self.starts = to_keep.iter().map(|&i| self.starts[i]).collect();
+        self.ends = to_keep.iter().map(|&i| self.ends[i]).collect();
+        self.lengths = to_keep.iter().map(|&i| self.lengths[i]).collect();
+        self.qual = to_keep.iter().map(|&i| self.qual[i]).collect();
+        self.reference_starts = to_keep.iter().map(|&i| self.reference_starts[i]).collect();
+        self.reference_ends = to_keep.iter().map(|&i| self.reference_ends[i]).collect();
+        self.reference_lengths = to_keep.iter().map(|&i| self.reference_lengths[i]).collect();
+    }
+}
+
+/// Implements filter by reference coordinates for our CurrRead
+impl FilterByRefCoords for CurrRead {
+    /// filters by reference position i.e. all pos such that start <= pos < end
+    /// are retained. does not use contig in filtering.
+    /// First, we check if the read's coordinates are within the interval of interest,
+    /// otherwise we just reset the mod data. Then, we call the filter method
+    /// in the Ranges struct that contains the mod data.
+    fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
+        let (start_u64, end_u64) = match (start, end) {
+            (st, en) if st >= 0 && en >= 0 && st <= en => (st as u64, en as u64),
+            _ => panic!("start and end are invalid!"),
+        };
+        match (self.contig_id_and_start().ok(), self.align_len().ok()) {
+            (Some((_, start_pos)), Some(al))
+                if start_pos + al <= start_u64 || start_pos >= end_u64 =>
+            {
+                self.reset_mod_data();
+            }
+            _ => match &mut self.mods {
+                None => {}
+                Some((BaseMods { base_mods: v }, _)) => {
+                    for k in v {
+                        k.ranges.filter_by_ref_pos(start, end);
+                    }
+                }
+            },
+        };
     }
 }
