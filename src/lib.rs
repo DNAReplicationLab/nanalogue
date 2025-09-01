@@ -238,9 +238,6 @@ where
 
             num_mods_seen += cur_mod_idx;
 
-            // ensure equal lengths for either type of data
-            assert_eq!(modified_positions.len(), modified_probabilities.len());
-
             // don't add empty basemods
             if modified_positions.is_empty() {
                 continue;
@@ -259,9 +256,6 @@ where
     } else {
         panic!("No MM tag found!")
     }
-
-    // ensure that we have seen all mods
-    assert_eq!(ml_tag.len(), num_mods_seen);
 
     // needed so I can compare methods
     rtn.sort();

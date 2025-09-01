@@ -649,7 +649,10 @@ impl CurrRead {
             },
         }
     }
-    /// window modification data with restrictions
+    /// window modification data with restrictions.
+    /// If a read has the same modification on both the basecalled
+    /// strand and its complement, then windows along both are returned.
+    /// We make no guarantee about the ordering of the coordinates of the output in this case.
     pub fn windowed_mod_data_restricted<F>(
         &self,
         window_function: &F,
@@ -705,10 +708,12 @@ impl CurrRead {
                         if win_size > mod_data.len() {
                             continue;
                         }
-                        result = (0..=mod_data.len() - win_size)
-                            .step_by(slide_size)
-                            .map(|i| window_function(&mod_data[i..i + win_size]))
-                            .collect::<Result<Vec<F32Bw0and1>, _>>()?;
+                        result.extend(
+                            (0..=mod_data.len() - win_size)
+                                .step_by(slide_size)
+                                .map(|i| window_function(&mod_data[i..i + win_size]))
+                                .collect::<Result<Vec<F32Bw0and1>, _>>()?,
+                        );
                     }
                     _ => {}
                 }
@@ -749,7 +754,7 @@ impl CurrRead {
     #[must_use]
     pub fn base_count_per_mod(&self) -> Option<HashMap<ModChar, u32>> {
         let mut output = HashMap::<ModChar, u32>::new();
-        match &self.mods {
+        match self.mod_data().ok() {
             Some((BaseMods { base_mods: v }, _)) => {
                 if v.is_empty() {
                     None
@@ -853,7 +858,7 @@ impl fmt::Display for CurrRead {
             output_string + "\t\"alignment_type\": \"" + &self.state.to_string() + "\",\n";
 
         let mut mod_count_str = String::from("");
-        if let Some((BaseMods { base_mods: v }, w)) = &self.mods {
+        if let Ok((BaseMods { base_mods: v }, w)) = self.mod_data() {
             if !v.is_empty() {
                 for k in v {
                     mod_count_str += format!(
