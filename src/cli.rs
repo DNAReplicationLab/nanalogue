@@ -54,10 +54,9 @@ impl Default for InputBam {
 }
 
 /// This struct contains the options input to our
-/// modification-data-windowing functions with restrictions
-/// on data before windowing is done
+/// modification-data functions with restrictions on data received
 #[derive(Debug, Args, Serialize, Deserialize)]
-pub struct InputWindowingRestricted {
+pub struct InputMods {
     /// modified tag
     #[clap(long)]
     pub tag: ModChar,
@@ -71,31 +70,25 @@ pub struct InputWindowingRestricted {
     /// aligned reads using the BAM flags.
     #[clap(long)]
     pub mod_strand: Option<RestrictModCalledStrand>,
-    /// Basic windowing parameters
-    #[clap(flatten)]
-    pub win_params: InputWindowing,
-    /// Filter to reject mods before windowing;
-    /// we allow all mods through for now and
+    /// Filter to reject mods before data operations.
+    /// We allow all mods through for now and
     /// do not expose this to the user.
     #[clap(skip)]
     pub mod_prob_filter: ThresholdState,
     /// Filter this many bp at the start and
-    /// end of a read before any windowing.
+    /// end of a read before any operations.
     /// Please note that the units here are bp and
     /// not units of base being queried.
     #[clap(long, default_value_t = 0)]
     pub trim_read_ends: usize,
 }
 
-/// Implements a default for InputWindowingRestricted
-/// NOTE: we choose an arbitrary default value of 100
-/// for win and step.
-impl Default for InputWindowingRestricted {
+/// Implements a default for InputMods
+impl Default for InputMods {
     fn default() -> Self {
-        InputWindowingRestricted {
+        InputMods {
             tag: ModChar::new('N'),
             mod_strand: None,
-            win_params: InputWindowing::default(),
             mod_prob_filter: ThresholdState::GtEq(0),
             trim_read_ends: 0,
         }

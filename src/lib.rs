@@ -26,7 +26,7 @@ pub mod subcommands;
 pub mod utils;
 
 // Re-exports
-pub use cli::{InputBam, InputWindowing, InputWindowingRestricted};
+pub use cli::{InputBam, InputMods, InputWindowing};
 pub use error::Error;
 pub use read_utils::{CurrRead, ReadState, ThresholdState};
 pub use utils::{
@@ -431,9 +431,8 @@ mod tests {
     /// some of the test cases here may be a repeat of the doctest above.
     #[test]
     fn test_mod_bam_parsing_from_example_1_bam() -> Result<(), Error> {
-        let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
-        let mut count = 0;
-        for record in reader.records() {
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
+        for (count, record) in reader.records().enumerate() {
             let r = record?;
             let BaseMods { base_mods: v } =
                 nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true);
@@ -565,7 +564,6 @@ mod tests {
                 ),
                 _ => {}
             }
-            count = count + 1;
         }
         Ok(())
     }

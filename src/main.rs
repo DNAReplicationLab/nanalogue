@@ -1,8 +1,7 @@
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
     self, BamPreFilt, BamRcRecords, Contains, Error, F32AbsValBelow1, F32Bw0and1, InputBam,
-    InputWindowing, InputWindowingRestricted, OrdPair, ThresholdState, nanalogue_bam_reader,
-    subcommands,
+    InputMods, InputWindowing, OrdPair, ThresholdState, nanalogue_bam_reader, subcommands,
 };
 use std::io;
 use std::ops::RangeInclusive;
@@ -80,7 +79,10 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowingRestricted,
+        win: InputWindowing,
+        /// Input modification options
+        #[clap(flatten)]
+        mods: InputMods,
         /// only find reads such that all windowed density values are in these limits.
         /// specify as low,high e.g. 0.2,0.7 so that the condition is that all windowed_values
         /// satisfy low <= windowed_value <= high.
@@ -95,7 +97,10 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowingRestricted,
+        win: InputWindowing,
+        /// Input modification options
+        #[clap(flatten)]
+        mods: InputMods,
         /// high value of criterion i.e. at least one window >= high
         #[clap(long)]
         high: F32Bw0and1,
@@ -108,7 +113,10 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowingRestricted,
+        win: InputWindowing,
+        /// Input modification options
+        #[clap(flatten)]
+        mods: InputMods,
         /// low value of criterion i.e. at least one window <= low
         #[clap(long)]
         low: F32Bw0and1,
@@ -122,7 +130,10 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowingRestricted,
+        win: InputWindowing,
+        /// Input modification options
+        #[clap(flatten)]
+        mods: InputMods,
         /// low criterion i.e. at least one window <= low,
         /// anded with the high criterion
         #[clap(long)]
@@ -141,7 +152,10 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowingRestricted,
+        win: InputWindowing,
+        /// Input modification options
+        #[clap(flatten)]
+        mods: InputMods,
         /// max(windowed densities) - min(windowed densities)
         /// is at least this value
         #[clap(long)]
@@ -156,7 +170,10 @@ enum FindModReadsCommands {
         bam: InputBam,
         /// Input windowing options
         #[clap(flatten)]
-        win: InputWindowingRestricted,
+        win: InputWindowing,
+        /// Input modification options
+        #[clap(flatten)]
+        mods: InputMods,
         /// gradient is at least this value. e.g. a gradient of 0.005 with a window
         /// size of 100 means you expect a variation of 0.005 * 100 = 0.5 over at least
         /// one window i.e. greater than 0.5 or smaller than -0.5. For your guidance,
@@ -262,6 +279,7 @@ fn main() -> Result<(), Error> {
                 FindModReadsCommands::AllDensBetween {
                     bam,
                     win,
+                    mods,
                     dens_limits,
                 },
         } => {
@@ -271,6 +289,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
+                mods,
                 threshold_and_mean,
                 |x| {
                     x.iter()
@@ -279,7 +298,13 @@ fn main() -> Result<(), Error> {
             )
         }
         Commands::FindModifiedReads {
-            command: FindModReadsCommands::AnyDensAbove { bam, win, high },
+            command:
+                FindModReadsCommands::AnyDensAbove {
+                    bam,
+                    win,
+                    mods,
+                    high,
+                },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
@@ -288,6 +313,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
+                mods,
                 threshold_and_mean,
                 |x| {
                     x.iter()
@@ -296,7 +322,13 @@ fn main() -> Result<(), Error> {
             )
         }
         Commands::FindModifiedReads {
-            command: FindModReadsCommands::AnyDensBelow { bam, win, low },
+            command:
+                FindModReadsCommands::AnyDensBelow {
+                    bam,
+                    win,
+                    mods,
+                    low,
+                },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
@@ -305,6 +337,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
+                mods,
                 threshold_and_mean,
                 |x| {
                     x.iter()
@@ -317,6 +350,7 @@ fn main() -> Result<(), Error> {
                 FindModReadsCommands::AnyDensBelowAndAnyDensAbove {
                     bam,
                     win,
+                    mods,
                     low,
                     high,
                 },
@@ -329,6 +363,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
+                mods,
                 threshold_and_mean,
                 |x| {
                     x.iter()
@@ -343,6 +378,7 @@ fn main() -> Result<(), Error> {
                 FindModReadsCommands::DensRangeAbove {
                     bam,
                     win,
+                    mods,
                     min_range,
                 },
         } => {
@@ -352,6 +388,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
+                mods,
                 threshold_and_mean,
                 |x| {
                     x.iter()
@@ -367,7 +404,13 @@ fn main() -> Result<(), Error> {
             )
         }
         Commands::FindModifiedReads {
-            command: FindModReadsCommands::AnyAbsGradAbove { bam, win, min_grad },
+            command:
+                FindModReadsCommands::AnyAbsGradAbove {
+                    bam,
+                    win,
+                    mods,
+                    min_grad,
+                },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
@@ -376,6 +419,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
+                mods,
                 |x| {
                     Ok(F32Bw0and1::abs_f32_abs_val_below_1(threshold_and_gradient(
                         x,
