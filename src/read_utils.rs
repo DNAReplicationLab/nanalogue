@@ -14,11 +14,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::num::NonZeroU64;
+use std::ops::Range;
 use std::rc::Rc;
 
 // Import from our crate
 use crate::{
-    Contains, Error, F32Bw0and1, FilterByRefCoords, ModChar, OrdPair, nanalogue_mm_ml_parser,
+    Contains, Error, F32Bw0and1, FilterByRefCoords, Intersects, ModChar, OrdPair,
+    nanalogue_mm_ml_parser,
 };
 
 /// Alignment state of a read; seven possibilities + one unknown state
@@ -777,16 +779,16 @@ impl CurrRead {
     /// do not involve reading or manipulating the modification data.
     pub fn try_from_only_alignment(record: &Record) -> Result<Self, Error> {
         let mut curr_read_state = CurrRead::default();
-        let read_state: ReadState = curr_read_state.set_read_state(&record)?;
-        curr_read_state.set_read_id(&record)?;
-        curr_read_state.set_seq_len(&record)?;
+        let read_state: ReadState = curr_read_state.set_read_state(record)?;
+        curr_read_state.set_read_id(record)?;
+        curr_read_state.set_seq_len(record)?;
         match read_state {
             ReadState::Unknown => unreachable!(),
             ReadState::Unmapped => {}
             _ => {
-                curr_read_state.set_align_len(&record)?;
-                curr_read_state.set_contig_id_and_start(&record)?;
-                curr_read_state.set_contig_name(&record)?;
+                curr_read_state.set_align_len(record)?;
+                curr_read_state.set_contig_id_and_start(record)?;
+                curr_read_state.set_contig_name(record)?;
             }
         }
         Ok(curr_read_state)
@@ -1007,6 +1009,23 @@ impl FilterByRefCoords for Ranges {
     }
 }
 
+impl Intersects<Range<u64>> for Range<u64> {
+    /// Check if a range is within another range
+    ///
+    /// ```
+    /// use nanalogue_core::Intersects;
+    /// assert!((0..3).intersects(&(0..1)));
+    /// assert!(!(0..3).intersects(&(5..7)));
+    /// assert!(!(0..3).intersects(&(1..1)));
+    /// assert!((1..3).intersects(&(0..2)));
+    /// ```
+    fn intersects(&self, val: &Range<u64>) -> bool {
+        let end_minus_1 = val.end - 1;
+        (self.contains(&val.start) || self.contains(&end_minus_1))
+            && !(self.is_empty() || val.is_empty())
+    }
+}
+
 /// Implements filter by reference coordinates for our CurrRead
 impl FilterByRefCoords for CurrRead {
     /// filters by reference position i.e. all pos such that start <= pos < end
@@ -1021,7 +1040,7 @@ impl FilterByRefCoords for CurrRead {
         };
         match (self.contig_id_and_start().ok(), self.align_len().ok()) {
             (Some((_, start_pos)), Some(al))
-                if start_pos + al <= start_u64 || start_pos >= end_u64 =>
+                if !(start_u64..end_u64).intersects(&(start_pos..start_pos + al)) =>
             {
                 self.reset_mod_data();
             }

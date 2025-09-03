@@ -18,9 +18,6 @@ where
     // convert read id into bytes
     let read_id_bytes = read_id.as_bytes();
 
-    // initialize output string
-    let mut output_string = String::from("");
-
     // Go record by record in the BAM file,
     // and collect entries that match our read id
     for k in bam_records
@@ -32,10 +29,7 @@ where
         .collect::<Result<Vec<Rc<bam::Record>>, _>>()?
     {
         let record = CurrRead::try_from(k)?;
-        output_string = output_string + &record.to_string() + "\n";
-    }
-    if !output_string.is_empty() {
-        writeln!(handle, "{output_string}")?;
+        writeln!(handle, "{}", record)?;
     }
     Ok(true)
 }

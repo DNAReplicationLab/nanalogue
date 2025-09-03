@@ -222,10 +222,17 @@ where
     if is_seq_summ_data {
         output_header = output_header + "# seq summ file: " + seq_summ_path + "\n"
     }
-    output_header += "read_id\talign_length\tsequence_length_template\talignment_type";
-    if is_mod_count {
-        output_header += "\tmod_count";
-    }
+    output_header.push_str(&format!(
+        "{}read_id\talign_length\tsequence_length_template\talignment_type{}",
+        match is_mod_count {
+            true => "# mod counts using probability threshold of 0.5\n",
+            false => "",
+        },
+        match is_mod_count {
+            true => "\tmod_count",
+            false => "",
+        }
+    ));
 
     // print the output header
     writeln!(handle, "{output_header}")?;

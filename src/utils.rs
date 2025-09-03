@@ -18,6 +18,12 @@ pub trait Contains<T> {
     fn contains(&self, val: &T) -> bool;
 }
 
+/// Implements test if an interval intersects with self
+pub trait Intersects<T> {
+    /// see if interval intersects with self
+    fn intersects(&self, val: &T) -> bool;
+}
+
 /// Implements filter by coordinates on the reference genome.
 pub trait FilterByRefCoords {
     /// filters by reference position i.e. all pos such that start <= pos < end
