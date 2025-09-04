@@ -24,7 +24,6 @@ where
     G: Fn(&Vec<F32Bw0and1>) -> bool,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
-    let trim_end_bp = mod_options.trim_read_ends;
     let mut curr_read_state = CurrRead::default();
 
     // Go record by record in the BAM file,
@@ -36,29 +35,29 @@ where
         let seq_len: usize = curr_read_state.set_seq_len(&record)?.try_into().unwrap();
 
         // set the modified read state
-        match (&trim_end_bp, &mod_options.mod_strand) {
+        match (&mod_options.trim_read_ends, &mod_options.mod_strand) {
             (0, &Some(v)) => curr_read_state.set_mod_data_restricted(
                 &record,
                 mod_options.mod_prob_filter,
-                |&_| true,
+                |_| true,
                 |_, &s, &t| t == mod_options.tag && s == char::from(v),
             ),
             (&w, &Some(v)) => curr_read_state.set_mod_data_restricted(
                 &record,
                 mod_options.mod_prob_filter,
-                |&x| x >= w && x <= seq_len - w,
+                |x| (w..seq_len - w).contains(x),
                 |_, &s, &t| t == mod_options.tag && s == char::from(v),
             ),
             (0, None) => curr_read_state.set_mod_data_restricted(
                 &record,
                 mod_options.mod_prob_filter,
-                |&_| true,
+                |_| true,
                 |_, _, &t| t == mod_options.tag,
             ),
             (&w, None) => curr_read_state.set_mod_data_restricted(
                 &record,
                 mod_options.mod_prob_filter,
-                |&x| x >= w && x <= seq_len - w,
+                |x| (w..seq_len - w).contains(x),
                 |_, _, &t| t == mod_options.tag,
             ),
         }
