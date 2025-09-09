@@ -191,7 +191,7 @@ where
         let mod_count: Option<String> = match is_mod_count {
             false => None,
             true => {
-                curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
+                curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128), 0);
                 let mut output_string = String::from("");
                 match curr_read_state.base_count_per_mod() {
                     None => output_string += "0;",

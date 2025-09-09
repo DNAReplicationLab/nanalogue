@@ -661,9 +661,15 @@ impl CurrRead {
         }
     }
     /// sets modification data using the BAM record
-    pub fn set_mod_data(&mut self, record: &Record, mod_thres: ThresholdState) {
+    pub fn set_mod_data(&mut self, record: &Record, mod_thres: ThresholdState, min_qual: u8) {
         self.mods = Some((
-            nanalogue_mm_ml_parser(record, |x| mod_thres.contains(x), |_| true, |_, _, _| true),
+            nanalogue_mm_ml_parser(
+                record,
+                |x| mod_thres.contains(x),
+                |_| true,
+                |_, _, _| true,
+                min_qual,
+            ),
             mod_thres,
         ));
     }
@@ -675,6 +681,7 @@ impl CurrRead {
         mod_thres: ThresholdState,
         mod_fwd_pos_filter: G,
         mod_filter_base_strand_tag: H,
+        min_qual: u8,
     ) where
         G: Fn(&usize) -> bool,
         H: Fn(&u8, &char, &ModChar) -> bool,
@@ -685,6 +692,7 @@ impl CurrRead {
                 |x| mod_thres.contains(x),
                 mod_fwd_pos_filter,
                 mod_filter_base_strand_tag,
+                min_qual,
             ),
             mod_thres,
         ));
@@ -785,7 +793,7 @@ impl CurrRead {
     ///     let r = record?;
     ///     let mut curr_read = CurrRead::default();
     ///     curr_read.set_read_state(&r)?;
-    ///     curr_read.set_mod_data(&r, ThresholdState::GtEq(180));
+    ///     curr_read.set_mod_data(&r, ThresholdState::GtEq(180), 0);
     ///
     ///     let mod_count = curr_read.base_count_per_mod();
     ///     let a = Some(HashMap::from([(ModChar::new('T'), 3)]));
@@ -1004,7 +1012,7 @@ impl TryFrom<Record> for CurrRead {
 
     fn try_from(record: Record) -> Result<Self, Self::Error> {
         let mut curr_read_state = CurrRead::try_from_only_alignment(&record)?;
-        curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
+        curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128), 0);
         Ok(curr_read_state)
     }
 }
@@ -1020,7 +1028,7 @@ impl TryFrom<Rc<Record>> for CurrRead {
 
     fn try_from(record: Rc<Record>) -> Result<Self, Self::Error> {
         let mut curr_read_state = CurrRead::try_from_only_alignment(&record)?;
-        curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128));
+        curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128), 0);
         Ok(curr_read_state)
     }
 }

@@ -75,7 +75,7 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
 /// let mut count = 0;
 /// for record in reader.records(){
 ///     let r = record?;
-///     let BaseMods{base_mods: v} = nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true);
+///     let BaseMods{base_mods: v} = nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0);
 ///     match count {
 ///     0 => assert_eq!(v, vec![BaseMod{
 ///             modified_base: b'T',
@@ -122,6 +122,7 @@ pub fn nanalogue_mm_ml_parser<F, G, H>(
     filter_mod_prob: F,
     filter_mod_pos: G,
     filter_mod_base_strand_tag: H,
+    min_qual: u8,
 ) -> BaseMods
 where
     F: Fn(&u8) -> bool,
@@ -197,6 +198,12 @@ where
             // do we include bases with zero probabilities?
             let is_include_zero_prob = filter_mod_prob(&0);
 
+            // base qualities
+            let base_qual = record.qual();
+            if min_qual > 0 && !(base_qual.len() == forward_bases.len()) {
+                continue;
+            }
+
             // find real positions in the forward sequence
             let mut cur_mod_idx: usize = 0;
             let mut dist_from_last_mod_base: usize = 0;
@@ -223,14 +230,23 @@ where
                     && dist_from_last_mod_base == mod_dists[cur_mod_idx]
                 {
                     let prob = &ml_tag[cur_mod_idx + num_mods_seen];
-                    if filter_mod_prob(prob) && filter_mod_pos(&cur_seq_idx) {
+                    if filter_mod_prob(prob)
+                        && filter_mod_pos(&cur_seq_idx)
+                        && !(min_qual > 0
+                            && base_qual[cur_seq_idx] < min_qual)
+                    {
                         modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
                         modified_probabilities.push(*prob);
                     }
                     dist_from_last_mod_base = 0;
                     cur_mod_idx += 1;
                 } else {
-                    if is_include_zero_prob && is_implicit && filter_mod_pos(&cur_seq_idx) {
+                    if is_include_zero_prob
+                        && is_implicit
+                        && filter_mod_pos(&cur_seq_idx)
+                        && !(min_qual > 0
+                            && base_qual[cur_seq_idx] < min_qual)
+                    {
                         modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
                         modified_probabilities.push(0);
                     }
@@ -497,13 +513,13 @@ impl BamPreFilt for bam::Record {
     }
     /// random filtration
     fn filt_random_subset(&self, fraction: F32Bw0and1) -> bool {
-        match fraction.val(){
+        match fraction.val() {
             1.0 => true,
             0.0 => false,
             v => {
                 let random_number: f32 = rand::random();
-                random_number < v 
-            },
+                random_number < v
+            }
         }
     }
     /// filtration by mapq
@@ -527,7 +543,7 @@ mod tests {
         for (count, record) in reader.records().enumerate() {
             let r = record?;
             let BaseMods { base_mods: v } =
-                nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true);
+                nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0);
             match count {
                 0 => assert_eq!(
                     v,

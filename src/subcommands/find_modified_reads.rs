@@ -41,24 +41,28 @@ where
                 mod_options.mod_prob_filter,
                 |_| true,
                 |_, &s, &t| t == mod_options.tag && s == char::from(v),
+                mod_options.base_qual_filter,
             ),
             (&w, &Some(v)) => curr_read_state.set_mod_data_restricted(
                 &record,
                 mod_options.mod_prob_filter,
                 |x| (w..seq_len - w).contains(x),
                 |_, &s, &t| t == mod_options.tag && s == char::from(v),
+                mod_options.base_qual_filter,
             ),
             (0, None) => curr_read_state.set_mod_data_restricted(
                 &record,
                 mod_options.mod_prob_filter,
                 |_| true,
                 |_, _, &t| t == mod_options.tag,
+                mod_options.base_qual_filter,
             ),
             (&w, None) => curr_read_state.set_mod_data_restricted(
                 &record,
                 mod_options.mod_prob_filter,
                 |x| (w..seq_len - w).contains(x),
                 |_, _, &t| t == mod_options.tag,
+                mod_options.base_qual_filter,
             ),
         }
 

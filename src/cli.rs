@@ -107,6 +107,13 @@ pub struct InputMods {
     /// not units of base being queried.
     #[clap(long, default_value_t = 0)]
     pub trim_read_ends: usize,
+    /// Exclude bases whose base quality is below
+    /// this threshold, defaults to 0 i.e. unused.
+    /// NOTE: No offsets such as +33 are needed here.
+    /// NOTE: Reads with missing base quality information
+    /// are rejected if this is non-zero.
+    #[clap(long, default_value_t = 0)]
+    pub base_qual_filter: u8,
 }
 
 /// Implements a default for InputMods
@@ -117,6 +124,7 @@ impl Default for InputMods {
             mod_strand: None,
             mod_prob_filter: ThresholdState::GtEq(0),
             trim_read_ends: 0,
+            base_qual_filter: 0,
         }
     }
 }
