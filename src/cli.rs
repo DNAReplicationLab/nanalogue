@@ -1,7 +1,7 @@
 //! # Cli
 //!
 //! This file provides some global options in the command line interface.
-use crate::{ModChar, RestrictModCalledStrand, ThresholdState};
+use crate::{ModChar, ReadStates, RestrictModCalledStrand, ThresholdState};
 use clap::Args;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -37,6 +37,12 @@ pub struct InputBam {
     /// e.g. CIGAR strings.
     #[clap(long, default_value_t = false)]
     pub exclude_zero_len: bool,
+    /// Only retain reads of this type. Allowed types are primary_forward,
+    /// primary_reverse, secondary_forward, secondary_reverse, supplementary_forward,
+    /// supplementary_reverse and unmapped. Specify more than one type if needed
+    /// separated by commas, in which case reads of any type in list are retained.
+    #[clap(long)]
+    pub read_filter: Option<ReadStates>,
 }
 
 /// Implements a default class for InputBAM
@@ -49,6 +55,7 @@ impl Default for InputBam {
             read_id: None,
             threads: NonZeroU32::new(1).expect("no error"),
             exclude_zero_len: false,
+            read_filter: None,
         }
     }
 }

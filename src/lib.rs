@@ -16,7 +16,9 @@ use fibertools_rs::utils::bio_io::get_u8_tag;
 use lazy_static::lazy_static;
 use regex::Regex;
 use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions, bam::record::Aux, tpool};
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
+use std::str::FromStr;
 
 // Declare the modules.
 pub mod cli;
@@ -319,6 +321,51 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
     }
 }
 
+/// Implements a collection-of-states of ReadState
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadStates(Vec<u16>);
+
+impl FromStr for ReadStates {
+    type Err = Error;
+
+    /// converts a comma-separated list of read states to ReadStates
+    ///
+    /// ```
+    /// use nanalogue_core::{Error, ReadStates};
+    /// use std::str::FromStr;
+    /// let mut op = ReadStates::from_str("primary_forward")?;
+    /// assert_eq!(op.bam_flags(), &[0]);
+    /// let mut op = ReadStates::from_str("unmapped,secondary_reverse,supplementary_reverse")?;
+    /// assert_eq!(op.bam_flags(), &[4, 256 + 16, 2048 + 16]);
+    /// op = ReadStates::from_str("primary_reverse")?;
+    /// assert_eq!(op.bam_flags(), &[16]);
+    /// op = ReadStates::from_str("primary_reverse,primary_forward")?;
+    /// assert_eq!(op.bam_flags(), &[16, 0]);
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// ```should_panic
+    /// use nanalogue_core::{Error, ReadStates};
+    /// use std::str::FromStr;
+    /// let mut op = ReadStates::from_str("random")?;
+    /// # Ok::<(), Error>(())
+    /// ```
+    fn from_str(s: &str) -> Result<ReadStates, Self::Err> {
+        let mut states = Vec::<u16>::new();
+        for part in s.split(",") {
+            states.push(ReadState::from_str(part)?.convert_to_bam_flag()?);
+        }
+        Ok(ReadStates(states))
+    }
+}
+
+impl ReadStates {
+    /// Returns the flags contained within
+    pub fn bam_flags(&self) -> &Vec<u16> {
+        &self.0
+    }
+}
+
 /// Trait that performs filtration
 pub trait BamPreFilt {
     /// apply default filtration
@@ -335,6 +382,10 @@ pub trait BamPreFilt {
     }
     /// filtration by read id
     fn filt_by_read_id(&self, _bam_opts: &InputBam) -> bool {
+        todo!()
+    }
+    /// filtration using flags
+    fn filt_by_bitwise_or_flags(&self, _bam_opts: &InputBam) -> bool {
         todo!()
     }
 }
@@ -389,6 +440,7 @@ impl BamPreFilt for bam::Record {
         self.filt_by_len(bam_opts)
             & self.filt_by_read_id(bam_opts)
             & self.filt_by_align_len(bam_opts)
+            & self.filt_by_bitwise_or_flags(bam_opts)
     }
     /// filtration by read length
     fn filt_by_len(&self, bam_opts: &InputBam) -> bool {
@@ -416,6 +468,13 @@ impl BamPreFilt for bam::Record {
         match &bam_opts.read_id {
             Some(v) => v.as_bytes() == self.name(),
             None => true,
+        }
+    }
+    /// filtration by flag list
+    fn filt_by_bitwise_or_flags(&self, bam_opts: &InputBam) -> bool {
+        match (&bam_opts.read_filter, self.flags()) {
+            (Some(v), w) => v.bam_flags().contains(&w),
+            (None, _) => true,
         }
     }
 }

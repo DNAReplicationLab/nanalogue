@@ -16,6 +16,7 @@ use std::fmt;
 use std::num::NonZeroU64;
 use std::ops::Range;
 use std::rc::Rc;
+use std::str::FromStr;
 
 // Import from our crate
 use crate::{
@@ -24,7 +25,7 @@ use crate::{
 };
 
 /// Alignment state of a read; seven possibilities + one unknown state
-#[derive(Debug, Clone, Default, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReadState {
     /// Unknown alignment
     #[default]
@@ -45,6 +46,40 @@ pub enum ReadState {
     /// that unmapped sequences will not be stored as reversed
     /// complements, as what would be the point of that?
     Unmapped,
+}
+
+impl ReadState {
+    /// converts our internal representation to the BAM flag format
+    pub fn convert_to_bam_flag(&self) -> Result<u16, Error> {
+        match self {
+            ReadState::PrimaryFwd => Ok(0),
+            ReadState::Unmapped => Ok(4),
+            ReadState::PrimaryRev => Ok(16),
+            ReadState::SecondaryFwd => Ok(256),
+            ReadState::SecondaryRev => Ok(256 + 16),
+            ReadState::SupplementaryFwd => Ok(2048),
+            ReadState::SupplementaryRev => Ok(2048 + 16),
+            ReadState::Unknown => Err(Error::UnknownAlignState),
+        }
+    }
+}
+
+/// Implements from string for ReadState
+impl FromStr for ReadState {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "primary_forward" => Ok(ReadState::PrimaryFwd),
+            "primary_reverse" => Ok(ReadState::PrimaryRev),
+            "secondary_forward" => Ok(ReadState::SecondaryFwd),
+            "secondary_reverse" => Ok(ReadState::SecondaryRev),
+            "supplementary_forward" => Ok(ReadState::SupplementaryFwd),
+            "supplementary_reverse" => Ok(ReadState::SupplementaryRev),
+            "unmapped" => Ok(ReadState::Unmapped),
+            _ => Err(Error::UnknownAlignState),
+        }
+    }
 }
 
 /// Implements printing of read state
@@ -242,6 +277,13 @@ impl CurrRead {
     /// # Ok::<(), Error>(())
     /// ```
     pub fn set_read_state(&mut self, record: &Record) -> Result<ReadState, Error> {
+        if record.is_paired() || record.is_proper_pair() || record.is_first_in_template() || 
+            record.is_last_in_template() || record.is_mate_reverse() || record.is_mate_unmapped() ||
+                record.is_duplicate() {
+            return Err(Error::NotImplementedError(
+                "paired-read/mate-read formats not implemented or duplicate reads found!".to_string(),
+            ));
+        }
         // set read state
         match &self.state {
             ReadState::Unknown => {
