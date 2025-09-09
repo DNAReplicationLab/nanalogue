@@ -716,7 +716,7 @@ impl CurrRead {
         let mut result = Vec::<F32Bw0and1>::new();
         let mut plus_mod_strand_seen = false;
         let mut minus_mod_strand_seen = false;
-        let tag_char = tag.get_val();
+        let tag_char = tag.val();
         if let Some((BaseMods { base_mods: v }, _)) = &self.mods {
             for k in v {
                 match k {

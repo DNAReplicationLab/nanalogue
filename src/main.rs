@@ -392,14 +392,14 @@ fn main() -> Result<(), Error> {
                 threshold_and_mean,
                 |x| {
                     x.iter()
-                        .map(|r| r.get_val())
+                        .map(|r| r.val())
                         .reduce(f32::max)
                         .unwrap_or(0.0)
                         - x.iter()
-                            .map(|r| r.get_val())
+                            .map(|r| r.val())
                             .reduce(f32::min)
                             .unwrap_or(0.0)
-                        >= min_range.get_val()
+                        >= min_range.val()
                 },
             )
         }

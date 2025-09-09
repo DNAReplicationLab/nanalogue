@@ -249,7 +249,7 @@ where
                 record,
                 mod_base,
                 mod_strand,
-                modification_type.get_val(),
+                modification_type.val(),
                 modified_positions,
                 modified_probabilities,
             );
@@ -497,7 +497,7 @@ impl BamPreFilt for bam::Record {
     }
     /// random filtration
     fn filt_random_subset(&self, fraction: F32Bw0and1) -> bool {
-        match fraction.get_val(){
+        match fraction.val(){
             1.0 => true,
             0.0 => false,
             v => {
