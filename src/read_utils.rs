@@ -277,11 +277,17 @@ impl CurrRead {
     /// # Ok::<(), Error>(())
     /// ```
     pub fn set_read_state(&mut self, record: &Record) -> Result<ReadState, Error> {
-        if record.is_paired() || record.is_proper_pair() || record.is_first_in_template() || 
-            record.is_last_in_template() || record.is_mate_reverse() || record.is_mate_unmapped() ||
-                record.is_duplicate() {
+        if record.is_paired()
+            || record.is_proper_pair()
+            || record.is_first_in_template()
+            || record.is_last_in_template()
+            || record.is_mate_reverse()
+            || record.is_mate_unmapped()
+            || record.is_duplicate()
+        {
             return Err(Error::NotImplementedError(
-                "paired-read/mate-read formats not implemented or duplicate reads found!".to_string(),
+                "paired-read/mate-read formats not implemented or duplicate reads found!"
+                    .to_string(),
             ));
         }
         // set read state

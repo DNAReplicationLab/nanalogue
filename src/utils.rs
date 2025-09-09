@@ -142,7 +142,7 @@ impl<T: Clone + Copy + Debug + Default + fmt::Display + PartialEq + PartialOrd> 
 }
 
 /// Datatype holding a float (f32) between 0 and 1 (both inclusive) guaranteed at creation.
-#[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
 pub struct F32Bw0and1 {
     val: f32,
 }

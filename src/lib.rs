@@ -373,19 +373,23 @@ pub trait BamPreFilt {
         todo!()
     }
     /// filtration by length
-    fn filt_by_len(&self, _bam_opts: &InputBam) -> bool {
+    fn filt_by_len(&self, _min_seq_len: u64, _exclude_zero_len: bool) -> bool {
         todo!()
     }
     /// filtration by alignment length
-    fn filt_by_align_len(&self, _bam_opts: &InputBam) -> bool {
+    fn filt_by_align_len(&self, _min_align_len: i64) -> bool {
         todo!()
     }
     /// filtration by read id
-    fn filt_by_read_id(&self, _bam_opts: &InputBam) -> bool {
+    fn filt_by_read_id(&self, _read_id: &str) -> bool {
         todo!()
     }
     /// filtration using flags
-    fn filt_by_bitwise_or_flags(&self, _bam_opts: &InputBam) -> bool {
+    fn filt_by_bitwise_or_flags(&self, _states: &ReadStates) -> bool {
+        todo!()
+    }
+    /// random filtration
+    fn filt_random_subset(&self, _fraction: F32Bw0and1) -> bool {
         todo!()
     }
 }
@@ -437,44 +441,64 @@ pub trait BamPreFilt {
 impl BamPreFilt for bam::Record {
     /// apply default filtration by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
-        self.filt_by_len(bam_opts)
-            & self.filt_by_read_id(bam_opts)
-            & self.filt_by_align_len(bam_opts)
-            & self.filt_by_bitwise_or_flags(bam_opts)
+        self.filt_by_len(bam_opts.min_seq_len, bam_opts.exclude_zero_len)
+            & self.filt_random_subset(bam_opts.sample_fraction)
+            & {
+                if let Some(v) = &bam_opts.read_id {
+                    self.filt_by_read_id(v.as_str())
+                } else {
+                    true
+                }
+            }
+            & {
+                if let Some(v) = bam_opts.min_align_len {
+                    self.filt_by_align_len(v)
+                } else {
+                    true
+                }
+            }
+            & {
+                if let Some(v) = &bam_opts.read_filter {
+                    self.filt_by_bitwise_or_flags(v)
+                } else {
+                    true
+                }
+            }
     }
     /// filtration by read length
-    fn filt_by_len(&self, bam_opts: &InputBam) -> bool {
+    fn filt_by_len(&self, min_seq_len: u64, exclude_zero_len: bool) -> bool {
         match self.len() as u64 {
-            0 if !bam_opts.exclude_zero_len => panic!(
+            0 if !exclude_zero_len => panic!(
                 "{}{}{}",
                 "Cannot deal with 0 length seq in BAM file. ",
                 "For instance, this could happen when some or all seq fields are set to '*', ",
                 "although this is valid BAM. See the input options for how to avoid this error. "
             ),
-            0 if bam_opts.exclude_zero_len => false,
-            v => v >= bam_opts.min_seq_len,
+            0 if exclude_zero_len => false,
+            v => v >= min_seq_len,
         }
     }
     /// filtration by alignment length
-    fn filt_by_align_len(&self, bam_opts: &InputBam) -> bool {
-        match (&bam_opts.min_align_len, self.is_unmapped()) {
-            (None, _) => true,
-            (_, true) => false,
-            (Some(v), false) => self.reference_end() - self.pos() >= *v,
-        }
+    fn filt_by_align_len(&self, min_align_len: i64) -> bool {
+        !self.is_unmapped() && (self.reference_end() - self.pos() >= min_align_len)
     }
     /// filtration by read id
-    fn filt_by_read_id(&self, bam_opts: &InputBam) -> bool {
-        match &bam_opts.read_id {
-            Some(v) => v.as_bytes() == self.name(),
-            None => true,
-        }
+    fn filt_by_read_id(&self, read_id: &str) -> bool {
+        read_id.as_bytes() == self.name()
     }
     /// filtration by flag list
-    fn filt_by_bitwise_or_flags(&self, bam_opts: &InputBam) -> bool {
-        match (&bam_opts.read_filter, self.flags()) {
-            (Some(v), w) => v.bam_flags().contains(&w),
-            (None, _) => true,
+    fn filt_by_bitwise_or_flags(&self, states: &ReadStates) -> bool {
+        states.bam_flags().contains(&self.flags())
+    }
+    /// random filtration
+    fn filt_random_subset(&self, fraction: F32Bw0and1) -> bool {
+        match fraction.get_val(){
+            1.0 => true,
+            0.0 => false,
+            v => {
+                let random_number: f32 = rand::random();
+                random_number < v 
+            },
         }
     }
 }

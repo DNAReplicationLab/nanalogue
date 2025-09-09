@@ -1,7 +1,7 @@
 //! # Cli
 //!
 //! This file provides some global options in the command line interface.
-use crate::{ModChar, ReadStates, RestrictModCalledStrand, ThresholdState};
+use crate::{ModChar, ReadStates, RestrictModCalledStrand, ThresholdState, F32Bw0and1};
 use clap::Args;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -43,6 +43,11 @@ pub struct InputBam {
     /// separated by commas, in which case reads of any type in list are retained.
     #[clap(long)]
     pub read_filter: Option<ReadStates>,
+    /// Subsample BAM to retain only this fraction of total number of reads.
+    /// NOTE: a new subsample is drawn every time as the seed is not fixed.
+    /// If you want reproducibility, consider pipeing the output of `samtools view -s`.
+    #[clap(short, long, default_value_t = F32Bw0and1::one())]
+    pub sample_fraction: F32Bw0and1,
 }
 
 /// Implements a default class for InputBAM
@@ -56,6 +61,7 @@ impl Default for InputBam {
             threads: NonZeroU32::new(1).expect("no error"),
             exclude_zero_len: false,
             read_filter: None,
+            sample_fraction: F32Bw0and1::one(),
         }
     }
 }
