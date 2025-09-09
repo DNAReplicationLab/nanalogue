@@ -41,13 +41,24 @@ pub struct InputBam {
     /// primary_reverse, secondary_forward, secondary_reverse, supplementary_forward,
     /// supplementary_reverse and unmapped. Specify more than one type if needed
     /// separated by commas, in which case reads of any type in list are retained.
+    /// Defaults to retain reads of all types.
     #[clap(long)]
     pub read_filter: Option<ReadStates>,
-    /// Subsample BAM to retain only this fraction of total number of reads.
+    /// Subsample BAM to retain only this fraction of total number of reads,
+    /// defaults to 1.0.
     /// NOTE: a new subsample is drawn every time as the seed is not fixed.
     /// If you want reproducibility, consider pipeing the output of `samtools view -s`.
     #[clap(short, long, default_value_t = F32Bw0and1::one())]
     pub sample_fraction: F32Bw0and1,
+    /// Exclude reads whose MAPQ (Mapping quality of position) is below this value.
+    /// Defaults to zero i.e. do not exclude any read.
+    #[clap(long, default_value_t = 0)]
+    pub mapq_filter: u8,
+    /// Exclude sequences with MAPQ unavailable.
+    /// In the BAM format, a value of 255 in this column means MAPQ is unavailable.
+    /// These reads are allowed by default, set this flag to exclude.
+    #[clap(long, default_value_t = false)]
+    pub exclude_mapq_unavail: bool,
 }
 
 /// Implements a default class for InputBAM
@@ -62,6 +73,8 @@ impl Default for InputBam {
             exclude_zero_len: false,
             read_filter: None,
             sample_fraction: F32Bw0and1::one(),
+            mapq_filter: 0,
+            exclude_mapq_unavail: false,
         }
     }
 }

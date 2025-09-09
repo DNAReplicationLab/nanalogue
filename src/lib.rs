@@ -392,6 +392,10 @@ pub trait BamPreFilt {
     fn filt_random_subset(&self, _fraction: F32Bw0and1) -> bool {
         todo!()
     }
+    /// filtration by mapq
+    fn filt_by_mapq(&self, _min_mapq: u8, _exclude_mapq_unavail: bool) -> bool {
+        todo!()
+    }
 }
 
 /// Trait that performs filtration on rust_htslib Record
@@ -443,6 +447,7 @@ impl BamPreFilt for bam::Record {
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
         self.filt_by_len(bam_opts.min_seq_len, bam_opts.exclude_zero_len)
             & self.filt_random_subset(bam_opts.sample_fraction)
+            & self.filt_by_mapq(bam_opts.mapq_filter, bam_opts.exclude_mapq_unavail)
             & {
                 if let Some(v) = &bam_opts.read_id {
                     self.filt_by_read_id(v.as_str())
@@ -500,6 +505,10 @@ impl BamPreFilt for bam::Record {
                 random_number < v 
             },
         }
+    }
+    /// filtration by mapq
+    fn filt_by_mapq(&self, min_mapq: u8, exclude_mapq_unavail: bool) -> bool {
+        !(exclude_mapq_unavail && self.mapq() == 255) && self.mapq() >= min_mapq
     }
 }
 
