@@ -48,18 +48,38 @@ pub enum ReadState {
     Unmapped,
 }
 
-impl ReadState {
+// Implements conversion of ReadState into the standard BAM flag format
+impl TryFrom<ReadState> for u16 {
+    type Error = Error;
     /// converts our internal representation to the BAM flag format
-    pub fn convert_to_bam_flag(&self) -> Result<u16, Error> {
-        match self {
+    fn try_from(value: ReadState) -> Result<u16, Error> {
+        match value {
             ReadState::PrimaryFwd => Ok(0),
             ReadState::Unmapped => Ok(4),
             ReadState::PrimaryRev => Ok(16),
             ReadState::SecondaryFwd => Ok(256),
-            ReadState::SecondaryRev => Ok(256 + 16),
+            ReadState::SecondaryRev => Ok(272),
             ReadState::SupplementaryFwd => Ok(2048),
-            ReadState::SupplementaryRev => Ok(2048 + 16),
+            ReadState::SupplementaryRev => Ok(2064),
             ReadState::Unknown => Err(Error::UnknownAlignState),
+        }
+    }
+}
+
+// Implements conversion of the standard BAM flag format into ReadState
+impl TryFrom<u16> for ReadState {
+    type Error = Error;
+    /// converts our internal representation to the BAM flag format
+    fn try_from(value: u16) -> Result<ReadState, Error> {
+        match value {
+            0 => Ok(ReadState::PrimaryFwd),
+            4 => Ok(ReadState::Unmapped),
+            16 => Ok(ReadState::PrimaryRev),
+            256 => Ok(ReadState::SecondaryFwd),
+            272 => Ok(ReadState::SecondaryRev),
+            2048 => Ok(ReadState::SupplementaryFwd),
+            2064 => Ok(ReadState::SupplementaryRev),
+            _ => Err(Error::UnknownAlignState),
         }
     }
 }
@@ -796,10 +816,11 @@ impl CurrRead {
     ///     curr_read.set_mod_data(&r, ThresholdState::GtEq(180), 0);
     ///
     ///     let mod_count = curr_read.base_count_per_mod();
+    ///     let blank = Some(HashMap::<ModChar, u32>::new());
     ///     let a = Some(HashMap::from([(ModChar::new('T'), 3)]));
     ///     let b = Some(HashMap::from([(ModChar::new('T'), 1)]));
     ///     match (count, mod_count) {
-    ///         (0, None) => {},
+    ///         (0, v) => assert_eq!(v, blank),
     ///         (1, v) => assert_eq!(v, a),
     ///         (2, v) => assert_eq!(v, b),
     ///         (3, v) => assert_eq!(v, a),
@@ -815,7 +836,7 @@ impl CurrRead {
         match self.mod_data().ok() {
             Some((BaseMods { base_mods: v }, _)) => {
                 if v.is_empty() {
-                    None
+                    Some(HashMap::<ModChar, u32>::new())
                 } else {
                     for k in v {
                         let base_count = k.ranges.qual.len() as u32;

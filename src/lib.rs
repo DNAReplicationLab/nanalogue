@@ -200,7 +200,7 @@ where
 
             // base qualities
             let base_qual = record.qual();
-            if min_qual > 0 && !(base_qual.len() == forward_bases.len()) {
+            if min_qual > 0 && (base_qual.len() != forward_bases.len()) {
                 continue;
             }
 
@@ -232,8 +232,7 @@ where
                     let prob = &ml_tag[cur_mod_idx + num_mods_seen];
                     if filter_mod_prob(prob)
                         && filter_mod_pos(&cur_seq_idx)
-                        && !(min_qual > 0
-                            && base_qual[cur_seq_idx] < min_qual)
+                        && !(min_qual > 0 && base_qual[cur_seq_idx] < min_qual)
                     {
                         modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
                         modified_probabilities.push(*prob);
@@ -244,8 +243,7 @@ where
                     if is_include_zero_prob
                         && is_implicit
                         && filter_mod_pos(&cur_seq_idx)
-                        && !(min_qual > 0
-                            && base_qual[cur_seq_idx] < min_qual)
+                        && !(min_qual > 0 && base_qual[cur_seq_idx] < min_qual)
                     {
                         modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
                         modified_probabilities.push(0);
@@ -369,7 +367,7 @@ impl FromStr for ReadStates {
     fn from_str(s: &str) -> Result<ReadStates, Self::Err> {
         let mut states = Vec::<u16>::new();
         for part in s.split(",") {
-            states.push(ReadState::from_str(part)?.convert_to_bam_flag()?);
+            states.push(u16::try_from(ReadState::from_str(part)?)?);
         }
         Ok(ReadStates(states))
     }
@@ -488,15 +486,16 @@ impl BamPreFilt for bam::Record {
     }
     /// filtration by read length
     fn filt_by_len(&self, min_seq_len: u64, exclude_zero_len: bool) -> bool {
-        match self.len() as u64 {
-            0 if !exclude_zero_len => panic!(
+        // self.len() returns a usize which we convert to u64
+        match (min_seq_len, self.len() as u64, exclude_zero_len) {
+            (_, 0, false) => panic!(
                 "{}{}{}",
                 "Cannot deal with 0 length seq in BAM file. ",
                 "For instance, this could happen when some or all seq fields are set to '*', ",
                 "although this is valid BAM. See the input options for how to avoid this error. "
             ),
-            0 if exclude_zero_len => false,
-            v => v >= min_seq_len,
+            (_, 0, true) => false,
+            (l_min, v, _) => v >= l_min,
         }
     }
     /// filtration by alignment length
