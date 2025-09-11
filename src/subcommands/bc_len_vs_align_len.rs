@@ -46,7 +46,11 @@ impl fmt::Display for ModCountTbl {
         write!(
             f,
             "{}",
-            join(v.into_iter().map(|k| format!("{}:{}", k.0, k.1)), ";")
+            if !v.is_empty() {
+                join(v.into_iter().map(|k| format!("{}:{}", k.0, k.1)), ";")
+            } else {
+                "NA".to_string()
+            }
         )
     }
 }
@@ -243,7 +247,10 @@ where
         let mod_count: Option<ModCountTbl> = match is_mod_count {
             false => None,
             true => {
-                curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128), 0);
+                match curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128), 0) {
+                    Ok(_) | Err(Error::NoModInfo) => {}
+                    Err(e) => return Err(e),
+                };
                 match curr_read_state.base_count_per_mod() {
                     None => Some(ModCountTbl::blank()),
                     Some(v) => Some(ModCountTbl::new(v)),

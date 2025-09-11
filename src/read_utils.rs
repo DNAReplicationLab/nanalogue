@@ -20,7 +20,7 @@ use std::str::FromStr;
 
 // Import from our crate
 use crate::{
-    Contains, Error, F32Bw0and1, FilterByRefCoords, Intersects, ModChar, OrdPair,
+    Contains, Error, F32Bw0and1, FilterByRefCoords, InputMods, Intersects, ModChar, OrdPair,
     nanalogue_mm_ml_parser,
 };
 
@@ -245,20 +245,20 @@ impl Contains<u8> for ThresholdState {
 /// genome.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct CurrRead {
-    /// Stores alignment type
+    /// Stores alignment type.
     state: ReadState,
 
-    /// Read ID of molecule, also called query name in some contexts
+    /// Read ID of molecule, also called query name in some contexts.
     read_id: Option<String>,
 
     /// Length of the stored sequence. This is usually the basecalled
     /// sequence but is not guaranteed to be so.
     seq_len: Option<u64>,
 
-    /// Length of the segment on the reference genome the molecule maps to
+    /// Length of the segment on the reference genome the molecule maps to.
     align_len: Option<u64>,
 
-    /// Stores modification information along with any applied thresholds
+    /// Stores modification information along with any applied thresholds.
     mods: Option<(BaseMods, ThresholdState)>,
 
     /// ID of the reference genome contig and the starting position on
@@ -271,6 +271,9 @@ pub struct CurrRead {
 
     /// Contig name.
     contig_name: Option<String>,
+
+    /// Base PHRED-quality threshold (no offset). Mods could have been filtered by this.
+    mod_base_qual_thres: u8,
 }
 
 impl CurrRead {
@@ -373,6 +376,7 @@ impl CurrRead {
     /// resets the mod data
     pub fn reset_mod_data(&mut self) {
         self.mods = None;
+        self.mod_base_qual_thres = 0;
     }
     /// set length of sequence from BAM record
     ///
@@ -681,17 +685,22 @@ impl CurrRead {
         }
     }
     /// sets modification data using the BAM record
-    pub fn set_mod_data(&mut self, record: &Record, mod_thres: ThresholdState, min_qual: u8) {
-        self.mods = Some((
-            nanalogue_mm_ml_parser(
-                record,
-                |x| mod_thres.contains(x),
-                |_| true,
-                |_, _, _| true,
-                min_qual,
-            ),
-            mod_thres,
-        ));
+    pub fn set_mod_data(
+        &mut self,
+        record: &Record,
+        mod_thres: ThresholdState,
+        min_qual: u8,
+    ) -> Result<&(BaseMods, ThresholdState), Error> {
+        let result = nanalogue_mm_ml_parser(
+            record,
+            |x| mod_thres.contains(x),
+            |_| true,
+            |_, _, _| true,
+            min_qual,
+        )?;
+        self.mods = Some((result, mod_thres));
+        self.mod_base_qual_thres = min_qual;
+        self.mod_data()
     }
     /// sets modification data using BAM record but restricted to the
     /// specified filters
@@ -702,20 +711,77 @@ impl CurrRead {
         mod_fwd_pos_filter: G,
         mod_filter_base_strand_tag: H,
         min_qual: u8,
-    ) where
+    ) -> Result<&(BaseMods, ThresholdState), Error>
+    where
         G: Fn(&usize) -> bool,
         H: Fn(&u8, &char, &ModChar) -> bool,
     {
-        self.mods = Some((
-            nanalogue_mm_ml_parser(
+        let result = nanalogue_mm_ml_parser(
+            record,
+            |x| mod_thres.contains(x),
+            mod_fwd_pos_filter,
+            mod_filter_base_strand_tag,
+            min_qual,
+        )?;
+        self.mods = Some((result, mod_thres));
+        self.mod_base_qual_thres = min_qual;
+        self.mod_data()
+    }
+    /// sets modification data using BAM record but with restrictions
+    /// applied by the InputMods options
+    pub fn set_mod_data_restricted_options(
+        &mut self,
+        record: &Record,
+        mod_options: &InputMods,
+    ) -> Result<&(BaseMods, ThresholdState), Error> {
+        match (
+            &mod_options.trim_read_ends,
+            self.seq_len(),
+            &mod_options.mod_strand,
+        ) {
+            (0, _, &Some(v)) => self.set_mod_data_restricted(
                 record,
-                |x| mod_thres.contains(x),
-                mod_fwd_pos_filter,
-                mod_filter_base_strand_tag,
-                min_qual,
+                mod_options.mod_prob_filter,
+                |_| true,
+                |_, &s, &t| t == mod_options.tag && s == char::from(v),
+                mod_options.base_qual_filter,
             ),
-            mod_thres,
-        ));
+            (0, _, None) => self.set_mod_data_restricted(
+                record,
+                mod_options.mod_prob_filter,
+                |_| true,
+                |_, _, &t| t == mod_options.tag,
+                mod_options.base_qual_filter,
+            ),
+            (&w, Ok(l), &Some(v)) => self.set_mod_data_restricted(
+                record,
+                mod_options.mod_prob_filter,
+                |x| {
+                    (w..usize::try_from(l)
+                        .expect("bit conversion error")
+                        .checked_sub(w)
+                        .unwrap_or_default())
+                        .contains(x)
+                },
+                |_, &s, &t| t == mod_options.tag && s == char::from(v),
+                mod_options.base_qual_filter,
+            ),
+            (&w, Ok(l), None) => self.set_mod_data_restricted(
+                record,
+                mod_options.mod_prob_filter,
+                |x| {
+                    (w..usize::try_from(l)
+                        .expect("bit conversion error")
+                        .checked_sub(w)
+                        .unwrap_or_default())
+                        .contains(x)
+                },
+                |_, _, &t| t == mod_options.tag,
+                mod_options.base_qual_filter,
+            ),
+            (_, Err(_), _) => Err(Error::InvalidSeqLength),
+        }?;
+        self.mod_data()
     }
     /// gets modification data
     pub fn mod_data(&self) -> Result<&(BaseMods, ThresholdState), Error> {
@@ -816,14 +882,15 @@ impl CurrRead {
     ///     curr_read.set_mod_data(&r, ThresholdState::GtEq(180), 0);
     ///
     ///     let mod_count = curr_read.base_count_per_mod();
-    ///     let blank = Some(HashMap::<ModChar, u32>::new());
+    ///     let zero_count = Some(HashMap::from([(ModChar::new('T'), 0)]));
     ///     let a = Some(HashMap::from([(ModChar::new('T'), 3)]));
     ///     let b = Some(HashMap::from([(ModChar::new('T'), 1)]));
+    ///     let c = Some(HashMap::from([(ModChar::new('T'), 3),(ModChar::new('ᰠ'), 0)]));
     ///     match (count, mod_count) {
-    ///         (0, v) => assert_eq!(v, blank),
+    ///         (0, v) => assert_eq!(v, zero_count),
     ///         (1, v) => assert_eq!(v, a),
     ///         (2, v) => assert_eq!(v, b),
-    ///         (3, v) => assert_eq!(v, a),
+    ///         (3, v) => assert_eq!(v, c),
     ///         _ => unreachable!(),
     ///     }
     ///     count = count + 1;
@@ -835,18 +902,14 @@ impl CurrRead {
         let mut output = HashMap::<ModChar, u32>::new();
         match self.mod_data().ok() {
             Some((BaseMods { base_mods: v }, _)) => {
-                if v.is_empty() {
-                    Some(HashMap::<ModChar, u32>::new())
-                } else {
-                    for k in v {
-                        let base_count = k.ranges.qual.len() as u32;
-                        output
-                            .entry(ModChar::new(k.modification_type))
-                            .and_modify(|e| *e += base_count)
-                            .or_insert(base_count);
-                    }
-                    Some(output)
+                for k in v {
+                    let base_count = k.ranges.qual.len() as u32;
+                    output
+                        .entry(ModChar::new(k.modification_type))
+                        .and_modify(|e| *e += base_count)
+                        .or_insert(base_count);
                 }
+                Some(output)
             }
             None => None,
         }
@@ -1033,7 +1096,10 @@ impl TryFrom<Record> for CurrRead {
 
     fn try_from(record: Record) -> Result<Self, Self::Error> {
         let mut curr_read_state = CurrRead::try_from_only_alignment(&record)?;
-        curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128), 0);
+        match curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128), 0) {
+            Ok(_) | Err(Error::NoModInfo) => {}
+            Err(e) => return Err(e),
+        };
         Ok(curr_read_state)
     }
 }
@@ -1049,7 +1115,10 @@ impl TryFrom<Rc<Record>> for CurrRead {
 
     fn try_from(record: Rc<Record>) -> Result<Self, Self::Error> {
         let mut curr_read_state = CurrRead::try_from_only_alignment(&record)?;
-        curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128), 0);
+        match curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128), 0) {
+            Ok(_) | Err(Error::NoModInfo) => {}
+            Err(e) => return Err(e),
+        }
         Ok(curr_read_state)
     }
 }

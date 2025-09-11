@@ -34,7 +34,10 @@ where
 
         // set data in records
         curr_read_state.set_read_state(&record)?;
-        curr_read_state.set_mod_data(&record, ThresholdState::GtEq(0), 0);
+        match curr_read_state.set_mod_data(&record, ThresholdState::GtEq(0), 0) {
+            Ok(_) | Err(Error::NoModInfo) => {}
+            Err(e) => return Err(e),
+        };
         let qname = curr_read_state.set_read_id(&record)?.to_string();
         let strand = curr_read_state.strand()?;
         let contig = match curr_read_state.read_state() {

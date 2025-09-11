@@ -45,9 +45,19 @@ pub enum Error {
     #[error("invalid mod type")]
     InvalidModType,
 
+    /// Modification notation is invalid. Mod types are indicated in
+    /// mod BAM files using specialized notation; this error means
+    /// this notation is wrong.
+    #[error("invalid mod notation")]
+    InvalidModNotation,
+
     /// Modification type is empty
     #[error("empty mod type")]
     EmptyModType,
+
+    /// No modification information is available
+    #[error("no modification information is available")]
+    NoModInfo,
 
     /// Some error from the rust htslib library we use to read BAM files
     #[error(

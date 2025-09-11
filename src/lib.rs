@@ -75,7 +75,7 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
 /// let mut count = 0;
 /// for record in reader.records(){
 ///     let r = record?;
-///     let BaseMods{base_mods: v} = nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0);
+///     let Ok(BaseMods{base_mods: v}) = nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0) else { unreachable!() };
 ///     match count {
 ///     0 => assert_eq!(v, vec![BaseMod{
 ///             modified_base: b'T',
@@ -123,7 +123,7 @@ pub fn nanalogue_mm_ml_parser<F, G, H>(
     filter_mod_pos: G,
     filter_mod_base_strand_tag: H,
     min_qual: u8,
-) -> BaseMods
+) -> Result<BaseMods, Error>
 where
     F: Fn(&u8) -> bool,
     G: Fn(&usize) -> bool,
@@ -168,7 +168,7 @@ where
                 b"" => true,
                 b"." => true,
                 b"?" => false,
-                _ => panic!("unknown modification annotation!"),
+                _ => return Err(Error::InvalidModNotation),
             };
             let mod_dists_str = cap.get(7).map_or("", |m| m.as_str());
             // parse the string containing distances between modifications into a vector of i64
@@ -254,10 +254,6 @@ where
 
             num_mods_seen += cur_mod_idx;
 
-            // don't add empty basemods
-            if modified_positions.is_empty() {
-                continue;
-            }
             // add to a struct
             let mods = BaseMod::new(
                 record,
@@ -270,12 +266,12 @@ where
             rtn.push(mods);
         }
     } else {
-        panic!("No MM tag found!")
+        return Err(Error::NoModInfo);
     }
 
     // needed so I can compare methods
     rtn.sort();
-    BaseMods { base_mods: rtn }
+    Ok(BaseMods { base_mods: rtn })
 }
 
 /// A global struct which contains BAM records for further usage.
@@ -541,8 +537,11 @@ mod tests {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
-            let BaseMods { base_mods: v } =
-                nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0);
+            let Ok(BaseMods { base_mods: v }) =
+                nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0)
+            else {
+                unreachable!()
+            };
             match count {
                 0 => assert_eq!(
                     v,

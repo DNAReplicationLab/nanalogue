@@ -31,41 +31,13 @@ where
         // read records
         let record = r?;
         curr_read_state.reset();
+        curr_read_state.set_read_state(&record)?;
+        curr_read_state.set_seq_len(&record)?;
         curr_read_state.set_read_id(&record)?;
-        let seq_len: usize = curr_read_state.set_seq_len(&record)?.try_into().unwrap();
-
-        // set the modified read state
-        match (&mod_options.trim_read_ends, &mod_options.mod_strand) {
-            (0, &Some(v)) => curr_read_state.set_mod_data_restricted(
-                &record,
-                mod_options.mod_prob_filter,
-                |_| true,
-                |_, &s, &t| t == mod_options.tag && s == char::from(v),
-                mod_options.base_qual_filter,
-            ),
-            (&w, &Some(v)) => curr_read_state.set_mod_data_restricted(
-                &record,
-                mod_options.mod_prob_filter,
-                |x| (w..seq_len - w).contains(x),
-                |_, &s, &t| t == mod_options.tag && s == char::from(v),
-                mod_options.base_qual_filter,
-            ),
-            (0, None) => curr_read_state.set_mod_data_restricted(
-                &record,
-                mod_options.mod_prob_filter,
-                |_| true,
-                |_, _, &t| t == mod_options.tag,
-                mod_options.base_qual_filter,
-            ),
-            (&w, None) => curr_read_state.set_mod_data_restricted(
-                &record,
-                mod_options.mod_prob_filter,
-                |x| (w..seq_len - w).contains(x),
-                |_, _, &t| t == mod_options.tag,
-                mod_options.base_qual_filter,
-            ),
-        }
-
+        match curr_read_state.set_mod_data_restricted_options(&record, &mod_options) {
+            Ok(_) | Err(Error::NoModInfo) => {}
+            Err(e) => return Err(e),
+        };
         // apply our windowing function and then the windowing filter
         if match curr_read_state.windowed_mod_data_restricted(
             &window_function,
