@@ -55,10 +55,6 @@ pub enum Error {
     #[error("empty mod type")]
     EmptyModType,
 
-    /// No modification information is available
-    #[error("no modification information is available")]
-    NoModInfo,
-
     /// Some error from the rust htslib library we use to read BAM files
     #[error(
         "rust_htslib error: `{0}` \nIf piping in a samtools view command, please include header with -h in samtools. "

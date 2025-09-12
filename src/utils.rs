@@ -456,9 +456,7 @@ impl From<RestrictModCalledStrand> for char {
 /// Alignment state of a read; seven possibilities + one unknown state
 #[derive(Debug, Clone, Default, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReadState {
-    /// Unknown alignment
     #[default]
-    Unknown,
     /// Primary alignment to the reference strand
     PrimaryFwd,
     /// Primary alignment opposite the reference strand
@@ -490,7 +488,6 @@ impl TryFrom<ReadState> for u16 {
             ReadState::SecondaryRev => Ok(272),
             ReadState::SupplementaryFwd => Ok(2048),
             ReadState::SupplementaryRev => Ok(2064),
-            ReadState::Unknown => Err(Error::UnknownAlignState),
         }
     }
 }
@@ -535,7 +532,6 @@ impl FromStr for ReadState {
 impl fmt::Display for ReadState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
-            ReadState::Unknown => "unknown",
             ReadState::PrimaryFwd => "primary_forward",
             ReadState::SecondaryFwd => "secondary_forward",
             ReadState::SupplementaryFwd => "supplementary_forward",

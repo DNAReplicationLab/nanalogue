@@ -265,8 +265,6 @@ where
             );
             rtn.push(mods);
         }
-    } else {
-        return Err(Error::NoModInfo);
     }
 
     // needed so I can compare methods

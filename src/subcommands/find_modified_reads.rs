@@ -24,31 +24,26 @@ where
     G: Fn(&Vec<F32Bw0and1>) -> bool,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
-    let mut curr_read_state = CurrRead::default();
-
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
         let record = r?;
-        curr_read_state.reset();
-        curr_read_state.set_read_state(&record)?;
+        let mut curr_read_state = CurrRead::default().set_read_state(&record)?;
         curr_read_state.set_seq_len(&record)?;
-        curr_read_state.set_read_id(&record)?;
-        match curr_read_state.set_mod_data_restricted_options(&record, &mod_options) {
-            Ok(_) | Err(Error::NoModInfo) => {}
-            Err(e) => return Err(e),
-        };
+        let read_id = String::from(curr_read_state.set_read_id(&record)?);
         // apply our windowing function and then the windowing filter
-        if match curr_read_state.windowed_mod_data_restricted(
-            &window_function,
-            window_options.win.get().try_into()?,
-            window_options.step.get().try_into()?,
-            mod_options.tag(),
-        )? {
+        if match curr_read_state
+            .set_mod_data_restricted_options(&record, &mod_options)?
+            .windowed_mod_data_restricted(
+                &window_function,
+                window_options.win.get().try_into()?,
+                window_options.step.get().try_into()?,
+                mod_options.tag(),
+            )? {
             v if !v.is_empty() => window_filter(&v),
             _ => false,
         } {
-            writeln!(handle, "{}", curr_read_state.read_id()?)?;
+            writeln!(handle, "{}", read_id)?;
         }
     }
 

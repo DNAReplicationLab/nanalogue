@@ -244,9 +244,9 @@ where
         // get information of current read,
         // if it is not primary or we cannot get the alignment or
         // sequence lengths, then discard it.
-        let mut curr_read_state = CurrRead::default();
+        let mut curr_read_state = CurrRead::default().set_read_state(&record)?;
         let qname = curr_read_state.set_read_id(&record)?.to_string();
-        let read_state = curr_read_state.set_read_state(&record)?;
+        let read_state = curr_read_state.read_state();
         let Ok(align_len) = curr_read_state.set_align_len(&record) else {
             continue;
         };
@@ -258,11 +258,10 @@ where
         let mod_count: Option<ModCountTbl> = match &mods {
             None => None,
             Some(v) => {
-                match curr_read_state.set_mod_data_restricted_options(&record, v) {
-                    Ok(_) | Err(Error::NoModInfo) => {}
-                    Err(e) => return Err(e),
-                };
-                match curr_read_state.base_count_per_mod() {
+                match curr_read_state
+                    .set_mod_data_restricted_options(&record, v)?
+                    .base_count_per_mod()
+                {
                     None => Some(ModCountTbl::blank()),
                     Some(v) => Some(ModCountTbl::new(v)),
                 }

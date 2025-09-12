@@ -76,9 +76,6 @@ where
     let mut seq_len_total = 0;
     let mut align_len_total = 0;
 
-    // set read state
-    let mut curr_read_state = CurrRead::default();
-
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
@@ -86,9 +83,8 @@ where
 
         // set the read state using the type of alignment
         // and increment read counter
-        curr_read_state.reset();
-        match curr_read_state.set_read_state(&record)? {
-            ReadState::Unknown => {}
+        let mut curr_read_state = CurrRead::default().set_read_state(&record)?;
+        match curr_read_state.read_state() {
             ReadState::PrimaryFwd => primary_count += 1,
             ReadState::SecondaryFwd => secondary_count += 1,
             ReadState::SupplementaryFwd => supplementary_count += 1,
