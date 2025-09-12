@@ -308,11 +308,16 @@ impl fmt::Display for F32AbsValBelow1 {
 /// and 59000. We have chosen to live with this problem. I think the probability of
 /// having a DNA modification with a CheBI code overlapping with ASCII values or
 /// within this narrow range of values near 59000 is very small.
-#[derive(
-    Debug, Clone, Default, Copy, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct ModChar {
     val: char,
+}
+
+/// Defaults to mod tag 'N'
+impl Default for ModChar {
+    fn default() -> Self {
+        ModChar::new('N')
+    }
 }
 
 impl ModChar {

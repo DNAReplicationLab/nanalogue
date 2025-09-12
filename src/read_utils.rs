@@ -20,8 +20,8 @@ use std::str::FromStr;
 
 // Import from our crate
 use crate::{
-    Contains, Error, F32Bw0and1, FilterByRefCoords, InputMods, Intersects, ModChar, OptionalTag,
-    OrdPair, nanalogue_mm_ml_parser,
+    Contains, Error, F32Bw0and1, FilterByRefCoords, InputModOptions, Intersects, ModChar, OrdPair,
+    nanalogue_mm_ml_parser,
 };
 
 /// Alignment state of a read; seven possibilities + one unknown state
@@ -748,22 +748,22 @@ impl CurrRead {
     pub fn set_mod_data_restricted_options(
         &mut self,
         record: &Record,
-        mod_options: &InputMods<OptionalTag>,
+        mod_options: &impl InputModOptions,
     ) -> Result<&(BaseMods, ThresholdState), Error> {
-        match (&mod_options.trim_read_ends, self.seq_len()) {
+        match (mod_options.trim_read_ends(), self.seq_len()) {
             (0, _) => self.set_mod_data_restricted(
                 record,
-                mod_options.mod_prob_filter,
+                mod_options.mod_prob_filter(),
                 |_| true,
                 |_, &s, &t| {
-                    mod_options.tag.tag.is_none_or(|x| x == t)
-                        && mod_options.mod_strand.is_none_or(|v| s == char::from(v))
+                    mod_options.tag().is_none_or(|x| x == t)
+                        && mod_options.mod_strand().is_none_or(|v| s == char::from(v))
                 },
-                mod_options.base_qual_filter,
+                mod_options.base_qual_filter(),
             ),
-            (&w, Ok(l)) => self.set_mod_data_restricted(
+            (w, Ok(l)) => self.set_mod_data_restricted(
                 record,
-                mod_options.mod_prob_filter,
+                mod_options.mod_prob_filter(),
                 |x| {
                     (w..usize::try_from(l)
                         .expect("bit conversion error")
@@ -772,10 +772,10 @@ impl CurrRead {
                         .contains(x)
                 },
                 |_, &s, &t| {
-                    mod_options.tag.tag.is_none_or(|x| x == t)
-                        && mod_options.mod_strand.is_none_or(|v| s == char::from(v))
+                    mod_options.tag().is_none_or(|x| x == t)
+                        && mod_options.mod_strand().is_none_or(|v| s == char::from(v))
                 },
-                mod_options.base_qual_filter,
+                mod_options.base_qual_filter(),
             ),
             (_, Err(_)) => Err(Error::InvalidSeqLength),
         }?;

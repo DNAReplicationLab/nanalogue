@@ -80,7 +80,7 @@ impl Default for InputBam {
 }
 
 /// This struct contains an optional modification tag
-#[derive(Debug, Args, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Args, Clone, Copy, Serialize, Deserialize)]
 pub struct OptionalTag {
     /// modified tag
     #[clap(long)]
@@ -88,23 +88,37 @@ pub struct OptionalTag {
 }
 
 /// This struct contains a required modification tag
-#[derive(Debug, Args, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Args, Clone, Copy, Serialize, Deserialize)]
 pub struct RequiredTag {
     /// modified tag
     #[clap(long)]
     pub tag: ModChar,
 }
 
-/// Dummy trait TagState
-pub trait TagState {}
+/// Trait that returns a modification tag
+pub trait TagState {
+    /// Returns the modification tag of the tag state in an option
+    fn tag(&self) -> Option<ModChar> {
+        todo!();
+    }
+}
 
-impl TagState for OptionalTag {}
-impl TagState for RequiredTag {}
+impl TagState for OptionalTag {
+    fn tag(&self) -> Option<ModChar> {
+        self.tag
+    }
+}
+
+impl TagState for RequiredTag {
+    fn tag(&self) -> Option<ModChar> {
+        Some(self.tag)
+    }
+}
 
 /// This struct contains the options input to our
 /// modification-data functions with restrictions on data received
-#[derive(Debug, Args, Clone, Copy, Serialize, Deserialize)]
-pub struct InputMods<S: TagState + clap::FromArgMatches + clap::Args> {
+#[derive(Debug, Default, Args, Clone, Copy, Serialize, Deserialize)]
+pub struct InputMods<S: TagState + clap::Args + clap::FromArgMatches> {
     /// modified tag
     #[clap(flatten)]
     pub tag: S,
@@ -138,52 +152,53 @@ pub struct InputMods<S: TagState + clap::FromArgMatches + clap::Args> {
     pub base_qual_filter: u8,
 }
 
-/// Implements a default for InputMods with optional tag
-impl Default for InputMods<OptionalTag> {
-    fn default() -> Self {
-        InputMods {
-            tag: OptionalTag { tag: None },
-            mod_strand: None,
-            mod_prob_filter: ThresholdState::GtEq(0),
-            trim_read_ends: 0,
-            base_qual_filter: 0,
-        }
+/// Retrieves options for modification input
+pub trait InputModOptions {
+    /// retrieves tag
+    fn tag(&self) -> Option<ModChar> {
+        todo!()
+    }
+    /// retrieves option to set basecalled strand or opposite in mod retrieval
+    fn mod_strand(&self) -> Option<RestrictModCalledStrand> {
+        todo!()
+    }
+    /// returns probability filter
+    fn mod_prob_filter(&self) -> ThresholdState {
+        todo!()
+    }
+    /// returns read end trimming
+    fn trim_read_ends(&self) -> usize {
+        todo!()
+    }
+    /// returns threshold for filtering base PHRED quality
+    fn base_qual_filter(&self) -> u8 {
+        todo!()
     }
 }
 
-/// Implements a default for InputMods with optional tag
-impl Default for InputMods<RequiredTag> {
-    fn default() -> Self {
-        InputMods {
-            tag: RequiredTag {
-                tag: ModChar::new('N'),
-            },
-            mod_strand: None,
-            mod_prob_filter: ThresholdState::GtEq(0),
-            trim_read_ends: 0,
-            base_qual_filter: 0,
-        }
+impl<S: TagState + clap::Args + clap::FromArgMatches> InputModOptions for InputMods<S> {
+    fn tag(&self) -> Option<ModChar> {
+        self.tag.tag()
+    }
+    fn mod_strand(&self) -> Option<RestrictModCalledStrand> {
+        self.mod_strand
+    }
+    fn mod_prob_filter(&self) -> ThresholdState {
+        self.mod_prob_filter
+    }
+    fn trim_read_ends(&self) -> usize {
+        self.trim_read_ends
+    }
+    fn base_qual_filter(&self) -> u8 {
+        self.base_qual_filter
     }
 }
 
-/// Converts a required-tag struct into an optional-tag struct.
-/// Will be useful as some functions require an optional-tag struct.
-impl From<InputMods<RequiredTag>> for InputMods<OptionalTag> {
-    fn from(value: InputMods<RequiredTag>) -> Self {
-        let InputMods::<RequiredTag> {
-            tag: RequiredTag { tag },
-            mod_strand,
-            mod_prob_filter,
-            trim_read_ends,
-            base_qual_filter,
-        } = value;
-        InputMods::<OptionalTag> {
-            tag: OptionalTag { tag: Some(tag) },
-            mod_strand,
-            mod_prob_filter,
-            trim_read_ends,
-            base_qual_filter,
-        }
+/// can return tag without encasing in an option in the RequiredTag variant
+impl InputMods<RequiredTag> {
+    /// retrieves tag
+    pub fn tag(&self) -> ModChar {
+        self.tag.tag
     }
 }
 

@@ -4,7 +4,7 @@
 //! filtration criteria on these windows using user-supplied parameters
 //! and output these reads.
 
-use crate::{CurrRead, Error, F32Bw0and1, InputMods, InputWindowing, OptionalTag, RequiredTag};
+use crate::{CurrRead, Error, F32Bw0and1, InputMods, InputWindowing, RequiredTag};
 use rust_htslib::bam::Record;
 use std::rc::Rc;
 
@@ -26,8 +26,6 @@ where
 {
     let mut curr_read_state = CurrRead::default();
 
-    let mod_options_opt_tag = InputMods::<OptionalTag>::from(mod_options);
-
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
@@ -36,7 +34,7 @@ where
         curr_read_state.set_read_state(&record)?;
         curr_read_state.set_seq_len(&record)?;
         curr_read_state.set_read_id(&record)?;
-        match curr_read_state.set_mod_data_restricted_options(&record, &mod_options_opt_tag) {
+        match curr_read_state.set_mod_data_restricted_options(&record, &mod_options) {
             Ok(_) | Err(Error::NoModInfo) => {}
             Err(e) => return Err(e),
         };
@@ -45,7 +43,7 @@ where
             &window_function,
             window_options.win.get().try_into()?,
             window_options.step.get().try_into()?,
-            mod_options.tag.tag,
+            mod_options.tag(),
         )? {
             v if !v.is_empty() => window_filter(&v),
             _ => false,
