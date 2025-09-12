@@ -7,7 +7,7 @@
 //! function. The routine reads both BAM and sequencing summary files
 //! if available, otherwise only reads the BAM file.
 
-use crate::{CurrRead, Error, ModChar, ReadState, ThresholdState};
+use crate::{CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, ThresholdState};
 use csv::ReaderBuilder;
 use itertools::join;
 use rust_htslib::bam;
@@ -211,8 +211,8 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Error> {
 pub fn run<W, D>(
     handle: &mut W,
     bam_records: D,
+    mut mods: Option<InputMods<OptionalTag>>,
     seq_summ_path: &str,
-    is_mod_count: bool,
 ) -> Result<bool, Error>
 where
     W: std::io::Write,
@@ -223,6 +223,17 @@ where
 
     // set up a flag to check if sequencing summary file has data
     let is_seq_summ_data: bool = !data_map.is_empty();
+
+    match &mut mods {
+        None => {}
+        Some(p) => match p.mod_prob_filter {
+            ref mut v @ ThresholdState::GtEq(w) => *v = ThresholdState::GtEq(u8::max(128, w)),
+            ref mut v @ ThresholdState::InvertGtEqLtEq(w) => *v = ThresholdState::Both((128, w)),
+            ref mut v @ ThresholdState::Both((w, x)) => {
+                *v = ThresholdState::Both((u8::max(128, w), x))
+            }
+        },
+    }
 
     // Go record by record in the BAM file,
     // get the read id and the alignment length, and put it in the hashmap
@@ -244,10 +255,10 @@ where
         };
 
         // get modification information
-        let mod_count: Option<ModCountTbl> = match is_mod_count {
-            false => None,
-            true => {
-                match curr_read_state.set_mod_data(&record, ThresholdState::GtEq(128), 0) {
+        let mod_count: Option<ModCountTbl> = match &mods {
+            None => None,
+            Some(v) => {
+                match curr_read_state.set_mod_data_restricted_options(&record, v) {
                     Ok(_) | Err(Error::NoModInfo) => {}
                     Err(e) => return Err(e),
                 };
@@ -275,13 +286,13 @@ where
     }
     output_header.push_str(&format!(
         "{}read_id\talign_length\tsequence_length_template\talignment_type{}",
-        match is_mod_count {
-            true => "# mod counts using probability threshold of 0.5\n",
-            false => "",
+        match &mods {
+            Some(_) => "# mod counts using probability threshold of 0.5\n",
+            None => "",
         },
-        match is_mod_count {
-            true => "\tmod_count",
-            false => "",
+        match &mods {
+            Some(_) => "\tmod_count",
+            None => "",
         }
     ));
 

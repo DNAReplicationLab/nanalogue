@@ -28,7 +28,7 @@ pub mod subcommands;
 pub mod utils;
 
 // Re-exports
-pub use cli::{InputBam, InputMods, InputWindowing};
+pub use cli::{InputBam, InputMods, InputWindowing, OptionalTag, RequiredTag};
 pub use error::Error;
 pub use read_utils::{CurrRead, ReadState, ThresholdState};
 pub use utils::{

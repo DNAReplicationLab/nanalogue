@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
     self, BamPreFilt, BamRcRecords, Contains, Error, F32AbsValBelow1, F32Bw0and1, InputBam,
-    InputMods, InputWindowing, OrdPair, ThresholdState, nanalogue_bam_reader, subcommands,
+    InputMods, InputWindowing, OptionalTag, OrdPair, RequiredTag, ThresholdState,
+    nanalogue_bam_reader, subcommands,
 };
 use std::io;
 use std::ops::RangeInclusive;
@@ -20,6 +21,9 @@ enum Commands {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
+        /// Input modification options
+        #[clap(flatten)]
+        mods: InputMods<OptionalTag>,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -82,7 +86,7 @@ enum FindModReadsCommands {
         win: InputWindowing,
         /// Input modification options
         #[clap(flatten)]
-        mods: InputMods,
+        mods: InputMods<RequiredTag>,
         /// only find reads such that all windowed density values are in these limits.
         /// specify as low,high e.g. 0.2,0.7 so that the condition is that all windowed_values
         /// satisfy low <= windowed_value <= high.
@@ -100,7 +104,7 @@ enum FindModReadsCommands {
         win: InputWindowing,
         /// Input modification options
         #[clap(flatten)]
-        mods: InputMods,
+        mods: InputMods<RequiredTag>,
         /// high value of criterion i.e. at least one window >= high
         #[clap(long)]
         high: F32Bw0and1,
@@ -116,7 +120,7 @@ enum FindModReadsCommands {
         win: InputWindowing,
         /// Input modification options
         #[clap(flatten)]
-        mods: InputMods,
+        mods: InputMods<RequiredTag>,
         /// low value of criterion i.e. at least one window <= low
         #[clap(long)]
         low: F32Bw0and1,
@@ -133,7 +137,7 @@ enum FindModReadsCommands {
         win: InputWindowing,
         /// Input modification options
         #[clap(flatten)]
-        mods: InputMods,
+        mods: InputMods<RequiredTag>,
         /// low criterion i.e. at least one window <= low,
         /// anded with the high criterion
         #[clap(long)]
@@ -155,7 +159,7 @@ enum FindModReadsCommands {
         win: InputWindowing,
         /// Input modification options
         #[clap(flatten)]
-        mods: InputMods,
+        mods: InputMods<RequiredTag>,
         /// max(windowed densities) - min(windowed densities)
         /// is at least this value
         #[clap(long)]
@@ -173,7 +177,7 @@ enum FindModReadsCommands {
         win: InputWindowing,
         /// Input modification options
         #[clap(flatten)]
-        mods: InputMods,
+        mods: InputMods<RequiredTag>,
         /// gradient is at least this value. e.g. a gradient of 0.005 with a window
         /// size of 100 means you expect a variation of 0.005 * 100 = 0.5 over at least
         /// one window i.e. greater than 0.5 or smaller than -0.5. For your guidance,
@@ -244,14 +248,18 @@ fn main() -> Result<(), Error> {
 
     // Match on the subcommand and call the corresponding logic from the library
     let result = match cli.command {
-        Commands::ReadsTableWithMods { bam, seq_summ_file } => {
+        Commands::ReadsTableWithMods {
+            bam,
+            mods,
+            seq_summ_file,
+        } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::bc_len_vs_align_len::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
+                Some(mods),
                 &seq_summ_file,
-                true,
             )
         }
         Commands::ReadsTableNoMods { bam, seq_summ_file } => {
@@ -260,8 +268,8 @@ fn main() -> Result<(), Error> {
             subcommands::bc_len_vs_align_len::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
+                None,
                 &seq_summ_file,
-                false,
             )
         }
         Commands::ReadStats { bam } => {
@@ -391,14 +399,8 @@ fn main() -> Result<(), Error> {
                 mods,
                 threshold_and_mean,
                 |x| {
-                    x.iter()
-                        .map(|r| r.val())
-                        .reduce(f32::max)
-                        .unwrap_or(0.0)
-                        - x.iter()
-                            .map(|r| r.val())
-                            .reduce(f32::min)
-                            .unwrap_or(0.0)
+                    x.iter().map(|r| r.val()).reduce(f32::max).unwrap_or(0.0)
+                        - x.iter().map(|r| r.val()).reduce(f32::min).unwrap_or(0.0)
                         >= min_range.val()
                 },
             )

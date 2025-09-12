@@ -20,8 +20,8 @@ use std::str::FromStr;
 
 // Import from our crate
 use crate::{
-    Contains, Error, F32Bw0and1, FilterByRefCoords, InputMods, Intersects, ModChar, OrdPair,
-    nanalogue_mm_ml_parser,
+    Contains, Error, F32Bw0and1, FilterByRefCoords, InputMods, Intersects, ModChar, OptionalTag,
+    OrdPair, nanalogue_mm_ml_parser,
 };
 
 /// Alignment state of a read; seven possibilities + one unknown state
@@ -129,14 +129,16 @@ impl fmt::Display for ReadState {
 pub enum ThresholdState {
     /// modification probability >= this value, values are 0 to 255
     GtEq(u8),
-    /// modification probability <= this value, values are 0 to 255
-    LtEq(u8),
     /// modification probability not within this range.
     /// We expect this to be used to filter out modification calls
     /// around 0.5 i.e. ones with the most uncertainty, although
     /// users of this crate are free to set this to an interval
     /// not including 0.5
     InvertGtEqLtEq(OrdPair<u8>),
+    /// modification probability >= first value, and mod prob
+    /// not within the second range i.e. the 'and' combination
+    /// of the two possibilities above
+    Both((u8, OrdPair<u8>)),
 }
 
 /// default threshold is >= 0 i.e. all mods are allowed
@@ -156,27 +158,34 @@ impl Default for ThresholdState {
 /// ```
 /// Example 2:
 /// ```
-/// # use nanalogue_core::ThresholdState;
-/// let b = ThresholdState::LtEq(10);
-/// assert_eq!("probabilities <= 0.0390625", format!("{}", b));
-/// ```
-/// Example 3:
-/// ```
 /// # use nanalogue_core::{ThresholdState, OrdPair};
 /// let b = ThresholdState::InvertGtEqLtEq(OrdPair::new(200, 220).expect("no error"));
 /// assert_eq!("probabilities < 0.78125 or > 0.859375", format!("{}", b));
+/// ```
+///
+/// Example 3:
+/// ```
+/// # use nanalogue_core::{ThresholdState, OrdPair};
+/// let b = ThresholdState::Both((100, OrdPair::new(200, 220).expect("no error")));
+/// assert_eq!("probabilities >= 0.390625 and (probabilities < 0.78125 or > 0.859375)", format!("{}", b));
 /// ```
 impl fmt::Display for ThresholdState {
     /// display the u8 thresholds as a floating point number between 0 and 1
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match &self {
             ThresholdState::GtEq(v) => format!("probabilities >= {}", F32Bw0and1::from(*v)),
-            ThresholdState::LtEq(v) => format!("probabilities <= {}", F32Bw0and1::from(*v)),
             ThresholdState::InvertGtEqLtEq(v) => {
                 format!(
                     "probabilities < {} or > {}",
                     F32Bw0and1::from(v.get_low()),
                     F32Bw0and1::from(v.get_high())
+                )
+            }
+            ThresholdState::Both((a, b)) => {
+                format!(
+                    "{} and ({})",
+                    ThresholdState::GtEq(*a),
+                    ThresholdState::InvertGtEqLtEq(*b)
                 )
             }
         };
@@ -197,16 +206,20 @@ impl fmt::Display for ThresholdState {
 /// Example 2:
 /// ```
 /// # use nanalogue_core::{Error, OrdPair, ThresholdState, Contains};
-/// let b = ThresholdState::LtEq(10);
-/// assert!(!b.contains(&11));
-/// assert!(b.contains(&10));
-/// assert!(b.contains(&9));
+/// let b = ThresholdState::InvertGtEqLtEq(OrdPair::new(200, 220).expect("no error"));
+/// assert!(b.contains(&100));
+/// assert!(!b.contains(&200));
+/// assert!(!b.contains(&210));
+/// assert!(!b.contains(&220));
+/// assert!(b.contains(&250));
 /// ```
 /// Example 3:
 /// ```
 /// # use nanalogue_core::{Error, OrdPair, ThresholdState, Contains};
-/// let b = ThresholdState::InvertGtEqLtEq(OrdPair::new(200, 220).expect("no error"));
+/// let b = ThresholdState::Both((100, OrdPair::new(200, 220).expect("no error")));
+/// assert!(!b.contains(&99));
 /// assert!(b.contains(&100));
+/// assert!(b.contains(&101));
 /// assert!(!b.contains(&200));
 /// assert!(!b.contains(&210));
 /// assert!(!b.contains(&220));
@@ -218,8 +231,11 @@ impl Contains<u8> for ThresholdState {
     fn contains(&self, val: &u8) -> bool {
         match &self {
             ThresholdState::GtEq(v) => val >= v,
-            ThresholdState::LtEq(v) => val <= v,
             ThresholdState::InvertGtEqLtEq(w) => !w.contains(val),
+            ThresholdState::Both((a, b)) => {
+                ThresholdState::GtEq(*a).contains(val)
+                    && ThresholdState::InvertGtEqLtEq(*b).contains(val)
+            }
         }
     }
 }
@@ -732,28 +748,20 @@ impl CurrRead {
     pub fn set_mod_data_restricted_options(
         &mut self,
         record: &Record,
-        mod_options: &InputMods,
+        mod_options: &InputMods<OptionalTag>,
     ) -> Result<&(BaseMods, ThresholdState), Error> {
-        match (
-            &mod_options.trim_read_ends,
-            self.seq_len(),
-            &mod_options.mod_strand,
-        ) {
-            (0, _, &Some(v)) => self.set_mod_data_restricted(
+        match (&mod_options.trim_read_ends, self.seq_len()) {
+            (0, _) => self.set_mod_data_restricted(
                 record,
                 mod_options.mod_prob_filter,
                 |_| true,
-                |_, &s, &t| t == mod_options.tag && s == char::from(v),
+                |_, &s, &t| {
+                    mod_options.tag.tag.is_none_or(|x| x == t)
+                        && mod_options.mod_strand.is_none_or(|v| s == char::from(v))
+                },
                 mod_options.base_qual_filter,
             ),
-            (0, _, None) => self.set_mod_data_restricted(
-                record,
-                mod_options.mod_prob_filter,
-                |_| true,
-                |_, _, &t| t == mod_options.tag,
-                mod_options.base_qual_filter,
-            ),
-            (&w, Ok(l), &Some(v)) => self.set_mod_data_restricted(
+            (&w, Ok(l)) => self.set_mod_data_restricted(
                 record,
                 mod_options.mod_prob_filter,
                 |x| {
@@ -763,23 +771,13 @@ impl CurrRead {
                         .unwrap_or_default())
                         .contains(x)
                 },
-                |_, &s, &t| t == mod_options.tag && s == char::from(v),
-                mod_options.base_qual_filter,
-            ),
-            (&w, Ok(l), None) => self.set_mod_data_restricted(
-                record,
-                mod_options.mod_prob_filter,
-                |x| {
-                    (w..usize::try_from(l)
-                        .expect("bit conversion error")
-                        .checked_sub(w)
-                        .unwrap_or_default())
-                        .contains(x)
+                |_, &s, &t| {
+                    mod_options.tag.tag.is_none_or(|x| x == t)
+                        && mod_options.mod_strand.is_none_or(|v| s == char::from(v))
                 },
-                |_, _, &t| t == mod_options.tag,
                 mod_options.base_qual_filter,
             ),
-            (_, Err(_), _) => Err(Error::InvalidSeqLength),
+            (_, Err(_)) => Err(Error::InvalidSeqLength),
         }?;
         self.mod_data()
     }

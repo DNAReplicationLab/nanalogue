@@ -1,7 +1,7 @@
 //! # Cli
 //!
 //! This file provides some global options in the command line interface.
-use crate::{ModChar, ReadStates, RestrictModCalledStrand, ThresholdState, F32Bw0and1};
+use crate::{F32Bw0and1, ModChar, ReadStates, RestrictModCalledStrand, ThresholdState};
 use clap::Args;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -9,7 +9,7 @@ use std::num::NonZeroU32;
 /// This struct is used to parse the input bam file and the filters that should be applied to the bam file.
 /// This struct is parsed to create command line arguments and then passed to many functions.
 /// We have copied and edited a similar struct from the fibertools-rs repository.
-#[derive(Debug, Args, Serialize, Deserialize)]
+#[derive(Debug, Args, Clone, Serialize, Deserialize)]
 pub struct InputBam {
     /// Input BAM file. If no path is provided stdin is used.
     #[clap(default_value = "-")]
@@ -79,13 +79,35 @@ impl Default for InputBam {
     }
 }
 
-/// This struct contains the options input to our
-/// modification-data functions with restrictions on data received
-#[derive(Debug, Args, Serialize, Deserialize)]
-pub struct InputMods {
+/// This struct contains an optional modification tag
+#[derive(Debug, Args, Clone, Copy, Serialize, Deserialize)]
+pub struct OptionalTag {
+    /// modified tag
+    #[clap(long)]
+    pub tag: Option<ModChar>,
+}
+
+/// This struct contains a required modification tag
+#[derive(Debug, Args, Clone, Copy, Serialize, Deserialize)]
+pub struct RequiredTag {
     /// modified tag
     #[clap(long)]
     pub tag: ModChar,
+}
+
+/// Dummy trait TagState
+pub trait TagState {}
+
+impl TagState for OptionalTag {}
+impl TagState for RequiredTag {}
+
+/// This struct contains the options input to our
+/// modification-data functions with restrictions on data received
+#[derive(Debug, Args, Clone, Copy, Serialize, Deserialize)]
+pub struct InputMods<S: TagState + clap::FromArgMatches + clap::Args> {
+    /// modified tag
+    #[clap(flatten)]
+    pub tag: S,
     /// modified strand, set this to bc or bc_comp, meaning
     /// on basecalled strand or its complement. Some technologies
     /// like PacBio or ONT duplex can call mod data on both a strand
@@ -116,11 +138,11 @@ pub struct InputMods {
     pub base_qual_filter: u8,
 }
 
-/// Implements a default for InputMods
-impl Default for InputMods {
+/// Implements a default for InputMods with optional tag
+impl Default for InputMods<OptionalTag> {
     fn default() -> Self {
         InputMods {
-            tag: ModChar::new('N'),
+            tag: OptionalTag { tag: None },
             mod_strand: None,
             mod_prob_filter: ThresholdState::GtEq(0),
             trim_read_ends: 0,
@@ -129,9 +151,45 @@ impl Default for InputMods {
     }
 }
 
+/// Implements a default for InputMods with optional tag
+impl Default for InputMods<RequiredTag> {
+    fn default() -> Self {
+        InputMods {
+            tag: RequiredTag {
+                tag: ModChar::new('N'),
+            },
+            mod_strand: None,
+            mod_prob_filter: ThresholdState::GtEq(0),
+            trim_read_ends: 0,
+            base_qual_filter: 0,
+        }
+    }
+}
+
+/// Converts a required-tag struct into an optional-tag struct.
+/// Will be useful as some functions require an optional-tag struct.
+impl From<InputMods<RequiredTag>> for InputMods<OptionalTag> {
+    fn from(value: InputMods<RequiredTag>) -> Self {
+        let InputMods::<RequiredTag> {
+            tag: RequiredTag { tag },
+            mod_strand,
+            mod_prob_filter,
+            trim_read_ends,
+            base_qual_filter,
+        } = value;
+        InputMods::<OptionalTag> {
+            tag: OptionalTag { tag: Some(tag) },
+            mod_strand,
+            mod_prob_filter,
+            trim_read_ends,
+            base_qual_filter,
+        }
+    }
+}
+
 /// This struct contains the options input to our
 /// modification-data-windowing functions
-#[derive(Debug, Args, Serialize, Deserialize)]
+#[derive(Debug, Args, Clone, Copy, Serialize, Deserialize)]
 pub struct InputWindowing {
     /// size of window in units of base being queried i.e.
     /// if you are looking for cytosine modifications, then
