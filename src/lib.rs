@@ -30,10 +30,10 @@ pub mod utils;
 // Re-exports
 pub use cli::{InputBam, InputModOptions, InputMods, InputWindowing, OptionalTag, RequiredTag};
 pub use error::Error;
-pub use read_utils::{CurrRead, ReadState, ThresholdState};
+pub use read_utils::CurrRead;
 pub use utils::{
     Contains, F32AbsValBelow1, F32Bw0and1, FilterByRefCoords, Intersects, ModChar, OrdPair,
-    RestrictModCalledStrand,
+    ReadState, RestrictModCalledStrand, ThresholdState,
 };
 
 /// Converts DNA bases to uppercase if needed, leaving other characters unchanged.
