@@ -241,16 +241,14 @@ where
         // read records
         let record = r?;
 
-        // get information of current read,
-        // if it is not primary or we cannot get the alignment or
-        // sequence lengths, then discard it.
-        let mut curr_read_state = CurrRead::default().set_read_state(&record)?;
-        let qname = curr_read_state.set_read_id(&record)?.to_string();
+        // get information of current read
+        let curr_read_state = CurrRead::default().try_from_only_alignment(&record)?;
+        let qname = String::from(curr_read_state.read_id()?);
         let read_state = curr_read_state.read_state();
-        let Ok(align_len) = curr_read_state.set_align_len(&record) else {
+        let Ok(align_len) = curr_read_state.align_len() else {
             continue;
         };
-        let Ok(seq_len) = curr_read_state.set_seq_len(&record) else {
+        let Ok(seq_len) = curr_read_state.seq_len() else {
             continue;
         };
 
@@ -270,7 +268,7 @@ where
 
         // add data depending on whether an entry is already present
         // in the hashmap from the sequencing summary file
-        data_map
+        let _ = data_map
             .entry(qname)
             .and_modify(|entry| entry.add_align_len(align_len, mod_count.clone(), read_state))
             .or_insert(ReadLen::new_align_len(

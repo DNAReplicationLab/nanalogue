@@ -1,3 +1,20 @@
+#![deny(
+    missing_copy_implementations,
+    missing_debug_implementations,
+    missing_docs,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_qualifications,
+    unused_results
+)]
+//! # Nanalogue (Nucleic Acid Analogue)
+//!
+//! We process and calculate data associated with DNA molecules, their alignments to
+//! reference genomes, modification information on them, and other miscellaneous
+//! information.
+//!
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
     self, BamPreFilt, BamRcRecords, Contains, Error, F32AbsValBelow1, F32Bw0and1, InputBam,

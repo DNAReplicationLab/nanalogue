@@ -81,36 +81,55 @@ where
         // read records
         let record = r?;
 
-        // set the read state using the type of alignment
-        // and increment read counter
-        let mut curr_read_state = CurrRead::default().set_read_state(&record)?;
-        match curr_read_state.read_state() {
-            ReadState::PrimaryFwd => primary_count += 1,
-            ReadState::SecondaryFwd => secondary_count += 1,
-            ReadState::SupplementaryFwd => supplementary_count += 1,
+        let mut curr_read = CurrRead::default()
+            .set_read_state(&record)?
+            .set_seq_len(&record)?;
+
+        macro_rules! assign_align_len {
+            () => {
+                curr_read = curr_read.set_align_len(&record)?;
+            };
+        }
+
+        match curr_read.read_state() {
+            ReadState::PrimaryFwd => {
+                primary_count += 1;
+                assign_align_len!();
+            }
+            ReadState::SecondaryFwd => {
+                secondary_count += 1;
+                assign_align_len!();
+            }
+            ReadState::SupplementaryFwd => {
+                supplementary_count += 1;
+                assign_align_len!();
+            }
             ReadState::Unmapped => unmapped_count += 1,
             ReadState::PrimaryRev => {
                 primary_count += 1;
-                reversed_count += 1
+                reversed_count += 1;
+                assign_align_len!();
             }
             ReadState::SecondaryRev => {
                 secondary_count += 1;
-                reversed_count += 1
+                reversed_count += 1;
+                assign_align_len!();
             }
             ReadState::SupplementaryRev => {
                 supplementary_count += 1;
-                reversed_count += 1
+                reversed_count += 1;
+                assign_align_len!();
             }
         };
 
         // get length of alignment
-        if let Ok(v) = curr_read_state.set_align_len(&record) {
+        if let Ok(v) = curr_read.align_len() {
             align_len_total += v;
             align_len_heap.push(v);
         };
 
         // get length of sequence.
-        if let Ok(v) = curr_read_state.set_seq_len(&record) {
+        if let Ok(v) = curr_read.seq_len() {
             seq_len_total += v;
             seq_len_heap.push(v);
         }

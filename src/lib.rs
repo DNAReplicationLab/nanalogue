@@ -1,5 +1,15 @@
-#![deny(missing_docs)]
-//! # Nanalogue Core
+#![deny(
+    missing_copy_implementations,
+    missing_debug_implementations,
+    missing_docs,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_qualifications,
+    unused_results
+)]
+//! # Nanalogue Core (Nanalogue = Nucleic Acid Analogue)
 //!
 //! We process and calculate data associated with DNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous

@@ -23,15 +23,15 @@ use crate::{
 };
 
 /// Shows CurrRead has no data
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct NoData;
 
 /// Shows CurrRead has only alignment data
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct OnlyAlignData;
 
 /// Shows CurrRead has alignment and modification data
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct AlignAndModData;
 
 /// Dummy trait
@@ -198,15 +198,17 @@ impl CurrRead<NoData> {
         self,
         record: &Record,
     ) -> Result<CurrRead<OnlyAlignData>, Error> {
-        let mut curr_read_state = CurrRead::<NoData>::default().set_read_state(record)?;
-        curr_read_state.set_read_id(record)?;
-        curr_read_state.set_seq_len(record)?;
+        let mut curr_read_state = CurrRead::default()
+            .set_read_state(record)?
+            .set_seq_len(record)?
+            .set_read_id(record)?;
         match curr_read_state.read_state() {
             ReadState::Unmapped => {}
             _ => {
-                curr_read_state.set_align_len(record)?;
-                curr_read_state.set_contig_id_and_start(record)?;
-                curr_read_state.set_contig_name(record)?;
+                curr_read_state = curr_read_state
+                    .set_align_len(record)?
+                    .set_contig_id_and_start(record)?
+                    .set_contig_name(record)?;
             }
         }
         Ok(curr_read_state)
@@ -228,10 +230,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut count = 0;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
-    ///     let Ok(len) = curr_read.set_seq_len(&r) else { unreachable!() };
-    ///     let Ok(len2) = curr_read.seq_len() else { unreachable!() };
-    ///     assert_eq!(len, len2);
+    ///     let curr_read = CurrRead::default().set_read_state(&r)?.set_seq_len(&r)?;
+    ///     let Ok(len) = curr_read.seq_len() else { unreachable!() };
     ///     match count {
     ///         0 => assert_eq!(len, 8),
     ///         1 => assert_eq!(len, 48),
@@ -251,35 +251,32 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
-    ///     curr_read.set_seq_len(&r)?;
-    ///     curr_read.set_seq_len(&r)?;
+    ///     let curr_read = CurrRead::default().set_read_state(&r)?
+    ///         .set_seq_len(&r)?.set_seq_len(&r)?;
     ///     break;
     /// }
     /// # Ok::<(), Error>(())
     /// ```
-    pub fn set_seq_len(&mut self, record: &Record) -> Result<u64, Error> {
-        match &self.seq_len {
+    pub fn set_seq_len(mut self, record: &Record) -> Result<Self, Error> {
+        self.seq_len = match self.seq_len {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set sequence length again!".to_string(),
             )),
-            None => {
-                self.seq_len = Some(
-                    NonZeroU64::new(record.seq_len().try_into()?)
-                        .ok_or(Error::InvalidSeqLength)?
-                        .get(),
-                );
-                self.seq_len.ok_or(Error::UnknownError)
-            }
-        }
+            None => Ok(Some(
+                NonZeroU64::new(record.seq_len().try_into()?)
+                    .ok_or(Error::InvalidSeqLength)?
+                    .get(),
+            )),
+        }?;
+        Ok(self)
     }
     /// gets length of sequence
     pub fn seq_len(&self) -> Result<u64, Error> {
         self.seq_len.ok_or(Error::UnavailableData)
     }
     /// set alignment length from BAM record if available
-    pub fn set_align_len(&mut self, record: &Record) -> Result<u64, Error> {
-        match &self.align_len {
+    pub fn set_align_len(mut self, record: &Record) -> Result<Self, Error> {
+        self.align_len = match self.align_len {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set alignment length again!".to_string(),
             )),
@@ -289,14 +286,14 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                     let st: i64 = record.pos();
                     let en: i64 = record.reference_end();
                     if en > st && st >= 0 {
-                        self.align_len = Some((en - st).try_into()?);
-                        self.align_len.ok_or(Error::UnknownError)
+                        Ok(Some((en - st).try_into()?))
                     } else {
                         Err(Error::InvalidAlignLength)
                     }
                 }
             },
-        }
+        }?;
+        Ok(self)
     }
     /// gets alignment length
     pub fn align_len(&self) -> Result<u64, Error> {
@@ -314,15 +311,35 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut count = 0;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
-    ///     match (count, curr_read.set_contig_id_and_start(&r)) {
+    ///     let curr_read =
+    ///         CurrRead::default().set_read_state(&r)?.set_contig_id_and_start(&r)?;
+    ///     match (count, curr_read.contig_id_and_start()) {
     ///         (0, Ok((0, 9))) |
     ///         (1, Ok((2, 23))) |
-    ///         (2, Ok((1, 3))) |
-    ///         (3, Err(Error::Unmapped)) => {},
+    ///         (2, Ok((1, 3))) => {},
     ///         _ => unreachable!(),
     ///     }
     ///     count = count + 1;
+    ///     if count == 3 { break; } // the fourth entry is unmapped, and will lead to an error.
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// If we call the method on an unmapped read, we should see an error.
+    /// ```should_panic
+    /// # use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// # use rust_htslib::bam::Read;
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// let mut count = 0;
+    /// for record in reader.records(){
+    ///     let r = record?;
+    ///     if count < 3 {
+    ///         count = count + 1;
+    ///         continue;
+    ///     }
+    ///     // the fourth read is unmapped
+    ///     let curr_read =
+    ///         CurrRead::default().set_read_state(&r)?.set_contig_id_and_start(&r)?;
     /// }
     /// # Ok::<(), Error>(())
     /// ```
@@ -334,26 +351,23 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
-    ///     curr_read.set_contig_id_and_start(&r)?;
-    ///     curr_read.set_contig_id_and_start(&r)?;
+    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?
+    ///         .set_contig_id_and_start(&r)?.set_contig_id_and_start(&r)?;
     ///     break;
     /// }
     /// # Ok::<(), Error>(())
     /// ```
-    pub fn set_contig_id_and_start(&mut self, record: &Record) -> Result<(i32, u64), Error> {
-        match &self.contig_id_and_start {
+    pub fn set_contig_id_and_start(mut self, record: &Record) -> Result<Self, Error> {
+        self.contig_id_and_start = match self.contig_id_and_start {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set contig and start again!".to_string(),
             )),
             None => match self.read_state() {
                 ReadState::Unmapped => Err(Error::Unmapped),
-                _ => {
-                    self.contig_id_and_start = Some((record.tid(), record.pos().try_into()?));
-                    self.contig_id_and_start.ok_or(Error::UnknownError)
-                }
+                _ => Ok(Some((record.tid(), record.pos().try_into()?))),
             },
-        }
+        }?;
+        Ok(self)
     }
     /// gets contig ID and start
     pub fn contig_id_and_start(&self) -> Result<(i32, u64), Error> {
@@ -371,8 +385,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut count = 0;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
-    ///     curr_read.set_contig_name(&r)?;
+    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?.set_contig_name(&r)?;
     ///     let Ok(contig_name) = curr_read.contig_name() else {unreachable!()};
     ///     match (count, contig_name) {
     ///         (0, "dummyI") |
@@ -412,27 +425,21 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
-    ///     curr_read.set_contig_name(&r)?;
-    ///     curr_read.set_contig_name(&r)?;
+    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?
+    ///         .set_contig_name(&r)?.set_contig_name(&r)?;
     ///     break;
     /// }
     /// # Ok::<(), Error>(())
     /// ```
-    pub fn set_contig_name(&mut self, record: &Record) -> Result<&str, Error> {
-        match (self.read_state(), &self.contig_name) {
+    pub fn set_contig_name(mut self, record: &Record) -> Result<Self, Error> {
+        self.contig_name = match (self.read_state(), self.contig_name) {
             (ReadState::Unmapped, _) => Err(Error::Unmapped),
             (_, Some(_)) => Err(Error::InvalidDuplicates(
                 "cannot set contig name again!".to_string(),
             )),
-            (_, None) => {
-                self.contig_name = Some(String::from(record.contig()));
-                match &self.contig_name {
-                    None => unreachable!(),
-                    Some(v) => Ok(v.as_str()),
-                }
-            }
-        }
+            (_, None) => Ok(Some(String::from(record.contig()))),
+        }?;
+        Ok(self)
     }
     /// gets contig name
     pub fn contig_name(&self) -> Result<&str, Error> {
@@ -451,15 +458,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut count = 0;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
-    ///
-    ///     let Ok(read_id) = curr_read.set_read_id(&r) else { unreachable!() };
-    ///     let read_id_clone = String::from(read_id);
-    ///     drop(read_id);
+    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?.set_read_id(&r)?;
     ///     let Ok(read_id) = curr_read.read_id() else { unreachable!() };
-    ///     assert_eq!(read_id_clone, read_id);
-    ///     drop(read_id_clone);
-    ///
     ///     match (count, read_id) {
     ///         (0,"5d10eb9a-aae1-4db8-8ec6-7ebb34d32575") |
     ///         (1,"a4f36092-b4d5-47a9-813e-c22c3b477a0c") |
@@ -479,26 +479,23 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
-    ///     curr_read.set_read_id(&r)?;
-    ///     curr_read.set_read_id(&r)?;
+    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?
+    ///         .set_read_id(&r)?.set_read_id(&r)?;
     ///     break;
     /// }
     /// # Ok::<(), Error>(())
     /// ```
-    pub fn set_read_id(&mut self, record: &Record) -> Result<&str, Error> {
-        match &self.read_id {
+    pub fn set_read_id(mut self, record: &Record) -> Result<Self, Error> {
+        self.read_id = match self.read_id {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set read id again!".to_string(),
             )),
             None => match str::from_utf8(record.qname()) {
-                Ok(v) => {
-                    self.read_id = Some(v.to_string());
-                    self.read_id()
-                }
+                Ok(v) => Ok(Some(v.to_string())),
                 Err(_) => Err(Error::InvalidReadID),
             },
-        }
+        }?;
+        Ok(self)
     }
     /// gets read id
     pub fn read_id(&self) -> Result<&str, Error> {
@@ -742,7 +739,7 @@ impl CurrRead<AlignAndModData> {
         let (BaseMods { base_mods: v }, _) = self.mod_data();
         for k in v {
             let base_count = k.ranges.qual.len() as u32;
-            output
+            let _ = output
                 .entry(ModChar::new(k.modification_type))
                 .and_modify(|e| *e += base_count)
                 .or_insert(base_count);
@@ -785,22 +782,20 @@ impl fmt::Display for CurrRead<AlignAndModData> {
 
         let mut mod_count_str = String::from("");
         let (BaseMods { base_mods: v }, w) = self.mod_data();
-        if !v.is_empty() {
-            for k in v {
-                mod_count_str += format!(
-                    "{}{}{}:{};",
-                    k.modified_base as char,
-                    k.strand,
-                    ModChar::new(k.modification_type),
-                    k.ranges.qual.len()
-                )
-                .as_str();
-            }
-            mod_count_str.pop();
-        } else {
-            mod_count_str += "NA";
+        for k in v {
+            mod_count_str += format!(
+                "{}{}{}:{};",
+                k.modified_base as char,
+                k.strand,
+                ModChar::new(k.modification_type),
+                k.ranges.qual.len()
+            )
+            .as_str();
         }
-        mod_count_str += format!(";({})", w).as_str();
+        if mod_count_str.is_empty() {
+            mod_count_str += "NA;";
+        }
+        mod_count_str += format!("({})", w).as_str();
         output_string += format!("\t\"mod_count\": \"{}\"\n", mod_count_str).as_str();
 
         write!(f, "{{\n{output_string}}}")
@@ -818,9 +813,7 @@ impl fmt::Display for CurrRead<AlignAndModData> {
 /// let mut count = 0;
 /// for record in reader.records(){
 ///     let r = record?;
-///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
-///     curr_read.set_align_len(&r);
-///     curr_read.set_contig_id_and_start(&r);
+///     let mut curr_read = CurrRead::default().try_from_only_alignment(&r)?;
 ///     let Ok(bed3_stranded) = StrandedBed3::try_from(curr_read) else {unreachable!()};
 ///     let exp_bed3_stranded = match count {
 ///         0 => StrandedBed3::new(0, 9, 17, Strand::Forward),
@@ -838,7 +831,7 @@ impl fmt::Display for CurrRead<AlignAndModData> {
 /// # Ok::<(), Error>(())
 /// ```
 impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<CurrRead<S>> for StrandedBed3<i32, u64> {
-    type Error = crate::Error;
+    type Error = Error;
 
     fn try_from(value: CurrRead<S>) -> Result<Self, Self::Error> {
         match (
@@ -871,7 +864,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<CurrRead<S>> for Strande
 /// and call only a subset of the individual invocations below
 /// in your program for the sake of speed and/or memory.
 impl TryFrom<Record> for CurrRead<AlignAndModData> {
-    type Error = crate::Error;
+    type Error = Error;
 
     fn try_from(record: Record) -> Result<Self, Self::Error> {
         let curr_read_state = CurrRead::default()
@@ -888,7 +881,7 @@ impl TryFrom<Record> for CurrRead<AlignAndModData> {
 /// All comments I've made for the `TryFrom<Record>` function
 /// apply here as well.
 impl TryFrom<Rc<Record>> for CurrRead<AlignAndModData> {
-    type Error = crate::Error;
+    type Error = Error;
 
     fn try_from(record: Rc<Record>) -> Result<Self, Self::Error> {
         let curr_read_state = CurrRead::default()

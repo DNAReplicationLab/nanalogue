@@ -30,16 +30,18 @@ where
         let record = r?;
 
         // set data in records
-        let mut curr_read_state = CurrRead::default().set_read_state(&record)?.set_mod_data(
-            &record,
-            ThresholdState::GtEq(0),
-            0,
-        )?;
-        let qname = curr_read_state.set_read_id(&record)?.to_string();
+        let mut curr_read_state = CurrRead::default()
+            .set_read_state(&record)?
+            .set_mod_data(&record, ThresholdState::GtEq(0), 0)?
+            .set_read_id(&record)?;
+        let qname = curr_read_state.read_id()?.to_string();
         let strand = curr_read_state.strand();
         let contig = match curr_read_state.read_state() {
             ReadState::Unmapped => ".".to_string(),
-            _ => String::from(curr_read_state.set_contig_name(&record)?),
+            _ => {
+                curr_read_state = curr_read_state.set_contig_name(&record)?;
+                curr_read_state.contig_name()?.to_string()
+            }
         };
 
         // read and window modification data, then print the output

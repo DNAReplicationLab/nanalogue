@@ -2,7 +2,7 @@
 //!
 //! This file provides some global options in the command line interface.
 use crate::{F32Bw0and1, ModChar, ReadStates, RestrictModCalledStrand, ThresholdState};
-use clap::Args;
+use clap::{Args, FromArgMatches};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 
@@ -118,7 +118,7 @@ impl TagState for RequiredTag {
 /// This struct contains the options input to our
 /// modification-data functions with restrictions on data received
 #[derive(Debug, Default, Args, Clone, Copy, Serialize, Deserialize)]
-pub struct InputMods<S: TagState + clap::Args + clap::FromArgMatches> {
+pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// modified tag
     #[clap(flatten)]
     pub tag: S,
@@ -176,7 +176,7 @@ pub trait InputModOptions {
     }
 }
 
-impl<S: TagState + clap::Args + clap::FromArgMatches> InputModOptions for InputMods<S> {
+impl<S: TagState + Args + FromArgMatches> InputModOptions for InputMods<S> {
     fn tag(&self) -> Option<ModChar> {
         self.tag.tag()
     }
