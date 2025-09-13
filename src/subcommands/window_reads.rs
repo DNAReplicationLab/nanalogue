@@ -3,7 +3,9 @@
 //! In this module, we window data along molecules, and then output
 //! these windows
 
-use crate::{CurrRead, Error, F32AbsValBelow1, InputWindowing, ModChar, ReadState, ThresholdState};
+use crate::{
+    CurrRead, Error, F32AbsValBelow1, InputMods, InputWindowing, ModChar, OptionalTag, ReadState,
+};
 use fibertools_rs::utils::basemods::BaseMods;
 use rust_htslib::bam::Record;
 use std::rc::Rc;
@@ -13,6 +15,7 @@ pub fn run<W, F, D>(
     handle: &mut W,
     bam_records: D,
     window_options: InputWindowing,
+    mods: InputMods<OptionalTag>,
     window_function: F,
 ) -> Result<bool, Error>
 where
@@ -30,18 +33,14 @@ where
         let record = r?;
 
         // set data in records
-        let mut curr_read_state = CurrRead::default()
-            .set_read_state(&record)?
-            .set_mod_data(&record, ThresholdState::GtEq(0), 0)?
-            .set_read_id(&record)?;
+        let curr_read_state = CurrRead::default()
+            .try_from_only_alignment(&record)?
+            .set_mod_data_restricted_options(&record, &mods)?;
         let qname = curr_read_state.read_id()?.to_string();
         let strand = curr_read_state.strand();
         let contig = match curr_read_state.read_state() {
             ReadState::Unmapped => ".".to_string(),
-            _ => {
-                curr_read_state = curr_read_state.set_contig_name(&record)?;
-                curr_read_state.contig_name()?.to_string()
-            }
+            _ => curr_read_state.contig_name()?.to_string(),
         };
 
         // read and window modification data, then print the output

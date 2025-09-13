@@ -79,6 +79,9 @@ enum Commands {
         /// Input windowing options
         #[clap(flatten)]
         win: InputWindowing,
+        /// Input modification options
+        #[clap(flatten)]
+        mods: InputMods<OptionalTag>,
     },
     /// Output windowed gradients of all reads
     WindowGrad {
@@ -88,6 +91,9 @@ enum Commands {
         /// Input windowing options
         #[clap(flatten)]
         win: InputWindowing,
+        /// Input modification options
+        #[clap(flatten)]
+        mods: InputMods<OptionalTag>,
     },
 }
 
@@ -450,20 +456,25 @@ fn main() -> Result<(), Error> {
                 },
             )
         }
-        Commands::WindowDens { bam, win } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
-            subcommands::window_reads::run(&mut handle, pre_filt!(bam_rc_records, &bam), win, |x| {
-                Ok(F32AbsValBelow1::from(threshold_and_mean(x)?))
-            })
-        }
-        Commands::WindowGrad { bam, win } => {
+        Commands::WindowDens { bam, win, mods } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
             subcommands::window_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
+                mods,
+                |x| Ok(F32AbsValBelow1::from(threshold_and_mean(x)?)),
+            )
+        }
+        Commands::WindowGrad { bam, win, mods } => {
+            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            subcommands::window_reads::run(
+                &mut handle,
+                pre_filt!(bam_rc_records, &bam),
+                win,
+                mods,
                 threshold_and_gradient,
             )
         }
