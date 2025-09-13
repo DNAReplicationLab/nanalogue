@@ -748,40 +748,98 @@ impl CurrRead<AlignAndModData> {
     }
 }
 
-impl fmt::Display for CurrRead<AlignAndModData> {
+impl fmt::Display for CurrRead<OnlyAlignData> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut output_string = String::from("");
+        let CurrRead::<OnlyAlignData> {
+            read_id,
+            seq_len,
+            align_len,
+            contig_id_and_start,
+            contig_name,
+            state,
+            mods: _,
+            mod_base_qual_thres: _,
+            marker: _,
+        } = self;
 
-        if let Ok(v) = &self.read_id() {
+        if let Some(v) = read_id {
             output_string = output_string + "\t\"read_id\": \"" + v + "\",\n";
         }
 
-        if let Ok(v) = self.seq_len() {
+        if let Some(v) = seq_len {
             output_string = output_string + "\t\"sequence_length\": " + &v.to_string() + ",\n";
         }
 
-        if let Ok(v) = self.align_len() {
-            output_string = output_string + "\t\"alignment_length\": " + &v.to_string() + ",\n";
-        }
-
-        if let Ok((v, w)) = self.contig_id_and_start() {
+        if let Some((v, w)) = contig_id_and_start {
             let num_str = &v.to_string();
             output_string = output_string
                 + "\t\"contig\": \""
-                + if let Some(x) = &self.contig_name().ok() {
+                + if let Some(x) = contig_name {
                     x
                 } else {
                     num_str
                 }
                 + "\",\n";
             output_string = output_string + "\t\"reference_start\": " + &w.to_string() + ",\n";
+            if let Some(x) = align_len {
+                output_string =
+                    output_string + "\t\"reference_end\": " + &(w + x).to_string() + ",\n";
+                output_string = output_string + "\t\"alignment_length\": " + &x.to_string() + ",\n";
+            }
         }
 
-        output_string =
-            output_string + "\t\"alignment_type\": \"" + &self.state.to_string() + "\",\n";
+        output_string = output_string + "\t\"alignment_type\": \"" + &state.to_string() + "\",\n";
+
+        write!(f, "{{\n{output_string}}}")
+    }
+}
+
+impl fmt::Display for CurrRead<AlignAndModData> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut output_string = String::from("");
+        let CurrRead::<AlignAndModData> {
+            read_id,
+            seq_len,
+            align_len,
+            contig_id_and_start,
+            contig_name,
+            state,
+            mods,
+            mod_base_qual_thres,
+            marker: _,
+        } = self;
+
+        if let Some(v) = read_id {
+            output_string = output_string + "\t\"read_id\": \"" + v + "\",\n";
+        }
+
+        if let Some(v) = seq_len {
+            output_string = output_string + "\t\"sequence_length\": " + &v.to_string() + ",\n";
+        }
+
+        if let Some((v, w)) = contig_id_and_start {
+            let num_str = &v.to_string();
+            output_string = output_string
+                + "\t\"contig\": \""
+                + if let Some(x) = contig_name {
+                    x
+                } else {
+                    num_str
+                }
+                + "\",\n";
+            output_string = output_string + "\t\"reference_start\": " + &w.to_string() + ",\n";
+            if let Some(x) = align_len {
+                output_string =
+                    output_string + "\t\"reference_end\": " + &(w + x).to_string() + ",\n";
+                output_string = output_string + "\t\"alignment_length\": " + &x.to_string() + ",\n";
+            }
+        }
+
+        output_string = output_string + "\t\"alignment_type\": \"" + &state.to_string() + "\",\n";
 
         let mut mod_count_str = String::from("");
-        let (BaseMods { base_mods: v }, w) = self.mod_data();
+        let (BaseMods { base_mods: v }, w) = mods;
         for k in v {
             mod_count_str += format!(
                 "{}{}{}:{};",
@@ -793,9 +851,11 @@ impl fmt::Display for CurrRead<AlignAndModData> {
             .as_str();
         }
         if mod_count_str.is_empty() {
-            mod_count_str += "NA;";
+            mod_count_str += "NA";
+        } else {
+            mod_count_str +=
+                format!("({}, PHRED base qual >= {})", w, mod_base_qual_thres).as_str();
         }
-        mod_count_str += format!("({})", w).as_str();
         output_string += format!("\t\"mod_count\": \"{}\"\n", mod_count_str).as_str();
 
         write!(f, "{{\n{output_string}}}")
