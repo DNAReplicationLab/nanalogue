@@ -28,10 +28,7 @@ where
     for r in bam_records {
         // read records
         let record = r?;
-        let curr_read_state = CurrRead::default()
-            .set_read_state(&record)?
-            .set_seq_len(&record)?
-            .set_read_id(&record)?;
+        let curr_read_state = CurrRead::default().try_from_only_alignment(&record)?;
         let read_id = String::from(curr_read_state.read_id()?);
         // apply our windowing function and then the windowing filter
         if match curr_read_state

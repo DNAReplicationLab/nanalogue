@@ -30,6 +30,10 @@ pub struct NoData;
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct OnlyAlignData;
 
+/// Shows CurrRead has only alignment data but with all fields filled
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct OnlyAlignDataComplete;
+
 /// Shows CurrRead has alignment and modification data
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct AlignAndModData;
@@ -39,13 +43,21 @@ pub trait CurrReadState {}
 
 impl CurrReadState for NoData {}
 impl CurrReadState for OnlyAlignData {}
+impl CurrReadState for OnlyAlignDataComplete {}
 impl CurrReadState for AlignAndModData {}
 
 /// Another dummy trait
 pub trait CurrReadStateWithAlign {}
 
 impl CurrReadStateWithAlign for OnlyAlignData {}
+impl CurrReadStateWithAlign for OnlyAlignDataComplete {}
 impl CurrReadStateWithAlign for AlignAndModData {}
+
+/// Another dummy trait
+pub trait CurrReadStateOnlyAlign {}
+
+impl CurrReadStateOnlyAlign for OnlyAlignData {}
+impl CurrReadStateOnlyAlign for OnlyAlignDataComplete {}
 
 /// Our main struct that receives and stores from one BAM record.
 /// Also has methods for processing this information.
@@ -197,7 +209,7 @@ impl CurrRead<NoData> {
     pub fn try_from_only_alignment(
         self,
         record: &Record,
-    ) -> Result<CurrRead<OnlyAlignData>, Error> {
+    ) -> Result<CurrRead<OnlyAlignDataComplete>, Error> {
         let mut curr_read_state = CurrRead::default()
             .set_read_state(record)?
             .set_seq_len(record)?
@@ -211,7 +223,28 @@ impl CurrRead<NoData> {
                     .set_contig_name(record)?;
             }
         }
-        Ok(curr_read_state)
+        let CurrRead::<OnlyAlignData> {
+            state,
+            read_id,
+            seq_len,
+            align_len,
+            mods: _,
+            contig_id_and_start,
+            contig_name,
+            mod_base_qual_thres: _,
+            marker: _,
+        } = curr_read_state;
+        Ok(CurrRead::<OnlyAlignDataComplete> {
+            state,
+            read_id,
+            seq_len,
+            align_len,
+            mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
+            contig_id_and_start,
+            contig_name,
+            mod_base_qual_thres: 0,
+            marker: std::marker::PhantomData::<OnlyAlignDataComplete>,
+        })
     }
 }
 
@@ -589,6 +622,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             marker: std::marker::PhantomData::<AlignAndModData>,
         })
     }
+}
+
+impl CurrRead<OnlyAlignDataComplete> {
     /// sets modification data using BAM record but with restrictions
     /// applied by the InputMods options
     pub fn set_mod_data_restricted_options(
@@ -748,10 +784,10 @@ impl CurrRead<AlignAndModData> {
     }
 }
 
-impl fmt::Display for CurrRead<OnlyAlignData> {
+impl<S: CurrReadStateOnlyAlign + CurrReadState> fmt::Display for CurrRead<S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut output_string = String::from("");
-        let CurrRead::<OnlyAlignData> {
+        let CurrRead::<S> {
             read_id,
             seq_len,
             align_len,
