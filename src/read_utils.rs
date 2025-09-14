@@ -632,35 +632,18 @@ impl CurrRead<OnlyAlignDataComplete> {
         record: &Record,
         mod_options: &impl InputModOptions,
     ) -> Result<CurrRead<AlignAndModData>, Error> {
-        match (mod_options.trim_read_ends(), self.seq_len()) {
-            (0, _) => self.set_mod_data_restricted(
-                record,
-                mod_options.mod_prob_filter(),
-                |_| true,
-                |_, &s, &t| {
-                    mod_options.tag().is_none_or(|x| x == t)
-                        && mod_options.mod_strand().is_none_or(|v| s == char::from(v))
-                },
-                mod_options.base_qual_filter(),
-            ),
-            (w, Ok(l)) => self.set_mod_data_restricted(
-                record,
-                mod_options.mod_prob_filter(),
-                |x| {
-                    (w..usize::try_from(l)
-                        .expect("bit conversion error")
-                        .checked_sub(w)
-                        .unwrap_or_default())
-                        .contains(x)
-                },
-                |_, &s, &t| {
-                    mod_options.tag().is_none_or(|x| x == t)
-                        && mod_options.mod_strand().is_none_or(|v| s == char::from(v))
-                },
-                mod_options.base_qual_filter(),
-            ),
-            (_, Err(_)) => Err(Error::InvalidSeqLength),
-        }
+        let l = usize::try_from(self.seq_len().expect("no error")).expect("bit conversion error");
+        let w = mod_options.trim_read_ends();
+        self.set_mod_data_restricted(
+            record,
+            mod_options.mod_prob_filter(),
+            |x| w == 0 || (w..l.checked_sub(w).unwrap_or_default()).contains(x),
+            |_, &s, &t| {
+                mod_options.tag().is_none_or(|x| x == t)
+                    && mod_options.mod_strand().is_none_or(|v| s == char::from(v))
+            },
+            mod_options.base_qual_filter(),
+        )
     }
 }
 
