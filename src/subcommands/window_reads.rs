@@ -57,26 +57,22 @@ where
             if win_size <= mod_data.len() {
                 for l in (0..=mod_data.len() - win_size).step_by(slide_size) {
                     let win_val = window_function(&mod_data[l..l + win_size])?;
-                    let win_start = match start[l] {
-                        Some(w) => Ok(w),
-                        None => Err(Error::InvalidState(
-                            "unable to retrieve mod data!".to_string(),
-                        )),
-                    }?;
-                    let win_end = match end[l + win_size - 1] {
-                        Some(w) => Ok(w),
-                        None => Err(Error::InvalidState(
-                            "unable to retrieve mod data!".to_string(),
-                        )),
-                    }?;
-                    let ref_win_start = match ref_start[l..l + win_size].iter().flatten().min() {
-                        Some(w) => *w,
-                        None => -1,
-                    };
-                    let ref_win_end = match ref_end[l..l + win_size].iter().flatten().max() {
-                        Some(w) => *w,
-                        None => -1,
-                    };
+                    let win_start = start[l].ok_or(Error::InvalidState(
+                        "unable to retrieve mod data!".to_string(),
+                    ))?;
+                    let win_end = end[l + win_size - 1].ok_or(Error::InvalidState(
+                        "unable to retrieve mod data!".to_string(),
+                    ))?;
+                    let ref_win_start = *(ref_start[l..l + win_size]
+                        .iter()
+                        .flatten()
+                        .min()
+                        .unwrap_or(&-1));
+                    let ref_win_end = *(ref_end[l..l + win_size]
+                        .iter()
+                        .flatten()
+                        .max()
+                        .unwrap_or(&-1));
                     writeln!(
                         handle,
                         "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
