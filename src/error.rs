@@ -35,6 +35,10 @@ pub enum Error {
     #[error("invalid contig and start")]
     InvalidContigAndStart,
 
+    /// Alignment coordinates (contig/start/end) are invalid.
+    #[error("invalid alignment coordinates (contig/start/end)")]
+    InvalidAlignCoords,
+
     /// Read id of molecule is invalid
     #[error("invalid read id")]
     InvalidReadID,

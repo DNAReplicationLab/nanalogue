@@ -19,6 +19,7 @@
 //! and parsing modification information directly from BAM files. Other functions
 //! in the crate are distributed over other files.
 
+use bedrs::{Bed3, Coordinates};
 use bio::alphabets::dna::revcomp;
 use bio_types::sequence::SequenceRead;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
@@ -42,8 +43,8 @@ pub use cli::{InputBam, InputModOptions, InputMods, InputWindowing, OptionalTag,
 pub use error::Error;
 pub use read_utils::CurrRead;
 pub use utils::{
-    Contains, F32AbsValBelow1, F32Bw0and1, FilterByRefCoords, Intersects, ModChar, OrdPair,
-    ReadState, RestrictModCalledStrand, ThresholdState,
+    Contains, F32AbsValBelow1, F32Bw0and1, FilterByRefCoords, GenomicRegion, Intersects, ModChar,
+    OrdPair, ReadState, RestrictModCalledStrand, ThresholdState,
 };
 
 /// Converts DNA bases to uppercase if needed, leaving other characters unchanged.
@@ -163,16 +164,12 @@ where
                 .next()
                 .unwrap();
 
-            // get modification type and skip record if we don't find
-            // mod of interest (if specified)
+            // get modification type
             let modification_type: ModChar = cap
                 .get(5)
                 .map_or("", |m| m.as_str())
                 .parse()
                 .expect("error");
-            if !filter_mod_base_strand_tag(&mod_base, &mod_strand, &modification_type) {
-                continue;
-            }
 
             let is_implicit = match cap.get(6).map_or("", |m| m.as_str()).as_bytes() {
                 b"" => true,
@@ -264,16 +261,18 @@ where
 
             num_mods_seen += cur_mod_idx;
 
-            // add to a struct
-            let mods = BaseMod::new(
-                record,
-                mod_base,
-                mod_strand,
-                modification_type.val(),
-                modified_positions,
-                modified_probabilities,
-            );
-            rtn.push(mods);
+            // if data matches filters, add to struct.
+            if filter_mod_base_strand_tag(&mod_base, &mod_strand, &modification_type) {
+                let mods = BaseMod::new(
+                    record,
+                    mod_base,
+                    mod_strand,
+                    modification_type.val(),
+                    modified_positions,
+                    modified_probabilities,
+                );
+                rtn.push(mods);
+            }
         }
     }
 
@@ -287,11 +286,11 @@ where
 /// does not have many traits.
 ///
 /// ```
-/// use nanalogue_core::{Error, nanalogue_bam_reader, BamRcRecords, InputBam};
+/// use nanalogue_core::{Error, nanalogue_bam_reader, BamRcRecords, InputBam, InputMods};
 /// use rust_htslib::bam::Read;
 /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
-/// let mut bam_opts = InputBam::default();
-/// let BamRcRecords = BamRcRecords::new(&mut reader, &bam_opts)?;
+/// let BamRcRecords = BamRcRecords::new(&mut reader, &mut InputBam::default(), 
+///     &mut InputMods::default())?;
 /// assert_eq!(BamRcRecords.header.tid(b"dummyI"), Some(0));
 /// assert_eq!(BamRcRecords.header.tid(b"dummyII"), Some(1));
 /// assert_eq!(BamRcRecords.header.tid(b"dummyIII"), Some(2));
@@ -303,16 +302,44 @@ pub struct BamRcRecords<'a> {
     pub rc_records: bam::RcRecords<'a, bam::Reader>,
     /// Header of the bam file
     pub header: bam::HeaderView,
+    /// Region to be probed
+    pub region_bed3: Option<Bed3<i32, u64>>,
 }
 
 impl<'a> BamRcRecords<'a> {
     /// Extracts RcRecords from a BAM Reader
-    pub fn new(bam_reader: &'a mut bam::Reader, bam_opts: &InputBam) -> Result<Self, Error> {
+    pub fn new(
+        bam_reader: &'a mut bam::Reader,
+        bam_opts: &mut InputBam,
+        mod_opts: &mut impl InputModOptions,
+    ) -> Result<Self, Error> {
         let header = bam_reader.header().clone();
         let tp = tpool::ThreadPool::new(bam_opts.threads.get())?;
         bam_reader.set_thread_pool(&tp)?;
         let rc_records = bam_reader.rc_records();
-        Ok(BamRcRecords { rc_records, header })
+        let region_bed3 = match &bam_opts.region {
+            None => None,
+            Some(v) => {
+                let GenomicRegion((a, b)) = v;
+                let numeric_contig: i32 = header
+                    .tid(a.as_bytes())
+                    .ok_or(Error::InvalidAlignCoords)?
+                    .try_into()?;
+                let (start, end) = if let Some(c) = b {
+                    (c.get_low(), c.get_high())
+                } else {
+                    (u64::MIN, u64::MAX)
+                };
+                Some(Bed3::<i32, u64>::new(numeric_contig, start, end))
+            }
+        };
+        bam_opts.region_bed3 = region_bed3;
+        mod_opts.set_region_filter(region_bed3.clone());
+        Ok(BamRcRecords {
+            rc_records,
+            header,
+            region_bed3,
+        })
     }
 }
 
@@ -414,6 +441,10 @@ pub trait BamPreFilt {
     fn filt_by_mapq(&self, _min_mapq: u8, _exclude_mapq_unavail: bool) -> bool {
         todo!()
     }
+    /// filtration by region
+    fn filt_by_region(&self, _region: &Bed3<i32, u64>, _full_region: bool) -> bool {
+        todo!()
+    }
 }
 
 /// Trait that performs filtration on rust_htslib Record
@@ -487,6 +518,13 @@ impl BamPreFilt for bam::Record {
                     true
                 }
             }
+            & {
+                if let Some(v) = &bam_opts.region_bed3 {
+                    self.filt_by_region(v, bam_opts.full_region)
+                } else {
+                    true
+                }
+            }
     }
     /// filtration by read length
     fn filt_by_len(&self, min_seq_len: u64, exclude_zero_len: bool) -> bool {
@@ -528,6 +566,22 @@ impl BamPreFilt for bam::Record {
     /// filtration by mapq
     fn filt_by_mapq(&self, min_mapq: u8, exclude_mapq_unavail: bool) -> bool {
         !(exclude_mapq_unavail && self.mapq() == 255) && self.mapq() >= min_mapq
+    }
+    /// filtration by region
+    fn filt_by_region(&self, region: &Bed3<i32, u64>, full_region: bool) -> bool {
+        !self.is_unmapped() && (self.tid() == *region.chr()) && {
+            let region_start = region.start();
+            let region_end = region.end();
+            (region_start == u64::MIN && region_end == u64::MAX) || {
+                let start: u64 = self.pos().try_into().expect("no error");
+                let end: u64 = self.reference_end().try_into().expect("no error");
+                if full_region {
+                    (start..end).contains(&region_start) && (start..(end + 1)).contains(&region_end)
+                } else {
+                    (start..end).intersects(&(region_start..region_end))
+                }
+            }
+        }
     }
 }
 

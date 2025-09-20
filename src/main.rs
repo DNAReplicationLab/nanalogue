@@ -272,12 +272,12 @@ fn main() -> Result<(), Error> {
     // Match on the subcommand and call the corresponding logic from the library
     let result = match cli.command {
         Commands::ReadsTableWithMods {
-            bam,
-            mods,
+            mut bam,
+            mut mods,
             seq_summ_file,
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             subcommands::bc_len_vs_align_len::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
@@ -285,9 +285,13 @@ fn main() -> Result<(), Error> {
                 &seq_summ_file,
             )
         }
-        Commands::ReadsTableNoMods { bam, seq_summ_file } => {
+        Commands::ReadsTableNoMods {
+            mut bam,
+            seq_summ_file,
+        } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records =
+                BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
             subcommands::bc_len_vs_align_len::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
@@ -295,27 +299,29 @@ fn main() -> Result<(), Error> {
                 &seq_summ_file,
             )
         }
-        Commands::ReadStats { bam } => {
+        Commands::ReadStats { mut bam } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records =
+                BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
             subcommands::read_stats::run(&mut handle, pre_filt!(bam_rc_records, &bam))
         }
-        Commands::ReadInfo { bam } => {
+        Commands::ReadInfo { mut bam } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records =
+                BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
             subcommands::read_info::run(&mut handle, pre_filt!(bam_rc_records, &bam))
         }
         Commands::FindModifiedReads {
             command:
                 FindModReadsCommands::AllDensBetween {
-                    bam,
+                    mut bam,
                     win,
-                    mods,
+                    mut mods,
                     dens_limits,
                 },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             subcommands::find_modified_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
@@ -331,14 +337,14 @@ fn main() -> Result<(), Error> {
         Commands::FindModifiedReads {
             command:
                 FindModReadsCommands::AnyDensAbove {
-                    bam,
+                    mut bam,
                     win,
-                    mods,
+                    mut mods,
                     high,
                 },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
                 &mut handle,
@@ -355,14 +361,14 @@ fn main() -> Result<(), Error> {
         Commands::FindModifiedReads {
             command:
                 FindModReadsCommands::AnyDensBelow {
-                    bam,
+                    mut bam,
                     win,
-                    mods,
+                    mut mods,
                     low,
                 },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             subcommands::find_modified_reads::run(
                 &mut handle,
@@ -379,15 +385,15 @@ fn main() -> Result<(), Error> {
         Commands::FindModifiedReads {
             command:
                 FindModReadsCommands::AnyDensBelowAndAnyDensAbove {
-                    bam,
+                    mut bam,
                     win,
-                    mods,
+                    mut mods,
                     low,
                     high,
                 },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
@@ -407,14 +413,14 @@ fn main() -> Result<(), Error> {
         Commands::FindModifiedReads {
             command:
                 FindModReadsCommands::DensRangeAbove {
-                    bam,
+                    mut bam,
                     win,
-                    mods,
+                    mut mods,
                     min_range,
                 },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             subcommands::find_modified_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
@@ -431,14 +437,14 @@ fn main() -> Result<(), Error> {
         Commands::FindModifiedReads {
             command:
                 FindModReadsCommands::AnyAbsGradAbove {
-                    bam,
+                    mut bam,
                     win,
-                    mods,
+                    mut mods,
                     min_grad,
                 },
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_min_grad_to_1 = OrdPair::new(min_grad, F32Bw0and1::one())?;
             subcommands::find_modified_reads::run(
                 &mut handle,
@@ -456,9 +462,13 @@ fn main() -> Result<(), Error> {
                 },
             )
         }
-        Commands::WindowDens { bam, win, mods } => {
+        Commands::WindowDens {
+            mut bam,
+            win,
+            mut mods,
+        } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             subcommands::window_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
@@ -467,9 +477,13 @@ fn main() -> Result<(), Error> {
                 |x| Ok(F32AbsValBelow1::from(threshold_and_mean(x)?)),
             )
         }
-        Commands::WindowGrad { bam, win, mods } => {
+        Commands::WindowGrad {
+            mut bam,
+            win,
+            mut mods,
+        } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
-            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &bam)?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             subcommands::window_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),

@@ -4,7 +4,6 @@
 //! used by all modules in our crate.
 
 use crate::Error;
-use rust_htslib::bam::FetchDefinition;
 use serde::{Deserialize, Serialize};
 use std::convert::From;
 use std::fmt;
@@ -29,10 +28,6 @@ pub trait FilterByRefCoords {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
     fn filter_by_ref_pos(&mut self, _: i64, _: i64) {
-        todo!()
-    }
-    /// filters by coordinates contained in FetchDefinition
-    fn filter_by_ref_pos_fd(&mut self, _: FetchDefinition) {
         todo!()
     }
 }
@@ -138,6 +133,33 @@ impl<T: Clone + Copy + Debug + Default + fmt::Display + PartialEq + PartialOrd> 
     /// converts to string for display i.e. "low, high"
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}, {}", self.get_low(), self.get_high())
+    }
+}
+
+/// Datatype holding a genomic region
+#[derive(Debug, Default, Clone, PartialOrd, PartialEq, Serialize, Deserialize)]
+pub struct GenomicRegion<S>(pub (S, Option<OrdPair<u64>>));
+
+impl Copy for GenomicRegion<i32> {}
+
+/// Obtains genomic region from a string with the standard region format of name[:begin[-end]].
+/// NOTE: we require an end to be provided if a begin is provided,
+/// although it is optional in the region format
+impl FromStr for GenomicRegion<String> {
+    type Err = Error;
+
+    fn from_str(val_str: &str) -> Result<Self, Self::Err> {
+        let mut colon_split: Vec<&str> = val_str.split(":").collect();
+        match colon_split.len() {
+            1 => Ok(GenomicRegion((val_str.to_string(), None))),
+            _ => {
+                let interval = colon_split.pop().expect("no error").replace('-', ",");
+                Ok(GenomicRegion((
+                    colon_split.join(":").to_string(),
+                    Some(OrdPair::<u64>::from_str(&interval)?),
+                )))
+            }
+        }
     }
 }
 

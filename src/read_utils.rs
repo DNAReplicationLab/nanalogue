@@ -4,7 +4,7 @@
 //! and the mod information in the BAM file using a parser implemented in
 //! another module.
 
-use bedrs::prelude::StrandedBed3;
+use bedrs::prelude::{Intersect, StrandedBed3};
 use bedrs::{Coordinates, Strand};
 use bio_types::genome::AbstractInterval;
 use fibertools_rs::utils::bamranges::Ranges;
@@ -634,16 +634,36 @@ impl CurrRead<OnlyAlignDataComplete> {
     ) -> Result<CurrRead<AlignAndModData>, Error> {
         let l = usize::try_from(self.seq_len().expect("no error")).expect("bit conversion error");
         let w = mod_options.trim_read_ends();
-        self.set_mod_data_restricted(
-            record,
-            mod_options.mod_prob_filter(),
-            |x| w == 0 || (w..l.checked_sub(w).unwrap_or_default()).contains(x),
-            |_, &s, &t| {
-                mod_options.tag().is_none_or(|x| x == t)
-                    && mod_options.mod_strand().is_none_or(|v| s == char::from(v))
-            },
-            mod_options.base_qual_filter(),
-        )
+        let interval = if let Some(bed3) = mod_options.region_filter() {
+            let stranded_bed3 = StrandedBed3::<i32, u64>::try_from(&self)?;
+            if let Some(v) = bed3.intersect(&stranded_bed3) {
+                if v.start() == stranded_bed3.start() && v.end() == stranded_bed3.end() {
+                    None
+                } else {
+                    Some(v.start()..v.end())
+                }
+            } else {
+                Some(0..0)
+            }
+        } else {
+            None
+        };
+        Ok({
+            let mut read = self.set_mod_data_restricted(
+                record,
+                mod_options.mod_prob_filter(),
+                |x| w == 0 || (w..l.checked_sub(w).unwrap_or_default()).contains(x),
+                |_, &s, &t| {
+                    mod_options.tag().is_none_or(|x| x == t)
+                        && mod_options.mod_strand().is_none_or(|v| s == char::from(v))
+                },
+                mod_options.base_qual_filter(),
+            )?;
+            if let Some(v) = interval {
+                read.filter_by_ref_pos(i64::try_from(v.start)?, i64::try_from(v.end)?)
+            }
+            read
+        })
     }
 }
 
@@ -893,7 +913,7 @@ impl fmt::Display for CurrRead<AlignAndModData> {
 /// for record in reader.records(){
 ///     let r = record?;
 ///     let mut curr_read = CurrRead::default().try_from_only_alignment(&r)?;
-///     let Ok(bed3_stranded) = StrandedBed3::try_from(curr_read) else {unreachable!()};
+///     let Ok(bed3_stranded) = StrandedBed3::try_from(&curr_read) else {unreachable!()};
 ///     let exp_bed3_stranded = match count {
 ///         0 => StrandedBed3::new(0, 9, 17, Strand::Forward),
 ///         1 => StrandedBed3::new(2, 23, 71, Strand::Forward),
@@ -909,10 +929,10 @@ impl fmt::Display for CurrRead<AlignAndModData> {
 /// }
 /// # Ok::<(), Error>(())
 /// ```
-impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<CurrRead<S>> for StrandedBed3<i32, u64> {
+impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for StrandedBed3<i32, u64> {
     type Error = Error;
 
-    fn try_from(value: CurrRead<S>) -> Result<Self, Self::Error> {
+    fn try_from(value: &CurrRead<S>) -> Result<Self, Self::Error> {
         match (
             value.read_state(),
             value.align_len().ok(),
@@ -979,26 +999,33 @@ impl FilterByRefCoords for Ranges {
     /// are retained. does not use contig in filtering.
     /// Copied and edited from the fibertools-rs repository.
     fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
-        let to_keep = self
-            .reference_starts
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &s)| {
-                if let Some(s) = s {
-                    if s < start || s >= end { None } else { Some(i) }
-                } else {
-                    None
+        let (start_idx, end_idx) = {
+            let mut start_idx = 0;
+            let mut end_idx = 0;
+            for k in self.reference_starts.iter().enumerate() {
+                if (*k.1).is_some_and(|x| x < start) {
+                    start_idx = k.0;
                 }
-            })
-            .collect::<Vec<_>>();
+                if (*k.1).is_some_and(|x| x < end) {
+                    end_idx = k.0;
+                }
+            }
+            (start_idx, end_idx)
+        };
 
-        self.starts = to_keep.iter().map(|&i| self.starts[i]).collect();
-        self.ends = to_keep.iter().map(|&i| self.ends[i]).collect();
-        self.lengths = to_keep.iter().map(|&i| self.lengths[i]).collect();
-        self.qual = to_keep.iter().map(|&i| self.qual[i]).collect();
-        self.reference_starts = to_keep.iter().map(|&i| self.reference_starts[i]).collect();
-        self.reference_ends = to_keep.iter().map(|&i| self.reference_ends[i]).collect();
-        self.reference_lengths = to_keep.iter().map(|&i| self.reference_lengths[i]).collect();
+        for k in [
+            &mut self.starts,
+            &mut self.ends,
+            &mut self.lengths,
+            &mut self.reference_starts,
+            &mut self.reference_ends,
+            &mut self.reference_lengths,
+        ] {
+            k.extract_if(end_idx.., |_| true).for_each(drop);
+            k.extract_if(0..start_idx, |_| true).for_each(drop);
+        }
+        self.qual.extract_if(end_idx.., |_| true).for_each(drop);
+        self.qual.extract_if(0..start_idx, |_| true).for_each(drop);
     }
 }
 

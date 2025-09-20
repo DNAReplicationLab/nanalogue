@@ -18,7 +18,7 @@ lazy_static = "1.4.0"
 regex = "1.11.1"
 log = "0.4.22"
 bio-types = "1.0.4"
-bedrs = "0.2.25"
+bedrs = { version = "0.2.25", features = [ "serde" ] }
 thiserror = "2.0.12"
 rand = "0.9.2"
 itertools = "0.14.0"

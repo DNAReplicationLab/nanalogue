@@ -1,7 +1,10 @@
 //! # Cli
 //!
 //! This file provides some global options in the command line interface.
-use crate::{F32Bw0and1, ModChar, ReadStates, RestrictModCalledStrand, ThresholdState};
+use crate::{
+    F32Bw0and1, GenomicRegion, ModChar, ReadStates, RestrictModCalledStrand, ThresholdState,
+};
+use bedrs::prelude::Bed3;
 use clap::{Args, FromArgMatches};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -59,6 +62,18 @@ pub struct InputBam {
     /// These reads are allowed by default, set this flag to exclude.
     #[clap(long, default_value_t = false)]
     pub exclude_mapq_unavail: bool,
+    /// Only keep read and modification data from this region
+    #[clap(long)]
+    pub region: Option<GenomicRegion<String>>,
+    /// Only keep read and modification data from this region.
+    /// This is an internal option not exposed to the user, we will set it
+    /// based on the other options that the user sets.
+    #[clap(skip)]
+    pub region_bed3: Option<Bed3<i32, u64>>,
+    /// Only keep reads if they pass through the specified region in full.
+    /// Option has an effect only if regions are specified through other options.
+    #[clap(long, default_value_t = false)]
+    pub full_region: bool,
 }
 
 /// Implements a default class for InputBAM
@@ -75,6 +90,9 @@ impl Default for InputBam {
             sample_fraction: F32Bw0and1::one(),
             mapq_filter: 0,
             exclude_mapq_unavail: false,
+            region: None,
+            region_bed3: None,
+            full_region: false,
         }
     }
 }
@@ -117,7 +135,7 @@ impl TagState for RequiredTag {
 
 /// This struct contains the options input to our
 /// modification-data functions with restrictions on data received
-#[derive(Debug, Default, Args, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Args, Clone, Serialize, Deserialize)]
 pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// modified tag
     #[clap(flatten)]
@@ -150,6 +168,23 @@ pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// are rejected if this is non-zero.
     #[clap(long, default_value_t = 0)]
     pub base_qual_filter: u8,
+    /// Only keep read and modification data from this region
+    #[clap(skip)]
+    pub region_bed3: Option<Bed3<i32, u64>>,
+}
+
+/// Implements defaults for InputMods
+impl Default for InputMods<OptionalTag> {
+    fn default() -> Self {
+        InputMods::<OptionalTag> {
+            tag: OptionalTag { tag: None },
+            mod_strand: None,
+            mod_prob_filter: ThresholdState::GtEq(0),
+            trim_read_ends: 0,
+            base_qual_filter: 0,
+            region_bed3: None,
+        }
+    }
 }
 
 /// Retrieves options for modification input
@@ -174,6 +209,14 @@ pub trait InputModOptions {
     fn base_qual_filter(&self) -> u8 {
         todo!()
     }
+    /// returns region requested
+    fn region_filter(&self) -> Option<Bed3<i32, u64>> {
+        todo!()
+    }
+    /// returns region requested
+    fn set_region_filter(&mut self, _value: Option<Bed3<i32, u64>>) {
+        todo!()
+    }
 }
 
 impl<S: TagState + Args + FromArgMatches> InputModOptions for InputMods<S> {
@@ -191,6 +234,12 @@ impl<S: TagState + Args + FromArgMatches> InputModOptions for InputMods<S> {
     }
     fn base_qual_filter(&self) -> u8 {
         self.base_qual_filter
+    }
+    fn region_filter(&self) -> Option<Bed3<i32, u64>> {
+        self.region_bed3
+    }
+    fn set_region_filter(&mut self, value: Option<Bed3<i32, u64>>) {
+        self.region_bed3 = value;
     }
 }
 
