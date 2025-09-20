@@ -278,7 +278,7 @@ fn main() -> Result<(), Error> {
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
-            subcommands::bc_len_vs_align_len::run(
+            subcommands::reads_table::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 Some(mods),
@@ -292,7 +292,7 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records =
                 BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
-            subcommands::bc_len_vs_align_len::run(
+            subcommands::reads_table::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 None,
