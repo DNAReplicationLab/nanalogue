@@ -18,8 +18,8 @@ use std::rc::Rc;
 
 // Import from our crate
 use crate::{
-    Contains, Error, F32Bw0and1, FilterByRefCoords, InputModOptions, Intersects, ModChar,
-    ReadState, ThresholdState, nanalogue_mm_ml_parser,
+    Contains, Error, F32Bw0and1, FilterByRefCoords, InputModOptions, InputRegionOptions,
+    Intersects, ModChar, ReadState, ThresholdState, nanalogue_mm_ml_parser,
 };
 
 /// Shows CurrRead has no data
@@ -627,10 +627,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
 impl CurrRead<OnlyAlignDataComplete> {
     /// sets modification data using BAM record but with restrictions
     /// applied by the InputMods options
-    pub fn set_mod_data_restricted_options(
+    pub fn set_mod_data_restricted_options<S: InputModOptions + InputRegionOptions>(
         self,
         record: &Record,
-        mod_options: &impl InputModOptions,
+        mod_options: &S,
     ) -> Result<CurrRead<AlignAndModData>, Error> {
         let l = usize::try_from(self.seq_len().expect("no error")).expect("bit conversion error");
         let w = mod_options.trim_read_ends();

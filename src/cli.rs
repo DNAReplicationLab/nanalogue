@@ -2,10 +2,11 @@
 //!
 //! This file provides some global options in the command line interface.
 use crate::{
-    F32Bw0and1, GenomicRegion, ModChar, ReadStates, RestrictModCalledStrand, ThresholdState,
+    Error, F32Bw0and1, GenomicRegion, ModChar, ReadStates, RestrictModCalledStrand, ThresholdState,
 };
 use bedrs::prelude::Bed3;
 use clap::{Args, FromArgMatches};
+use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 
@@ -62,16 +63,16 @@ pub struct InputBam {
     /// These reads are allowed by default, set this flag to exclude.
     #[clap(long, default_value_t = false)]
     pub exclude_mapq_unavail: bool,
-    /// Only keep read and modification data from this region
+    /// Only keep reads passing through this region.
     #[clap(long)]
     pub region: Option<GenomicRegion<String>>,
-    /// Only keep read and modification data from this region.
+    /// Only keep read data from this region.
     /// This is an internal option not exposed to the user, we will set it
     /// based on the other options that the user sets.
     #[clap(skip)]
     pub region_bed3: Option<Bed3<i32, u64>>,
     /// Only keep reads if they pass through the specified region in full.
-    /// Option has an effect only if regions are specified through other options.
+    /// Related to the input `--region`; has no effect if that is not set.
     #[clap(long, default_value_t = false)]
     pub full_region: bool,
 }
@@ -168,7 +169,12 @@ pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// are rejected if this is non-zero.
     #[clap(long, default_value_t = 0)]
     pub base_qual_filter: u8,
-    /// Only keep read and modification data from this region
+    /// Only keep modification data from this region
+    #[clap(long)]
+    pub mod_region: Option<GenomicRegion<String>>,
+    /// Only keep modification data from this region.
+    /// We do not expose this to the user, but infer it from
+    /// the other options set by the user.
     #[clap(skip)]
     pub region_bed3: Option<Bed3<i32, u64>>,
 }
@@ -182,6 +188,7 @@ impl Default for InputMods<OptionalTag> {
             mod_prob_filter: ThresholdState::GtEq(0),
             trim_read_ends: 0,
             base_qual_filter: 0,
+            mod_region: None,
             region_bed3: None,
         }
     }
@@ -209,13 +216,45 @@ pub trait InputModOptions {
     fn base_qual_filter(&self) -> u8 {
         todo!()
     }
+}
+
+/// Retrieves options for region
+pub trait InputRegionOptions {
     /// returns region requested
     fn region_filter(&self) -> Option<Bed3<i32, u64>> {
         todo!()
     }
-    /// returns region requested
+    /// returns region requested but region in genomic string format
+    fn region_filter_genomic_string(&self) -> Option<GenomicRegion<String>> {
+        todo!()
+    }
+    /// sets region requested
     fn set_region_filter(&mut self, _value: Option<Bed3<i32, u64>>) {
         todo!()
+    }
+    /// converts region from genomic string representation to bed3 representation
+    fn region_filter_genomic_string_to_bed3(
+        &mut self,
+        header: bam::HeaderView,
+    ) -> Result<bool, Error> {
+        let region_bed = match self.region_filter_genomic_string() {
+            None => None,
+            Some(v) => {
+                let GenomicRegion((a, b)) = v;
+                let numeric_contig: i32 = header
+                    .tid(a.as_bytes())
+                    .ok_or(Error::InvalidAlignCoords)?
+                    .try_into()?;
+                let (start, end) = if let Some(c) = b {
+                    (c.get_low(), c.get_high())
+                } else {
+                    (u64::MIN, u64::MAX)
+                };
+                Some(Bed3::<i32, u64>::new(numeric_contig, start, end))
+            }
+        };
+        self.set_region_filter(region_bed);
+        Ok(true)
     }
 }
 
@@ -235,6 +274,12 @@ impl<S: TagState + Args + FromArgMatches> InputModOptions for InputMods<S> {
     fn base_qual_filter(&self) -> u8 {
         self.base_qual_filter
     }
+}
+
+impl<S: TagState + Args + FromArgMatches> InputRegionOptions for InputMods<S> {
+    fn region_filter_genomic_string(&self) -> Option<GenomicRegion<String>> {
+        self.mod_region.clone()
+    }
     fn region_filter(&self) -> Option<Bed3<i32, u64>> {
         self.region_bed3
     }
@@ -248,6 +293,18 @@ impl InputMods<RequiredTag> {
     /// retrieves tag
     pub fn tag(&self) -> ModChar {
         self.tag.tag
+    }
+}
+
+impl InputRegionOptions for InputBam {
+    fn region_filter_genomic_string(&self) -> Option<GenomicRegion<String>> {
+        self.region.clone()
+    }
+    fn region_filter(&self) -> Option<Bed3<i32, u64>> {
+        self.region_bed3
+    }
+    fn set_region_filter(&mut self, value: Option<Bed3<i32, u64>>) {
+        self.region_bed3 = value;
     }
 }
 

@@ -39,7 +39,10 @@ pub mod subcommands;
 pub mod utils;
 
 // Re-exports
-pub use cli::{InputBam, InputModOptions, InputMods, InputWindowing, OptionalTag, RequiredTag};
+pub use cli::{
+    InputBam, InputModOptions, InputMods, InputRegionOptions, InputWindowing, OptionalTag,
+    RequiredTag,
+};
 pub use error::Error;
 pub use read_utils::CurrRead;
 pub use utils::{
@@ -289,7 +292,7 @@ where
 /// use nanalogue_core::{Error, nanalogue_bam_reader, BamRcRecords, InputBam, InputMods};
 /// use rust_htslib::bam::Read;
 /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
-/// let BamRcRecords = BamRcRecords::new(&mut reader, &mut InputBam::default(), 
+/// let BamRcRecords = BamRcRecords::new(&mut reader, &mut InputBam::default(),
 ///     &mut InputMods::default())?;
 /// assert_eq!(BamRcRecords.header.tid(b"dummyI"), Some(0));
 /// assert_eq!(BamRcRecords.header.tid(b"dummyII"), Some(1));
@@ -302,8 +305,6 @@ pub struct BamRcRecords<'a> {
     pub rc_records: bam::RcRecords<'a, bam::Reader>,
     /// Header of the bam file
     pub header: bam::HeaderView,
-    /// Region to be probed
-    pub region_bed3: Option<Bed3<i32, u64>>,
 }
 
 impl<'a> BamRcRecords<'a> {
@@ -311,35 +312,19 @@ impl<'a> BamRcRecords<'a> {
     pub fn new(
         bam_reader: &'a mut bam::Reader,
         bam_opts: &mut InputBam,
-        mod_opts: &mut impl InputModOptions,
+        mod_opts: &mut impl InputRegionOptions,
     ) -> Result<Self, Error> {
         let header = bam_reader.header().clone();
         let tp = tpool::ThreadPool::new(bam_opts.threads.get())?;
         bam_reader.set_thread_pool(&tp)?;
         let rc_records = bam_reader.rc_records();
-        let region_bed3 = match &bam_opts.region {
-            None => None,
-            Some(v) => {
-                let GenomicRegion((a, b)) = v;
-                let numeric_contig: i32 = header
-                    .tid(a.as_bytes())
-                    .ok_or(Error::InvalidAlignCoords)?
-                    .try_into()?;
-                let (start, end) = if let Some(c) = b {
-                    (c.get_low(), c.get_high())
-                } else {
-                    (u64::MIN, u64::MAX)
-                };
-                Some(Bed3::<i32, u64>::new(numeric_contig, start, end))
-            }
-        };
-        bam_opts.region_bed3 = region_bed3;
-        mod_opts.set_region_filter(region_bed3.clone());
-        Ok(BamRcRecords {
-            rc_records,
-            header,
-            region_bed3,
-        })
+        if !(bam_opts.region_filter_genomic_string_to_bed3(header.clone())?) {
+            return Err(Error::UnknownError);
+        }
+        if !(mod_opts.region_filter_genomic_string_to_bed3(header.clone())?) {
+            return Err(Error::UnknownError);
+        }
+        Ok(BamRcRecords { rc_records, header })
     }
 }
 
