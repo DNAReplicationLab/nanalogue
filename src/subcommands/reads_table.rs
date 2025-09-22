@@ -5,7 +5,7 @@
 //! read such as sequence length, alignment length, type of alignment,
 //! and modification counts, and displays them in table using the run
 //! function. The routine reads both BAM and sequencing summary files
-//! if available, otherwise only reads the BAM file.
+//! if provided, otherwise only reads the BAM file.
 
 use crate::{CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, ThresholdState};
 use csv::ReaderBuilder;

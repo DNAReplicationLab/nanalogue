@@ -221,7 +221,7 @@ pub trait InputModOptions {
 /// Retrieves options for region
 pub trait InputRegionOptions {
     /// returns region requested
-    fn region_filter(&self) -> Option<Bed3<i32, u64>> {
+    fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
         todo!()
     }
     /// returns region requested but region in genomic string format
@@ -231,6 +231,11 @@ pub trait InputRegionOptions {
     /// sets region requested
     fn set_region_filter(&mut self, _value: Option<Bed3<i32, u64>>) {
         todo!()
+    }
+    /// returns true if full overlap with region is requested as opposed to
+    /// only partial overlap. defaults to false.
+    fn is_full_overlap(&self) -> bool {
+        false
     }
     /// converts region from genomic string representation to bed3 representation
     fn region_filter_genomic_string_to_bed3(
@@ -280,8 +285,8 @@ impl<S: TagState + Args + FromArgMatches> InputRegionOptions for InputMods<S> {
     fn region_filter_genomic_string(&self) -> Option<GenomicRegion<String>> {
         self.mod_region.clone()
     }
-    fn region_filter(&self) -> Option<Bed3<i32, u64>> {
-        self.region_bed3
+    fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
+        &self.region_bed3
     }
     fn set_region_filter(&mut self, value: Option<Bed3<i32, u64>>) {
         self.region_bed3 = value;
@@ -300,11 +305,14 @@ impl InputRegionOptions for InputBam {
     fn region_filter_genomic_string(&self) -> Option<GenomicRegion<String>> {
         self.region.clone()
     }
-    fn region_filter(&self) -> Option<Bed3<i32, u64>> {
-        self.region_bed3
+    fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
+        &self.region_bed3
     }
     fn set_region_filter(&mut self, value: Option<Bed3<i32, u64>>) {
         self.region_bed3 = value;
+    }
+    fn is_full_overlap(&self) -> bool {
+        self.full_region
     }
 }
 

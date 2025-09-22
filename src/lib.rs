@@ -504,8 +504,8 @@ impl BamPreFilt for bam::Record {
                 }
             }
             & {
-                if let Some(v) = &bam_opts.region_bed3 {
-                    self.filt_by_region(v, bam_opts.full_region)
+                if let Some(v) = bam_opts.region_filter() {
+                    self.filt_by_region(v, bam_opts.is_full_overlap())
                 } else {
                     true
                 }
