@@ -575,7 +575,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                 let start = i64::try_from(v.start())?;
                 let end = i64::try_from(v.end())?;
                 if start < end {
-                    Ok(start .. end)
+                    Ok(start..end)
                 } else {
                     Err(Error::UnavailableData)
                 }
@@ -585,10 +585,11 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         }?;
 
         // Get sequence and initialize subset.
-        // We don't know how long the subset will be, we initialize with a guess 
+        // We don't know how long the subset will be, we initialize with a guess
         // of 2 * interval size
         let seq = record.seq().as_bytes();
-        let mut s: Vec<u8> = Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
+        let mut s: Vec<u8> =
+            Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
 
         for w in record
             .aligned_pairs_full()
@@ -600,9 +601,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             }
         }
         if s.is_empty() {
-            Err(Error::UnavailableData) 
-        } else { 
-            Ok(s) 
+            Err(Error::UnavailableData)
+        } else {
+            Ok(s)
         }
     }
     /// sets modification data using the BAM record

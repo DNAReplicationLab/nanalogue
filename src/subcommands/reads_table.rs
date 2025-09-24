@@ -7,8 +7,8 @@
 //! function. The routine reads both BAM and sequencing summary files
 //! if provided, otherwise only reads the BAM file.
 
-use bedrs::prelude::Bed3;
 use crate::{CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, ThresholdState};
+use bedrs::prelude::Bed3;
 use csv::ReaderBuilder;
 use itertools::join;
 use rust_htslib::bam;
@@ -99,7 +99,11 @@ impl fmt::Display for ReadInstance {
                 mod_count: mc,
                 read_state: rs,
                 seq: sq,
-            } => write!(f, "{}\t{sl}\t{}{}{}", vec_csv!(al), vec_csv!(rs), 
+            } => write!(
+                f,
+                "{}\t{sl}\t{}{}{}",
+                vec_csv!(al),
+                vec_csv!(rs),
                 match vec_csv!(mc) {
                     v if !v.is_empty() => format!("\t{v}"),
                     _ => "".to_string(),
@@ -272,16 +276,15 @@ where
         };
 
         // get sequence
-        let sequence = match &seq_region{
-            Some(v) => Some(
-                match curr_read_state.seq_on_ref_coords(&record, v) {
-                    Err(Error::UnavailableData) => Ok(String::from("*")),
-                    Err(e) => Err(e),
-                    Ok(w) => match String::from_utf8(w){
-                        Err(_) => Err(Error::UnknownError),
-                        Ok(v) => Ok(v),
-                    },
-                }?),
+        let sequence = match &seq_region {
+            Some(v) => Some(match curr_read_state.seq_on_ref_coords(&record, v) {
+                Err(Error::UnavailableData) => Ok(String::from("*")),
+                Err(e) => Err(e),
+                Ok(w) => match String::from_utf8(w) {
+                    Err(_) => Err(Error::UnknownError),
+                    Ok(v) => Ok(v),
+                },
+            }?),
             None => None,
         };
 
@@ -303,9 +306,11 @@ where
         // in the hashmap from the sequencing summary file
         let _ = data_map
             .entry(qname)
-            .and_modify(|entry| entry.add_align_len(align_len, mod_count.clone(), read_state, sequence.clone()))
+            .and_modify(|entry| {
+                entry.add_align_len(align_len, mod_count.clone(), read_state, sequence.clone())
+            })
             .or_insert(Read::new_align_len(
-                align_len, seq_len, mod_count, read_state, sequence
+                align_len, seq_len, mod_count, read_state, sequence,
             ));
     }
 
