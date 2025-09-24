@@ -7,6 +7,7 @@
 //! function. The routine reads both BAM and sequencing summary files
 //! if provided, otherwise only reads the BAM file.
 
+use bedrs::prelude::Bed3;
 use crate::{CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, ThresholdState};
 use csv::ReaderBuilder;
 use itertools::join;
@@ -63,12 +64,13 @@ impl fmt::Display for ModCountTbl {
 ///   length from the sequencing summary file and the alignment length
 ///   from the BAM file, discarding the sequence length from the BAM file.
 #[derive(Debug, Clone, PartialEq)]
-enum ReadLenState {
+enum ReadInstance {
     OnlyAlign {
         align_len: Vec<u64>,
         seq_len: u64,
         mod_count: Vec<ModCountTbl>,
         read_state: Vec<ReadState>,
+        seq: Vec<String>,
     },
     OnlyBc(u64),
     BothAlignBc {
@@ -76,43 +78,50 @@ enum ReadLenState {
         bc_len: u64,
         mod_count: Vec<ModCountTbl>,
         read_state: Vec<ReadState>,
+        seq: Vec<String>,
     },
 }
 
-impl fmt::Display for ReadLenState {
+impl fmt::Display for ReadInstance {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ReadLenState::OnlyBc(u64) => write!(f, "{u64}"),
-            ReadLenState::OnlyAlign {
+            ReadInstance::OnlyBc(u64) => write!(f, "{u64}"),
+            ReadInstance::OnlyAlign {
                 align_len: al,
                 seq_len: sl,
                 mod_count: mc,
                 read_state: rs,
+                seq: sq,
             }
-            | ReadLenState::BothAlignBc {
+            | ReadInstance::BothAlignBc {
                 align_len: al,
                 bc_len: sl,
                 mod_count: mc,
                 read_state: rs,
-            } => write!(f, "{}\t{sl}\t{}{}", vec_csv!(al), vec_csv!(rs), {
+                seq: sq,
+            } => write!(f, "{}\t{sl}\t{}{}{}", vec_csv!(al), vec_csv!(rs), 
                 match vec_csv!(mc) {
                     v if !v.is_empty() => format!("\t{v}"),
                     _ => "".to_string(),
-                }
-            }),
+                },
+                match vec_csv!(sq) {
+                    v if !v.is_empty() => format!("\t{v}"),
+                    _ => "".to_string(),
+                },
+            ),
         }
     }
 }
 
 /// Implements a structure representing the state of a read w.r.t
 /// sequencing summary information and BAM information
-struct ReadLen(ReadLenState);
+struct Read(ReadInstance);
 
-/// Implements functions for ReadLen
-impl ReadLen {
+/// Implements functions for Read
+impl Read {
     /// initialization using basecalled length
     fn new_bc_len(l: u64) -> Self {
-        Self(ReadLenState::OnlyBc(l))
+        Self(ReadInstance::OnlyBc(l))
     }
 
     /// initialization using alignment information
@@ -121,12 +130,14 @@ impl ReadLen {
         seq_len: u64,
         mod_count: Option<ModCountTbl>,
         read_state: ReadState,
+        seq: Option<String>,
     ) -> Self {
-        Self(ReadLenState::OnlyAlign {
+        Self(ReadInstance::OnlyAlign {
             align_len: vec![align_len],
             seq_len,
             mod_count: mod_count.into_iter().collect(),
             read_state: vec![read_state],
+            seq: seq.into_iter().collect(),
         })
     }
 
@@ -136,30 +147,35 @@ impl ReadLen {
         align_len: u64,
         mod_count: Option<ModCountTbl>,
         read_state: ReadState,
+        seq: Option<String>,
     ) {
         match &mut self.0 {
-            ReadLenState::OnlyAlign {
+            ReadInstance::OnlyAlign {
                 align_len: al,
                 seq_len: _,
                 mod_count: mc,
                 read_state: rs,
+                seq: sq,
             }
-            | ReadLenState::BothAlignBc {
+            | ReadInstance::BothAlignBc {
                 align_len: al,
                 bc_len: _,
                 mod_count: mc,
                 read_state: rs,
+                seq: sq,
             } => {
                 al.push(align_len);
                 rs.push(read_state);
                 mc.extend(mod_count);
+                sq.extend(seq);
             }
-            ReadLenState::OnlyBc(bl) => {
-                self.0 = ReadLenState::BothAlignBc {
+            ReadInstance::OnlyBc(bl) => {
+                self.0 = ReadInstance::BothAlignBc {
                     align_len: vec![align_len],
                     bc_len: *bl,
                     mod_count: mod_count.into_iter().collect(),
                     read_state: vec![read_state],
+                    seq: seq.into_iter().collect(),
                 };
             }
         }
@@ -175,8 +191,8 @@ struct TSVRecord {
 
 /// Opens a TSV file, extracts 'read_id' and 'sequence_length_template' columns,
 /// and builds a HashMap.
-fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Error> {
-    let mut data_map = HashMap::<String, ReadLen>::new();
+fn process_tsv(file_path: &str) -> Result<HashMap<String, Read>, Error> {
+    let mut data_map = HashMap::<String, Read>::new();
 
     match file_path {
         "" => {}
@@ -192,7 +208,7 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, ReadLen>, Error> {
                 if data_map
                     .insert(
                         record.read_id,
-                        ReadLen::new_bc_len(record.sequence_length_template),
+                        Read::new_bc_len(record.sequence_length_template),
                     )
                     .is_some()
                 {
@@ -212,6 +228,7 @@ pub fn run<W, D>(
     handle: &mut W,
     bam_records: D,
     mut mods: Option<InputMods<OptionalTag>>,
+    seq_region: Option<Bed3<i32, u64>>,
     seq_summ_path: &str,
 ) -> Result<bool, Error>
 where
@@ -245,11 +262,27 @@ where
         let curr_read_state = CurrRead::default().try_from_only_alignment(&record)?;
         let qname = String::from(curr_read_state.read_id()?);
         let read_state = curr_read_state.read_state();
-        let Ok(align_len) = curr_read_state.align_len() else {
-            continue;
+        let align_len = match curr_read_state.align_len() {
+            Ok(v) => v,
+            Err(Error::Unmapped) => 0,
+            Err(_) => continue,
         };
         let Ok(seq_len) = curr_read_state.seq_len() else {
             continue;
+        };
+
+        // get sequence
+        let sequence = match &seq_region{
+            Some(v) => Some(
+                match curr_read_state.seq_on_ref_coords(&record, v) {
+                    Err(Error::UnavailableData) => Ok(String::from("*")),
+                    Err(e) => Err(e),
+                    Ok(w) => match String::from_utf8(w){
+                        Err(_) => Err(Error::UnknownError),
+                        Ok(v) => Ok(v),
+                    },
+                }?),
+            None => None,
         };
 
         // get modification information
@@ -270,9 +303,9 @@ where
         // in the hashmap from the sequencing summary file
         let _ = data_map
             .entry(qname)
-            .and_modify(|entry| entry.add_align_len(align_len, mod_count.clone(), read_state))
-            .or_insert(ReadLen::new_align_len(
-                align_len, seq_len, mod_count, read_state,
+            .and_modify(|entry| entry.add_align_len(align_len, mod_count.clone(), read_state, sequence.clone()))
+            .or_insert(Read::new_align_len(
+                align_len, seq_len, mod_count, read_state, sequence
             ));
     }
 
@@ -282,7 +315,7 @@ where
         output_header = output_header + "# seq summ file: " + seq_summ_path + "\n"
     }
     output_header.push_str(&format!(
-        "{}read_id\talign_length\tsequence_length_template\talignment_type{}",
+        "{}read_id\talign_length\tsequence_length_template\talignment_type{}{}",
         match &mods {
             Some(_) => "# mod counts using probability threshold of 0.5\n",
             None => "",
@@ -290,7 +323,11 @@ where
         match &mods {
             Some(_) => "\tmod_count",
             None => "",
-        }
+        },
+        match &seq_region {
+            Some(_) => "\tsequence",
+            None => "",
+        },
     ));
 
     // print the output header
@@ -302,28 +339,30 @@ where
     // we use the sequence length in the BAM file as the basecalled sequence length.
     for (key, val) in data_map.iter() {
         match (&val, is_seq_summ_data) {
-            (ReadLen(ReadLenState::OnlyBc(_)), _)
+            (Read(ReadInstance::OnlyBc(_)), _)
             | (
-                ReadLen(ReadLenState::OnlyAlign {
+                Read(ReadInstance::OnlyAlign {
                     align_len: _,
                     seq_len: _,
                     mod_count: _,
                     read_state: _,
+                    seq: _,
                 }),
                 true,
             ) => {}
             (
-                ReadLen(ReadLenState::BothAlignBc {
+                Read(ReadInstance::BothAlignBc {
                     align_len: _,
                     bc_len: _,
                     mod_count: _,
                     read_state: _,
+                    seq: _,
                 }),
                 false,
             ) => Err(Error::InvalidState(
                 "invalid state while writing output".to_string(),
             ))?,
-            (ReadLen(v), _) => writeln!(handle, "{key}\t{v}")?,
+            (Read(v), _) => writeln!(handle, "{key}\t{v}")?,
         }
     }
 

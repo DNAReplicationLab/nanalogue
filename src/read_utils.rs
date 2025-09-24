@@ -5,7 +5,7 @@
 //! another module.
 
 use bedrs::prelude::{Intersect, StrandedBed3};
-use bedrs::{Coordinates, Strand};
+use bedrs::{Bed3, Coordinates, Strand};
 use bio_types::genome::AbstractInterval;
 use fibertools_rs::utils::bamranges::Ranges;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
@@ -561,6 +561,48 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             ReadState::Unmapped => '.',
             ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd => '+',
             ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => '-',
+        }
+    }
+    /// Returns subset of sequence using reference coordinates
+    pub fn seq_on_ref_coords(
+        &self,
+        record: &Record,
+        region: &Bed3<i32, u64>,
+    ) -> Result<Vec<u8>, Error> {
+        let interval = {
+            let stranded_bed3 = StrandedBed3::<i32, u64>::try_from(self)?;
+            if let Some(v) = region.intersect(&stranded_bed3) {
+                let start = i64::try_from(v.start())?;
+                let end = i64::try_from(v.end())?;
+                if start < end {
+                    Ok(start .. end)
+                } else {
+                    Err(Error::UnavailableData)
+                }
+            } else {
+                Err(Error::UnavailableData)
+            }
+        }?;
+
+        // Get sequence and initialize subset.
+        // We don't know how long the subset will be, we initialize with a guess 
+        // of 2 * interval size
+        let seq = record.seq().as_bytes();
+        let mut s: Vec<u8> = Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
+
+        for w in record
+            .aligned_pairs_full()
+            .filter(|x| x[1].is_some_and(|y| interval.contains(&y)))
+        {
+            match w {
+                [Some(x), _] => s.push(seq[usize::try_from(x)?]),
+                [None, _] => s.push(b'.'),
+            }
+        }
+        if s.is_empty() {
+            Err(Error::UnavailableData) 
+        } else { 
+            Ok(s) 
         }
     }
     /// sets modification data using the BAM record

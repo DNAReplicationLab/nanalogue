@@ -17,8 +17,8 @@
 //!
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
-    self, BamPreFilt, BamRcRecords, Contains, Error, F32AbsValBelow1, F32Bw0and1, InputBam,
-    InputMods, InputWindowing, OptionalTag, OrdPair, RequiredTag, ThresholdState,
+    self, BamPreFilt, BamRcRecords, Contains, Error, F32AbsValBelow1, F32Bw0and1, GenomicRegion,
+    InputBam, InputMods, InputWindowing, OptionalTag, OrdPair, RequiredTag, ThresholdState,
     nanalogue_bam_reader, subcommands,
 };
 use std::io;
@@ -41,6 +41,9 @@ enum Commands {
         /// Input modification options
         #[clap(flatten)]
         mods: InputMods<OptionalTag>,
+        /// Genomic region from which basecalled sequences are displayed (optional)
+        #[clap(long)]
+        seq_region: Option<GenomicRegion>,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -50,6 +53,9 @@ enum Commands {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
+        /// Genomic region from which basecalled sequences are displayed (optional)
+        #[clap(long)]
+        seq_region: Option<GenomicRegion>,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -274,6 +280,7 @@ fn main() -> Result<(), Error> {
         Commands::ReadsTableWithMods {
             mut bam,
             mut mods,
+            seq_region,
             seq_summ_file,
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
@@ -282,11 +289,16 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 Some(mods),
+                match seq_region {
+                    None => None,
+                    Some(v) => Some(v.try_to_bed3(bam_rc_records.header)?),
+                },
                 &seq_summ_file,
             )
         }
         Commands::ReadsTableNoMods {
             mut bam,
+            seq_region,
             seq_summ_file,
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
@@ -296,6 +308,10 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 None,
+                match seq_region {
+                    None => None,
+                    Some(v) => Some(v.try_to_bed3(bam_rc_records.header)?),
+                },
                 &seq_summ_file,
             )
         }

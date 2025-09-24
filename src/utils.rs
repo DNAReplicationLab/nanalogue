@@ -4,6 +4,8 @@
 //! used by all modules in our crate.
 
 use crate::Error;
+use bedrs::prelude::Bed3;
+use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
 use std::convert::From;
 use std::fmt;
@@ -138,28 +140,51 @@ impl<T: Clone + Copy + Debug + Default + fmt::Display + PartialEq + PartialOrd> 
 
 /// Datatype holding a genomic region
 #[derive(Debug, Default, Clone, PartialOrd, PartialEq, Serialize, Deserialize)]
-pub struct GenomicRegion<S>(pub (S, Option<OrdPair<u64>>));
-
-impl Copy for GenomicRegion<i32> {}
+pub struct GenomicRegion(pub (String, Option<OrdPair<u64>>));
 
 /// Obtains genomic region from a string with the standard region format of name[:begin[-end]].
 /// NOTE: we require an end to be provided if a begin is provided,
 /// although it is optional in the region format
-impl FromStr for GenomicRegion<String> {
+impl FromStr for GenomicRegion {
     type Err = Error;
 
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
         let mut colon_split: Vec<&str> = val_str.split(":").collect();
         match colon_split.len() {
+            0 => Err(Error::InvalidAlignCoords),
             1 => Ok(GenomicRegion((val_str.to_string(), None))),
             _ => {
-                let interval = colon_split.pop().expect("no error").replace('-', ",");
+                let interval = colon_split
+                    .pop()
+                    .ok_or(Error::UnknownError)?
+                    .replace('-', ",");
                 Ok(GenomicRegion((
                     colon_split.join(":").to_string(),
                     Some(OrdPair::<u64>::from_str(&interval)?),
                 )))
             }
         }
+    }
+}
+
+/// Converts genomic region from genomic string representation to bed3 representation
+impl GenomicRegion {
+    /// converts genomic region from genomic string representation to bed3 representation
+    pub fn try_to_bed3(self, header: bam::HeaderView) -> Result<Bed3<i32, u64>, Error> {
+        let region_bed = {
+            let GenomicRegion((a, b)) = self;
+            let numeric_contig: i32 = header
+                .tid(a.as_bytes())
+                .ok_or(Error::InvalidAlignCoords)?
+                .try_into()?;
+            let (start, end) = if let Some(c) = b {
+                (c.get_low(), c.get_high())
+            } else {
+                (u64::MIN, u64::MAX)
+            };
+            Bed3::<i32, u64>::new(numeric_contig, start, end)
+        };
+        Ok(region_bed)
     }
 }
 

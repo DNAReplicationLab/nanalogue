@@ -318,10 +318,10 @@ impl<'a> BamRcRecords<'a> {
         let tp = tpool::ThreadPool::new(bam_opts.threads.get())?;
         bam_reader.set_thread_pool(&tp)?;
         let rc_records = bam_reader.rc_records();
-        if !(bam_opts.region_filter_genomic_string_to_bed3(header.clone())?) {
+        if !(bam_opts.convert_region_to_bed3(header.clone())?) {
             return Err(Error::UnknownError);
         }
-        if !(mod_opts.region_filter_genomic_string_to_bed3(header.clone())?) {
+        if !(mod_opts.convert_region_to_bed3(header.clone())?) {
             return Err(Error::UnknownError);
         }
         Ok(BamRcRecords { rc_records, header })

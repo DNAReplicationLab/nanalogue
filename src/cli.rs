@@ -15,8 +15,7 @@ use std::num::NonZeroU32;
 /// We have copied and edited a similar struct from the fibertools-rs repository.
 #[derive(Debug, Args, Clone, Serialize, Deserialize)]
 pub struct InputBam {
-    /// Input BAM file. If no path is provided stdin is used.
-    #[clap(default_value = "-")]
+    /// Input BAM file. Set this to - to read from stdin.
     pub bam_path: String,
     /// Exclude reads whose sequence length in the BAM file is
     /// below this value. Defaults to 0.
@@ -65,7 +64,7 @@ pub struct InputBam {
     pub exclude_mapq_unavail: bool,
     /// Only keep reads passing through this region.
     #[clap(long)]
-    pub region: Option<GenomicRegion<String>>,
+    pub region: Option<GenomicRegion>,
     /// Only keep read data from this region.
     /// This is an internal option not exposed to the user, we will set it
     /// based on the other options that the user sets.
@@ -171,7 +170,7 @@ pub struct InputMods<S: TagState + Args + FromArgMatches> {
     pub base_qual_filter: u8,
     /// Only keep modification data from this region
     #[clap(long)]
-    pub mod_region: Option<GenomicRegion<String>>,
+    pub mod_region: Option<GenomicRegion>,
     /// Only keep modification data from this region.
     /// We do not expose this to the user, but infer it from
     /// the other options set by the user.
@@ -225,7 +224,7 @@ pub trait InputRegionOptions {
         todo!()
     }
     /// returns region requested but region in genomic string format
-    fn region_filter_genomic_string(&self) -> Option<GenomicRegion<String>> {
+    fn region_filter_genomic_string(&self) -> Option<GenomicRegion> {
         todo!()
     }
     /// sets region requested
@@ -238,27 +237,11 @@ pub trait InputRegionOptions {
         false
     }
     /// converts region from genomic string representation to bed3 representation
-    fn region_filter_genomic_string_to_bed3(
-        &mut self,
-        header: bam::HeaderView,
-    ) -> Result<bool, Error> {
-        let region_bed = match self.region_filter_genomic_string() {
-            None => None,
-            Some(v) => {
-                let GenomicRegion((a, b)) = v;
-                let numeric_contig: i32 = header
-                    .tid(a.as_bytes())
-                    .ok_or(Error::InvalidAlignCoords)?
-                    .try_into()?;
-                let (start, end) = if let Some(c) = b {
-                    (c.get_low(), c.get_high())
-                } else {
-                    (u64::MIN, u64::MAX)
-                };
-                Some(Bed3::<i32, u64>::new(numeric_contig, start, end))
-            }
-        };
-        self.set_region_filter(region_bed);
+    fn convert_region_to_bed3(&mut self, header: bam::HeaderView) -> Result<bool, Error> {
+        match self.region_filter_genomic_string() {
+            None => self.set_region_filter(None),
+            Some(v) => self.set_region_filter(Some(v.try_to_bed3(header)?)),
+        }
         Ok(true)
     }
 }
@@ -282,7 +265,7 @@ impl<S: TagState + Args + FromArgMatches> InputModOptions for InputMods<S> {
 }
 
 impl<S: TagState + Args + FromArgMatches> InputRegionOptions for InputMods<S> {
-    fn region_filter_genomic_string(&self) -> Option<GenomicRegion<String>> {
+    fn region_filter_genomic_string(&self) -> Option<GenomicRegion> {
         self.mod_region.clone()
     }
     fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
@@ -302,7 +285,7 @@ impl InputMods<RequiredTag> {
 }
 
 impl InputRegionOptions for InputBam {
-    fn region_filter_genomic_string(&self) -> Option<GenomicRegion<String>> {
+    fn region_filter_genomic_string(&self) -> Option<GenomicRegion> {
         self.region.clone()
     }
     fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
