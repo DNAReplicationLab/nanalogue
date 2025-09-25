@@ -27,6 +27,9 @@ where
     let win_size: usize = window_options.win.get().try_into()?;
     let slide_size: usize = window_options.step.get().try_into()?;
 
+    // constant to mark windows with basecalled coordinates but no reference coordinates.
+    const INVALID_REF_POS: i64 = -1;
+
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
@@ -36,43 +39,47 @@ where
         let curr_read_state = CurrRead::default()
             .try_from_only_alignment(&record)?
             .set_mod_data_restricted_options(&record, &mods)?;
-        let qname = curr_read_state.read_id()?.to_string();
+        let qname = curr_read_state.read_id()?;
         let strand = curr_read_state.strand();
         let contig = match curr_read_state.read_state() {
-            ReadState::Unmapped => ".".to_string(),
-            _ => curr_read_state.contig_name()?.to_string(),
+            ReadState::Unmapped => ".",
+            _ => curr_read_state.contig_name()?,
         };
 
         // read and window modification data, then print the output
-        let (BaseMods { base_mods: v }, _) = curr_read_state.mod_data();
-        for k in v {
-            let mod_data = &k.ranges.qual;
-            let start = &k.ranges.starts;
-            let end = &k.ranges.ends;
-            let ref_start = &k.ranges.reference_starts;
-            let ref_end = &k.ranges.reference_ends;
-            let base = k.modified_base as char;
-            let mod_strand = &k.strand;
-            let mod_type = ModChar::new(k.modification_type);
+        let (BaseMods { base_mods }, _) = curr_read_state.mod_data();
+        for base_mod in base_mods {
+            let mod_data = &base_mod.ranges.qual;
+            let starts = &base_mod.ranges.starts;
+            let ends = &base_mod.ranges.ends;
+            let ref_starts = &base_mod.ranges.reference_starts;
+            let ref_ends = &base_mod.ranges.reference_ends;
+            let base = base_mod.modified_base as char;
+            let mod_strand = base_mod.strand;
+            let mod_type = ModChar::new(base_mod.modification_type);
             if win_size <= mod_data.len() {
-                for l in (0..=mod_data.len() - win_size).step_by(slide_size) {
-                    let win_val = window_function(&mod_data[l..l + win_size])?;
-                    let win_start = start[l].ok_or(Error::InvalidState(
-                        "unable to retrieve mod data!".to_string(),
-                    ))?;
-                    let win_end = end[l + win_size - 1].ok_or(Error::InvalidState(
-                        "unable to retrieve mod data!".to_string(),
-                    ))?;
-                    let ref_win_start = *(ref_start[l..l + win_size]
+                for window_idx in (0..=mod_data.len() - win_size).step_by(slide_size) {
+                    let window_end_idx = window_idx + win_size;
+                    let win_val = window_function(&mod_data[window_idx..window_end_idx])?;
+                    let win_start = starts[window_idx].ok_or_else(|| {
+                        Error::InvalidState("Missing sequence start position".to_string())
+                    })?;
+                    let win_end = ends[window_end_idx - 1].ok_or_else(|| {
+                        Error::InvalidState("Missing sequence end position".to_string())
+                    })?;
+
+                    let ref_win_start = ref_starts[window_idx..window_end_idx]
                         .iter()
                         .flatten()
                         .min()
-                        .unwrap_or(&-1));
-                    let ref_win_end = *(ref_end[l..l + win_size]
+                        .copied()
+                        .unwrap_or(INVALID_REF_POS);
+                    let ref_win_end = ref_ends[window_idx..window_end_idx]
                         .iter()
                         .flatten()
                         .max()
-                        .unwrap_or(&-1));
+                        .copied()
+                        .unwrap_or(INVALID_REF_POS);
                     writeln!(
                         handle,
                         "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
