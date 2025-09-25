@@ -564,6 +564,44 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         }
     }
     /// Returns subset of sequence using reference coordinates
+    ///
+    /// ```
+    /// use bedrs::Bed3;
+    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// use rust_htslib::bam::Read;
+    ///
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    /// let mut count = 0;
+    /// for record in reader.records() {
+    ///     let r = record?;
+    ///     let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
+    ///
+    ///     // Skip unmapped reads
+    ///     if curr_read.read_state().to_string() != "unmapped" {
+    ///         let (contig_id, start) = curr_read.contig_id_and_start()?;
+    ///         let align_len = curr_read.align_len()?;
+    ///
+    ///         // Create a region that overlaps with the read but is short of one bp.
+    ///         // Note that this BAM file has reads with all bases matching perfectly
+    ///         // with the reference.
+    ///         let region = Bed3::new(contig_id, start, start + align_len - 1);
+    ///         let seq_subset = curr_read.seq_on_ref_coords(&r, &region)?;
+    ///
+    ///         // Check for sequence length match
+    ///         assert_eq!(curr_read.seq_len()? - 1, u64::try_from(seq_subset.len())?);
+    ///
+    ///         // Create a region with no overlap at all and check we get no data
+    ///         let region = Bed3::new(contig_id, start + align_len, start + align_len + 2);
+    ///         match curr_read.seq_on_ref_coords(&r, &region){
+    ///             Err(Error::UnavailableData) => Ok(()),
+    ///             _ => Err(Error::UnknownError),
+    ///         }?;
+    ///
+    ///     }
+    ///     count += 1;
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
     pub fn seq_on_ref_coords(
         &self,
         record: &Record,

@@ -3,3 +3,5 @@ cargo.def
 cargo.img
 ignore*
 slurm*
+ARCHITECTURAL_IMPROVEMENTS.md
+REFACTORING_ANALYSIS.md

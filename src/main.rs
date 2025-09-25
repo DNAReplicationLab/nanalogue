@@ -34,7 +34,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Prints basecalled len, align len, mod count per molecule
-    ReadsTableWithMods {
+    ReadTableShowMods {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
@@ -49,7 +49,7 @@ enum Commands {
         seq_summ_file: String,
     },
     /// Prints basecalled len, align len per molecule
-    ReadsTableNoMods {
+    ReadTableHideMods {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
@@ -277,7 +277,7 @@ fn main() -> Result<(), Error> {
 
     // Match on the subcommand and call the corresponding logic from the library
     let result = match cli.command {
-        Commands::ReadsTableWithMods {
+        Commands::ReadTableShowMods {
             mut bam,
             mut mods,
             seq_region,
@@ -296,7 +296,7 @@ fn main() -> Result<(), Error> {
                 &seq_summ_file,
             )
         }
-        Commands::ReadsTableNoMods {
+        Commands::ReadTableHideMods {
             mut bam,
             seq_region,
             seq_summ_file,
