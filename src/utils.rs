@@ -145,6 +145,33 @@ pub struct GenomicRegion(pub (String, Option<OrdPair<u64>>));
 /// Obtains genomic region from a string with the standard region format of name[:begin[-end]].
 /// NOTE: we require an end to be provided if a begin is provided,
 /// although it is optional in the region format
+///
+/// ```
+/// use nanalogue_core::GenomicRegion;
+/// use std::str::FromStr;
+///
+/// // Simple contig name only
+/// let region = GenomicRegion::from_str("chr1")?;
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+///
+/// ```
+/// # use nanalogue_core::GenomicRegion;
+/// # use std::str::FromStr;
+/// #
+/// // Contig with coordinates
+/// let region = GenomicRegion::from_str("chr1:1000-2000")?;
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+///
+/// ```
+/// # use nanalogue_core::GenomicRegion;
+/// # use std::str::FromStr;
+/// #
+/// // Contig name with colons (e.g., from some assemblies)
+/// let region = GenomicRegion::from_str("chr1:alternate:1000-2000")?;
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
 impl FromStr for GenomicRegion {
     type Err = Error;
 
@@ -245,6 +272,37 @@ impl FromStr for F32Bw0and1 {
     type Err = Error;
 
     /// Parse a string to obtain float and then convert if b/w 0 and 1
+    ///
+    /// ```
+    /// use nanalogue_core::F32Bw0and1;
+    /// use std::str::FromStr;
+    ///
+    /// // Boundary values - exactly 0.0 and 1.0 should work
+    /// let zero = F32Bw0and1::from_str("0.0")?;
+    /// assert_eq!(zero.val(), 0.0);
+    /// let one = F32Bw0and1::from_str("1.0")?;
+    /// assert_eq!(one.val(), 1.0);
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    ///
+    /// ```
+    /// # use nanalogue_core::F32Bw0and1;
+    /// # use std::str::FromStr;
+    /// #
+    /// // Near-boundary values
+    /// let near_zero = F32Bw0and1::from_str("0.000001")?;
+    /// let near_one = F32Bw0and1::from_str("0.999999")?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    ///
+    /// ```should_panic
+    /// # use nanalogue_core::F32Bw0and1;
+    /// # use std::str::FromStr;
+    /// #
+    /// // Just outside boundaries should fail
+    /// let outside = F32Bw0and1::from_str("1.000001")?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
         Self::new(f32::from_str(val_str)?)
     }
@@ -321,6 +379,39 @@ impl FromStr for F32AbsValBelow1 {
     type Err = Error;
 
     /// Parse a string to obtain float and then convert if b/w -1 and 1
+    ///
+    /// ```
+    /// use nanalogue_core::F32AbsValBelow1;
+    /// use std::str::FromStr;
+    ///
+    /// // Boundary values - exactly -1.0, 0.0, and 1.0 should work
+    /// let neg_one = F32AbsValBelow1::from_str("-1.0")?;
+    /// assert_eq!(neg_one.val(), -1.0);
+    /// let zero = F32AbsValBelow1::from_str("0.0")?;
+    /// assert_eq!(zero.val(), 0.0);
+    /// let one = F32AbsValBelow1::from_str("1.0")?;
+    /// assert_eq!(one.val(), 1.0);
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    ///
+    /// ```
+    /// # use nanalogue_core::F32AbsValBelow1;
+    /// # use std::str::FromStr;
+    /// #
+    /// // Near-boundary values
+    /// let near_neg_one = F32AbsValBelow1::from_str("-0.999999")?;
+    /// let near_one = F32AbsValBelow1::from_str("0.999999")?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    ///
+    /// ```should_panic
+    /// # use nanalogue_core::F32AbsValBelow1;
+    /// # use std::str::FromStr;
+    /// #
+    /// // Just outside boundaries should fail
+    /// let outside = F32AbsValBelow1::from_str("-1.000001")?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
         Self::new(f32::from_str(val_str)?)
     }
@@ -392,6 +483,43 @@ impl FromStr for ModChar {
     /// process the modification type from a string,
     /// returning the first character if it is a letter,
     /// or converting it to a character if the first character is a number
+    ///
+    /// ```
+    /// use nanalogue_core::ModChar;
+    /// use std::str::FromStr;
+    ///
+    /// // Single letter modification codes
+    /// let mod_char = ModChar::from_str("m")?;
+    /// assert_eq!(mod_char.val(), 'm');
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    ///
+    /// ```
+    /// # use nanalogue_core::ModChar;
+    /// # use std::str::FromStr;
+    /// #
+    /// // CheBI code for BrdU (5-bromo-2'-deoxyuridine)
+    /// let mod_char = ModChar::from_str("472232")?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    ///
+    /// ```
+    /// # use nanalogue_core::ModChar;
+    /// # use std::str::FromStr;
+    /// #
+    /// // Small numeric codes
+    /// let mod_char = ModChar::from_str("123")?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    ///
+    /// ```should_panic
+    /// # use nanalogue_core::ModChar;
+    /// # use std::str::FromStr;
+    /// #
+    /// // Invalid: starts with special character
+    /// let mod_char = ModChar::from_str("@123")?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
     fn from_str(mod_type: &str) -> Result<Self, Self::Err> {
         let first_char = mod_type.chars().next().ok_or(Error::EmptyModType)?;
         match first_char {
@@ -558,6 +686,55 @@ impl TryFrom<u16> for ReadState {
 }
 
 /// Implements from string for ReadState
+///
+/// ```
+/// use nanalogue_core::ReadState;
+/// use std::str::FromStr;
+///
+/// // Primary alignments
+/// let state = ReadState::from_str("primary_forward")?;
+/// assert_eq!(state, ReadState::PrimaryFwd);
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+///
+/// ```
+/// # use nanalogue_core::ReadState;
+/// # use std::str::FromStr;
+/// #
+/// // Secondary alignments
+/// let state = ReadState::from_str("secondary_reverse")?;
+/// assert_eq!(state, ReadState::SecondaryRev);
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+///
+/// ```
+/// # use nanalogue_core::ReadState;
+/// # use std::str::FromStr;
+/// #
+/// // Supplementary alignments
+/// let state = ReadState::from_str("supplementary_forward")?;
+/// assert_eq!(state, ReadState::SupplementaryFwd);
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+///
+/// ```
+/// # use nanalogue_core::ReadState;
+/// # use std::str::FromStr;
+/// #
+/// // Unmapped reads
+/// let state = ReadState::from_str("unmapped")?;
+/// assert_eq!(state, ReadState::Unmapped);
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+///
+/// ```should_panic
+/// # use nanalogue_core::ReadState;
+/// # use std::str::FromStr;
+/// #
+/// // Invalid string should error
+/// let state = ReadState::from_str("invalid_state")?;
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
 impl FromStr for ReadState {
     type Err = Error;
 
@@ -777,5 +954,343 @@ mod tests {
             format!("{}", ModChar::from_str("77000").expect("no failure")),
             "77000"
         );
+    }
+
+    /// Tests comprehensive GenomicRegion parsing
+    #[test]
+    fn test_genomic_region_parsing() {
+        // Simple contig name only
+        let region = GenomicRegion::from_str("chr1").expect("should parse");
+        assert_eq!(region.0.0, "chr1");
+        assert_eq!(region.0.1, None);
+
+        // Contig with coordinates
+        let region = GenomicRegion::from_str("chr1:1000-2000").expect("should parse");
+        assert_eq!(region.0.0, "chr1");
+        assert!(region.0.1.is_some());
+        let coords = region.0.1.unwrap();
+        assert_eq!(coords.get_low(), 1000);
+        assert_eq!(coords.get_high(), 2000);
+
+        // Contig name with colons (e.g., from some assemblies)
+        let region = GenomicRegion::from_str("chr1:alternate:1000-2000").expect("should parse");
+        assert_eq!(region.0.0, "chr1:alternate");
+        assert!(region.0.1.is_some());
+        let coords = region.0.1.unwrap();
+        assert_eq!(coords.get_low(), 1000);
+        assert_eq!(coords.get_high(), 2000);
+
+        // Complex contig names
+        let region = GenomicRegion::from_str("scaffold_123:456-789").expect("should parse");
+        assert_eq!(region.0.0, "scaffold_123");
+        let coords = region.0.1.unwrap();
+        assert_eq!(coords.get_low(), 456);
+        assert_eq!(coords.get_high(), 789);
+
+        // Mitochondrial chromosome
+        let region = GenomicRegion::from_str("chrM:1-16569").expect("should parse");
+        assert_eq!(region.0.0, "chrM");
+        let coords = region.0.1.unwrap();
+        assert_eq!(coords.get_low(), 1);
+        assert_eq!(coords.get_high(), 16569);
+    }
+
+    /// Tests GenomicRegion parsing error cases
+    #[test]
+    fn test_genomic_region_parsing_errors() {
+        // Wrong order coordinates should fail
+        assert!(matches!(
+            GenomicRegion::from_str("chr1:2000-1000"),
+            Err(Error::WrongOrder)
+        ));
+
+        // Invalid coordinate format should fail
+        assert!(GenomicRegion::from_str("chr1:abc-def").is_err());
+    }
+
+    /// Tests ReadState u16 conversion round-trip
+    #[test]
+    fn test_readstate_u16_conversion_roundtrip() {
+        let states = vec![
+            ReadState::PrimaryFwd,
+            ReadState::PrimaryRev,
+            ReadState::SecondaryFwd,
+            ReadState::SecondaryRev,
+            ReadState::SupplementaryFwd,
+            ReadState::SupplementaryRev,
+            ReadState::Unmapped,
+        ];
+
+        for state in states {
+            // Convert to u16 and back
+            let flag: u16 = state.try_into().expect("conversion to u16 should work");
+            let recovered_state: ReadState =
+                flag.try_into().expect("conversion from u16 should work");
+            assert_eq!(state, recovered_state);
+        }
+    }
+
+    /// Tests specific ReadState u16 flag values
+    #[test]
+    fn test_readstate_specific_flag_values() {
+        assert_eq!(u16::try_from(ReadState::PrimaryFwd).unwrap(), 0);
+        assert_eq!(u16::try_from(ReadState::Unmapped).unwrap(), 4);
+        assert_eq!(u16::try_from(ReadState::PrimaryRev).unwrap(), 16);
+        assert_eq!(u16::try_from(ReadState::SecondaryFwd).unwrap(), 256);
+        assert_eq!(u16::try_from(ReadState::SecondaryRev).unwrap(), 272);
+        assert_eq!(u16::try_from(ReadState::SupplementaryFwd).unwrap(), 2048);
+        assert_eq!(u16::try_from(ReadState::SupplementaryRev).unwrap(), 2064);
+    }
+
+    /// Tests ReadState from invalid u16 values
+    #[test]
+    fn test_readstate_invalid_u16_values() {
+        // Test various invalid flag combinations
+        let invalid_flags = vec![1, 2, 8, 32, 64, 128, 512, 1024, 4096, 8192];
+        for flag in invalid_flags {
+            assert!(matches!(
+                ReadState::try_from(flag),
+                Err(Error::UnknownAlignState)
+            ));
+        }
+    }
+
+    /// Tests ModChar numeric conversion and edge cases
+    #[test]
+    fn test_modchar_numeric_conversion() {
+        // Test letter codes
+        let mod_char = ModChar::from_str("m").expect("should parse");
+        assert_eq!(mod_char.val(), 'm');
+        assert_eq!(format!("{}", mod_char), "m");
+
+        let mod_char = ModChar::from_str("T").expect("should parse");
+        assert_eq!(mod_char.val(), 'T');
+        assert_eq!(format!("{}", mod_char), "T");
+
+        // Test small numeric codes
+        let mod_char = ModChar::from_str("123").expect("should parse");
+        assert_eq!(format!("{}", mod_char), "123");
+
+        // Test CheBI code for BrdU
+        let mod_char = ModChar::from_str("472232").expect("should parse");
+        assert_eq!(format!("{}", mod_char), "472232");
+
+        // Test ASCII boundary - 97 is 'a'
+        let mod_char = ModChar::from_str("97").expect("should parse");
+        assert_eq!(mod_char.val(), 'a');
+        // When the char value is in alphabet range, it displays as the letter, not the number
+        assert_eq!(format!("{}", mod_char), "a");
+
+        // Test very large numbers that are valid unicode
+        let mod_char = ModChar::from_str("65536").expect("should parse");
+        assert_eq!(format!("{}", mod_char), "65536");
+    }
+
+    /// Tests ModChar error cases
+    #[test]
+    fn test_modchar_error_cases() {
+        // Empty string should fail
+        assert!(matches!(ModChar::from_str(""), Err(Error::EmptyModType)));
+
+        // Starting with special characters should fail
+        assert!(matches!(
+            ModChar::from_str("@123"),
+            Err(Error::InvalidModType)
+        ));
+        assert!(matches!(
+            ModChar::from_str("#abc"),
+            Err(Error::InvalidModType)
+        ));
+
+        // Invalid numeric values that can't convert to char should fail
+        // (Note: this would be numbers > u32::MAX or invalid unicode ranges)
+        // Most very large numbers should still work due to char's range
+    }
+
+    /// Tests ModChar display format consistency
+    #[test]
+    fn test_modchar_display_consistency() {
+        // Letters should display as letters
+        for letter in ['a', 'b', 'z', 'A', 'B', 'Z'] {
+            let mod_char = ModChar::new(letter);
+            assert_eq!(format!("{}", mod_char), letter.to_string());
+        }
+
+        // Numbers converted to char should display as their numeric value
+        let test_numbers = vec![123, 456, 789, 472232];
+        for num in test_numbers {
+            let mod_char = ModChar::from_str(&num.to_string()).expect("should parse");
+            assert_eq!(format!("{}", mod_char), num.to_string());
+        }
+    }
+
+    /// Tests integration between F32Bw0and1 and F32AbsValBelow1 types
+    #[test]
+    fn test_f32_types_integration() {
+        // Test conversion from F32Bw0and1 to F32AbsValBelow1
+        let pos_values = vec![0.0, 0.25, 0.5, 0.75, 1.0];
+        for val in pos_values {
+            let bw_val = F32Bw0and1::new(val).expect("should create");
+            let abs_val: F32AbsValBelow1 = bw_val.into();
+            assert_eq!(abs_val.val(), val);
+        }
+
+        // Test conversion via absolute value function
+        let neg_val = F32AbsValBelow1::new(-0.5).expect("should create");
+        let abs_converted = F32Bw0and1::abs_f32_abs_val_below_1(neg_val);
+        assert_eq!(abs_converted.val(), 0.5);
+
+        let pos_val = F32AbsValBelow1::new(0.7).expect("should create");
+        let abs_converted = F32Bw0and1::abs_f32_abs_val_below_1(pos_val);
+        assert_eq!(abs_converted.val(), 0.7);
+    }
+
+    /// Tests u8 to F32Bw0and1 conversion
+    #[test]
+    fn test_u8_to_f32bw0and1_conversion() {
+        // Test boundary values
+        let zero = F32Bw0and1::from(0u8);
+        assert_eq!(zero.val(), 0.0);
+
+        let max = F32Bw0and1::from(255u8);
+        assert!(max.val() < 1.0); // Should be 255/256 = 0.99609375
+
+        // Test some intermediate values
+        let half = F32Bw0and1::from(128u8);
+        assert!(half.val() > 0.49 && half.val() < 0.51);
+
+        // Test exact calculation
+        let test_val = 100u8;
+        let converted = F32Bw0and1::from(test_val);
+        let expected = (test_val as f32) / (u8::MAX as f32 + 1.0);
+        assert_eq!(converted.val(), expected);
+    }
+
+    /// Tests shortcut constructors for F32Bw0and1
+    #[test]
+    fn test_f32bw0and1_shortcuts() {
+        let zero = F32Bw0and1::zero();
+        assert_eq!(zero.val(), 0.0);
+
+        let one = F32Bw0and1::one();
+        assert_eq!(one.val(), 1.0);
+    }
+
+    /// Tests error handling for all FromStr implementations
+    #[test]
+    fn test_fromstr_error_handling() {
+        // OrdPair error cases
+        assert!(OrdPair::<i32>::from_str("").is_err());
+        assert!(OrdPair::<i32>::from_str("1").is_err()); // Single value
+        assert!(OrdPair::<i32>::from_str("1,2,3").is_err()); // Too many values
+        assert!(OrdPair::<i32>::from_str("abc,def").is_err()); // Non-numeric
+        assert!(matches!(
+            OrdPair::<i32>::from_str("2,1"),
+            Err(Error::WrongOrder)
+        )); // Wrong order
+
+        // F32Bw0and1 error cases
+        assert!(F32Bw0and1::from_str("").is_err());
+        assert!(F32Bw0and1::from_str("abc").is_err());
+        assert!(matches!(
+            F32Bw0and1::from_str("-0.1"),
+            Err(Error::InvalidState(_))
+        ));
+        assert!(matches!(
+            F32Bw0and1::from_str("1.1"),
+            Err(Error::InvalidState(_))
+        ));
+
+        // F32AbsValBelow1 error cases
+        assert!(F32AbsValBelow1::from_str("").is_err());
+        assert!(F32AbsValBelow1::from_str("xyz").is_err());
+        assert!(matches!(
+            F32AbsValBelow1::from_str("-1.1"),
+            Err(Error::InvalidState(_))
+        ));
+        assert!(matches!(
+            F32AbsValBelow1::from_str("1.1"),
+            Err(Error::InvalidState(_))
+        ));
+
+        // RestrictModCalledStrand error cases
+        assert!(matches!(
+            RestrictModCalledStrand::from_str("invalid"),
+            Err(Error::InvalidState(_))
+        ));
+        assert!(matches!(
+            RestrictModCalledStrand::from_str(""),
+            Err(Error::InvalidState(_))
+        ));
+        assert!(matches!(
+            RestrictModCalledStrand::from_str("+"),
+            Err(Error::InvalidState(_))
+        )); // Should be "bc", not "+"
+
+        // ReadState error cases
+        assert!(matches!(
+            ReadState::from_str("invalid_state"),
+            Err(Error::UnknownAlignState)
+        ));
+        assert!(matches!(
+            ReadState::from_str(""),
+            Err(Error::UnknownAlignState)
+        ));
+        assert!(matches!(
+            ReadState::from_str("primary"), // Incomplete
+            Err(Error::UnknownAlignState)
+        ));
+    }
+
+    /// Tests display format consistency across all types
+    #[test]
+    fn test_display_format_consistency() {
+        // OrdPair display format
+        let pair = OrdPair::new(10, 20).expect("should create");
+        assert_eq!(format!("{}", pair), "10, 20");
+
+        let float_pair = OrdPair::new(1.5, 2.5).expect("should create");
+        assert_eq!(format!("{}", float_pair), "1.5, 2.5");
+
+        // F32Bw0and1 display format
+        let f32_val = F32Bw0and1::new(0.5).expect("should create");
+        assert_eq!(format!("{}", f32_val), "0.5");
+
+        // F32AbsValBelow1 display format
+        let abs_val = F32AbsValBelow1::new(-0.5).expect("should create");
+        assert_eq!(format!("{}", abs_val), "-0.5");
+
+        // RestrictModCalledStrand display format
+        let bc = RestrictModCalledStrand::from_str("bc").expect("should parse");
+        assert_eq!(format!("{}", bc), "+");
+
+        let bc_comp = RestrictModCalledStrand::from_str("bc_comp").expect("should parse");
+        assert_eq!(format!("{}", bc_comp), "-");
+
+        // ReadState display format
+        assert_eq!(format!("{}", ReadState::PrimaryFwd), "primary_forward");
+        assert_eq!(format!("{}", ReadState::PrimaryRev), "primary_reverse");
+        assert_eq!(format!("{}", ReadState::SecondaryFwd), "secondary_forward");
+        assert_eq!(format!("{}", ReadState::SecondaryRev), "secondary_reverse");
+        assert_eq!(
+            format!("{}", ReadState::SupplementaryFwd),
+            "supplementary_forward"
+        );
+        assert_eq!(
+            format!("{}", ReadState::SupplementaryRev),
+            "supplementary_reverse"
+        );
+        assert_eq!(format!("{}", ReadState::Unmapped), "unmapped");
+
+        // ThresholdState display format
+        let threshold = ThresholdState::GtEq(128);
+        assert!(format!("{}", threshold).contains("probabilities >="));
+        assert!(format!("{}", threshold).contains("0.5")); // 128/256 = 0.5
+
+        let range_threshold =
+            ThresholdState::InvertGtEqLtEq(OrdPair::new(100, 150).expect("should create"));
+        let display_str = format!("{}", range_threshold);
+        assert!(display_str.contains("probabilities <"));
+        assert!(display_str.contains("or >"));
     }
 }
