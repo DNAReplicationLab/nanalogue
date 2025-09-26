@@ -323,8 +323,7 @@ impl<'a> BamRcRecords<'a> {
 
         // Load read ID list if specified
         if let Some(file_path) = &bam_opts.read_id_list {
-            let file = File::open(file_path)
-                .map_err(|e| Error::InputOutputError(e))?;
+            let file = File::open(file_path).map_err(|e| Error::InputOutputError(e))?;
             let reader = BufReader::new(file);
             let mut read_ids = HashSet::new();
 

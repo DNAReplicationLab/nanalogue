@@ -31,12 +31,14 @@ fn get_stats_from_heap(
 
         running_total_length += v;
 
-        // Median and N50 below assume many reads with a "good" distribution.
-        // What I mean is: strictly speaking, a median is the middle read length
-        // if the number of reads is odd, or the average of the two middle read lengths
-        // if the number of reads is even (after reads are sorted in order).
-        // We do not bother with these minor adjustments here.
-        if median == 0 && counter > heap_size / 2 {
+        // In both median and N50 calculations, we assume lots of reads
+        // and a continuous distribution. If not, the answers can be slightly
+        // different... for example, for the median, technically speaking,
+        // if the number of reads is even, we are supposed to take the mean
+        // of the two reads in the middle of the pack. We don't do this as
+        // we assume lots of reads so there's no point in making such an accurate
+        // calculation.
+        if median == 0 && counter > heap_size / 2 - 1 {
             median = v;
         }
 
@@ -164,4 +166,45 @@ where
     writeln!(handle, "seq_len_n50\t{seq_len_n50}")?;
 
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_htslib::bam::{self, Read};
+    use std::rc::Rc;
+
+    #[test]
+    fn test_read_stats_example_3() {
+        let mut output = Vec::new();
+
+        let mut bam_reader = bam::Reader::from_path("./examples/example_3.bam")
+            .expect("Failed to open example_3.bam");
+
+        let bam_records = bam_reader.records().map(|r| r.map(Rc::new));
+
+        let result = run(&mut output, bam_records);
+        assert!(result.is_ok());
+
+        let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
+
+        let expected_output = "key\tvalue\n\
+n_primary_alignments\t10\n\
+n_secondary_alignments\t0\n\
+n_supplementary_alignments\t0\n\
+n_unmapped_reads\t0\n\
+n_reversed_reads\t3\n\
+align_len_mean\t12.6\n\
+align_len_max\t20\n\
+align_len_min\t6\n\
+align_len_median\t12\n\
+align_len_n50\t15\n\
+seq_len_mean\t12.6\n\
+seq_len_max\t20\n\
+seq_len_min\t6\n\
+seq_len_median\t12\n\
+seq_len_n50\t15\n";
+
+        assert_eq!(output_str, expected_output);
+    }
 }
