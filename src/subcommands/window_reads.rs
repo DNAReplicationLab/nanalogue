@@ -60,7 +60,9 @@ where
             if win_size <= mod_data.len() {
                 for window_idx in (0..=mod_data.len() - win_size).step_by(slide_size) {
                     let window_end_idx = window_idx + win_size;
-                    let win_val = window_function(&mod_data[window_idx..window_end_idx])?;
+                    let Ok(win_val) = window_function(&mod_data[window_idx..window_end_idx]) else {
+                        continue
+                    };
                     let win_start = starts[window_idx].ok_or_else(|| {
                         Error::InvalidState("Missing sequence start position".to_string())
                     })?;
