@@ -330,12 +330,12 @@ pub struct InputWindowing {
 }
 
 /// Implements a default for InputWindowing
-/// NOTE: we just choose 100 as the default value arbitrarily.
+/// NOTE: we just choose 1 as the default value arbitrarily.
 impl Default for InputWindowing {
     fn default() -> Self {
         InputWindowing {
-            win: NonZeroU32::new(100).expect("no error"),
-            step: NonZeroU32::new(100).expect("no error"),
+            win: NonZeroU32::new(1).expect("no error"),
+            step: NonZeroU32::new(1).expect("no error"),
         }
     }
 }

@@ -104,3 +104,34 @@ where
 
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analysis::threshold_and_mean;
+    use rust_htslib::bam::{self, Read};
+    use std::rc::Rc;
+
+    #[test]
+    fn test_window_reads_example_1() -> Result<(), Error> {
+        // Set input, output, options
+        let mut output = Vec::new();
+        let mut bam_reader = bam::Reader::from_path("./examples/example_1.bam")?;
+        let bam_records = bam_reader.records().map(|r| r.map(Rc::new));
+        let window_options: InputWindowing =
+            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+        let mods = InputMods::default();
+
+        // Run the window_reads function
+        assert!(run(&mut output, bam_records, window_options, mods, |x| {
+            threshold_and_mean(x).map(|y| y.into())
+        },)?);
+
+        // Perform comparison
+        let output_str = String::from_utf8(output)?;
+        let expected_output = std::fs::read_to_string("./examples/example_1_window_reads")?;
+        assert_eq!(output_str, expected_output);
+
+        Ok(())
+    }
+}

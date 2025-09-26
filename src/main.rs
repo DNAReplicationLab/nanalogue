@@ -18,9 +18,8 @@
 use bedrs::{Bed3, Coordinates};
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
-    self, BamPreFilt, BamRcRecords, Error, F32AbsValBelow1, F32Bw0and1, GenomicRegion, InputBam,
-    InputMods, InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, nanalogue_bam_reader,
-    subcommands,
+    self, BamPreFilt, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
+    InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, nanalogue_bam_reader, subcommands,
 };
 use std::io;
 use std::ops::RangeInclusive;
@@ -471,7 +470,7 @@ fn main() -> Result<(), Error> {
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 mods,
-                |x| Ok(F32AbsValBelow1::from(analysis::threshold_and_mean(x)?)),
+                |x| analysis::threshold_and_mean(x).map(|y| y.into()),
             )
         }
         Commands::WindowGrad {

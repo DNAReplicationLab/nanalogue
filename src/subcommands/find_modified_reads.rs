@@ -33,12 +33,8 @@ where
         // apply our windowing function and then the windowing filter
         if match curr_read_state
             .set_mod_data_restricted_options(&record, &mod_options)?
-            .windowed_mod_data_restricted(
-                &window_function,
-                window_options.win.get().try_into()?,
-                window_options.step.get().try_into()?,
-                mod_options.tag(),
-            )? {
+            .windowed_mod_data_restricted(&window_function, window_options, mod_options.tag())?
+        {
             v if !v.is_empty() => window_filter(&v),
             _ => false,
         } {

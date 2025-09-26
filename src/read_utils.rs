@@ -19,7 +19,7 @@ use std::rc::Rc;
 // Import from our crate
 use crate::{
     Contains, Error, F32Bw0and1, FilterByRefCoords, InputModOptions, InputRegionOptions,
-    Intersects, ModChar, ReadState, ThresholdState, nanalogue_mm_ml_parser,
+    InputWindowing, Intersects, ModChar, ReadState, ThresholdState, nanalogue_mm_ml_parser,
 };
 
 /// Shows CurrRead has no data
@@ -760,13 +760,14 @@ impl CurrRead<AlignAndModData> {
     pub fn windowed_mod_data_restricted<F>(
         &self,
         window_function: &F,
-        win_size: usize,
-        slide_size: usize,
+        win_options: InputWindowing,
         tag: ModChar,
     ) -> Result<Vec<F32Bw0and1>, Error>
     where
         F: Fn(&[u8]) -> Result<F32Bw0and1, Error>,
     {
+        let win_size: usize = win_options.win.get().try_into()?;
+        let slide_size: usize = win_options.step.get().try_into()?;
         let mut result = Vec::<F32Bw0and1>::new();
         let mut plus_mod_strand_seen = false;
         let mut minus_mod_strand_seen = false;

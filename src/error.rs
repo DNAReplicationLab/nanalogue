@@ -141,4 +141,8 @@ pub enum Error {
     /// meant for a mapped read is called on an unmapped read
     #[error("read is unmapped")]
     Unmapped,
+
+    /// Zero values used where they should not be
+    #[error("zero values not allowed")]
+    Zero,
 }
