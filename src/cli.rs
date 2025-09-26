@@ -8,6 +8,7 @@ use bedrs::prelude::Bed3;
 use clap::{Args, FromArgMatches};
 use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::num::NonZeroU32;
 
 /// This struct is used to parse the input bam file and the filters that should be applied to the bam file.
@@ -28,8 +29,17 @@ pub struct InputBam {
     /// Only include this read id, defaults to unused i.e. all reads are used.
     /// NOTE: if there are multiple alignments corresponding
     /// to this read id, all of them are used.
-    #[clap(long)]
+    #[clap(long, conflicts_with = "read_id_list")]
     pub read_id: Option<String>,
+    /// Path to file containing list of read IDs (one per line).
+    /// Lines starting with '#' are treated as comments and ignored.
+    /// Cannot be used together with --read-id.
+    #[clap(long, conflicts_with = "read_id")]
+    pub read_id_list: Option<String>,
+    /// Internal HashSet of read IDs loaded from read_id_list file.
+    /// This is populated automatically and not exposed to users.
+    #[clap(skip)]
+    pub read_id_set: Option<HashSet<String>>,
     /// Number of threads used during some aspects of program execution
     #[clap(long, default_value_t = NonZeroU32::new(2).expect("no error"))]
     pub threads: NonZeroU32,
@@ -87,6 +97,8 @@ impl Default for InputBam {
             min_seq_len: 0,
             min_align_len: None,
             read_id: None,
+            read_id_list: None,
+            read_id_set: None,
             threads: NonZeroU32::new(1).expect("no error"),
             include_zero_len: false,
             read_filter: None,

@@ -28,7 +28,10 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions, bam::record::Aux, tpool};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::convert::TryFrom;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
 // Declare the modules.
@@ -317,6 +320,24 @@ impl<'a> BamRcRecords<'a> {
         let header = bam_reader.header().clone();
         let tp = tpool::ThreadPool::new(bam_opts.threads.get())?;
         bam_reader.set_thread_pool(&tp)?;
+
+        // Load read ID list if specified
+        if let Some(file_path) = &bam_opts.read_id_list {
+            let file = File::open(file_path)
+                .map_err(|e| Error::InputOutputError(e))?;
+            let reader = BufReader::new(file);
+            let mut read_ids = HashSet::new();
+
+            for line in reader.lines() {
+                let line = line.map_err(|e| Error::InputOutputError(e))?;
+                let line = line.trim();
+                if !line.is_empty() && !line.starts_with('#') {
+                    let _ = read_ids.insert(line.to_string());
+                }
+            }
+            bam_opts.read_id_set = Some(read_ids);
+        }
+
         let rc_records = bam_reader.rc_records();
         if !(bam_opts.convert_region_to_bed3(header.clone())?) {
             return Err(Error::UnknownError);
@@ -414,6 +435,10 @@ pub trait BamPreFilt {
     fn filt_by_read_id(&self, _read_id: &str) -> bool {
         todo!()
     }
+    /// filtration by read id set
+    fn filt_by_read_id_set(&self, _read_id_set: &HashSet<String>) -> bool {
+        todo!()
+    }
     /// filtration using flags
     fn filt_by_bitwise_or_flags(&self, _states: &ReadStates) -> bool {
         todo!()
@@ -483,6 +508,8 @@ impl BamPreFilt for bam::Record {
             & {
                 if let Some(v) = &bam_opts.read_id {
                     self.filt_by_read_id(v.as_str())
+                } else if let Some(read_id_set) = &bam_opts.read_id_set {
+                    self.filt_by_read_id_set(read_id_set)
                 } else {
                     true
                 }
@@ -525,6 +552,14 @@ impl BamPreFilt for bam::Record {
     /// filtration by read id
     fn filt_by_read_id(&self, read_id: &str) -> bool {
         read_id.as_bytes() == self.name()
+    }
+    /// filtration by read id set
+    fn filt_by_read_id_set(&self, read_id_set: &HashSet<String>) -> bool {
+        if let Ok(name_str) = std::str::from_utf8(self.name()) {
+            read_id_set.contains(name_str)
+        } else {
+            false
+        }
     }
     /// filtration by flag list
     fn filt_by_bitwise_or_flags(&self, states: &ReadStates) -> bool {
