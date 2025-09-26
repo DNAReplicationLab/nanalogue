@@ -403,7 +403,7 @@ pub trait BamPreFilt {
         todo!()
     }
     /// filtration by length
-    fn filt_by_len(&self, _min_seq_len: u64, _exclude_zero_len: bool) -> bool {
+    fn filt_by_len(&self, _min_seq_len: u64, _include_zero_len: bool) -> bool {
         todo!()
     }
     /// filtration by alignment length
@@ -450,21 +450,19 @@ pub trait BamPreFilt {
 /// assert_eq!(bam_record.pre_filt(&bam_opts), false);
 /// # Ok::<(), Error>(())
 /// ```
-/// If zero-length records are expected, a specific input
-/// flag is needed for the program to ignore them. Otherwise,
-/// we get a panic.
-/// ```should_panic
+/// By default, zero-length records are excluded to avoid processing errors.
+/// ```
 /// # use nanalogue_core::{BamPreFilt, InputBam, Error};
 /// # use rust_htslib::bam::record;
 /// # use rust_htslib::bam::record::{Cigar, CigarString};
 /// let mut bam_record = record::Record::new();
 /// let mut bam_opts = InputBam::default();
 /// bam_opts.min_seq_len = 20;
-/// bam_opts.exclude_zero_len = false;
-/// assert_eq!(bam_record.pre_filt(&bam_opts), false);
+/// bam_opts.include_zero_len = false;  // default behavior
+/// assert_eq!(bam_record.pre_filt(&bam_opts), false);  // excluded
 /// # Ok::<(), Error>(())
 /// ```
-/// No panic when the filter is set.
+/// Zero-length records can be included if explicitly requested.
 /// ```
 /// # use nanalogue_core::{BamPreFilt, InputBam, Error};
 /// # use rust_htslib::bam::record;
@@ -472,14 +470,14 @@ pub trait BamPreFilt {
 /// let mut bam_record = record::Record::new();
 /// let mut bam_opts = InputBam::default();
 /// bam_opts.min_seq_len = 20;
-/// bam_opts.exclude_zero_len = true;
-/// assert_eq!(bam_record.pre_filt(&bam_opts), false);
+/// bam_opts.include_zero_len = true;
+/// assert_eq!(bam_record.pre_filt(&bam_opts), true);  // included
 /// # Ok::<(), Error>(())
 /// ```
 impl BamPreFilt for bam::Record {
     /// apply default filtration by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
-        self.filt_by_len(bam_opts.min_seq_len, bam_opts.exclude_zero_len)
+        self.filt_by_len(bam_opts.min_seq_len, bam_opts.include_zero_len)
             & self.filt_random_subset(bam_opts.sample_fraction)
             & self.filt_by_mapq(bam_opts.mapq_filter, bam_opts.exclude_mapq_unavail)
             & {
@@ -512,16 +510,11 @@ impl BamPreFilt for bam::Record {
             }
     }
     /// filtration by read length
-    fn filt_by_len(&self, min_seq_len: u64, exclude_zero_len: bool) -> bool {
+    fn filt_by_len(&self, min_seq_len: u64, include_zero_len: bool) -> bool {
         // self.len() returns a usize which we convert to u64
-        match (min_seq_len, self.len() as u64, exclude_zero_len) {
-            (_, 0, false) => panic!(
-                "{}{}{}",
-                "Cannot deal with 0 length seq in BAM file. ",
-                "For instance, this could happen when some or all seq fields are set to '*', ",
-                "although this is valid BAM. See the input options for how to avoid this error. "
-            ),
-            (_, 0, true) => false,
+        match (min_seq_len, self.len() as u64, include_zero_len) {
+            (_, 0, false) => false, // Exclude zero-length by default
+            (_, 0, true) => true,   // Include zero-length when explicitly requested
             (l_min, v, _) => v >= l_min,
         }
     }
@@ -718,6 +711,54 @@ mod tests {
                 _ => {}
             }
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod zero_length_filtering_tests {
+    use super::*;
+    use rust_htslib::bam::Read;
+
+    #[test]
+    fn test_zero_length_filtering_with_example_2_zero_len_sam() -> Result<(), Error> {
+        // Test with include_zero_len = false and min_seq_len = 1 (should get 1 read)
+        let mut reader = nanalogue_bam_reader("examples/example_2_zero_len.sam")?;
+        let mut bam_opts_exclude_zero = InputBam::default();
+        bam_opts_exclude_zero.include_zero_len = false;
+        bam_opts_exclude_zero.min_seq_len = 1;
+
+        let mut count_exclude_zero = 0;
+        for record_result in reader.records() {
+            let record = record_result?;
+            if record.pre_filt(&bam_opts_exclude_zero) {
+                count_exclude_zero += 1;
+            }
+        }
+
+        // Test with include_zero_len = true and min_seq_len = 1 (should get 2 reads)
+        let mut reader = nanalogue_bam_reader("examples/example_2_zero_len.sam")?;
+        let mut bam_opts_include_zero = InputBam::default();
+        bam_opts_include_zero.include_zero_len = true;
+        bam_opts_include_zero.min_seq_len = 1;
+
+        let mut count_include_zero = 0;
+        for record_result in reader.records() {
+            let record = record_result?;
+            if record.pre_filt(&bam_opts_include_zero) {
+                count_include_zero += 1;
+            }
+        }
+
+        assert_eq!(
+            count_exclude_zero, 1,
+            "Should get 1 read when include_zero_len is false with min_seq_len=1"
+        );
+        assert_eq!(
+            count_include_zero, 2,
+            "Should get 2 reads when include_zero_len is true, even with min_seq_len=1"
+        );
+
         Ok(())
     }
 }

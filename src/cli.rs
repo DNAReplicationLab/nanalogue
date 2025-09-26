@@ -33,13 +33,16 @@ pub struct InputBam {
     /// Number of threads used during some aspects of program execution
     #[clap(long, default_value_t = NonZeroU32::new(2).expect("no error"))]
     pub threads: NonZeroU32,
-    /// Exclude "zero-length" sequences e.g. sequences with "*" in the sequence
-    /// field. Please use this flag if you encounter this error in our program.
-    /// NOTE: due to a technical reason, we need a DNA sequence
+    /// Include "zero-length" sequences e.g. sequences with "*" in the sequence
+    /// field. By default, these sequences are excluded to avoid processing errors.
+    /// If this flag is set, these reads are included irrespective of any
+    /// minimum sequence or align length criteria the user may have set.
+    /// WARNINGS: (1) Some functions of the codebase may break or produce incorrect
+    /// results if you use this flag. (2) due to a technical reason, we need a DNA sequence
     /// in the sequence field and cannot infer sequence length from other sources
     /// e.g. CIGAR strings.
     #[clap(long, default_value_t = false)]
-    pub exclude_zero_len: bool,
+    pub include_zero_len: bool,
     /// Only retain reads of this type. Allowed types are primary_forward,
     /// primary_reverse, secondary_forward, secondary_reverse, supplementary_forward,
     /// supplementary_reverse and unmapped. Specify more than one type if needed
@@ -85,7 +88,7 @@ impl Default for InputBam {
             min_align_len: None,
             read_id: None,
             threads: NonZeroU32::new(1).expect("no error"),
-            exclude_zero_len: false,
+            include_zero_len: false,
             read_filter: None,
             sample_fraction: F32Bw0and1::one(),
             mapq_filter: 0,
