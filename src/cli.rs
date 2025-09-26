@@ -85,7 +85,7 @@ pub struct InputBam {
     pub region_bed3: Option<Bed3<i32, u64>>,
     /// Only keep reads if they pass through the specified region in full.
     /// Related to the input `--region`; has no effect if that is not set.
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t = false, requires = "region")]
     pub full_region: bool,
 }
 
