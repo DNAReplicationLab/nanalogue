@@ -23,6 +23,7 @@ bedrs = { version = "0.2.25", features = [ "serde" ] }
 thiserror = "2.0.12"
 rand = "0.9.2"
 itertools = "0.14.0"
+indoc = "2.0.6"
 
 [lib]
 name = "nanalogue_core" 

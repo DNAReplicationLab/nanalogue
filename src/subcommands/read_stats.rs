@@ -171,6 +171,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indoc::indoc;
     use rust_htslib::bam::{self, Read};
     use std::rc::Rc;
 
@@ -187,22 +188,22 @@ mod tests {
 
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
 
-        let expected_output = "key\tvalue\n\
-n_primary_alignments\t10\n\
-n_secondary_alignments\t0\n\
-n_supplementary_alignments\t0\n\
-n_unmapped_reads\t0\n\
-n_reversed_reads\t3\n\
-align_len_mean\t12.6\n\
-align_len_max\t20\n\
-align_len_min\t6\n\
-align_len_median\t12\n\
-align_len_n50\t15\n\
-seq_len_mean\t12.6\n\
-seq_len_max\t20\n\
-seq_len_min\t6\n\
-seq_len_median\t12\n\
-seq_len_n50\t15\n";
+        let expected_output = indoc! {"key\tvalue
+        n_primary_alignments\t10
+        n_secondary_alignments\t0
+        n_supplementary_alignments\t0
+        n_unmapped_reads\t0
+        n_reversed_reads\t3
+        align_len_mean\t12.6
+        align_len_max\t20
+        align_len_min\t6
+        align_len_median\t12
+        align_len_n50\t15
+        seq_len_mean\t12.6
+        seq_len_max\t20
+        seq_len_min\t6
+        seq_len_median\t12
+        seq_len_n50\t15\n"};
 
         assert_eq!(output_str, expected_output);
         Ok(())
