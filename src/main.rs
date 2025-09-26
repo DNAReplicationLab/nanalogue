@@ -18,9 +18,9 @@
 use bedrs::{Bed3, Coordinates};
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
-    self, BamPreFilt, BamRcRecords, Contains, Error, F32AbsValBelow1, F32Bw0and1, GenomicRegion,
-    InputBam, InputMods, InputWindowing, OptionalTag, OrdPair, RequiredTag, ThresholdState,
-    nanalogue_bam_reader, subcommands,
+    self, BamPreFilt, BamRcRecords, Error, F32AbsValBelow1, F32Bw0and1, GenomicRegion, InputBam,
+    InputMods, InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, nanalogue_bam_reader,
+    subcommands,
 };
 use std::io;
 use std::ops::RangeInclusive;
@@ -228,46 +228,6 @@ enum FindModReadsCommands {
 fn main() -> Result<(), Error> {
     let cli = Cli::parse();
 
-    // threshold and calculate mean modification density per window
-    let threshold_and_mean = |mod_list: &[u8]| -> Result<F32Bw0and1, Error> {
-        let win_size: usize = mod_list.len();
-        let count_mod: usize = mod_list
-            .iter()
-            .filter(|x| ThresholdState::GtEq(128).contains(x))
-            .count();
-        F32Bw0and1::new(count_mod as f32 / win_size as f32)
-    };
-
-    // threshold and calculate gradient of mod density per window.
-    // NOTE: to calculate gradient, we need (x, y) data where x is the
-    // coordinate along the read and y is 0 or 1 depending on whether the
-    // base is modified or not. But, in the calculation below, we use only
-    // the y values i.e. the modified values and assume even spacing
-    // along the x direction i.e. along the read coordinate. This assumption
-    // will break down if modifications occur in bursts, or if positions
-    // are missing along the read, or in other scenarios. As our goal
-    // here is to use a simple method to calculate gradients and select
-    // interesting reads, we are o.k. with an approximate calculation.
-    let threshold_and_gradient = |mod_list: &[u8]| -> Result<F32AbsValBelow1, Error> {
-        let win_size = mod_list.len();
-        let x_mean: f32 = (win_size as f32 + 1.0) / 2.0;
-        let numerator: f32 = mod_list
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                if ThresholdState::GtEq(128).contains(x) {
-                    i as f32 + 1.0 - x_mean
-                } else {
-                    0.0
-                }
-            })
-            .sum();
-        let denominator: f32 = (1..=win_size)
-            .map(|x| (x as f32 - x_mean) * (x as f32 - x_mean))
-            .sum();
-        F32AbsValBelow1::new(numerator / denominator)
-    };
-
     // set up writers to stdout
     let stdout = io::stdout();
     let mut handle = io::BufWriter::new(stdout);
@@ -364,7 +324,7 @@ fn main() -> Result<(), Error> {
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 mods,
-                threshold_and_mean,
+                analysis::threshold_and_mean,
                 |x| {
                     x.iter()
                         .all(|r| RangeInclusive::from(dens_limits).contains(r))
@@ -388,7 +348,7 @@ fn main() -> Result<(), Error> {
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 mods,
-                threshold_and_mean,
+                analysis::threshold_and_mean,
                 |x| {
                     x.iter()
                         .any(|r| RangeInclusive::from(interval_high_to_1).contains(r))
@@ -412,7 +372,7 @@ fn main() -> Result<(), Error> {
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 mods,
-                threshold_and_mean,
+                analysis::threshold_and_mean,
                 |x| {
                     x.iter()
                         .any(|r| RangeInclusive::from(interval_0_to_low).contains(r))
@@ -438,7 +398,7 @@ fn main() -> Result<(), Error> {
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 mods,
-                threshold_and_mean,
+                analysis::threshold_and_mean,
                 |x| {
                     x.iter()
                         .any(|r| RangeInclusive::from(interval_0_to_low).contains(r))
@@ -463,7 +423,7 @@ fn main() -> Result<(), Error> {
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 mods,
-                threshold_and_mean,
+                analysis::threshold_and_mean,
                 |x| {
                     x.iter().map(|r| r.val()).reduce(f32::max).unwrap_or(0.0)
                         - x.iter().map(|r| r.val()).reduce(f32::min).unwrap_or(0.0)
@@ -489,9 +449,9 @@ fn main() -> Result<(), Error> {
                 win,
                 mods,
                 |x| {
-                    Ok(F32Bw0and1::abs_f32_abs_val_below_1(threshold_and_gradient(
-                        x,
-                    )?))
+                    Ok(F32Bw0and1::abs_f32_abs_val_below_1(
+                        analysis::threshold_and_gradient(x)?,
+                    ))
                 },
                 |x| {
                     x.iter()
@@ -511,7 +471,7 @@ fn main() -> Result<(), Error> {
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 mods,
-                |x| Ok(F32AbsValBelow1::from(threshold_and_mean(x)?)),
+                |x| Ok(F32AbsValBelow1::from(analysis::threshold_and_mean(x)?)),
             )
         }
         Commands::WindowGrad {
@@ -526,7 +486,7 @@ fn main() -> Result<(), Error> {
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 mods,
-                threshold_and_gradient,
+                analysis::threshold_and_gradient,
             )
         }
     };

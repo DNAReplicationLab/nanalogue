@@ -35,6 +35,7 @@ use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
 // Declare the modules.
+pub mod analysis;
 pub mod cli;
 pub mod error;
 pub mod read_utils;
