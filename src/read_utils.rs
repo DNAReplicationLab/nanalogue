@@ -634,7 +634,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             .filter(|x| x[1].is_some_and(|y| interval.contains(&y)))
         {
             match w {
-                [Some(x), _] => s.push(seq.encoded_base(usize::try_from(x)?)),
+                [Some(x), _] => s.push(seq[usize::try_from(x)?]),
                 [None, _] => s.push(b'.'),
             }
         }
