@@ -280,10 +280,7 @@ where
             Some(v) => Some(match curr_read_state.seq_on_ref_coords(&record, v) {
                 Err(Error::UnavailableData) => Ok(String::from("*")),
                 Err(e) => Err(e),
-                Ok(w) => match String::from_utf8(w) {
-                    Err(_) => Err(Error::UnknownError),
-                    Ok(v) => Ok(v),
-                },
+                Ok(w) => Ok(String::from_utf8(w)?),
             }?),
             None => None,
         };

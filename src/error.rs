@@ -11,9 +11,11 @@
 
 use csv;
 use rust_htslib;
+use serde_json;
 use std::io;
 use std::num::{ParseFloatError, ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
+use std::string::FromUtf8Error;
 use thiserror::Error;
 
 /// Enum that covers errors in our module.
@@ -72,6 +74,14 @@ pub enum Error {
     /// Error involving string conversion
     #[error("error involving string conversion: `{0}`")]
     StringConversionError(#[from] Utf8Error),
+
+    /// Error converting from UTF-8 bytes to string
+    #[error("UTF-8 conversion error: `{0}`")]
+    Utf8ConversionError(#[from] FromUtf8Error),
+
+    /// Error parsing JSON
+    #[error("JSON parsing error: `{0}`")]
+    JsonParseError(#[from] serde_json::Error),
 
     /// OrdPair is an ordered pair, which can be obtained from
     /// a string of the correct format. This error says string
