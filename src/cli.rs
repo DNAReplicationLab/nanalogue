@@ -159,18 +159,18 @@ pub struct InputMods<S: TagState + Args + FromArgMatches> {
     #[clap(skip)]
     pub mod_prob_filter: ThresholdState,
     /// Filter this many bp at the start and
-    /// end of a read before any operations.
+    /// end of a read before any mod operations.
     /// Please note that the units here are bp and
     /// not units of base being queried.
     #[clap(long, default_value_t = 0)]
-    pub trim_read_ends: usize,
+    pub trim_read_ends_mod: usize,
     /// Exclude bases whose base quality is below
-    /// this threshold, defaults to 0 i.e. unused.
+    /// this threshold before any mod operation, defaults to 0 i.e. unused.
     /// NOTE: No offsets such as +33 are needed here.
     /// NOTE: Reads with missing base quality information
     /// are rejected if this is non-zero.
     #[clap(long, default_value_t = 0)]
-    pub base_qual_filter: u8,
+    pub base_qual_filter_mod: u8,
     /// Only keep modification data from this region
     #[clap(long)]
     pub mod_region: Option<GenomicRegion>,
@@ -188,8 +188,8 @@ impl Default for InputMods<OptionalTag> {
             tag: OptionalTag { tag: None },
             mod_strand: None,
             mod_prob_filter: ThresholdState::GtEq(0),
-            trim_read_ends: 0,
-            base_qual_filter: 0,
+            trim_read_ends_mod: 0,
+            base_qual_filter_mod: 0,
             mod_region: None,
             region_bed3: None,
         }
@@ -211,11 +211,11 @@ pub trait InputModOptions {
         todo!()
     }
     /// returns read end trimming
-    fn trim_read_ends(&self) -> usize {
+    fn trim_read_ends_mod(&self) -> usize {
         todo!()
     }
     /// returns threshold for filtering base PHRED quality
-    fn base_qual_filter(&self) -> u8 {
+    fn base_qual_filter_mod(&self) -> u8 {
         todo!()
     }
 }
@@ -259,11 +259,11 @@ impl<S: TagState + Args + FromArgMatches> InputModOptions for InputMods<S> {
     fn mod_prob_filter(&self) -> ThresholdState {
         self.mod_prob_filter
     }
-    fn trim_read_ends(&self) -> usize {
-        self.trim_read_ends
+    fn trim_read_ends_mod(&self) -> usize {
+        self.trim_read_ends_mod
     }
-    fn base_qual_filter(&self) -> u8 {
-        self.base_qual_filter
+    fn base_qual_filter_mod(&self) -> u8 {
+        self.base_qual_filter_mod
     }
 }
 

@@ -31,6 +31,11 @@ fn get_stats_from_heap(
 
         running_total_length += v;
 
+        // Median and N50 below assume many reads with a "good" distribution.
+        // What I mean is: strictly speaking, a median is the middle read length
+        // if the number of reads is odd, or the average of the two middle read lengths
+        // if the number of reads is even (after reads are sorted in order).
+        // We do not bother with these minor adjustments here.
         if median == 0 && counter > heap_size / 2 {
             median = v;
         }

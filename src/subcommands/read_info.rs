@@ -50,10 +50,10 @@ mod tests {
 
     #[test]
     fn test_run_with_example_2_zero_len() -> Result<(), Error> {
-
         // Collect records and filter out zero-length sequences (like the main program does)
         let mut reader = nanalogue_bam_reader("./examples/example_2_zero_len.sam")?;
-        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader.records()
+        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
+            .records()
             .map(|r| r.map(Rc::new))
             .filter(|r| {
                 // Filter out records that would cause InvalidSeqLength (zero-length sequences)
@@ -90,13 +90,14 @@ mod tests {
     fn test_run_with_unmapped_filter() -> Result<(), Error> {
         // Collect records and filter to only include unmapped reads (like --read-filter unmapped)
         let mut reader = nanalogue_bam_reader("./examples/example_1.bam")?;
-        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader.records()
+        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
+            .records()
             .map(|r| r.map(Rc::new))
             .filter(|r| {
                 // Filter to only unmapped reads (flag 4)
                 match r {
                     Ok(record) => record.flags() == 4, // Unmapped flag
-                    Err(_) => true, // Keep errors to let run() handle them
+                    Err(_) => true,                    // Keep errors to let run() handle them
                 }
             })
             .collect();
@@ -123,7 +124,8 @@ mod tests {
     fn test_run_with_region_filter_dummy_i() -> Result<(), Error> {
         // Collect records and filter to only include those in the dummyI region (like --region dummyI)
         let mut reader = nanalogue_bam_reader("./examples/example_1.bam")?;
-        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader.records()
+        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
+            .records()
             .map(|r| r.map(Rc::new))
             .filter(|r| {
                 // Filter to only records in dummyI contig (TID 0)

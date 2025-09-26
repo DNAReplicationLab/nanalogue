@@ -625,7 +625,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         // Get sequence and initialize subset.
         // We don't know how long the subset will be, we initialize with a guess
         // of 2 * interval size
-        let seq = record.seq().as_bytes();
+        let seq = record.seq();
         let mut s: Vec<u8> =
             Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
 
@@ -634,7 +634,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             .filter(|x| x[1].is_some_and(|y| interval.contains(&y)))
         {
             match w {
-                [Some(x), _] => s.push(seq[usize::try_from(x)?]),
+                [Some(x), _] => s.push(seq.encoded_base(usize::try_from(x)?)),
                 [None, _] => s.push(b'.'),
             }
         }
@@ -714,7 +714,7 @@ impl CurrRead<OnlyAlignDataComplete> {
         mod_options: &S,
     ) -> Result<CurrRead<AlignAndModData>, Error> {
         let l = usize::try_from(self.seq_len().expect("no error")).expect("bit conversion error");
-        let w = mod_options.trim_read_ends();
+        let w = mod_options.trim_read_ends_mod();
         let interval = if let Some(bed3) = mod_options.region_filter() {
             let stranded_bed3 = StrandedBed3::<i32, u64>::try_from(&self)?;
             if let Some(v) = bed3.intersect(&stranded_bed3) {
@@ -738,7 +738,7 @@ impl CurrRead<OnlyAlignDataComplete> {
                     mod_options.tag().is_none_or(|x| x == t)
                         && mod_options.mod_strand().is_none_or(|v| s == char::from(v))
                 },
-                mod_options.base_qual_filter(),
+                mod_options.base_qual_filter_mod(),
             )?;
             if let Some(v) = interval {
                 read.filter_by_ref_pos(i64::try_from(v.start)?, i64::try_from(v.end)?)
