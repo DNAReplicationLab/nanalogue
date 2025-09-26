@@ -175,7 +175,7 @@ mod tests {
     use std::rc::Rc;
 
     #[test]
-    fn test_read_stats_example_3() {
+    fn test_read_stats_example_3() -> Result<(), Error> {
         let mut output = Vec::new();
 
         let mut bam_reader = bam::Reader::from_path("./examples/example_3.bam")
@@ -183,8 +183,7 @@ mod tests {
 
         let bam_records = bam_reader.records().map(|r| r.map(Rc::new));
 
-        let result = run(&mut output, bam_records);
-        assert!(result.is_ok());
+        assert!(run(&mut output, bam_records)?);
 
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
 
@@ -206,5 +205,6 @@ seq_len_median\t12\n\
 seq_len_n50\t15\n";
 
         assert_eq!(output_str, expected_output);
+        Ok(())
     }
 }
