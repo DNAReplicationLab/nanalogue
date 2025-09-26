@@ -15,6 +15,7 @@
 //! reference genomes, modification information on them, and other miscellaneous
 //! information.
 //!
+use bedrs::{Bed3, Coordinates};
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
     self, BamPreFilt, BamRcRecords, Contains, Error, F32AbsValBelow1, F32Bw0and1, GenomicRegion,
@@ -44,6 +45,9 @@ enum Commands {
         /// Genomic region from which basecalled sequences are displayed (optional)
         #[clap(long)]
         seq_region: Option<GenomicRegion>,
+        /// Displays entire basecalled sequence (optional)
+        #[clap(long, conflicts_with = "seq_region")]
+        seq_full: bool,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -56,6 +60,9 @@ enum Commands {
         /// Genomic region from which basecalled sequences are displayed (optional)
         #[clap(long)]
         seq_region: Option<GenomicRegion>,
+        /// Displays entire basecalled sequence (optional)
+        #[clap(long, conflicts_with = "seq_region")]
+        seq_full: bool,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -281,6 +288,7 @@ fn main() -> Result<(), Error> {
             mut bam,
             mut mods,
             seq_region,
+            seq_full,
             seq_summ_file,
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
@@ -289,9 +297,15 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 Some(mods),
-                match seq_region {
-                    None => None,
-                    Some(v) => Some(v.try_to_bed3(bam_rc_records.header)?),
+                match (seq_region, seq_full) {
+                    (None, false) => None,
+                    (Some(v), false) => Some(v.try_to_bed3(bam_rc_records.header)?),
+                    (None, true) => Some(Bed3::<i32, u64>::empty()),
+                    (Some(_), true) => {
+                        return Err(Error::NotImplementedError(
+                            "cannot call seq-region and seq-full together".to_string(),
+                        ));
+                    }
                 },
                 &seq_summ_file,
             )
@@ -299,6 +313,7 @@ fn main() -> Result<(), Error> {
         Commands::ReadTableHideMods {
             mut bam,
             seq_region,
+            seq_full,
             seq_summ_file,
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
@@ -308,9 +323,15 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 None,
-                match seq_region {
-                    None => None,
-                    Some(v) => Some(v.try_to_bed3(bam_rc_records.header)?),
+                match (seq_region, seq_full) {
+                    (None, false) => None,
+                    (Some(v), false) => Some(v.try_to_bed3(bam_rc_records.header)?),
+                    (None, true) => Some(Bed3::<i32, u64>::empty()),
+                    (Some(_), true) => {
+                        return Err(Error::NotImplementedError(
+                            "cannot call seq-region and seq-full together".to_string(),
+                        ));
+                    }
                 },
                 &seq_summ_file,
             )

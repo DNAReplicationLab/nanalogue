@@ -8,7 +8,7 @@
 //! if provided, otherwise only reads the BAM file.
 
 use crate::{CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, ThresholdState};
-use bedrs::prelude::Bed3;
+use bedrs::prelude::{Bed3, Coordinates};
 use csv::ReaderBuilder;
 use itertools::join;
 use rust_htslib::bam;
@@ -277,11 +277,12 @@ where
 
         // get sequence
         let sequence = match &seq_region {
-            Some(v) => Some(match curr_read_state.seq_on_ref_coords(&record, v) {
+            Some(v) if v.len() != 0 => Some(match curr_read_state.seq_on_ref_coords(&record, v) {
                 Err(Error::UnavailableData) => Ok(String::from("*")),
                 Err(e) => Err(e),
                 Ok(w) => Ok(String::from_utf8(w)?),
             }?),
+            Some(_) => Some(String::from_utf8(record.seq().as_bytes())?),
             None => None,
         };
 
