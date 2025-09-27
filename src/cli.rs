@@ -428,21 +428,21 @@ mod input_bam_tests {
     fn test_input_bam_is_full_overlap() {
         // Test default (false)
         let input_bam_default = InputBam::default();
-        assert_eq!(input_bam_default.is_full_overlap(), false);
+        assert!(!input_bam_default.is_full_overlap());
 
         // Test explicit false
         let input_bam_false = InputBam {
             full_region: false,
             ..Default::default()
         };
-        assert_eq!(input_bam_false.is_full_overlap(), false);
+        assert!(!input_bam_false.is_full_overlap());
 
         // Test true
         let input_bam_true = InputBam {
             full_region: true,
             ..Default::default()
         };
-        assert_eq!(input_bam_true.is_full_overlap(), true);
+        assert!(input_bam_true.is_full_overlap());
     }
 
     #[test]
@@ -452,9 +452,7 @@ mod input_bam_tests {
         let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
         @SQ\tSN:chr1\tLN:248956422\n"});
 
-        let result = input_bam.convert_region_to_bed3(header_view);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(input_bam.convert_region_to_bed3(header_view).unwrap());
         assert!(input_bam.region_bed3.is_none());
     }
 
@@ -469,9 +467,7 @@ mod input_bam_tests {
                 @SQ\tSN:chr1\tLN:3000
                 @SQ\tSN:chr2\tLN:4000\n"});
 
-        let result = input_bam.convert_region_to_bed3(header_view);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(input_bam.convert_region_to_bed3(header_view).unwrap());
         assert!(input_bam.region_bed3.is_some());
 
         let bed3 = input_bam.region_bed3.unwrap();
