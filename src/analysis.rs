@@ -4,6 +4,18 @@
 use crate::{Contains, Error, F32AbsValBelow1, F32Bw0and1, ThresholdState};
 
 /// Threshold and calculate mean modification density per window
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::analysis::threshold_and_mean;
+/// use nanalogue_core::F32Bw0and1;
+///
+/// // Test with all modified bases (values >= 128)
+/// let mod_data = [128, 150, 200, 255];
+/// let result = threshold_and_mean(&mod_data).unwrap();
+/// assert_eq!(result.val(), 1.0);
+/// ```
 pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
     let win_size: usize = mod_list.len();
     let count_mod: usize = mod_list
@@ -24,6 +36,22 @@ pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
 /// are missing along the read, or in other scenarios. As our goal
 /// here is to use a simple method to calculate gradients and select
 /// interesting reads, we are o.k. with an approximate calculation.
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::analysis::threshold_and_gradient;
+/// use nanalogue_core::F32AbsValBelow1;
+///
+/// // Test with increasing modification pattern
+/// // For [0, 0, 128, 200]: x_mean = 2.5, modified positions are 3,4
+/// // numerator = (3-2.5) + (4-2.5) = 2.0
+/// // denominator = (1-2.5)² + (2-2.5)² + (3-2.5)² + (4-2.5)² = 2.25 + 0.25 + 0.25 + 2.25 = 5.0
+/// // gradient = 2.0 / 5.0 = 0.4
+/// let mod_data = [0, 0, 128, 200];
+/// let result = threshold_and_gradient(&mod_data).unwrap();
+/// assert_eq!(result.val(), 0.4);
+/// ```
 pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValBelow1, Error> {
     let win_size = mod_list.len();
     let x_mean: f32 = (win_size as f32 + 1.0) / 2.0;
@@ -42,4 +70,48 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValBelow1, Error>
         .map(|x| (x as f32 - x_mean) * (x as f32 - x_mean))
         .sum();
     F32AbsValBelow1::new(numerator / denominator)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_threshold_and_mean_no_modified() {
+        // Test with no modified bases (values < 128)
+        let mod_data = [0, 50, 100, 127];
+        let result = threshold_and_mean(&mod_data).unwrap();
+        assert_eq!(result.val(), 0.0);
+    }
+
+    #[test]
+    fn test_threshold_and_mean_half_modified() {
+        // Test with half modified bases
+        let mod_data = [100, 128, 50, 200];
+        let result = threshold_and_mean(&mod_data).unwrap();
+        assert_eq!(result.val(), 0.5);
+    }
+
+    #[test]
+    fn test_threshold_and_gradient_decreasing() {
+        // Test with decreasing modification pattern
+        // For [200, 128, 0, 0]: x_mean = 2.5, modified positions are 1,2
+        // numerator = (1-2.5) + (2-2.5) = -1.5 + (-0.5) = -2.0
+        // denominator = same as above = 5.0
+        // gradient = -2.0 / 5.0 = -0.4
+        let mod_data = [200, 128, 0, 0];
+        let result = threshold_and_gradient(&mod_data).unwrap();
+        assert_eq!(result.val(), -0.4);
+    }
+
+    #[test]
+    fn test_threshold_and_gradient_alternating() {
+        // Test with alternating pattern
+        // For [128, 0, 128, 0]: modified positions are 1,3
+        // numerator = (1-2.5) + (3-2.5) = -1.5 + 0.5 = -1.0
+        // gradient = -1.0 / 5.0 = -0.2
+        let mod_data = [128, 0, 128, 0];
+        let result = threshold_and_gradient(&mod_data).unwrap();
+        assert_eq!(result.val(), -0.2);
+    }
 }
