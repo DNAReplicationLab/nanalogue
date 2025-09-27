@@ -241,6 +241,23 @@ fn main() -> Result<(), Error> {
         };
     }
 
+    /// decides whether to display sequence from a region,
+    /// the full basecalled sequence, or neither
+    macro_rules! seq_display {
+        ( $b : expr, $c : expr, $d : expr) => {
+            match ($b, $c) {
+                (None, false) => None,
+                (Some(v), false) => Some(v.try_to_bed3($d)?),
+                (None, true) => Some(Bed3::<i32, u64>::empty()),
+                (Some(_), true) => {
+                    return Err(Error::NotImplementedError(
+                        "cannot call seq-region and seq-full together".to_string(),
+                    ));
+                }
+            }
+        };
+    }
+
     // Match on the subcommand and call the corresponding logic from the library
     let result = match cli.command {
         Commands::ReadTableShowMods {
@@ -256,16 +273,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 Some(mods),
-                match (seq_region, seq_full) {
-                    (None, false) => None,
-                    (Some(v), false) => Some(v.try_to_bed3(bam_rc_records.header)?),
-                    (None, true) => Some(Bed3::<i32, u64>::empty()),
-                    (Some(_), true) => {
-                        return Err(Error::NotImplementedError(
-                            "cannot call seq-region and seq-full together".to_string(),
-                        ));
-                    }
-                },
+                seq_display!(seq_region, seq_full, bam_rc_records.header),
                 &seq_summ_file,
             )
         }
@@ -282,16 +290,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 None,
-                match (seq_region, seq_full) {
-                    (None, false) => None,
-                    (Some(v), false) => Some(v.try_to_bed3(bam_rc_records.header)?),
-                    (None, true) => Some(Bed3::<i32, u64>::empty()),
-                    (Some(_), true) => {
-                        return Err(Error::NotImplementedError(
-                            "cannot call seq-region and seq-full together".to_string(),
-                        ));
-                    }
-                },
+                seq_display!(seq_region, seq_full, bam_rc_records.header),
                 &seq_summ_file,
             )
         }
