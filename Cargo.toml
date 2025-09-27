@@ -8,8 +8,8 @@ readme = "README.md"
 authors = ["Sathish Thiyagarajan <sathish.thiyagarajan@earlham.ac.uk>"]
 
 [dependencies]
-fibertools-rs = "0.6.4"
-rust-htslib = "0.43.0"
+fibertools-rs = "0.7.0"
+rust-htslib = "0.46.0"
 clap = { version = "4.0.29", features = ["derive", "wrap_help"] }
 csv = "1.1"
 serde = { version = "1.0", features = ["derive"] }
@@ -19,7 +19,7 @@ lazy_static = "1.4.0"
 regex = "1.11.1"
 log = "0.4.22"
 bio-types = "1.0.4"
-bedrs = { version = "0.2.25", features = [ "serde" ] }
+bedrs = { version = "0.2.26", features = [ "serde" ] }
 thiserror = "2.0.12"
 rand = "0.9.2"
 itertools = "0.14.0"

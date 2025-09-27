@@ -23,7 +23,7 @@ use bedrs::{Bed3, Coordinates};
 use bio::alphabets::dna::revcomp;
 use bio_types::sequence::SequenceRead;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
-use fibertools_rs::utils::bio_io::get_u8_tag;
+use fibertools_rs::utils::bio_io::{convert_seq_uppercase, get_u8_tag};
 use lazy_static::lazy_static;
 use regex::Regex;
 use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions, bam::record::Aux, tpool};
@@ -53,28 +53,6 @@ pub use utils::{
     Contains, F32AbsValBelow1, F32Bw0and1, FilterByRefCoords, GenomicRegion, Intersects, ModChar,
     OrdPair, ReadState, RestrictModCalledStrand, ThresholdState,
 };
-
-/// Converts DNA bases to uppercase if needed, leaving other characters unchanged.
-///
-/// ```
-/// use nanalogue_core::convert_seq_uppercase;
-/// let x = convert_seq_uppercase(vec![b'a',b'b',b'c',b'g',b't',b'n',b'u',b'A',b'C',b'G',b'T',b'N']);
-/// assert_eq!(x, vec![b'A',b'b',b'C',b'G',b'T',b'N',b'u',b'A',b'C',b'G',b'T',b'N']);
-/// ```
-pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
-    // convert seq to uppercase, ignoring invalid characters
-    for base in &mut seq {
-        match *base {
-            b'a' => *base = b'A',
-            b'c' => *base = b'C',
-            b'g' => *base = b'G',
-            b't' => *base = b'T',
-            b'n' => *base = b'N',
-            _ => {}
-        }
-    }
-    seq
-}
 
 /// Extracts mod information from BAM record to the Fibertools-rs BaseMods Struct.
 /// We are copying and modifying code from the fibertools-rs repository
