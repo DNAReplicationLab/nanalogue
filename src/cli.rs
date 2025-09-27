@@ -20,7 +20,7 @@ pub struct InputBam {
     pub bam_path: String,
     /// Exclude reads whose sequence length in the BAM file is
     /// below this value. Defaults to 0.
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, default_value_t)]
     pub min_seq_len: u64,
     /// Exclude reads whose alignment length in the BAM file is
     /// below this value. Defaults to unused.
@@ -51,7 +51,7 @@ pub struct InputBam {
     /// results if you use this flag. (2) due to a technical reason, we need a DNA sequence
     /// in the sequence field and cannot infer sequence length from other sources
     /// e.g. CIGAR strings.
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t)]
     pub include_zero_len: bool,
     /// Only retain reads of this type. Allowed types are primary_forward,
     /// primary_reverse, secondary_forward, secondary_reverse, supplementary_forward,
@@ -68,12 +68,12 @@ pub struct InputBam {
     pub sample_fraction: F32Bw0and1,
     /// Exclude reads whose MAPQ (Mapping quality of position) is below this value.
     /// Defaults to zero i.e. do not exclude any read.
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, default_value_t)]
     pub mapq_filter: u8,
     /// Exclude sequences with MAPQ unavailable.
     /// In the BAM format, a value of 255 in this column means MAPQ is unavailable.
     /// These reads are allowed by default, set this flag to exclude.
-    #[clap(long, default_value_t = false)]
+    #[clap(long, default_value_t)]
     pub exclude_mapq_unavail: bool,
     /// Only keep reads passing through this region.
     #[clap(long)]
@@ -85,7 +85,7 @@ pub struct InputBam {
     pub region_bed3: Option<Bed3<i32, u64>>,
     /// Only keep reads if they pass through the specified region in full.
     /// Related to the input `--region`; has no effect if that is not set.
-    #[clap(long, default_value_t = false, requires = "region")]
+    #[clap(long, default_value_t, requires = "region")]
     pub full_region: bool,
 }
 
@@ -174,14 +174,14 @@ pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// end of a read before any mod operations.
     /// Please note that the units here are bp and
     /// not units of base being queried.
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, default_value_t)]
     pub trim_read_ends_mod: usize,
     /// Exclude bases whose base quality is below
     /// this threshold before any mod operation, defaults to 0 i.e. unused.
     /// NOTE: No offsets such as +33 are needed here.
     /// NOTE: Reads with missing base quality information
     /// are rejected if this is non-zero.
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, default_value_t)]
     pub base_qual_filter_mod: u8,
     /// Only keep modification data from this region
     #[clap(long)]
@@ -337,5 +337,61 @@ impl Default for InputWindowing {
             win: NonZeroU32::new(1).expect("no error"),
             step: NonZeroU32::new(1).expect("no error"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tag_struct_tests {
+    use super::*;
+
+    #[test]
+    fn test_optional_tag_default() {
+        let optional_tag = OptionalTag::default();
+        assert!(optional_tag.tag.is_none());
+        assert_eq!(optional_tag.tag(), None);
+    }
+
+    #[test]
+    fn test_optional_tag_with_value() {
+        let mod_char = ModChar::new('m');
+        let optional_tag = OptionalTag {
+            tag: Some(mod_char),
+        };
+        assert_eq!(optional_tag.tag(), Some(mod_char));
+    }
+
+    #[test]
+    fn test_required_tag_default() {
+        let required_tag = RequiredTag::default();
+        assert_eq!(required_tag.tag(), Some(ModChar::default()));
+    }
+
+    #[test]
+    fn test_required_tag_with_value() {
+        let mod_char = ModChar::new('C');
+        let required_tag = RequiredTag { tag: mod_char };
+        assert_eq!(required_tag.tag(), Some(mod_char));
+    }
+}
+
+#[cfg(test)]
+mod input_windowing_tests {
+    use super::*;
+
+    #[test]
+    fn test_input_windowing_default() {
+        let windowing = InputWindowing::default();
+        assert_eq!(windowing.win, NonZeroU32::new(1).unwrap());
+        assert_eq!(windowing.step, NonZeroU32::new(1).unwrap());
+    }
+
+    #[test]
+    fn test_input_windowing_custom_values() {
+        let windowing = InputWindowing {
+            win: NonZeroU32::new(300).unwrap(),
+            step: NonZeroU32::new(150).unwrap(),
+        };
+        assert_eq!(windowing.win, NonZeroU32::new(300).unwrap());
+        assert_eq!(windowing.step, NonZeroU32::new(150).unwrap());
     }
 }
