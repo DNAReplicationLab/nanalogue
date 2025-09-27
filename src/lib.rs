@@ -160,7 +160,7 @@ where
                 b"" => true,
                 b"." => true,
                 b"?" => false,
-                _ => return Err(Error::InvalidModNotation),
+                _ => unreachable!(),
             };
             let mod_dists_str = cap.get(7).map_or("", |m| m.as_str());
             // parse the string containing distances between modifications into a vector of i64
@@ -179,22 +179,14 @@ where
             } else {
                 convert_seq_uppercase(record.seq().as_bytes())
             };
-            log::trace!(
-                "mod_base: {}, mod_strand: {}, modification_type: {}, mod_dists: {:?}",
-                mod_base as char,
-                mod_strand,
-                modification_type,
-                mod_dists
-            );
 
             // do we include bases with zero probabilities?
             let is_include_zero_prob = filter_mod_prob(&0);
 
             // base qualities
+            // NOTE this is always equal to number of bases in the sequence, otherwise
+            // rust_htslib will throw an error, so we don't have to check this.
             let base_qual = record.qual();
-            if min_qual > 0 && (base_qual.len() != forward_bases.len()) {
-                continue;
-            }
 
             // find real positions in the forward sequence
             let mut cur_mod_idx: usize = 0;
@@ -577,7 +569,7 @@ impl BamPreFilt for bam::Record {
 }
 
 #[cfg(test)]
-mod tests {
+mod mod_parse_tests {
     use super::*;
     use fibertools_rs::utils::bamranges::Ranges;
     use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
@@ -772,6 +764,95 @@ mod zero_length_filtering_tests {
             "Should get 2 reads when include_zero_len is true, even with min_seq_len=1"
         );
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod invalid_seq_length_tests {
+    use super::*;
+
+    #[test]
+    fn test_invalid_seq_length_error_with_example_4() {
+        let mut reader =
+            nanalogue_bam_reader("examples/example_4_invalid_basequal_len.sam").unwrap();
+
+        let mut cnt = 0;
+        for record_result in reader.records() {
+            cnt = cnt + 1;
+            if !record_result.is_err() {
+                panic!("expect fail due to mismatched sequence and quality lengths");
+            }
+        }
+        assert_eq!(cnt, 1);
+    }
+}
+
+#[cfg(test)]
+mod base_qual_filtering_tests {
+    use super::*;
+    use fibertools_rs::utils::basemods::BaseMods;
+    use rust_htslib::bam::Read;
+
+    #[test]
+    fn test_base_qual_filtering_with_example_5_valid_basequal_sam() -> Result<(), Error> {
+        let mut reader = nanalogue_bam_reader("examples/example_5_valid_basequal.sam")?;
+
+        for record_result in reader.records() {
+            let record = record_result?;
+            let Ok(BaseMods { base_mods: v }) =
+                nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 60)
+            else {
+                unreachable!()
+            };
+
+            assert_eq!(v.len(), 1);
+            let base_mod = &v[0];
+            assert_eq!(base_mod.modified_base, b'T');
+            assert_eq!(base_mod.strand, '+');
+            assert_eq!(base_mod.modification_type, 'T');
+            assert_eq!(base_mod.ranges.qual, vec![7, 9]);
+            assert_eq!(base_mod.ranges.starts, vec![Some(3), Some(4)]);
+            assert_eq!(base_mod.ranges.ends, vec![Some(4), Some(5)]);
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod bam_rc_record_tests {
+    use super::*;
+
+    #[test]
+    fn test_bam_rc_records() -> Result<(), Error> {
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
+        let bam_rc_records = BamRcRecords::new(
+            &mut reader,
+            &mut InputBam::default(),
+            &mut InputMods::default(),
+        )?;
+        assert_eq!(bam_rc_records.header.tid(b"dummyI"), Some(0));
+        assert_eq!(bam_rc_records.header.tid(b"dummyII"), Some(1));
+        assert_eq!(bam_rc_records.header.tid(b"dummyIII"), Some(2));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod read_states_tests {
+    use super::*;
+
+    #[test]
+    fn test_read_states() -> Result<(), Error> {
+        let op = ReadStates::from_str("primary_forward")?;
+        assert_eq!(op.bam_flags(), &[0]);
+        let op = ReadStates::from_str("unmapped,secondary_reverse,supplementary_reverse")?;
+        assert_eq!(op.bam_flags(), &[4, 256 + 16, 2048 + 16]);
+        let op = ReadStates::from_str("primary_reverse")?;
+        assert_eq!(op.bam_flags(), &[16]);
+        let op = ReadStates::from_str("primary_reverse,primary_forward")?;
+        assert_eq!(op.bam_flags(), &[16, 0]);
         Ok(())
     }
 }
