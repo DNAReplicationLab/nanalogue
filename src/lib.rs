@@ -294,12 +294,12 @@ impl<'a> BamRcRecords<'a> {
 
         // Load read ID list if specified
         if let Some(file_path) = &bam_opts.read_id_list {
-            let file = File::open(file_path).map_err(|e| Error::InputOutputError(e))?;
+            let file = File::open(file_path).map_err(Error::InputOutputError)?;
             let reader = BufReader::new(file);
             let mut read_ids = HashSet::new();
 
             for line in reader.lines() {
-                let line = line.map_err(|e| Error::InputOutputError(e))?;
+                let line = line.map_err(Error::InputOutputError)?;
                 let line = line.trim();
                 if !line.is_empty() && !line.starts_with('#') {
                     let _ = read_ids.insert(line.to_string());
@@ -582,11 +582,8 @@ mod mod_parse_tests {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
-            let Ok(BaseMods { base_mods: v }) =
-                nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0)
-            else {
-                unreachable!()
-            };
+            let BaseMods { base_mods: v } =
+                nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0).unwrap();
             match count {
                 0 => assert_eq!(
                     v,
@@ -755,14 +752,8 @@ mod zero_length_filtering_tests {
             }
         }
 
-        assert_eq!(
-            count_exclude_zero, 1,
-            "Should get 1 read when include_zero_len is false with min_seq_len=1"
-        );
-        assert_eq!(
-            count_include_zero, 2,
-            "Should get 2 reads when include_zero_len is true, even with min_seq_len=1"
-        );
+        assert_eq!(count_exclude_zero, 1);
+        assert_eq!(count_include_zero, 2);
 
         Ok(())
     }
@@ -780,9 +771,7 @@ mod invalid_seq_length_tests {
         let mut cnt = 0;
         for record_result in reader.records() {
             cnt = cnt + 1;
-            if !record_result.is_err() {
-                panic!("expect fail due to mismatched sequence and quality lengths");
-            }
+            assert!(record_result.is_err());
         }
         assert_eq!(cnt, 1);
     }
@@ -800,11 +789,9 @@ mod base_qual_filtering_tests {
 
         for record_result in reader.records() {
             let record = record_result?;
-            let Ok(BaseMods { base_mods: v }) =
+            let BaseMods { base_mods: v } =
                 nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 60)
-            else {
-                unreachable!()
-            };
+                    .unwrap();
 
             assert_eq!(v.len(), 1);
             let base_mod = &v[0];
@@ -835,6 +822,295 @@ mod bam_rc_record_tests {
         assert_eq!(bam_rc_records.header.tid(b"dummyI"), Some(0));
         assert_eq!(bam_rc_records.header.tid(b"dummyII"), Some(1));
         assert_eq!(bam_rc_records.header.tid(b"dummyIII"), Some(2));
+        Ok(())
+    }
+
+    #[test]
+    fn test_example_3_read_list_1() -> Result<(), Error> {
+        // Test with example_3_subset_1 - should see 2 reads
+        let mut reader = nanalogue_bam_reader("examples/example_3.bam")?;
+        let mut bam_opts = InputBam::default();
+        bam_opts.read_id_list = Some("examples/example_3_subset_1".to_string());
+        let bam_rc_records =
+            BamRcRecords::new(&mut reader, &mut bam_opts, &mut InputMods::default())?;
+
+        // Count lines in the read ID file
+        let file = File::open("examples/example_3_subset_1")?;
+        let reader_file = BufReader::new(file);
+        let mut line_count = 0;
+        for line in reader_file.lines() {
+            let line = line?;
+            let line = line.trim();
+            if !line.is_empty() && !line.starts_with('#') {
+                line_count += 1;
+            }
+        }
+        assert_eq!(line_count, 2);
+
+        let mut count = 0;
+        for record_result in bam_rc_records.rc_records {
+            let record = record_result?;
+            if record.pre_filt(&bam_opts) {
+                count += 1;
+            }
+        }
+        assert_eq!(count, 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_example_3_read_list_2() -> Result<(), Error> {
+        // Test with example_3_subset_w_invalid - should see 2 reads
+        // even though file contains 3 read IDs
+        let mut reader = nanalogue_bam_reader("examples/example_3.bam")?;
+        let mut bam_opts = InputBam::default();
+        bam_opts.read_id_list = Some("examples/example_3_subset_w_invalid".to_string());
+        let bam_rc_records =
+            BamRcRecords::new(&mut reader, &mut bam_opts, &mut InputMods::default())?;
+
+        // Count lines in the read ID file
+        let file = File::open("examples/example_3_subset_w_invalid")?;
+        let reader_file = BufReader::new(file);
+        let mut line_count = 0;
+        for line in reader_file.lines() {
+            let line = line?;
+            let line = line.trim();
+            if !line.is_empty() && !line.starts_with('#') {
+                line_count += 1;
+            }
+        }
+        assert_eq!(line_count, 3);
+
+        let mut count = 0;
+        for record_result in bam_rc_records.rc_records {
+            let record = record_result?;
+            if record.pre_filt(&bam_opts) {
+                count += 1;
+            }
+        }
+        assert_eq!(count, 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_random_retrieval() -> Result<(), Error> {
+        use rust_htslib::bam::record;
+        let mut count_retained = 0;
+        let fraction = F32Bw0and1::new(0.5)?; // 50% retention rate
+
+        for _ in 0..10000 {
+            let record = record::Record::new();
+            if record.filt_random_subset(fraction) {
+                count_retained += 1;
+            }
+        }
+
+        // 50% retention rate => 5000 reads, so we test if 4500-5500 reads come through
+        // (this is quite lax actually)
+        assert!(count_retained >= 4500 && count_retained <= 5500);
+        Ok(())
+    }
+
+    #[test]
+    fn test_single_read_id_filtering() -> Result<(), Error> {
+        use rust_htslib::bam::record;
+        let mut count_retained = 0;
+
+        for i in 1..=10 {
+            let mut record = record::Record::new();
+            let read_id = format!("read{}", i);
+            record.set_qname(read_id.as_bytes());
+
+            if record.filt_by_read_id("read2") {
+                count_retained += 1;
+            }
+        }
+
+        assert_eq!(count_retained, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_align_len_filtering() -> Result<(), Error> {
+        use rust_htslib::bam::record;
+        use rust_htslib::bam::record::{Cigar, CigarString};
+
+        let mut count_retained = 0;
+
+        for _ in 1..=10000 {
+            let mut record = record::Record::new();
+            let seq_len: usize = rand::random_range(2..=10000);
+            let match_len = seq_len / 2;
+            let hard_clip_len = seq_len - match_len;
+
+            record.set(
+                &vec![b'r', b'e', b'a', b'd'],
+                Some(&CigarString(vec![
+                    Cigar::Match(match_len as u32),
+                    Cigar::HardClip(hard_clip_len as u32),
+                ])),
+                &vec![b'A'; seq_len],
+                &vec![255; seq_len],
+            );
+
+            if record.filt_by_align_len(2500) {
+                count_retained += 1;
+            }
+        }
+
+        assert!(count_retained >= 4500 && count_retained <= 5500);
+        Ok(())
+    }
+
+    #[test]
+    fn test_filt_by_bitwise_or_flags() -> Result<(), Error> {
+        use rust_htslib::bam::record;
+
+        // Create random subset of read states (ensure at least one)
+        let all_states = vec![
+            "primary_forward",
+            "primary_reverse",
+            "secondary_forward",
+            "secondary_reverse",
+            "supplementary_forward",
+            "supplementary_reverse",
+            "unmapped",
+        ];
+
+        let mut selected_states = Vec::new();
+        for state in &all_states {
+            if rand::random::<f32>() < 0.5 {
+                selected_states.push(*state);
+            }
+        }
+        // Ensure at least one state is selected
+        if selected_states.is_empty() {
+            selected_states.push(all_states[rand::random_range(0..all_states.len())]);
+        }
+
+        let states_string = selected_states.join(",");
+        let read_states = ReadStates::from_str(&states_string)?;
+
+        let mut count_retained = 0;
+
+        for _ in 1..=7000 {
+            let mut record = record::Record::new();
+            let random_num = rand::random_range(0..7);
+
+            match random_num {
+                0 => {}                      // primary_forward - no flags
+                1 => record.set_unmapped(),  // unmapped
+                2 => record.set_reverse(),   // primary_reverse
+                3 => record.set_secondary(), // secondary_forward
+                4 => {
+                    record.set_secondary();
+                    record.set_reverse();
+                } // secondary_reverse
+                5 => record.set_supplementary(), // supplementary_forward
+                6 => {
+                    record.set_supplementary();
+                    record.set_reverse();
+                } // supplementary_reverse
+                _ => unreachable!(),
+            }
+
+            if record.filt_by_bitwise_or_flags(&read_states) {
+                count_retained += 1;
+            }
+        }
+
+        let expected_count = read_states.bam_flags().len() * 1000;
+        let tolerance = (expected_count as f32 * 0.2) as usize;
+        let min_count = expected_count.saturating_sub(tolerance);
+        let max_count = expected_count + tolerance;
+
+        assert!(count_retained >= min_count && count_retained <= max_count);
+        Ok(())
+    }
+
+    #[test]
+    fn test_filt_by_region() -> Result<(), Error> {
+        use bedrs::Bed3;
+        use rust_htslib::bam::record;
+        use rust_htslib::bam::record::{Cigar, CigarString};
+
+        let mut count_retained = (0, 0);
+
+        for _ in 1..=10000 {
+            let mut record = record::Record::new();
+
+            // Draw four numbers from 0 to 10000
+            let four_nums = [
+                rand::random_range(0..=10000),
+                rand::random_range(0..=10000),
+                rand::random_range(0..=10000),
+                rand::random_range(0..=10000u64),
+            ];
+
+            // First two for record
+            let mut pos_nums = [four_nums[0], four_nums[1]];
+            pos_nums.sort();
+            let start_pos = pos_nums[0];
+            let end_pos = pos_nums[1];
+
+            // Use the last two to set up region, with a random contig chosen
+            // from a set of two.
+            let region_tid = if rand::random::<bool>() { 0 } else { 1 };
+            let mut region_nums = [four_nums[2], four_nums[3]];
+            region_nums.sort();
+            let region_start = region_nums[0];
+            let region_end = region_nums[1];
+            let region = Bed3::<i32, u64>::new(region_tid, region_start, region_end);
+
+            // Calculate sequence length (ensure at least 1)
+            let seq_len = if end_pos == start_pos {
+                1
+            } else {
+                end_pos - start_pos
+            };
+
+            // Set sequence details first
+            record.set(
+                &vec![b'r', b'e', b'a', b'd'],
+                Some(&CigarString(vec![Cigar::Match(seq_len as u32)])),
+                &vec![b'A'; seq_len as usize],
+                &vec![255; seq_len as usize],
+            );
+
+            // Set tid and position, contig chosen from a random set of two.
+            let tid = if rand::random::<bool>() { 0 } else { 1 };
+            record.set_tid(tid);
+            record.set_pos(start_pos as i64);
+
+            // Verify reference_end calculation
+            use rust_htslib::bam::ext::BamRecordExtensions;
+            let expected_ref_end = start_pos as i64 + seq_len as i64;
+            assert_eq!(record.reference_end(), expected_ref_end);
+
+            if record.filt_by_region(&region, false) {
+                count_retained.0 += 1;
+            }
+            if record.filt_by_region(&region, true) {
+                count_retained.1 += 1;
+            }
+        }
+
+        // the chance that two randomly chosen intervals on the interval [0, l]
+        // intersect is 2/3, and then we have the added random element of one
+        // of two contigs, so the probability is 2/3 * 1/2 = 1/3.
+        let expected_count: usize = 10000 / 3; // ~3333
+        let tolerance = (expected_count as f32 * 0.1) as usize;
+        let min_count = expected_count.saturating_sub(tolerance);
+        let max_count = expected_count + tolerance;
+        assert!(count_retained.0 >= min_count && count_retained.0 <= max_count);
+        // the chance that two randomly chosen intervals are such that one is
+        // contained within the other is 1/3, and we are looking for the region
+        // being contained completely within the read and NOT the read being contained
+        // within the region, so the probability is 1/6. This is one fourth of the
+        // 2/3 used above. So the same criterion will work with the second count quadrupled.
+        assert!(4 * count_retained.1 >= min_count && 4 * count_retained.1 <= max_count);
         Ok(())
     }
 }

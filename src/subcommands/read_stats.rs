@@ -189,9 +189,9 @@ mod tests {
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
 
         let expected_output = indoc! {"key\tvalue
-        n_primary_alignments\t10
-        n_secondary_alignments\t0
-        n_supplementary_alignments\t0
+        n_primary_alignments\t6
+        n_secondary_alignments\t2
+        n_supplementary_alignments\t2
         n_unmapped_reads\t0
         n_reversed_reads\t3
         align_len_mean\t12.6

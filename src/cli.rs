@@ -421,6 +421,7 @@ mod input_mods_required_tag_tests {
 mod input_bam_tests {
     use super::*;
     use bedrs::Coordinates;
+    use indoc::indoc;
     use std::str::FromStr;
 
     #[test]
@@ -448,9 +449,8 @@ mod input_bam_tests {
     fn test_input_bam_convert_region_to_bed3_none() {
         let mut input_bam = InputBam::default();
 
-        let header_view = bam::HeaderView::from_bytes(
-            b"@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:248956422\n",
-        );
+        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
+        @SQ\tSN:chr1\tLN:248956422\n"});
 
         let result = input_bam.convert_region_to_bed3(header_view);
         assert!(result.is_ok());
@@ -465,9 +465,9 @@ mod input_bam_tests {
             ..Default::default()
         };
 
-        let header_view = bam::HeaderView::from_bytes(
-            b"@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:3000\n@SQ\tSN:chr2\tLN:4000",
-        );
+        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
+                @SQ\tSN:chr1\tLN:3000
+                @SQ\tSN:chr2\tLN:4000\n"});
 
         let result = input_bam.convert_region_to_bed3(header_view);
         assert!(result.is_ok());

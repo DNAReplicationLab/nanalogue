@@ -1122,9 +1122,7 @@ impl Intersects<Range<u64>> for Range<u64> {
     /// assert!((1..3).intersects(&(0..2)));
     /// ```
     fn intersects(&self, val: &Range<u64>) -> bool {
-        let end_minus_1 = val.end - 1;
-        (self.contains(&val.start) || self.contains(&end_minus_1))
-            && !(self.is_empty() || val.is_empty())
+        (self.start < val.end && self.end > val.start) && !(self.is_empty() || val.is_empty())
     }
 }
 
