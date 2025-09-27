@@ -118,6 +118,12 @@ mod tests {
     }
 
     #[test]
+    fn test_input_region_options_is_full_overlap_false() {
+        let test_obj = TestInputRegionOptions::default();
+        assert!(!test_obj.is_full_overlap());
+    }
+
+    #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_filter_by_ref_coords_filter_by_ref_pos_panics() {
         let mut test_obj = TestFilterByRefCoords::default();

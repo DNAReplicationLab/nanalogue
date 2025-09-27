@@ -395,3 +395,88 @@ mod input_windowing_tests {
         assert_eq!(windowing.step, NonZeroU32::new(150).unwrap());
     }
 }
+
+#[cfg(test)]
+mod input_mods_required_tag_tests {
+    use super::*;
+
+    #[test]
+    fn test_input_mods_required_tag_fn_tag() {
+        let mod_char = ModChar::new('C');
+        let input_mods = InputMods::<RequiredTag> {
+            tag: RequiredTag { tag: mod_char },
+            mod_strand: None,
+            mod_prob_filter: ThresholdState::GtEq(0),
+            trim_read_ends_mod: 0,
+            base_qual_filter_mod: 0,
+            mod_region: None,
+            region_bed3: None,
+        };
+
+        assert_eq!(input_mods.tag(), mod_char);
+    }
+}
+
+#[cfg(test)]
+mod input_bam_tests {
+    use super::*;
+    use bedrs::Coordinates;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_input_bam_is_full_overlap() {
+        // Test default (false)
+        let input_bam_default = InputBam::default();
+        assert_eq!(input_bam_default.is_full_overlap(), false);
+
+        // Test explicit false
+        let input_bam_false = InputBam {
+            full_region: false,
+            ..Default::default()
+        };
+        assert_eq!(input_bam_false.is_full_overlap(), false);
+
+        // Test true
+        let input_bam_true = InputBam {
+            full_region: true,
+            ..Default::default()
+        };
+        assert_eq!(input_bam_true.is_full_overlap(), true);
+    }
+
+    #[test]
+    fn test_input_bam_convert_region_to_bed3_none() {
+        let mut input_bam = InputBam::default();
+
+        let header_view = bam::HeaderView::from_bytes(
+            b"@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:248956422\n",
+        );
+
+        let result = input_bam.convert_region_to_bed3(header_view);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+        assert!(input_bam.region_bed3.is_none());
+    }
+
+    #[test]
+    fn test_input_bam_convert_region_to_bed3_with_region() {
+        let mut input_bam = InputBam {
+            region: Some(GenomicRegion::from_str("chr2:3400-3600").unwrap()),
+            ..Default::default()
+        };
+
+        let header_view = bam::HeaderView::from_bytes(
+            b"@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:3000\n@SQ\tSN:chr2\tLN:4000",
+        );
+
+        let result = input_bam.convert_region_to_bed3(header_view);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+        assert!(input_bam.region_bed3.is_some());
+
+        let bed3 = input_bam.region_bed3.unwrap();
+        assert_eq!(bed3.chr(), &1);
+        assert_eq!(bed3.start(), 3400);
+        assert_eq!(bed3.end(), 3600);
+    }
+}
