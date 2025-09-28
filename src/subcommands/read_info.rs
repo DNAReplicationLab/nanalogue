@@ -159,10 +159,8 @@ mod tests {
     fn test_run_with_example_6() -> Result<(), Error> {
         // Collect records from example_6.sam
         let mut reader = nanalogue_bam_reader("./examples/example_6.sam")?;
-        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
-            .records()
-            .map(|r| r.map(Rc::new))
-            .collect();
+        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> =
+            reader.records().map(|r| r.map(Rc::new)).collect();
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();

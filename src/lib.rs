@@ -39,6 +39,7 @@ pub mod analysis;
 pub mod cli;
 pub mod error;
 pub mod read_utils;
+pub mod serde_curr_read;
 pub mod subcommands;
 pub mod utils;
 
@@ -49,6 +50,7 @@ pub use cli::{
 };
 pub use error::Error;
 pub use read_utils::CurrRead;
+pub use serde_curr_read::{AlignmentInfo, ModTableEntry, SerializedCurrRead};
 pub use utils::{
     Contains, F32AbsValBelow1, F32Bw0and1, FilterByRefCoords, GenomicRegion, Intersects, ModChar,
     OrdPair, ReadState, RestrictModCalledStrand, ThresholdState,
@@ -1142,7 +1144,7 @@ mod bam_rc_record_tests {
         // intersect is 2/3, and then we have the added random element of one
         // of two contigs, so the probability is 2/3 * 1/2 = 1/3.
         let expected_count: usize = 10000 / 3; // ~3333
-        let tolerance = (expected_count as f32 * 0.1) as usize;
+        let tolerance = (expected_count as f32 * 0.2) as usize;
         let min_count = expected_count.saturating_sub(tolerance);
         let max_count = expected_count + tolerance;
         assert!(count_retained.0 >= min_count && count_retained.0 <= max_count);

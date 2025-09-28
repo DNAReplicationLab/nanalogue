@@ -536,9 +536,7 @@ impl fmt::Display for F32AbsValBelow1 {
 /// having a DNA modification with a CheBI code overlapping with ASCII values or
 /// within this narrow range of values near 59000 is very small.
 #[derive(Debug, Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct ModChar {
-    val: char,
-}
+pub struct ModChar(char);
 
 /// Defaults to mod tag 'N'
 impl Default for ModChar {
@@ -550,7 +548,7 @@ impl Default for ModChar {
 impl ModChar {
     /// We initialize with a character
     pub fn new(val: char) -> Self {
-        ModChar { val }
+        ModChar(val)
     }
     /// Returns the character
     ///
@@ -562,7 +560,7 @@ impl ModChar {
     /// }
     /// ```
     pub fn val(&self) -> char {
-        self.val
+        self.0
     }
 }
 
@@ -612,10 +610,10 @@ impl FromStr for ModChar {
     fn from_str(mod_type: &str) -> Result<Self, Self::Err> {
         let first_char = mod_type.chars().next().ok_or(Error::EmptyModType)?;
         match first_char {
-            'A'..='Z' | 'a'..='z' => Ok(ModChar { val: first_char }),
+            'A'..='Z' | 'a'..='z' => Ok(ModChar(first_char)),
             '0'..='9' => {
                 let val = char::from_u32(mod_type.parse()?).ok_or(Error::InvalidModType)?;
-                Ok(ModChar { val })
+                Ok(ModChar(val))
             }
             _ => Err(Error::InvalidModType),
         }
@@ -722,20 +720,27 @@ impl From<RestrictModCalledStrand> for char {
 pub enum ReadState {
     #[default]
     /// Primary alignment to the reference strand
+    #[serde(rename = "primary_forward")]
     PrimaryFwd,
     /// Primary alignment opposite the reference strand
+    #[serde(rename = "primary_reverse")]
     PrimaryRev,
     /// Secondary alignment to the reference strand
+    #[serde(rename = "secondary_forward")]
     SecondaryFwd,
     /// Secondary alignment opposite the reference strand
+    #[serde(rename = "secondary_reverse")]
     SecondaryRev,
     /// Supplementary alignment to the reference strand
+    #[serde(rename = "supplementary_forward")]
     SupplementaryFwd,
     /// Supplementary alignment opposite the reference strand
+    #[serde(rename = "supplementary_reverse")]
     SupplementaryRev,
     /// Marked as unmapped in the BAM file. We are assuming
     /// that unmapped sequences will not be stored as reversed
     /// complements, as what would be the point of that?
+    #[serde(rename = "unmapped")]
     Unmapped,
 }
 

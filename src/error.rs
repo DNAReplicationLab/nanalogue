@@ -152,4 +152,8 @@ pub enum Error {
         /// The actual length of the contig
         contig_length: u64,
     },
+
+    /// Cannot de-serialize implicit modBAM format
+    #[error("cannot deserialize when implicit is set to true")]
+    DeSerializeImplicit,
 }

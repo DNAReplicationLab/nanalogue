@@ -743,6 +743,29 @@ impl CurrRead<OnlyAlignDataComplete> {
 }
 
 impl CurrRead<AlignAndModData> {
+    /// Constructor for deserialization - creates CurrRead directly from components
+    pub fn from_deserialized_data(
+        state: ReadState,
+        read_id: String,
+        seq_len: u64,
+        align_len: Option<u64>,
+        mods: BaseMods,
+        contig_id_and_start: Option<(i32, u64)>,
+        contig_name: Option<String>,
+    ) -> Self {
+        CurrRead {
+            state,
+            read_id: Some(read_id),
+            seq_len: Some(seq_len),
+            align_len,
+            mods: (mods, ThresholdState::GtEq(0)), // Default threshold
+            contig_id_and_start,
+            contig_name,
+            mod_base_qual_thres: 0, // Default value
+            marker: std::marker::PhantomData,
+        }
+    }
+
     /// gets modification data
     pub fn mod_data(&self) -> &(BaseMods, ThresholdState) {
         &self.mods
