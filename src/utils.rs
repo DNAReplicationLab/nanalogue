@@ -83,6 +83,78 @@ impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd> OrdPair<T> {
     }
 }
 
+impl OrdPair<u64> {
+    /// Parse an interval string specifically for genomic regions.
+    /// Supports formats like "1000-2000" and "1000-" (where end defaults to u64::MAX).
+    /// Enforces strict inequality (start < end).
+    ///
+    /// ```
+    /// use nanalogue_core::OrdPair;
+    ///
+    /// // Standard interval
+    /// let interval = OrdPair::<u64>::from_interval("1000-2000")?;
+    /// assert_eq!(interval.get_low(), 1000);
+    /// assert_eq!(interval.get_high(), 2000);
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    ///
+    /// ```
+    /// # use nanalogue_core::OrdPair;
+    /// #
+    /// // Open-ended interval (end defaults to u64::MAX)
+    /// let interval = OrdPair::<u64>::from_interval("1000-")?;
+    /// assert_eq!(interval.get_low(), 1000);
+    /// assert_eq!(interval.get_high(), u64::MAX);
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    ///
+    /// ```should_panic
+    /// # use nanalogue_core::OrdPair;
+    /// #
+    /// // Equal start and end should fail
+    /// let interval = OrdPair::<u64>::from_interval("1000-1000")?;
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    pub fn from_interval(interval_str: &str) -> Result<Self, Error> {
+        let parts: Vec<&str> = interval_str.split('-').collect();
+
+        match parts.len() {
+            2 => {
+                let start = parts[0].trim().parse::<u64>().map_err(|_| {
+                    Error::OrdPairConversionError(
+                        "Invalid start coordinate in interval!".to_string(),
+                    )
+                })?;
+
+                let end = if parts[1].trim().is_empty() {
+                    // Open-ended interval: "1000-"
+                    u64::MAX
+                } else {
+                    // Closed interval: "1000-2000"
+                    parts[1].trim().parse::<u64>().map_err(|_| {
+                        Error::OrdPairConversionError(
+                            "Invalid end coordinate in interval!".to_string(),
+                        )
+                    })?
+                };
+
+                // Enforce strict inequality (start < end)
+                if start < end {
+                    Ok(OrdPair {
+                        low: start,
+                        high: end,
+                    })
+                } else {
+                    Err(Error::WrongOrder)
+                }
+            }
+            _ => Err(Error::OrdPairConversionError(
+                "Invalid interval format! Expected 'start-end' or 'start-'".to_string(),
+            )),
+        }
+    }
+}
+
 impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> FromStr for OrdPair<T> {
     type Err = Error;
 
@@ -181,13 +253,10 @@ impl FromStr for GenomicRegion {
             0 => Err(Error::InvalidAlignCoords),
             1 => Ok(GenomicRegion((val_str.to_string(), None))),
             _ => {
-                let interval = colon_split
-                    .pop()
-                    .ok_or(Error::UnknownError)?
-                    .replace('-', ",");
+                let interval_str = colon_split.pop().ok_or(Error::UnknownError)?;
                 Ok(GenomicRegion((
                     colon_split.join(":").to_string(),
-                    Some(OrdPair::<u64>::from_str(&interval)?),
+                    Some(OrdPair::<u64>::from_interval(interval_str)?),
                 )))
             }
         }
@@ -199,16 +268,38 @@ impl GenomicRegion {
     /// converts genomic region from genomic string representation to bed3 representation
     pub fn try_to_bed3(self, header: bam::HeaderView) -> Result<Bed3<i32, u64>, Error> {
         let region_bed = {
-            let GenomicRegion((a, b)) = self;
+            let GenomicRegion((contig_name, coords)) = &self;
             let numeric_contig: i32 = header
-                .tid(a.as_bytes())
+                .tid(contig_name.as_bytes())
                 .ok_or(Error::InvalidAlignCoords)?
                 .try_into()?;
-            let (start, end) = if let Some(c) = b {
-                (c.get_low(), c.get_high())
+
+            let (start, end) = if let Some(c) = coords {
+                let start = c.get_low();
+                let end = c.get_high();
+
+                // Check if start position exceeds contig length
+                if let Some(contig_length) = header.target_len(u32::try_from(numeric_contig)?) {
+                    if start >= contig_length {
+                        let region_str = if end == u64::MAX {
+                            format!("{}:{}-", contig_name, start)
+                        } else {
+                            format!("{}:{}-{}", contig_name, start, end)
+                        };
+
+                        return Err(Error::InvalidRegionError {
+                            region: region_str,
+                            start,
+                            contig_length,
+                        });
+                    }
+                }
+
+                (start, end)
             } else {
                 (u64::MIN, u64::MAX)
             };
+
             Bed3::<i32, u64>::new(numeric_contig, start, end)
         };
         Ok(region_bed)
@@ -956,6 +1047,78 @@ mod tests {
         );
     }
 
+    /// Tests OrdPair::from_interval method for genomic intervals
+    #[test]
+    fn test_ord_pair_from_interval() {
+        // Standard interval
+        let interval = OrdPair::<u64>::from_interval("1000-2000").expect("should parse");
+        assert_eq!(interval.get_low(), 1000);
+        assert_eq!(interval.get_high(), 2000);
+
+        // Open-ended interval
+        let interval = OrdPair::<u64>::from_interval("1000-").expect("should parse");
+        assert_eq!(interval.get_low(), 1000);
+        assert_eq!(interval.get_high(), u64::MAX);
+    }
+
+    /// Tests OrdPair::from_interval error cases
+    #[test]
+    fn test_ord_pair_from_interval_errors() {
+        // Equal start and end should fail (strict inequality enforced)
+        assert!(matches!(
+            OrdPair::<u64>::from_interval("1000-1000"),
+            Err(Error::WrongOrder)
+        ));
+
+        // Start greater than end should fail
+        assert!(matches!(
+            OrdPair::<u64>::from_interval("2000-1000"),
+            Err(Error::WrongOrder)
+        ));
+
+        // Invalid format - no dash
+        assert!(matches!(
+            OrdPair::<u64>::from_interval("1000"),
+            Err(Error::OrdPairConversionError(_))
+        ));
+
+        // Invalid format - too many dashes
+        assert!(matches!(
+            OrdPair::<u64>::from_interval("1000-2000-3000"),
+            Err(Error::OrdPairConversionError(_))
+        ));
+
+        // Invalid start coordinate
+        assert!(matches!(
+            OrdPair::<u64>::from_interval("abc-2000"),
+            Err(Error::OrdPairConversionError(_))
+        ));
+
+        // Invalid end coordinate
+        assert!(matches!(
+            OrdPair::<u64>::from_interval("1000-xyz"),
+            Err(Error::OrdPairConversionError(_))
+        ));
+
+        // Empty string
+        assert!(matches!(
+            OrdPair::<u64>::from_interval(""),
+            Err(Error::OrdPairConversionError(_))
+        ));
+
+        // Just a dash
+        assert!(matches!(
+            OrdPair::<u64>::from_interval("-"),
+            Err(Error::OrdPairConversionError(_))
+        ));
+
+        // Negative numbers (should fail for u64)
+        assert!(matches!(
+            OrdPair::<u64>::from_interval("-100-200"),
+            Err(Error::OrdPairConversionError(_))
+        ));
+    }
+
     /// Tests comprehensive GenomicRegion parsing
     #[test]
     fn test_genomic_region_parsing() {
@@ -995,6 +1158,18 @@ mod tests {
         assert_eq!(coords.get_high(), 16569);
     }
 
+    /// Tests GenomicRegion parsing with open-ended support
+    #[test]
+    fn test_genomic_region_open_ended() {
+        // Open-ended interval support
+        let region = GenomicRegion::from_str("chr1:1000-").expect("should parse");
+        assert_eq!(region.0.0, "chr1");
+        assert!(region.0.1.is_some());
+        let coords = region.0.1.unwrap();
+        assert_eq!(coords.get_low(), 1000);
+        assert_eq!(coords.get_high(), u64::MAX);
+    }
+
     /// Tests GenomicRegion parsing error cases
     #[test]
     fn test_genomic_region_parsing_errors() {
@@ -1004,8 +1179,17 @@ mod tests {
             Err(Error::WrongOrder)
         ));
 
+        // Equal start and end should now fail (strict inequality)
+        assert!(matches!(
+            GenomicRegion::from_str("chr1:1000-1000"),
+            Err(Error::WrongOrder)
+        ));
+
         // Invalid coordinate format should fail
         assert!(GenomicRegion::from_str("chr1:abc-def").is_err());
+
+        // Invalid format should fail
+        assert!(GenomicRegion::from_str("chr1:1000-2000-3000").is_err());
     }
 
     /// Tests ReadState u16 conversion round-trip

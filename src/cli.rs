@@ -475,4 +475,76 @@ mod input_bam_tests {
         assert_eq!(bed3.start(), 3400);
         assert_eq!(bed3.end(), 3600);
     }
+
+    #[test]
+    fn test_input_bam_convert_region_to_bed3_invalid_region() {
+        let mut input_bam = InputBam {
+            region: Some(GenomicRegion::from_str("chr2:4400-4600").unwrap()),
+            ..Default::default()
+        };
+        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
+                @SQ\tSN:chr1\tLN:3000
+                @SQ\tSN:chr2\tLN:4000\n"});
+
+        let result = input_bam.convert_region_to_bed3(header_view);
+        assert!(result.is_err());
+
+        if let Err(Error::InvalidRegionError {
+            region,
+            start,
+            contig_length,
+        }) = result
+        {
+            assert_eq!(region, "chr2:4400-4600");
+            assert_eq!(start, 4400);
+            assert_eq!(contig_length, 4000);
+        } else {
+            panic!("Expected InvalidRegionError");
+        }
+    }
+
+    #[test]
+    fn test_input_bam_convert_region_to_bed3_invalid_open_ended_region() {
+        let mut input_bam = InputBam {
+            region: Some(GenomicRegion::from_str("chr2:4600-").unwrap()),
+            ..Default::default()
+        };
+        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
+                @SQ\tSN:chr1\tLN:3000
+                @SQ\tSN:chr2\tLN:4000\n"});
+
+        let result = input_bam.convert_region_to_bed3(header_view);
+        assert!(result.is_err());
+
+        if let Err(Error::InvalidRegionError {
+            region,
+            start,
+            contig_length,
+        }) = result
+        {
+            assert_eq!(region, "chr2:4600-");
+            assert_eq!(start, 4600);
+            assert_eq!(contig_length, 4000);
+        } else {
+            panic!("Expected InvalidRegionError");
+        }
+    }
+
+    #[test]
+    fn test_input_bam_convert_region_to_bed3_invalid_contig() {
+        let mut input_bam = InputBam {
+            region: Some(GenomicRegion::from_str("chr3:1000-2000").unwrap()),
+            ..Default::default()
+        };
+        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
+                @SQ\tSN:chr1\tLN:3000
+                @SQ\tSN:chr2\tLN:4000\n"});
+
+        let result = input_bam.convert_region_to_bed3(header_view);
+        assert!(result.is_err());
+
+        let Err(Error::InvalidAlignCoords) = result else {
+            panic!("Expected InvalidAlignCoords error for non-existent contig");
+        };
+    }
 }

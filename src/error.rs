@@ -139,4 +139,17 @@ pub enum Error {
     /// Zero values used where they should not be
     #[error("zero values not allowed")]
     Zero,
+
+    /// Genomic region coordinates exceed contig boundaries
+    #[error(
+        "invalid region '{region}': start position {start} exceeds contig length {contig_length}"
+    )]
+    InvalidRegionError {
+        /// The original region string provided by the user
+        region: String,
+        /// The start position that exceeds the contig boundary
+        start: u64,
+        /// The actual length of the contig
+        contig_length: u64,
+    },
 }
