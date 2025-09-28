@@ -445,4 +445,69 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_example_1_unmapped() -> Result<(), Error> {
+        // Read the fourth record from the example BAM file (this is the unmapped read)
+        let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+        let mut records = reader.records();
+
+        // Skip first three records to get to the unmapped read
+        let _first_record = records.next().unwrap()?;
+        let _second_record = records.next().unwrap()?;
+        let _third_record = records.next().unwrap()?;
+
+        // Get the fourth record (unmapped read)
+        let fourth_record = records.next().unwrap()?;
+
+        // Create CurrRead with alignment and modification data
+        let curr_read = CurrRead::default()
+            .try_from_only_alignment(&fourth_record)?
+            .set_mod_data(&fourth_record, ThresholdState::GtEq(0), 0)?;
+
+        let actual_json: serde_json::Value = serde_json::to_value(&curr_read)?;
+
+        let expected_json_str = indoc! {r#"
+            {
+              "alignment_type": "unmapped",
+              "mod_table": [
+                {
+                  "base": "G",
+                  "is_strand_plus": false,
+                  "mod_code": "7200",
+                  "implicit": false,
+                  "data": [
+                    [28, -1, 0],
+                    [29, -1, 0],
+                    [30, -1, 0],
+                    [32, -1, 0],
+                    [43, -1, 77],
+                    [44, -1, 0]
+                  ]
+                },
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                    [3, -1, 221],
+                    [8, -1, 242],
+                    [27, -1, 0],
+                    [39, -1, 47],
+                    [47, -1, 239]
+                  ]
+                }
+              ],
+              "read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
+              "seq_len": 48
+            }"#};
+
+        let expected_json: serde_json::Value = serde_json::from_str(expected_json_str)?;
+
+        // Compare expected and actual outputs
+        assert_eq!(actual_json, expected_json);
+
+        Ok(())
+    }
 }
