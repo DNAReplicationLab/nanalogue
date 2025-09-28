@@ -31,10 +31,7 @@ where
         write!(handle, "{}", curr_read)?;
     }
 
-    match is_first_record_written.next().expect("no error") {
-        false => writeln!(handle, "]")?,
-        true => writeln!(handle, "\n]")?,
-    };
+    writeln!(handle, "\n]")?;
     Ok(true)
 }
 
@@ -151,6 +148,47 @@ mod tests {
                 "alignment_length": 8,
                 "alignment_type": "primary_forward",
                 "mod_count": "T+T:0;(probabilities >= 0.5, PHRED base qual >= 0)"
+            }
+        ]);
+        assert_eq!(parsed, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_run_with_example_6() -> Result<(), Error> {
+        // Collect records from example_6.sam
+        let mut reader = nanalogue_bam_reader("./examples/example_6.sam")?;
+        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
+            .records()
+            .map(|r| r.map(Rc::new))
+            .collect();
+
+        // Gets an output from the function and compares with expected
+        let mut output_buffer = Vec::new();
+        assert!(run(&mut output_buffer, records.into_iter())?);
+        let output_json = String::from_utf8(output_buffer)?;
+        let parsed: Value = serde_json::from_str(&output_json)?;
+        let expected = serde_json::json!([
+            {
+                "read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
+                "sequence_length": 8,
+                "contig": "dummyI",
+                "reference_start": 9,
+                "reference_end": 17,
+                "alignment_length": 8,
+                "alignment_type": "primary_forward",
+                "mod_count": "NA"
+            },
+            {
+                "read_id": "fffffff1-10d2-49cb-8ca3-e8d48979001b",
+                "sequence_length": 33,
+                "contig": "dummyII",
+                "reference_start": 3,
+                "reference_end": 36,
+                "alignment_length": 33,
+                "alignment_type": "primary_reverse",
+                "mod_count": "T+T:1;(probabilities >= 0.5, PHRED base qual >= 0)"
             }
         ]);
         assert_eq!(parsed, expected);

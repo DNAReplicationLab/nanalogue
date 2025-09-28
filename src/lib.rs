@@ -1007,7 +1007,7 @@ mod bam_rc_record_tests {
         // Create random subset of read states (ensure at least one)
         let selected_states = {
             let mut selected_states = Vec::new();
-            let all_states = vec!["0", "16", "256", "272", "2048", "2064", "16"];
+            let all_states = vec!["0", "4", "16", "256", "272", "2048", "2064"];
             for state in &all_states {
                 if rand::random::<f32>() < 0.5 {
                     selected_states.push(*state);
