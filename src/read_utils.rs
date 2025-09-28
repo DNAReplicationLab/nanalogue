@@ -131,13 +131,6 @@ impl Default for CurrRead<NoData> {
     }
 }
 
-impl<S: CurrReadState> CurrRead<S> {
-    /// resets the read state
-    pub fn reset(self) -> CurrRead<NoData> {
-        CurrRead::default()
-    }
-}
-
 impl CurrRead<NoData> {
     /// sets the alignment of the read using BAM record
     ///
@@ -168,9 +161,10 @@ impl CurrRead<NoData> {
             || record.is_mate_reverse()
             || record.is_mate_unmapped()
             || record.is_duplicate()
+            || record.is_quality_check_failed()
         {
             return Err(Error::NotImplementedError(
-                "paired-read/mate-read formats not implemented or duplicate reads found!"
+                "paired-read/mate-read/duplicate/qual-check-failed flags not supported!"
                     .to_string(),
             ));
         }
@@ -1134,6 +1128,76 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
         let (BaseMods { base_mods: v }, _) = &mut self.mods;
         for k in v {
             k.ranges.filter_by_ref_pos(start, end);
+        }
+    }
+}
+
+#[cfg(test)]
+mod test_error_handling {
+    use super::*;
+    use rust_htslib::bam::record::Record;
+
+    #[test]
+    fn test_set_read_state_not_implemented_error() {
+        // Valid bit values that are accepted: 0, 4, 16, 256, 2048
+        // Any combination of these bits should be valid (may hit UnknownAlignState but not NotImplementedError)
+        let valid_bits = [0, 4, 16, 256, 2048];
+
+        // Test flag values from 0 to 4095
+        for flag_value in 0..4096u16 {
+            let mut record = Record::new();
+            record.set_flags(flag_value);
+
+            let curr_read = CurrRead::default();
+            let result = curr_read.set_read_state(&record);
+
+            // Check if flag_value is composed only of valid bits
+            let is_valid_combination = {
+                let mut remaining = flag_value;
+                for &bit in &valid_bits {
+                    if remaining & bit != 0 {
+                        remaining &= !bit; // Remove this bit
+                    }
+                }
+                remaining == 0 // If no bits left, it was a valid combination
+            };
+
+            if is_valid_combination {
+                // Check if this should hit UnknownAlignState
+                let should_hit_unknown_align_state = {
+                    // Case 1: bit 4 is set when any of 16, 256, or 2048 are set
+                    let case1 = (flag_value & 4 != 0) && (flag_value & (16 | 256 | 2048) != 0);
+                    // Case 2: both 256 and 2048 are set
+                    let case2 = (flag_value & 256 != 0) && (flag_value & 2048 != 0);
+                    case1 || case2
+                };
+
+                if should_hit_unknown_align_state {
+                    // Should hit UnknownAlignState
+                    assert!(
+                        matches!(result, Err(Error::UnknownAlignState)),
+                        "Flag value {} should trigger UnknownAlignState but got: {:?}",
+                        flag_value,
+                        result
+                    );
+                } else {
+                    // Should succeed
+                    assert!(
+                        result.is_ok(),
+                        "Flag value {} should succeed but got: {:?}",
+                        flag_value,
+                        result
+                    );
+                }
+            } else {
+                // Should trigger NotImplementedError for invalid bit combinations
+                assert!(
+                    matches!(result, Err(Error::NotImplementedError(_))),
+                    "Flag value {} (invalid bit combination) should trigger NotImplementedError but got: {:?}",
+                    flag_value,
+                    result
+                );
+            }
         }
     }
 }

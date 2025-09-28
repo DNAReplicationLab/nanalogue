@@ -173,6 +173,15 @@ where
                 .map(|s| s.parse().unwrap())
                 .collect();
 
+            // base qualities; must reverse if rev comp.
+            // NOTE this is always equal to number of bases in the sequence, otherwise
+            // rust_htslib will throw an error, so we don't have to check this.
+            let base_qual: Vec<u8> = match (min_qual, record.is_reverse()) {
+                (0, _) => Vec::new(),
+                (_, true) => record.qual().iter().rev().cloned().collect(),
+                (_, false) => record.qual().to_vec(),
+            };
+
             // get forward sequence bases from the bam record
             let forward_bases = if record.is_reverse() {
                 revcomp(convert_seq_uppercase(record.seq().as_bytes()))
@@ -182,11 +191,6 @@ where
 
             // do we include bases with zero probabilities?
             let is_include_zero_prob = filter_mod_prob(&0);
-
-            // base qualities
-            // NOTE this is always equal to number of bases in the sequence, otherwise
-            // rust_htslib will throw an error, so we don't have to check this.
-            let base_qual = record.qual();
 
             // find real positions in the forward sequence
             let mut cur_mod_idx: usize = 0;

@@ -215,8 +215,6 @@ impl<T: Clone + Copy + Debug + Default + fmt::Display + PartialEq + PartialOrd> 
 pub struct GenomicRegion(pub (String, Option<OrdPair<u64>>));
 
 /// Obtains genomic region from a string with the standard region format of name[:begin[-end]].
-/// NOTE: we require an end to be provided if a begin is provided,
-/// although it is optional in the region format
 ///
 /// ```
 /// use nanalogue_core::GenomicRegion;
