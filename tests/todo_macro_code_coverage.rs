@@ -1,13 +1,3 @@
-#![deny(
-    missing_copy_implementations,
-    missing_debug_implementations,
-    missing_docs,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications
-)]
 //! Test file to provide code coverage for all todo!() macros in trait default implementations
 //! This ensures code coverage tools recognize that todo!() panics are intentionally tested
 
