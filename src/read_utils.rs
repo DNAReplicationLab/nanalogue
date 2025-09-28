@@ -1140,7 +1140,8 @@ mod test_error_handling {
     #[test]
     fn test_set_read_state_not_implemented_error() {
         // Valid bit values that are accepted: 0, 4, 16, 256, 2048
-        // Any combination of these bits should be valid (may hit UnknownAlignState but not NotImplementedError)
+        // Any combination of these bits should be valid
+        // (may hit UnknownAlignState but not NotImplementedError)
         let valid_bits = [0, 4, 16, 256, 2048];
 
         // Test flag values from 0 to 4095

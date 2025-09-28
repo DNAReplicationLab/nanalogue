@@ -15,6 +15,7 @@ use std::num::NonZeroU32;
 /// This struct is parsed to create command line arguments and then passed to many functions.
 /// We have copied and edited a similar struct from the fibertools-rs repository.
 #[derive(Debug, Args, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct InputBam {
     /// Input BAM file. Set this to - to read from stdin.
     pub bam_path: String,
@@ -99,7 +100,7 @@ impl Default for InputBam {
             read_id: None,
             read_id_list: None,
             read_id_set: None,
-            threads: NonZeroU32::new(1).expect("no error"),
+            threads: NonZeroU32::new(2).expect("no error"),
             include_zero_len: false,
             read_filter: None,
             sample_fraction: F32Bw0and1::one(),
@@ -151,6 +152,7 @@ impl TagState for RequiredTag {
 /// This struct contains the options input to our
 /// modification-data functions with restrictions on data received
 #[derive(Debug, Args, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// modified tag
     #[clap(flatten)]
@@ -317,6 +319,7 @@ impl InputRegionOptions for InputBam {
 /// This struct contains the options input to our
 /// modification-data-windowing functions
 #[derive(Debug, Args, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 pub struct InputWindowing {
     /// size of window in units of base being queried i.e.
     /// if you are looking for cytosine modifications, then

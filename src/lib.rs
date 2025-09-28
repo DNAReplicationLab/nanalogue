@@ -833,8 +833,9 @@ mod bam_rc_record_tests {
     fn test_example_3_read_list_1() -> Result<(), Error> {
         // Test with example_3_subset_1 - should see 2 reads
         let mut reader = nanalogue_bam_reader("examples/example_3.bam")?;
-        let mut bam_opts = InputBam::default();
-        bam_opts.read_id_list = Some("examples/example_3_subset_1".to_string());
+        let mut bam_opts: InputBam =
+            serde_json::from_str(r#"{"read_id_list": "examples/example_3_subset_1"}"#).unwrap();
+
         let bam_rc_records =
             BamRcRecords::new(&mut reader, &mut bam_opts, &mut InputMods::default())?;
 
@@ -868,8 +869,9 @@ mod bam_rc_record_tests {
         // Test with example_3_subset_w_invalid - should see 2 reads
         // even though file contains 3 read IDs
         let mut reader = nanalogue_bam_reader("examples/example_3.bam")?;
-        let mut bam_opts = InputBam::default();
-        bam_opts.read_id_list = Some("examples/example_3_subset_w_invalid".to_string());
+        let mut bam_opts: InputBam =
+            serde_json::from_str(r#"{"read_id_list": "examples/example_3_subset_w_invalid"}"#)
+                .unwrap();
         let bam_rc_records =
             BamRcRecords::new(&mut reader, &mut bam_opts, &mut InputMods::default())?;
 
@@ -902,11 +904,12 @@ mod bam_rc_record_tests {
     fn test_random_retrieval() -> Result<(), Error> {
         use rust_htslib::bam::record;
         let mut count_retained = 0;
-        let fraction = F32Bw0and1::new(0.5)?; // 50% retention rate
+        let bam_opts: InputBam =
+            serde_json::from_str(r#"{"sample_fraction": 0.5, "include_zero_len": true}"#).unwrap();
 
         for _ in 0..10000 {
             let record = record::Record::new();
-            if record.filt_random_subset(fraction) {
+            if record.pre_filt(&bam_opts) {
                 count_retained += 1;
             }
         }
@@ -922,12 +925,15 @@ mod bam_rc_record_tests {
         use rust_htslib::bam::record;
         let mut count_retained = 0;
 
-        for i in 1..=10 {
+        let bam_opts: InputBam =
+            serde_json::from_str(r#"{"read_id": "read2", "include_zero_len": true}"#).unwrap();
+
+        for i in 1..=1000 {
             let mut record = record::Record::new();
             let read_id = format!("read{}", i);
             record.set_qname(read_id.as_bytes());
 
-            if record.filt_by_read_id("read2") {
+            if record.pre_filt(&bam_opts) {
                 count_retained += 1;
             }
         }
@@ -937,11 +943,15 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    fn test_align_len_filtering() -> Result<(), Error> {
+    fn test_seq_and_align_len_filtering() -> Result<(), Error> {
         use rust_htslib::bam::record;
         use rust_htslib::bam::record::{Cigar, CigarString};
 
-        let mut count_retained = 0;
+        let bam_opts_min_len: InputBam = serde_json::from_str(r#"{"min_seq_len": 5000}"#).unwrap();
+        let bam_opts_min_align_len: InputBam =
+            serde_json::from_str(r#"{"min_align_len": 2500}"#).unwrap();
+
+        let mut count_retained = (0, 0);
 
         for _ in 1..=10000 {
             let mut record = record::Record::new();
@@ -956,15 +966,37 @@ mod bam_rc_record_tests {
                     Cigar::HardClip(hard_clip_len as u32),
                 ])),
                 &vec![b'A'; seq_len],
-                &vec![255; seq_len],
+                &vec![50; seq_len],
             );
 
-            if record.filt_by_align_len(2500) {
-                count_retained += 1;
+            let random_num = rand::random_range(0..6);
+
+            match random_num {
+                0 => {}                      // primary_forward - no flags
+                1 => record.set_reverse(),   // primary_reverse
+                2 => record.set_secondary(), // secondary_forward
+                3 => {
+                    record.set_secondary();
+                    record.set_reverse();
+                } // secondary_reverse
+                4 => record.set_supplementary(), // supplementary_forward
+                5 => {
+                    record.set_supplementary();
+                    record.set_reverse();
+                } // supplementary_reverse
+                _ => unreachable!(),
+            }
+
+            if record.pre_filt(&bam_opts_min_align_len) {
+                count_retained.0 += 1;
+            }
+            if record.pre_filt(&bam_opts_min_len) {
+                count_retained.1 += 1;
             }
         }
 
-        assert!(count_retained >= 4500 && count_retained <= 5500);
+        assert!(count_retained.0 >= 4500 && count_retained.0 <= 5500);
+        assert!(count_retained.1 >= 4500 && count_retained.1 <= 5500);
         Ok(())
     }
 
@@ -973,33 +1005,29 @@ mod bam_rc_record_tests {
         use rust_htslib::bam::record;
 
         // Create random subset of read states (ensure at least one)
-        let all_states = vec![
-            "primary_forward",
-            "primary_reverse",
-            "secondary_forward",
-            "secondary_reverse",
-            "supplementary_forward",
-            "supplementary_reverse",
-            "unmapped",
-        ];
-
-        let mut selected_states = Vec::new();
-        for state in &all_states {
-            if rand::random::<f32>() < 0.5 {
-                selected_states.push(*state);
+        let selected_states = {
+            let mut selected_states = Vec::new();
+            let all_states = vec!["0", "16", "256", "272", "2048", "2064", "16"];
+            for state in &all_states {
+                if rand::random::<f32>() < 0.5 {
+                    selected_states.push(*state);
+                }
             }
-        }
-        // Ensure at least one state is selected
-        if selected_states.is_empty() {
-            selected_states.push(all_states[rand::random_range(0..all_states.len())]);
-        }
+            if selected_states.is_empty() {
+                selected_states.push(all_states[rand::random_range(0..all_states.len())]);
+            }
+            selected_states
+        };
 
         let states_string = selected_states.join(",");
-        let read_states = ReadStates::from_str(&states_string)?;
+        let bam_opts: InputBam = serde_json::from_str(
+            format!("{{\"read_filter\": [{states_string}], \"include_zero_len\": true}}").as_str(),
+        )
+        .unwrap();
 
         let mut count_retained = 0;
 
-        for _ in 1..=7000 {
+        for _ in 1..=70000 {
             let mut record = record::Record::new();
             let random_num = rand::random_range(0..7);
 
@@ -1020,12 +1048,13 @@ mod bam_rc_record_tests {
                 _ => unreachable!(),
             }
 
-            if record.filt_by_bitwise_or_flags(&read_states) {
+            //if record.filt_by_bitwise_or_flags(&read_states) {
+            if record.pre_filt(&bam_opts) {
                 count_retained += 1;
             }
         }
 
-        let expected_count = read_states.bam_flags().len() * 1000;
+        let expected_count = selected_states.len() * 10000;
         let tolerance = (expected_count as f32 * 0.2) as usize;
         let min_count = expected_count.saturating_sub(tolerance);
         let max_count = expected_count + tolerance;
@@ -1036,7 +1065,6 @@ mod bam_rc_record_tests {
 
     #[test]
     fn test_filt_by_region() -> Result<(), Error> {
-        use bedrs::Bed3;
         use rust_htslib::bam::record;
         use rust_htslib::bam::record::{Cigar, CigarString};
 
@@ -1066,7 +1094,16 @@ mod bam_rc_record_tests {
             region_nums.sort();
             let region_start = region_nums[0];
             let region_end = region_nums[1];
-            let region = Bed3::<i32, u64>::new(region_tid, region_start, region_end);
+            let bam_opts_no_full_region: InputBam = serde_json::from_str(
+                format!("{{\"region_bed3\": [{region_tid}, {region_start}, {region_end}]}}")
+                    .as_str(),
+            )
+            .unwrap();
+            let bam_opts_full_region: InputBam = serde_json::from_str(
+                format!("{{\"full_region\": true, \"region_bed3\": [{region_tid}, {region_start}, {region_end}]}}")
+                    .as_str(),
+            )
+            .unwrap();
 
             // Calculate sequence length (ensure at least 1)
             let seq_len = if end_pos == start_pos {
@@ -1093,10 +1130,10 @@ mod bam_rc_record_tests {
             let expected_ref_end = start_pos as i64 + seq_len as i64;
             assert_eq!(record.reference_end(), expected_ref_end);
 
-            if record.filt_by_region(&region, false) {
+            if record.pre_filt(&bam_opts_no_full_region) {
                 count_retained.0 += 1;
             }
-            if record.filt_by_region(&region, true) {
+            if record.pre_filt(&bam_opts_full_region) {
                 count_retained.1 += 1;
             }
         }
