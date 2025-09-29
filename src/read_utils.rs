@@ -1040,7 +1040,6 @@ impl TryFrom<Rc<Record>> for CurrRead<AlignAndModData> {
 impl FilterByRefCoords for Ranges {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
-    /// Copied and edited from the fibertools-rs repository.
     fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
         let (start_idx, end_idx) = {
             let mut start_idx = 0;
@@ -1064,11 +1063,11 @@ impl FilterByRefCoords for Ranges {
             &mut self.reference_ends,
             &mut self.reference_lengths,
         ] {
-            k.extract_if(end_idx.., |_| true).for_each(drop);
-            k.extract_if(0..start_idx, |_| true).for_each(drop);
+            k.extract_if(end_idx + 1.., |_| true).for_each(drop);
+            k.extract_if(0..=start_idx, |_| true).for_each(drop);
         }
-        self.qual.extract_if(end_idx.., |_| true).for_each(drop);
-        self.qual.extract_if(0..start_idx, |_| true).for_each(drop);
+        self.qual.extract_if(end_idx + 1.., |_| true).for_each(drop);
+        self.qual.extract_if(0..=start_idx, |_| true).for_each(drop);
     }
 }
 
@@ -1326,8 +1325,8 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
     Ok(mod_table)
 }
 
-/// Helper function to check if starts vector is sorted correctly based on alignment type
-fn validate_starts_sorting(starts: &[Option<i64>], alignment_type: ReadState) -> Result<(), Error> {
+/// Helper function to check if starts vector is sorted in ascending order
+fn validate_starts_sorting(starts: &[Option<i64>]) -> Result<(), Error> {
     // Extract non-None values for sorting validation
     let positions: Vec<i64> = starts.iter().filter_map(|&x| x).collect();
 
@@ -1336,38 +1335,16 @@ fn validate_starts_sorting(starts: &[Option<i64>], alignment_type: ReadState) ->
         return Ok(());
     }
 
-    match alignment_type {
-        ReadState::Unmapped
-        | ReadState::PrimaryFwd
-        | ReadState::SecondaryFwd
-        | ReadState::SupplementaryFwd => {
-            // Only check ascending order
-            let is_sorted_ascending = positions.windows(2).all(|w| w[0] <= w[1]);
-            if !is_sorted_ascending {
-                let sample_positions: Vec<i64> = positions.iter().take(5).copied().collect();
-                return Err(Error::InvalidSorting(format!(
-                    "Expected ascending order for {:?}, but got first {} positions: {:?}{}",
-                    alignment_type,
-                    sample_positions.len(),
-                    sample_positions,
-                    if positions.len() > 5 { "..." } else { "" }
-                )));
-            }
-        }
-        ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
-            // Only check descending order
-            let is_sorted_descending = positions.windows(2).all(|w| w[0] >= w[1]);
-            if !is_sorted_descending {
-                let sample_positions: Vec<i64> = positions.iter().take(5).copied().collect();
-                return Err(Error::InvalidSorting(format!(
-                    "Expected descending order for {:?}, but got first {} positions: {:?}{}",
-                    alignment_type,
-                    sample_positions.len(),
-                    sample_positions,
-                    if positions.len() > 5 { "..." } else { "" }
-                )));
-            }
-        }
+    // Always check ascending order regardless of alignment type
+    let is_sorted_ascending = positions.windows(2).all(|w| w[0] <= w[1]);
+    if !is_sorted_ascending {
+        let sample_positions: Vec<i64> = positions.iter().take(5).copied().collect();
+        return Err(Error::InvalidSorting(format!(
+            "Expected ascending order, but got first {} positions: {:?}{}",
+            sample_positions.len(),
+            sample_positions,
+            if positions.len() > 5 { "..." } else { "" }
+        )));
     }
 
     Ok(())
@@ -1400,7 +1377,7 @@ fn reconstruct_base_mods(
         }
 
         // Validate sorting after starts vector is populated
-        validate_starts_sorting(&starts, alignment_type)?;
+        validate_starts_sorting(&starts)?;
 
         // Calculate ends: starts + 1 where available, None otherwise
         let ends: Vec<Option<i64>> = starts
@@ -1814,7 +1791,7 @@ mod test_serde {
             },
             "mod_table": [
                 {
-                    "data": [[0, 10, 200], [1, 20, 180], [2, 30, 220]]
+                    "data": [[2, 30, 180], [1, 20, 220], [0, 10, 200]]
                 }
             ],
             "seq_len": 3
@@ -1822,5 +1799,358 @@ mod test_serde {
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSorting
         let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod test_filter_by_ref_coords {
+    use super::*;
+    use indoc::indoc;
+
+    #[test]
+    fn test_ranges_filter_by_ref_coords_via_curr_read() -> Result<(), Error> {
+        // Input JSON with modification data spanning reference positions 10-30
+        let input_json = indoc! {r#"
+            {
+              "alignment_type": "primary_forward",
+              "alignment": {
+                "start": 5,
+                "end": 35,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                    [0, 10, 200],
+                    [1, 15, 180],
+                    [2, 20, 220],
+                    [3, 25, 190],
+                    [4, 30, 210]
+                  ]
+                },
+                {
+                  "base": "C",
+                  "is_strand_plus": true,
+                  "mod_code": "m",
+                  "implicit": false,
+                  "data": [
+                    [5, 12, 150],
+                    [6, 18, 160],
+                    [7, 28, 170]
+                  ]
+                }
+              ],
+              "read_id": "test_read_123",
+              "seq_len": 8
+            }"#};
+
+        // Expected JSON after filtering for range 15-25
+        let expected_json = indoc! {r#"
+            {
+              "alignment_type": "primary_forward",
+              "alignment": {
+                "start": 5,
+                "end": 35,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                    [1, 15, 180],
+                    [2, 20, 220]
+                  ]
+                },
+                {
+                  "base": "C",
+                  "is_strand_plus": true,
+                  "mod_code": "m",
+                  "implicit": false,
+                  "data": [
+                    [6, 18, 160]
+                  ]
+                }
+              ],
+              "read_id": "test_read_123",
+              "seq_len": 8
+            }"#};
+
+        // Deserialize input, apply filter, and compare with expected
+        let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+        curr_read.filter_by_ref_pos(15, 25);
+
+        let expected_curr_read: CurrRead<AlignAndModData> = serde_json::from_str(expected_json)?;
+        assert_eq!(curr_read, expected_curr_read);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ranges_filter_no_overlap_1() -> Result<(), Error> {
+        // Input JSON with modification data
+        let input_json = indoc! {r#"
+            {
+              "alignment_type": "primary_forward",
+              "alignment": {
+                "start": 10,
+                "end": 30,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                    [0, 15, 200],
+                    [1, 20, 180],
+                    [2, 25, 220]
+                  ]
+                }
+              ],
+              "read_id": "test_read_456",
+              "seq_len": 3
+            }"#};
+
+        // Expected JSON after filtering with no overlap (26-60)
+        let expected_json = indoc! {r#"
+            {
+              "alignment_type": "primary_forward",
+              "alignment": {
+                "start": 10,
+                "end": 30,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                  ]
+                }
+              ],
+              "read_id": "test_read_456",
+              "seq_len": 3
+            }"#};
+
+        // Deserialize input, apply filter, and compare with expected
+        let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+        curr_read.filter_by_ref_pos(26, 60);
+
+        let expected_curr_read: CurrRead<AlignAndModData> = serde_json::from_str(expected_json)?;
+        assert_eq!(curr_read, expected_curr_read);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ranges_filter_no_overlap_2() -> Result<(), Error> {
+        // Input JSON with modification data (same as test_1)
+        let input_json = indoc! {r#"
+            {
+              "alignment_type": "primary_forward",
+              "alignment": {
+                "start": 10,
+                "end": 30,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                    [0, 15, 200],
+                    [1, 20, 180],
+                    [2, 25, 220]
+                  ]
+                }
+              ],
+              "read_id": "test_read_456",
+              "seq_len": 3
+            }"#};
+
+        // Expected JSON after filtering with no overlap (0-15)
+        let expected_json = indoc! {r#"
+            {
+              "alignment_type": "primary_forward",
+              "alignment": {
+                "start": 10,
+                "end": 30,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": []
+                }
+              ],
+              "read_id": "test_read_456",
+              "seq_len": 3
+            }"#};
+
+        // Deserialize input, apply filter, and compare with expected
+        let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+        curr_read.filter_by_ref_pos(0, 15);
+
+        let expected_curr_read: CurrRead<AlignAndModData> = serde_json::from_str(expected_json)?;
+        assert_eq!(curr_read, expected_curr_read);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ranges_filter_partial_overlap() -> Result<(), Error> {
+        // Input JSON with modification data
+        let input_json = indoc! {r#"
+            {
+              "alignment_type": "primary_forward",
+              "alignment": {
+                "start": 10,
+                "end": 40,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                    [0, 10, 200],
+                    [1, 15, 180],
+                    [2, 20, 220],
+                    [3, 25, 190],
+                    [4, 30, 210],
+                    [5, 35, 170]
+                  ]
+                }
+              ],
+              "read_id": "test_read_789",
+              "seq_len": 6
+            }"#};
+
+        // Expected JSON after filtering for range 20-30
+        let expected_json = indoc! {r#"
+            {
+              "alignment_type": "primary_forward",
+              "alignment": {
+                "start": 10,
+                "end": 40,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                    [2, 20, 220],
+                    [3, 25, 190]
+                  ]
+                }
+              ],
+              "read_id": "test_read_789",
+              "seq_len": 6
+            }"#};
+
+        // Deserialize input, apply filter, and compare with expected
+        let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+        curr_read.filter_by_ref_pos(20, 30);
+
+        let expected_curr_read: CurrRead<AlignAndModData> = serde_json::from_str(expected_json)?;
+        assert_eq!(curr_read, expected_curr_read);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_ranges_filter_reverse_strand() -> Result<(), Error> {
+        // Input JSON with reverse strand modification data
+        let input_json = indoc! {r#"
+            {
+              "alignment_type": "primary_reverse",
+              "alignment": {
+                "start": 10,
+                "end": 40,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                    [0, 15, 170],
+                    [1, 20, 210],
+                    [2, 25, 190],
+                    [3, 30, 220],
+                    [4, 35, 180]
+                  ]
+                }
+              ],
+              "read_id": "test_read_rev",
+              "seq_len": 5
+            }"#};
+
+        // Expected JSON after filtering for range 20-30
+        let expected_json = indoc! {r#"
+            {
+              "alignment_type": "primary_reverse",
+              "alignment": {
+                "start": 10,
+                "end": 40,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                    [1, 20, 210],
+                    [2, 25, 190]
+                  ]
+                }
+              ],
+              "read_id": "test_read_rev",
+              "seq_len": 5
+            }"#};
+
+        // Deserialize input, apply filter, and compare with expected
+        let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+        curr_read.filter_by_ref_pos(20, 30);
+
+        let expected_curr_read: CurrRead<AlignAndModData> = serde_json::from_str(expected_json)?;
+        assert_eq!(curr_read, expected_curr_read);
+
+        Ok(())
     }
 }
