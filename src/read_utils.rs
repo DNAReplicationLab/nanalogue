@@ -773,7 +773,6 @@ impl CurrRead<AlignAndModData> {
     /// window modification data with restrictions.
     /// If a read has the same modification on both the basecalled
     /// strand and its complement, then windows along both are returned.
-    /// We make no guarantee about the ordering of the coordinates of the output in this case.
     pub fn windowed_mod_data_restricted<F>(
         &self,
         window_function: &F,

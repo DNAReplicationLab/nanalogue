@@ -515,14 +515,8 @@ mod tests {
     #[should_panic(expected = "invalid alignment coordinates")]
     fn test_invalid_align_coords_unmapped_with_reference_positions() {
         let invalid_json = r#"{
-            "alignment_type": "unmapped",
-            "read_id": "test_read",
             "mod_table": [
                 {
-                    "base": "T",
-                    "is_strand_plus": true,
-                    "mod_code": "1000",
-                    "implicit": false,
                     "data": [[2, 3, 200]]
                 }
             ],
@@ -537,18 +531,27 @@ mod tests {
     #[should_panic(expected = "invalid sequence length")]
     fn test_invalid_sequence_length() {
         let invalid_json = r#"{
-            "alignment_type": "unmapped",
-            "read_id": "test_read",
             "mod_table": [
                 {
-                    "base": "T",
-                    "is_strand_plus": true,
-                    "mod_code": "1000",
-                    "implicit": false,
                     "data": [[20, -1, 200]]
                 }
             ],
             "seq_len": 10
+        }"#;
+
+        // Deserialize JSON to CurrRead - this should panic with InvalidSeqLength
+        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot deserialize when implicit")]
+    fn test_invalid_implicit() {
+        let invalid_json = r#"{
+            "mod_table": [
+                {
+                    "implicit": true
+                }
+            ]
         }"#;
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSeqLength
