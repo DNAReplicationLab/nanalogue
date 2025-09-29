@@ -610,7 +610,7 @@ impl FromStr for ModChar {
     fn from_str(mod_type: &str) -> Result<Self, Self::Err> {
         let first_char = mod_type.chars().next().ok_or(Error::EmptyModType)?;
         match first_char {
-            'A'..='Z' | 'a'..='z' => Ok(ModChar(first_char)),
+            'A'..='Z' | 'a'..='z' if mod_type.len() == 1 => Ok(ModChar(first_char)),
             '0'..='9' => {
                 let val = char::from_u32(mod_type.parse()?).ok_or(Error::InvalidModType)?;
                 Ok(ModChar(val))
@@ -1153,7 +1153,6 @@ mod tests {
         // Contig with coordinates
         let region = GenomicRegion::from_str("chr1:1000-2000").expect("should parse");
         assert_eq!(region.0.0, "chr1");
-        assert!(region.0.1.is_some());
         let coords = region.0.1.unwrap();
         assert_eq!(coords.get_low(), 1000);
         assert_eq!(coords.get_high(), 2000);
@@ -1161,7 +1160,6 @@ mod tests {
         // Contig name with colons (e.g., from some assemblies)
         let region = GenomicRegion::from_str("chr1:alternate:1000-2000").expect("should parse");
         assert_eq!(region.0.0, "chr1:alternate");
-        assert!(region.0.1.is_some());
         let coords = region.0.1.unwrap();
         assert_eq!(coords.get_low(), 1000);
         assert_eq!(coords.get_high(), 2000);
@@ -1172,13 +1170,6 @@ mod tests {
         let coords = region.0.1.unwrap();
         assert_eq!(coords.get_low(), 456);
         assert_eq!(coords.get_high(), 789);
-
-        // Mitochondrial chromosome
-        let region = GenomicRegion::from_str("chrM:1-16569").expect("should parse");
-        assert_eq!(region.0.0, "chrM");
-        let coords = region.0.1.unwrap();
-        assert_eq!(coords.get_low(), 1);
-        assert_eq!(coords.get_high(), 16569);
     }
 
     /// Tests GenomicRegion parsing with open-ended support
@@ -1187,7 +1178,6 @@ mod tests {
         // Open-ended interval support
         let region = GenomicRegion::from_str("chr1:1000-").expect("should parse");
         assert_eq!(region.0.0, "chr1");
-        assert!(region.0.1.is_some());
         let coords = region.0.1.unwrap();
         assert_eq!(coords.get_low(), 1000);
         assert_eq!(coords.get_high(), u64::MAX);

@@ -337,9 +337,9 @@ fn test_range_intersects() {
 #[cfg(test)]
 mod test_curr_read_align_and_mod_data {
     use super::*;
-    use nanalogue_core::{InputWindowing, ModChar, F32Bw0and1};
-    use nanalogue_core::read_utils::AlignAndModData;
     use indoc::indoc;
+    use nanalogue_core::read_utils::AlignAndModData;
+    use nanalogue_core::{F32Bw0and1, InputWindowing, ModChar};
 
     #[test]
     fn test_windowed_mod_data_restricted() -> Result<(), Error> {
@@ -394,11 +394,7 @@ mod test_curr_read_align_and_mod_data {
             F32Bw0and1::new(mean / 256.0)
         };
 
-        let result = curr_read.windowed_mod_data_restricted(
-            &window_function,
-            win_options,
-            tag
-        )?;
+        let result = curr_read.windowed_mod_data_restricted(&window_function, win_options, tag)?;
 
         let expected = vec![
             F32Bw0and1::new(160.0 / 256.0)?,
