@@ -156,4 +156,8 @@ pub enum Error {
     /// Cannot de-serialize implicit modBAM format
     #[error("cannot deserialize when implicit is set to true")]
     DeSerializeImplicit,
+
+    /// Sorting validation failure in modification data
+    #[error("invalid sorting: {0}")]
+    InvalidSorting(String),
 }

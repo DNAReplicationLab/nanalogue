@@ -742,7 +742,6 @@ impl CurrRead<OnlyAlignDataComplete> {
 }
 
 impl CurrRead<AlignAndModData> {
-
     /// gets modification data
     pub fn mod_data(&self) -> &(BaseMods, ThresholdState) {
         &self.mods
@@ -1327,6 +1326,53 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
     Ok(mod_table)
 }
 
+/// Helper function to check if starts vector is sorted correctly based on alignment type
+fn validate_starts_sorting(starts: &[Option<i64>], alignment_type: ReadState) -> Result<(), Error> {
+    // Extract non-None values for sorting validation
+    let positions: Vec<i64> = starts.iter().filter_map(|&x| x).collect();
+
+    // Skip validation for empty or single-element vectors
+    if positions.len() <= 1 {
+        return Ok(());
+    }
+
+    match alignment_type {
+        ReadState::Unmapped
+        | ReadState::PrimaryFwd
+        | ReadState::SecondaryFwd
+        | ReadState::SupplementaryFwd => {
+            // Only check ascending order
+            let is_sorted_ascending = positions.windows(2).all(|w| w[0] <= w[1]);
+            if !is_sorted_ascending {
+                let sample_positions: Vec<i64> = positions.iter().take(5).copied().collect();
+                return Err(Error::InvalidSorting(format!(
+                    "Expected ascending order for {:?}, but got first {} positions: {:?}{}",
+                    alignment_type,
+                    sample_positions.len(),
+                    sample_positions,
+                    if positions.len() > 5 { "..." } else { "" }
+                )));
+            }
+        }
+        ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
+            // Only check descending order
+            let is_sorted_descending = positions.windows(2).all(|w| w[0] >= w[1]);
+            if !is_sorted_descending {
+                let sample_positions: Vec<i64> = positions.iter().take(5).copied().collect();
+                return Err(Error::InvalidSorting(format!(
+                    "Expected descending order for {:?}, but got first {} positions: {:?}{}",
+                    alignment_type,
+                    sample_positions.len(),
+                    sample_positions,
+                    if positions.len() > 5 { "..." } else { "" }
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Reconstruct BaseMods from condensed mod_table format
 fn reconstruct_base_mods(
     mod_table: &[ModTableEntry],
@@ -1352,6 +1398,9 @@ fn reconstruct_base_mods(
             });
             qual.push(q);
         }
+
+        // Validate sorting after starts vector is populated
+        validate_starts_sorting(&starts, alignment_type)?;
 
         // Calculate ends: starts + 1 where available, None otherwise
         let ends: Vec<Option<i64>> = starts
@@ -1688,6 +1737,90 @@ mod test_serde {
         }"#;
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSeqLength
+        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid value")]
+    fn test_invalid_sequence_coordinate() {
+        let invalid_json = r#"{
+            "alignment_type": "primary_forward",
+            "alignment": {
+                "start": 0,
+                "end": 30
+            },
+            "mod_table": [
+                {
+                    "data": [[-1, 1, 200]]
+                }
+            ],
+            "seq_len": 30
+        }"#;
+
+        // Deserialize JSON to CurrRead - this should panic with InvalidSeqLength
+        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid alignment coordinates")]
+    fn test_invalid_alignment_coordinates() {
+        let invalid_json = r#"{
+            "alignment_type": "primary_forward",
+            "alignment": {
+                "start": 10,
+                "end": 25
+            },
+            "mod_table": [
+                {
+                    "data": [[0, 10, 200], [1, 20, 180], [2, 30, 220]]
+                }
+            ],
+            "seq_len": 3
+        }"#;
+
+        // Deserialize JSON to CurrRead - this should panic with InvalidAlignCoords
+        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid sorting")]
+    fn test_invalid_sorting_forward_alignment() {
+        let invalid_json = r#"{
+            "alignment_type": "primary_forward",
+            "alignment": {
+                "start": 10,
+                "end": 40
+            },
+            "mod_table": [
+                {
+                    "data": [[0, 10, 200], [2, 30, 180], [1, 20, 220]]
+                }
+            ],
+            "seq_len": 3
+        }"#;
+
+        // Deserialize JSON to CurrRead - this should panic with InvalidSorting
+        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid sorting")]
+    fn test_invalid_sorting_reverse_alignment() {
+        let invalid_json = r#"{
+            "alignment_type": "primary_reverse",
+            "alignment": {
+                "start": 10,
+                "end": 40
+            },
+            "mod_table": [
+                {
+                    "data": [[0, 10, 200], [1, 20, 180], [2, 30, 220]]
+                }
+            ],
+            "seq_len": 3
+        }"#;
+
+        // Deserialize JSON to CurrRead - this should panic with InvalidSorting
         let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
     }
 }
