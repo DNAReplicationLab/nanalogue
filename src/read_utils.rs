@@ -61,7 +61,7 @@ impl CurrReadStateOnlyAlign for OnlyAlignDataComplete {}
 
 /// Our main struct that receives and stores from one BAM record.
 /// Also has methods for processing this information.
-/// The information within the struct can only be manipulated by
+/// The information within the struct is hard to access without
 /// the methods defined here. This is to ensure the struct
 /// doesn't fall into an invalid state, which could cause mistakes
 /// in calculations associated with the struct. For example:
@@ -69,9 +69,7 @@ impl CurrReadStateOnlyAlign for OnlyAlignDataComplete {}
 /// of the raw modification data, I need a guarantee that the
 /// modification data is sorted by position. We can guarantee
 /// this when the modification data is parsed, but we cannot
-/// guarantee this if we allow free access to the struct,
-/// as a user can mess with this. To prevent these kinds
-/// of problems, all internals of this struct are private.
+/// guarantee this if we allow free access to the struct.
 /// NOTE: we could have implemented these as a trait extension
 /// to the rust htslib Record struct, but we have chosen not to,
 /// as we may want to persist data like modifications and do

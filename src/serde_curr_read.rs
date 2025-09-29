@@ -1,8 +1,6 @@
 //! Serialization and deserialization implementations for CurrRead structs.
 
-use crate::Error;
-use crate::read_utils::{AlignAndModData, CurrRead};
-use crate::utils::{ModChar, ReadState};
+use crate::{CurrRead, Error, ModChar, ReadState, read_utils::AlignAndModData};
 use fibertools_rs::utils::basemods::BaseMods;
 use serde::{Deserialize, Serialize};
 
@@ -11,16 +9,16 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct SerializedCurrRead {
     /// The type of alignment (primary, secondary, supplementary, unmapped)
-    pub alignment_type: ReadState,
+    alignment_type: ReadState,
     /// Alignment information, None for unmapped reads
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub alignment: Option<AlignmentInfo>,
+    alignment: Option<AlignmentInfo>,
     /// Condensed modification data table
-    pub mod_table: Vec<ModTableEntry>,
+    mod_table: Vec<ModTableEntry>,
     /// Read identifier
-    pub read_id: String,
+    read_id: String,
     /// Sequence length
-    pub seq_len: u64,
+    seq_len: u64,
 }
 
 impl Default for SerializedCurrRead {
@@ -40,13 +38,13 @@ impl Default for SerializedCurrRead {
 #[serde(default)]
 pub struct AlignmentInfo {
     /// Start position on reference
-    pub start: u64,
+    start: u64,
     /// End position on reference
-    pub end: u64,
+    end: u64,
     /// Contig/chromosome name
-    pub contig: String,
+    contig: String,
     /// Contig/chromosome ID
-    pub contig_id: i32,
+    contig_id: i32,
 }
 
 /// Individual modification table entry
@@ -54,15 +52,15 @@ pub struct AlignmentInfo {
 #[serde(default)]
 pub struct ModTableEntry {
     /// Base that is modified (A, C, G, T, etc.)
-    pub base: char,
+    base: char,
     /// Whether this is on the plus strand
-    pub is_strand_plus: bool,
+    is_strand_plus: bool,
     /// Modification code (character or numeric)
-    pub mod_code: ModChar,
+    mod_code: ModChar,
     /// Whether this modification data is implicit
-    pub implicit: bool,
+    implicit: bool,
     /// Modification data as [start, ref_start, qual] tuples
-    pub data: Vec<(u64, i64, u8)>,
+    data: Vec<(u64, i64, u8)>,
 }
 
 impl SerializedCurrRead {
@@ -313,40 +311,6 @@ mod tests {
     use crate::{ThresholdState, nanalogue_bam_reader};
     use indoc::indoc;
     use rust_htslib::bam::Read;
-
-    // Simple test to verify the module compiles and basic structures work
-    #[test]
-    fn test_serialized_curr_read_creation() {
-        let alignment = AlignmentInfo {
-            start: 1000,
-            end: 2000,
-            contig: "chr1".to_string(),
-            contig_id: 0,
-        };
-
-        let mod_entry = ModTableEntry {
-            base: 'A',
-            is_strand_plus: true,
-            mod_code: ModChar::new('a'),
-            implicit: false,
-            data: vec![(10, 1100, 50), (20, 1200, 75)],
-        };
-
-        let serialized = SerializedCurrRead {
-            alignment_type: ReadState::PrimaryFwd,
-            alignment: Some(alignment),
-            mod_table: vec![mod_entry],
-            read_id: "test_read".to_string(),
-            seq_len: 1000,
-        };
-
-        // Test JSON serialization
-        let json = serde_json::to_string(&serialized).expect("Serialization should work");
-
-        // Test JSON deserialization back to SerializedCurrRead
-        let _deserialized: SerializedCurrRead =
-            serde_json::from_str(&json).expect("Deserialization should work");
-    }
 
     #[test]
     fn test_first_record_serde() -> Result<(), Error> {
