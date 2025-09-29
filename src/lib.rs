@@ -39,7 +39,6 @@ pub mod analysis;
 pub mod cli;
 pub mod error;
 pub mod read_utils;
-pub mod serde_curr_read;
 pub mod subcommands;
 pub mod utils;
 
@@ -50,7 +49,6 @@ pub use cli::{
 };
 pub use error::Error;
 pub use read_utils::CurrRead;
-pub use serde_curr_read::{AlignmentInfo, ModTableEntry, SerializedCurrRead};
 pub use utils::{
     Contains, F32AbsValBelow1, F32Bw0and1, FilterByRefCoords, GenomicRegion, Intersects, ModChar,
     OrdPair, ReadState, RestrictModCalledStrand, ThresholdState,
