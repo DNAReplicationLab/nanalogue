@@ -333,3 +333,80 @@ fn test_range_intersects() {
     assert!(!(0..3).intersects(&(1..1)));
     assert!((1..3).intersects(&(0..2)));
 }
+
+#[cfg(test)]
+mod test_curr_read_align_and_mod_data {
+    use super::*;
+    use nanalogue_core::{InputWindowing, ModChar, F32Bw0and1};
+    use nanalogue_core::read_utils::AlignAndModData;
+    use indoc::indoc;
+
+    #[test]
+    fn test_windowed_mod_data_restricted() -> Result<(), Error> {
+        let input_json = indoc! {r#"
+            {
+              "alignment_type": "primary_forward",
+              "alignment": {
+                "start": 5,
+                "end": 35,
+                "contig": "chr1",
+                "contig_id": 0
+              },
+              "mod_table": [
+                {
+                  "base": "T",
+                  "is_strand_plus": true,
+                  "mod_code": "T",
+                  "implicit": false,
+                  "data": [
+                    [0, 10, 200],
+                    [1, 15, 180],
+                    [2, 20, 220],
+                    [3, 25, 190],
+                    [4, 30, 210]
+                  ]
+                },
+                {
+                  "base": "C",
+                  "is_strand_plus": true,
+                  "mod_code": "m",
+                  "implicit": false,
+                  "data": [
+                    [5, 12, 150],
+                    [6, 18, 160],
+                    [7, 28, 170],
+                    [8, 29, 180],
+                    [9, 30, 190]
+                  ]
+                }
+              ],
+              "read_id": "test_read_123",
+              "seq_len": 10
+            }"#};
+
+        let curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+        let win_options: InputWindowing = serde_json::from_str(r#"{"win": 3, "step": 2}"#)?;
+        let tag = ModChar::new('m');
+
+        let window_function = |mod_data: &[u8]| -> Result<F32Bw0and1, Error> {
+            let sum: f32 = mod_data.iter().map(|&x| x as f32).sum();
+            let mean = sum / (mod_data.len() as f32);
+            F32Bw0and1::new(mean / 256.0)
+        };
+
+        let result = curr_read.windowed_mod_data_restricted(
+            &window_function,
+            win_options,
+            tag
+        )?;
+
+        let expected = vec![
+            F32Bw0and1::new(160.0 / 256.0)?,
+            F32Bw0and1::new(180.0 / 256.0)?,
+        ];
+
+        assert_eq!(result, expected);
+
+        Ok(())
+    }
+}
