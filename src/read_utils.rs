@@ -1815,16 +1815,12 @@ mod test_filter_by_ref_coords {
               "alignment_type": "primary_forward",
               "alignment": {
                 "start": 5,
-                "end": 35,
-                "contig": "chr1",
-                "contig_id": 0
+                "end": 35
               },
               "mod_table": [
                 {
                   "base": "T",
-                  "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                     [0, 10, 200],
                     [1, 15, 180],
@@ -1845,7 +1841,6 @@ mod test_filter_by_ref_coords {
                   ]
                 }
               ],
-              "read_id": "test_read_123",
               "seq_len": 8
             }"#};
 
@@ -1855,16 +1850,12 @@ mod test_filter_by_ref_coords {
               "alignment_type": "primary_forward",
               "alignment": {
                 "start": 5,
-                "end": 35,
-                "contig": "chr1",
-                "contig_id": 0
+                "end": 35
               },
               "mod_table": [
                 {
                   "base": "T",
-                  "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                     [1, 15, 180],
                     [2, 20, 220]
@@ -1874,13 +1865,11 @@ mod test_filter_by_ref_coords {
                   "base": "C",
                   "is_strand_plus": true,
                   "mod_code": "m",
-                  "implicit": false,
                   "data": [
                     [6, 18, 160]
                   ]
                 }
               ],
-              "read_id": "test_read_123",
               "seq_len": 8
             }"#};
 
@@ -1902,16 +1891,12 @@ mod test_filter_by_ref_coords {
               "alignment_type": "primary_forward",
               "alignment": {
                 "start": 10,
-                "end": 30,
-                "contig": "chr1",
-                "contig_id": 0
+                "end": 30
               },
               "mod_table": [
                 {
                   "base": "T",
-                  "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                     [0, 15, 200],
                     [1, 20, 180],
@@ -1919,7 +1904,6 @@ mod test_filter_by_ref_coords {
                   ]
                 }
               ],
-              "read_id": "test_read_456",
               "seq_len": 3
             }"#};
 
@@ -1929,21 +1913,16 @@ mod test_filter_by_ref_coords {
               "alignment_type": "primary_forward",
               "alignment": {
                 "start": 10,
-                "end": 30,
-                "contig": "chr1",
-                "contig_id": 0
+                "end": 30
               },
               "mod_table": [
                 {
                   "base": "T",
-                  "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                   ]
                 }
               ],
-              "read_id": "test_read_456",
               "seq_len": 3
             }"#};
 
@@ -1965,16 +1944,12 @@ mod test_filter_by_ref_coords {
               "alignment_type": "primary_forward",
               "alignment": {
                 "start": 10,
-                "end": 30,
-                "contig": "chr1",
-                "contig_id": 0
+                "end": 30
               },
               "mod_table": [
                 {
                   "base": "T",
-                  "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                     [0, 15, 200],
                     [1, 20, 180],
@@ -1982,7 +1957,6 @@ mod test_filter_by_ref_coords {
                   ]
                 }
               ],
-              "read_id": "test_read_456",
               "seq_len": 3
             }"#};
 
@@ -1992,20 +1966,15 @@ mod test_filter_by_ref_coords {
               "alignment_type": "primary_forward",
               "alignment": {
                 "start": 10,
-                "end": 30,
-                "contig": "chr1",
-                "contig_id": 0
+                "end": 30
               },
               "mod_table": [
                 {
                   "base": "T",
-                  "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": []
                 }
               ],
-              "read_id": "test_read_456",
               "seq_len": 3
             }"#};
 
@@ -2027,16 +1996,12 @@ mod test_filter_by_ref_coords {
               "alignment_type": "primary_forward",
               "alignment": {
                 "start": 10,
-                "end": 40,
-                "contig": "chr1",
-                "contig_id": 0
+                "end": 40
               },
               "mod_table": [
                 {
                   "base": "T",
-                  "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                     [0, 10, 200],
                     [1, 15, 180],
@@ -2047,7 +2012,6 @@ mod test_filter_by_ref_coords {
                   ]
                 }
               ],
-              "read_id": "test_read_789",
               "seq_len": 6
             }"#};
 
@@ -2057,23 +2021,18 @@ mod test_filter_by_ref_coords {
               "alignment_type": "primary_forward",
               "alignment": {
                 "start": 10,
-                "end": 40,
-                "contig": "chr1",
-                "contig_id": 0
+                "end": 40
               },
               "mod_table": [
                 {
                   "base": "T",
-                  "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                     [2, 20, 220],
                     [3, 25, 190]
                   ]
                 }
               ],
-              "read_id": "test_read_789",
               "seq_len": 6
             }"#};
 
@@ -2095,16 +2054,12 @@ mod test_filter_by_ref_coords {
               "alignment_type": "primary_reverse",
               "alignment": {
                 "start": 10,
-                "end": 40,
-                "contig": "chr1",
-                "contig_id": 0
+                "end": 40
               },
               "mod_table": [
                 {
                   "base": "T",
-                  "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                     [0, 15, 170],
                     [1, 20, 210],
@@ -2114,7 +2069,6 @@ mod test_filter_by_ref_coords {
                   ]
                 }
               ],
-              "read_id": "test_read_rev",
               "seq_len": 5
             }"#};
 
@@ -2124,23 +2078,18 @@ mod test_filter_by_ref_coords {
               "alignment_type": "primary_reverse",
               "alignment": {
                 "start": 10,
-                "end": 40,
-                "contig": "chr1",
-                "contig_id": 0
+                "end": 40
               },
               "mod_table": [
                 {
                   "base": "T",
-                  "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                     [1, 20, 210],
                     [2, 25, 190]
                   ]
                 }
               ],
-              "read_id": "test_read_rev",
               "seq_len": 5
             }"#};
 
