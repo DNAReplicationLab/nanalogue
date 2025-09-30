@@ -20,9 +20,9 @@ impl FilterByRefCoords for Ranges {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
     fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
-        let (start_idx, end_idx) = {
-            let mut start_idx = 0;
-            let mut end_idx = 0;
+        let (last_invalid_win, last_valid_win) = {
+            let mut last_invalid_window = 0;
+            let mut last_valid_window = 0;
             let mut previous_start = Some(0);
             let mut previous_end = Some(0);
             for k in self
@@ -42,18 +42,15 @@ impl FilterByRefCoords for Ranges {
                     assert!((*k.1.1).is_none() || (*k.1.1) >= previous_end);
                 }
                 if (*k.1.0).is_some_and(|x| x < start) && (*k.1.1).is_some_and(|x| x <= start) {
-                    start_idx = k.0;
+                    last_invalid_window = k.0;
                 }
                 if (*k.1.0).is_some_and(|x| x < end) {
-                    end_idx = k.0;
+                    last_valid_window = k.0;
                 }
                 previous_start = *(k.1.0);
                 previous_end = *(k.1.1);
             }
-            start_idx += 1;
-            end_idx += 1;
-            // Retain data in the interval [start_idx, end_idx)
-            (start_idx, end_idx)
+            (last_invalid_window, last_valid_window)
         };
 
         for k in [
@@ -64,11 +61,15 @@ impl FilterByRefCoords for Ranges {
             &mut self.reference_ends,
             &mut self.reference_lengths,
         ] {
-            k.extract_if(end_idx.., |_| true).for_each(drop);
-            k.extract_if(0..start_idx, |_| true).for_each(drop);
+            k.extract_if(last_valid_win + 1.., |_| true).for_each(drop);
+            k.extract_if(0..=last_invalid_win, |_| true).for_each(drop);
         }
-        self.qual.extract_if(end_idx.., |_| true).for_each(drop);
-        self.qual.extract_if(0..start_idx, |_| true).for_each(drop);
+        self.qual
+            .extract_if(last_valid_win + 1.., |_| true)
+            .for_each(drop);
+        self.qual
+            .extract_if(0..=last_invalid_win, |_| true)
+            .for_each(drop);
     }
 }
 
