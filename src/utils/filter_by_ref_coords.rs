@@ -1,11 +1,211 @@
 //! FilterByRefCoords trait for filtering by coordinates on the reference genome
 //! Provides interface for coordinate-based filtering operations
 
+use fibertools_rs::utils::bamranges::Ranges;
+
 /// Implements filter by coordinates on the reference genome.
 pub trait FilterByRefCoords {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
     fn filter_by_ref_pos(&mut self, _: i64, _: i64) {
         todo!()
+    }
+}
+
+/// Implements filter by reference coordinates for the Ranges
+/// struct that contains our modification information.
+/// NOTE: Ranges does not contain contig information, so we cannot
+/// filter by that here.
+impl FilterByRefCoords for Ranges {
+    /// filters by reference position i.e. all pos such that start <= pos < end
+    /// are retained. does not use contig in filtering.
+    fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
+        let (start_idx, end_idx) = {
+            let mut start_idx = 0;
+            let mut end_idx = 0;
+            let mut previous_start = Some(0);
+            let mut previous_end = Some(0);
+            for k in self
+                .reference_starts
+                .iter()
+                .zip(self.reference_ends.iter())
+                .enumerate()
+            {
+                // ensure start <= end for each interval and intervals are sorted.
+                assert!(((*k.1.0).is_none() || (*k.1.1).is_none()) || *(k.1.0) <= *(k.1.1));
+                if previous_start.is_some() {
+                    assert!((*k.1.0).is_none() || (*k.1.0) > previous_start);
+                    assert!((*k.1.1).is_none() || (*k.1.1) > previous_start);
+                }
+                if previous_end.is_some() {
+                    assert!((*k.1.0).is_none() || (*k.1.0) >= previous_end);
+                    assert!((*k.1.1).is_none() || (*k.1.1) >= previous_end);
+                }
+                if (*k.1.0).is_some_and(|x| x < start) && (*k.1.1).is_some_and(|x| x <= start) {
+                    start_idx = k.0;
+                }
+                if (*k.1.0).is_some_and(|x| x < end) {
+                    end_idx = k.0;
+                }
+                previous_start = *(k.1.0);
+                previous_end = *(k.1.1);
+            }
+            start_idx += 1;
+            end_idx += 1;
+            // Retain data in the interval [start_idx, end_idx)
+            (start_idx, end_idx)
+        };
+
+        for k in [
+            &mut self.starts,
+            &mut self.ends,
+            &mut self.lengths,
+            &mut self.reference_starts,
+            &mut self.reference_ends,
+            &mut self.reference_lengths,
+        ] {
+            k.extract_if(end_idx.., |_| true).for_each(drop);
+            k.extract_if(0..start_idx, |_| true).for_each(drop);
+        }
+        self.qual.extract_if(end_idx.., |_| true).for_each(drop);
+        self.qual.extract_if(0..start_idx, |_| true).for_each(drop);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_direct_ranges_filter_by_ref_pos() {
+        // Create a Ranges object with multiple ranges
+        // All vectors have the same length as required
+        let mut ranges = Ranges {
+            // Each entry represents a genomic range with different properties
+            starts: vec![Some(10), Some(20), Some(30), Some(40)],
+            ends: vec![Some(15), Some(25), Some(35), Some(45)],
+            lengths: vec![Some(5), Some(5), Some(5), Some(5)],
+            qual: vec![100, 120, 140, 160],
+            reference_starts: vec![Some(10), Some(20), Some(30), Some(40)],
+            reference_ends: vec![Some(15), Some(25), Some(35), Some(45)],
+            reference_lengths: vec![Some(5), Some(5), Some(5), Some(5)],
+            seq_len: 50,
+            reverse: false,
+        };
+
+        // Filter ranges to keep only those overlapping with reference region 18-32
+        ranges.filter_by_ref_pos(18, 32);
+
+        // Verify that only the ranges that overlap with [18, 32) are kept
+        // Should keep ranges [20-25] and [30-35] (indexes 1 and 2)
+        assert_eq!(ranges.starts.len(), 2);
+        assert_eq!(ranges.ends.len(), 2);
+        assert_eq!(ranges.lengths.len(), 2);
+        assert_eq!(ranges.qual.len(), 2);
+        assert_eq!(ranges.reference_starts.len(), 2);
+        assert_eq!(ranges.reference_ends.len(), 2);
+        assert_eq!(ranges.reference_lengths.len(), 2);
+
+        // Check the specific values were retained correctly
+        assert_eq!(ranges.starts, vec![Some(20), Some(30)]);
+        assert_eq!(ranges.ends, vec![Some(25), Some(35)]);
+        assert_eq!(ranges.reference_starts, vec![Some(20), Some(30)]);
+        assert_eq!(ranges.reference_ends, vec![Some(25), Some(35)]);
+        assert_eq!(ranges.qual, vec![120, 140]);
+
+        // Verify seq_len and reverse flag are preserved
+        assert_eq!(ranges.seq_len, 50);
+        assert_eq!(ranges.reverse, false);
+    }
+
+    #[test]
+    fn test_ranges_filter_by_ref_pos_no_overlap() {
+        // Create a Ranges object with ranges that don't overlap the target region
+        let mut ranges = Ranges {
+            starts: vec![Some(10), Some(20), Some(60), Some(70)],
+            ends: vec![Some(15), Some(25), Some(65), Some(75)],
+            lengths: vec![Some(5), Some(5), Some(5), Some(5)],
+            qual: vec![100, 120, 140, 160],
+            reference_starts: vec![Some(10), Some(20), Some(60), Some(70)],
+            reference_ends: vec![Some(15), Some(25), Some(65), Some(75)],
+            reference_lengths: vec![Some(5), Some(5), Some(5), Some(5)],
+            seq_len: 80,
+            reverse: true,
+        };
+
+        // Filter ranges for region [30, 50) - none should match
+        ranges.filter_by_ref_pos(30, 50);
+
+        // Verify that all ranges were filtered out
+        assert_eq!(ranges.starts.len(), 0);
+        assert_eq!(ranges.ends.len(), 0);
+        assert_eq!(ranges.lengths.len(), 0);
+        assert_eq!(ranges.qual.len(), 0);
+        assert_eq!(ranges.reference_starts.len(), 0);
+        assert_eq!(ranges.reference_ends.len(), 0);
+        assert_eq!(ranges.reference_lengths.len(), 0);
+
+        // Verify metadata is preserved
+        assert_eq!(ranges.seq_len, 80);
+        assert_eq!(ranges.reverse, true);
+    }
+
+    #[test]
+    fn test_ranges_filter_by_ref_pos_with_none_values() {
+        // Create a Ranges object with some None values
+        let mut ranges = Ranges {
+            starts: vec![Some(10), Some(20), None, Some(40)],
+            ends: vec![Some(15), Some(25), None, Some(45)],
+            lengths: vec![Some(5), Some(5), None, Some(5)],
+            qual: vec![100, 120, 140, 160],
+            reference_starts: vec![Some(10), Some(20), None, Some(40)],
+            reference_ends: vec![Some(15), Some(25), None, Some(45)],
+            reference_lengths: vec![Some(5), Some(5), None, Some(5)],
+            seq_len: 50,
+            reverse: false,
+        };
+
+        // Filter ranges to keep only those overlapping with reference region 18-22
+        // Only the range at index 1 should be kept
+        ranges.filter_by_ref_pos(18, 22);
+
+        // Verify that only the range that overlaps with [18, 22) is kept
+        assert_eq!(ranges.starts.len(), 1);
+        assert_eq!(ranges.reference_starts, vec![Some(20)]);
+        assert_eq!(ranges.reference_ends, vec![Some(25)]);
+        assert_eq!(ranges.qual, vec![120]);
+
+        // Verify metadata is preserved
+        assert_eq!(ranges.seq_len, 50);
+        assert_eq!(ranges.reverse, false);
+    }
+
+    #[test]
+    fn test_ranges_filter_by_ref_pos_with_none_values_2() {
+        // Create a Ranges object with some None values
+        let mut ranges = Ranges {
+            starts: vec![Some(10), Some(20), None, Some(21), Some(40)],
+            ends: vec![Some(15), Some(21), None, Some(22), Some(45)],
+            lengths: vec![Some(5), Some(1), None, Some(1), Some(5)],
+            qual: vec![100, 120, 140, 150, 160],
+            reference_starts: vec![Some(10), Some(20), None, Some(21), Some(40)],
+            reference_ends: vec![Some(15), Some(21), None, Some(22), Some(45)],
+            reference_lengths: vec![Some(5), Some(1), None, Some(1), Some(5)],
+            seq_len: 50,
+            reverse: true,
+        };
+
+        // Filter ranges to keep only those overlapping with reference region 18-22
+        ranges.filter_by_ref_pos(18, 22);
+
+        // Verify that only the ranges that overlaps with [18, 22) are kept
+        assert_eq!(ranges.starts.len(), 3);
+        assert_eq!(ranges.reference_starts, vec![Some(20), None, Some(21)]);
+        assert_eq!(ranges.reference_ends, vec![Some(21), None, Some(22)]);
+        assert_eq!(ranges.qual, vec![120, 140, 150]);
+
+        // Verify metadata is preserved
+        assert_eq!(ranges.seq_len, 50);
+        assert_eq!(ranges.reverse, true);
     }
 }
