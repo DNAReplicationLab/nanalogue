@@ -10,6 +10,7 @@ pub mod intersects;
 pub mod mod_char;
 pub mod ord_pair;
 pub mod read_state;
+pub mod read_states;
 pub mod restrict_mod_called_strand;
 pub mod threshold_state;
 
@@ -23,5 +24,6 @@ pub use intersects::*;
 pub use mod_char::*;
 pub use ord_pair::*;
 pub use read_state::*;
+pub use read_states::*;
 pub use restrict_mod_called_strand::*;
 pub use threshold_state::*;

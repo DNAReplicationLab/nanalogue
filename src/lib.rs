@@ -27,12 +27,10 @@ use fibertools_rs::utils::bio_io::{convert_seq_uppercase, get_u8_tag};
 use lazy_static::lazy_static;
 use regex::Regex;
 use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions, bam::record::Aux, tpool};
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::str::FromStr;
 
 // Declare the modules.
 pub mod analysis;
@@ -51,7 +49,7 @@ pub use error::Error;
 pub use read_utils::CurrRead;
 pub use utils::{
     Contains, F32AbsValBelow1, F32Bw0and1, FilterByRefCoords, GenomicRegion, Intersects, ModChar,
-    OrdPair, ReadState, RestrictModCalledStrand, ThresholdState,
+    OrdPair, ReadState, ReadStates, RestrictModCalledStrand, ThresholdState,
 };
 
 /// Extracts mod information from BAM record to the Fibertools-rs BaseMods Struct.
@@ -346,50 +344,6 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
     }
 }
 
-/// Implements a collection-of-states of ReadState
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReadStates(Vec<u16>);
-
-impl FromStr for ReadStates {
-    type Err = Error;
-
-    /// converts a comma-separated list of read states to ReadStates
-    ///
-    /// ```
-    /// use nanalogue_core::{Error, ReadStates};
-    /// use std::str::FromStr;
-    /// let mut op = ReadStates::from_str("primary_forward")?;
-    /// assert_eq!(op.bam_flags(), &[0]);
-    /// let mut op = ReadStates::from_str("unmapped,secondary_reverse,supplementary_reverse")?;
-    /// assert_eq!(op.bam_flags(), &[4, 256 + 16, 2048 + 16]);
-    /// op = ReadStates::from_str("primary_reverse")?;
-    /// assert_eq!(op.bam_flags(), &[16]);
-    /// op = ReadStates::from_str("primary_reverse,primary_forward")?;
-    /// assert_eq!(op.bam_flags(), &[16, 0]);
-    /// # Ok::<(), Error>(())
-    /// ```
-    ///
-    /// ```should_panic
-    /// use nanalogue_core::{Error, ReadStates};
-    /// use std::str::FromStr;
-    /// let mut op = ReadStates::from_str("random")?;
-    /// # Ok::<(), Error>(())
-    /// ```
-    fn from_str(s: &str) -> Result<ReadStates, Self::Err> {
-        let mut states = Vec::<u16>::new();
-        for part in s.split(",") {
-            states.push(u16::try_from(ReadState::from_str(part)?)?);
-        }
-        Ok(ReadStates(states))
-    }
-}
-
-impl ReadStates {
-    /// Returns the flags contained within
-    pub fn bam_flags(&self) -> &Vec<u16> {
-        &self.0
-    }
-}
 
 /// Trait that performs filtration
 pub trait BamPreFilt {
@@ -1159,6 +1113,7 @@ mod bam_rc_record_tests {
 #[cfg(test)]
 mod read_states_tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn test_read_states() -> Result<(), Error> {
