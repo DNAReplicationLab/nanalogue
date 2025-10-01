@@ -46,7 +46,7 @@ impl FromStr for GenomicRegion {
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
         let mut colon_split: Vec<&str> = val_str.split(":").collect();
         match colon_split.len() {
-            0 => Err(Error::InvalidAlignCoords),
+            0 => unreachable!(),
             1 => Ok(GenomicRegion((val_str.to_string(), None))),
             _ => {
                 let interval_str = colon_split.pop().ok_or(Error::UnknownError)?;
@@ -105,6 +105,9 @@ impl GenomicRegion {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_htslib::bam;
+    use indoc::indoc;
+    use bedrs::Coordinates;
 
     /// Tests comprehensive GenomicRegion parsing
     #[test]
@@ -188,5 +191,90 @@ mod tests {
         let region = GenomicRegion::from_str("chrX").expect("should parse");
         assert_eq!(region.0.0, "chrX");
         assert!(region.0.1.is_none());
+    }
+
+    /// Creates a sample BAM header for testing
+    fn create_test_header() -> bam::HeaderView {
+        bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
+            @SQ\tSN:chr1\tLN:248956422
+            @SQ\tSN:chr2\tLN:242193529
+            @SQ\tSN:chrX\tLN:156040895
+            @PG\tID:test\tPN:test"
+        }.as_ref())
+    }
+
+    /// Tests basic region conversion to BED3 format with chromosome and coordinates
+    #[test]
+    fn test_try_to_bed3_basic_region() {
+        // Create test header
+        let header = create_test_header();
+
+        // Test region with coordinates
+        let region = GenomicRegion::from_str("chr1:1000-2000").expect("should parse");
+        let bed3 = region.try_to_bed3(header).expect("should convert to bed3");
+
+        // Verify the BED3 record
+        assert_eq!(*bed3.chr(), 0); // chr1 should be the first chromosome (index 0)
+        assert_eq!(bed3.start(), 1000);
+        assert_eq!(bed3.end(), 2000);
+    }
+
+    /// Tests conversion of a region with no coordinates to BED3 format
+    #[test]
+    fn test_try_to_bed3_no_coordinates() {
+        // Create test header
+        let header = create_test_header();
+
+        // Test region without coordinates (should use full chromosome)
+        let region = GenomicRegion::from_str("chr2").expect("should parse");
+        let bed3 = region.try_to_bed3(header).expect("should convert to bed3");
+
+        // Verify the BED3 record
+        assert_eq!(*bed3.chr(), 1); // chr2 should be the second chromosome (index 1)
+        assert_eq!(bed3.start(), u64::MIN);
+        assert_eq!(bed3.end(), u64::MAX);
+    }
+
+    /// Tests error case when start position exceeds contig length
+    #[test]
+    #[should_panic(expected = "InvalidRegionError")]
+    fn test_try_to_bed3_start_exceeds_contig_length() {
+        let header = create_test_header();
+
+        // Create a region with start position > contig length for chr1
+        let region = GenomicRegion::from_str("chr1:300000000-400000000").expect("should parse");
+
+        // This should panic with InvalidRegionError
+        let _ = region.try_to_bed3(header).unwrap();
+    }
+
+    /// Tests error case when contig doesn't exist in the header
+    #[test]
+    #[should_panic(expected = "InvalidAlignCoords")]
+    fn test_try_to_bed3_nonexistent_contig() {
+        let header = create_test_header();
+
+        // Create a region with a contig that doesn't exist in the header
+        let region = GenomicRegion::from_str("nonexistent_contig:1000-2000").expect("should parse");
+
+        // This should panic with InvalidAlignCoords error
+        let _ = region.try_to_bed3(header).unwrap();
+    }
+
+    /// Tests conversion of an open-ended region to BED3 format
+    #[test]
+    fn test_try_to_bed3_open_ended() {
+        let header = create_test_header();
+
+        // Create an open-ended region
+        let region = GenomicRegion::from_str("chr1:1000-").expect("should parse");
+
+        // Convert to BED3
+        let bed3 = region.try_to_bed3(header).expect("should convert to bed3");
+
+        // Verify the BED3 record
+        assert_eq!(*bed3.chr(), 0);
+        assert_eq!(bed3.start(), 1000);
+        assert_eq!(bed3.end(), u64::MAX);
     }
 }
