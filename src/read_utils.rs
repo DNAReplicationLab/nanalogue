@@ -759,46 +759,27 @@ impl CurrRead<AlignAndModData> {
         let win_size: usize = win_options.win.get().try_into()?;
         let slide_size: usize = win_options.step.get().try_into()?;
         let mut result = Vec::<F32Bw0and1>::new();
-        let mut plus_mod_strand_seen = false;
-        let mut minus_mod_strand_seen = false;
         let tag_char = tag.val();
         let (BaseMods { base_mods: v }, _) = &self.mods;
+
+        // we make a few assumptions below:
+        // * data is sorted by coordinate along sequence
+        // * illegal types like strand not '+' or '-', or multiple entries
+        //   corresponding to the same modification strand combination
+        //   e.g. C+m occuring twice.
+        // we control data flow into CurrRead, checking these do not happen
+        // during ingress. To be future-proof etc., we should check these things
+        // here but we do not as there is no way right now to test error checking
+        // as there is no way to make CurrRead fall into these illegal states.
         for k in v {
             match k {
                 BaseMod {
                     modified_base: _,
-                    strand: '+',
-                    record_is_reverse: _,
-                    modification_type: x,
-                    ranges: _,
-                } if *x == tag_char && plus_mod_strand_seen => {
-                    return Err(Error::InvalidDuplicates(
-                        "mod type has multiple plus tracks!".to_string(),
-                    ));
-                }
-                BaseMod {
-                    modified_base: _,
-                    strand: '-',
-                    record_is_reverse: _,
-                    modification_type: x,
-                    ranges: _,
-                } if *x == tag_char && minus_mod_strand_seen => {
-                    return Err(Error::InvalidDuplicates(
-                        "mod type has multiple minus tracks!".to_string(),
-                    ));
-                }
-                BaseMod {
-                    modified_base: _,
-                    strand: s,
+                    strand: _,
                     record_is_reverse: _,
                     modification_type: x,
                     ranges: track,
                 } if *x == tag_char => {
-                    match s {
-                        '+' => plus_mod_strand_seen = true,
-                        '-' => minus_mod_strand_seen = true,
-                        _ => return Err(Error::InvalidModType),
-                    }
                     let mod_data = &track.qual;
                     if win_size > mod_data.len() {
                         continue;
