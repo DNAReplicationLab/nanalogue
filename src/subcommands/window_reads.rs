@@ -116,8 +116,14 @@ mod tests {
     use rust_htslib::bam::{self, Read};
     use std::rc::Rc;
 
-    #[test]
-    fn test_window_reads_example_1() -> Result<(), Error> {
+    /// Helper function to run window_reads tests with threshold_and_mean_and_thres_win
+    ///
+    /// This function encapsulates the common test setup and execution logic for window_reads tests
+    /// that use a threshold value for filtering.
+    fn run_window_reads_test_with_threshold(
+        threshold: Option<f32>,
+        expected_output_file: &str
+    ) -> Result<(), Error> {
         // Set input, output, options
         let mut output = Vec::new();
         let mut bam_reader = bam::Reader::from_path("./examples/example_1.bam")?;
@@ -126,64 +132,52 @@ mod tests {
             serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
         let mods = InputMods::default();
 
-        // Run the window_reads function
-        assert!(run(&mut output, bam_records, window_options, mods, |x| {
-            threshold_and_mean(x).map(|y| y.into())
-        },)?);
+        // Run the window_reads function with appropriate function based on threshold
+        match threshold {
+            None => {
+                // Use threshold_and_mean when no threshold is specified
+                assert!(run(&mut output, bam_records, window_options, mods, |x| {
+                    threshold_and_mean(x).map(|y| y.into())
+                },)?);
+            }
+            Some(thres_val) => {
+                // Use threshold_and_mean_and_thres_win with specified threshold
+                let threshold = F32Bw0and1::new(thres_val).unwrap();
+                assert!(run(&mut output, bam_records, window_options, mods, |x| {
+                    threshold_and_mean_and_thres_win(x, threshold).map(|y| y.into())
+                },)?);
+            }
+        }
 
         // Perform comparison
         let output_str = String::from_utf8(output)?;
-        let expected_output = std::fs::read_to_string("./examples/example_1_window_reads")?;
+        let expected_output = std::fs::read_to_string(expected_output_file)?;
         assert_eq!(output_str, expected_output);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_window_reads_example_1() -> Result<(), Error> {
+        run_window_reads_test_with_threshold(
+            None,
+            "./examples/example_1_window_reads"
+        )
     }
 
     #[test]
     fn test_window_reads_example_1_gt_0pt4() -> Result<(), Error> {
-        // Set input, output, options
-        let mut output = Vec::new();
-        let mut bam_reader = bam::Reader::from_path("./examples/example_1.bam")?;
-        let bam_records = bam_reader.records().map(|r| r.map(Rc::new));
-        let window_options: InputWindowing =
-            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
-        let mods = InputMods::default();
-        let threshold = F32Bw0and1::new(0.4).unwrap();
-
-        // Run the window_reads function with threshold_and_mean_and_thres_win using 0.4 threshold
-        assert!(run(&mut output, bam_records, window_options, mods, |x| {
-            threshold_and_mean_and_thres_win(x, threshold).map(|y| y.into())
-        },)?);
-
-        // Perform comparison
-        let output_str = String::from_utf8(output)?;
-        let expected_output = std::fs::read_to_string("./examples/example_1_window_reads_gt_0pt4")?;
-        assert_eq!(output_str, expected_output);
-
-        Ok(())
+        run_window_reads_test_with_threshold(
+            Some(0.4),
+            "./examples/example_1_window_reads_gt_0pt4"
+        )
     }
 
     #[test]
     fn test_window_reads_example_1_gt_0pt8() -> Result<(), Error> {
-        // Set input, output, options
-        let mut output = Vec::new();
-        let mut bam_reader = bam::Reader::from_path("./examples/example_1.bam")?;
-        let bam_records = bam_reader.records().map(|r| r.map(Rc::new));
-        let window_options: InputWindowing =
-            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
-        let mods = InputMods::default();
-        let threshold = F32Bw0and1::new(0.8).unwrap();
-
-        // Run the window_reads function with threshold_and_mean_and_thres_win using 0.8 threshold
-        assert!(run(&mut output, bam_records, window_options, mods, |x| {
-            threshold_and_mean_and_thres_win(x, threshold).map(|y| y.into())
-        },)?);
-
-        // Perform comparison
-        let output_str = String::from_utf8(output)?;
-        let expected_output = std::fs::read_to_string("./examples/example_1_window_reads_gt_0pt8")?;
-        assert_eq!(output_str, expected_output);
-
-        Ok(())
+        run_window_reads_test_with_threshold(
+            Some(0.8),
+            "./examples/example_1_window_reads_gt_0pt8"
+        )
     }
 }
