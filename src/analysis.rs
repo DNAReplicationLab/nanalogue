@@ -72,6 +72,43 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValBelow1, Error>
     F32AbsValBelow1::new(numerator / denominator)
 }
 
+/// Threshold, calculate mean modification density per window, and check against threshold
+///
+/// This function calculates the mean modification density and returns an error if the
+/// mean is below the provided threshold value.
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::analysis::threshold_and_mean_and_thres_win;
+/// use nanalogue_core::F32Bw0and1;
+///
+/// // Create a threshold of 0.5 (50% of bases must be modified)
+/// let threshold = F32Bw0and1::new(0.5).unwrap();
+///
+/// // Test with 75% modified bases (values >= 128)
+/// let mod_data = [0, 128, 200, 255];
+/// let result = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
+/// assert_eq!(result.val(), 0.75);
+///
+/// // Test with 25% modified bases (should return WindowDensBelowThres error)
+/// let mod_data = [0, 0, 0, 128];
+/// let result = threshold_and_mean_and_thres_win(&mod_data, threshold);
+/// assert!(result.is_err());
+/// ```
+pub fn threshold_and_mean_and_thres_win(mod_list: &[u8], threshold: F32Bw0and1) -> Result<F32Bw0and1, Error> {
+    let density = threshold_and_mean(mod_list)?;
+
+    if density.val() < threshold.val() {
+        Err(Error::WindowDensBelowThres {
+            density,
+            threshold,
+        })
+    } else {
+        Ok(density)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,5 +150,34 @@ mod tests {
         let mod_data = [128, 0, 128, 0];
         let result = threshold_and_gradient(&mod_data).unwrap();
         assert_eq!(result.val(), -0.2);
+    }
+
+    #[test]
+    fn test_threshold_and_mean_and_thres_win_above_threshold() {
+        // Test with density above threshold
+        let mod_data = [0, 128, 200, 255];
+        let threshold = F32Bw0and1::new(0.5).unwrap();
+        let result = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
+        assert_eq!(result.val(), 0.75);
+    }
+
+    #[test]
+    fn test_threshold_and_mean_and_thres_win_equal_threshold() {
+        // Test with density equal to threshold
+        let mod_data = [0, 0, 128, 128];
+        let threshold = F32Bw0and1::new(0.5).unwrap();
+        let result = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
+        assert_eq!(result.val(), 0.5);
+    }
+
+    #[test]
+    #[should_panic(expected = "WindowDensBelowThres")]
+    fn test_threshold_and_mean_and_thres_win_below_threshold() {
+        // Test with density below threshold
+        let mod_data = [0, 0, 0, 128];
+        let threshold = F32Bw0and1::new(0.5).unwrap();
+
+        // This should panic with a WindowDensBelowThres error
+        let _ = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
     }
 }

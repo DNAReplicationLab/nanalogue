@@ -17,6 +17,7 @@ use std::num::{ParseFloatError, ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
+use crate::F32Bw0and1;
 
 /// Enum that covers errors in our module.
 #[derive(Debug, Error)]
@@ -160,4 +161,13 @@ pub enum Error {
     /// Sorting validation failure in modification data
     #[error("invalid sorting: {0}")]
     InvalidSorting(String),
+
+    /// Window density is below threshold
+    #[error("window density {density} below threshold {threshold}")]
+    WindowDensBelowThres {
+        /// The density value that was below threshold
+        density: F32Bw0and1,
+        /// The threshold value
+        threshold: F32Bw0and1,
+    },
 }

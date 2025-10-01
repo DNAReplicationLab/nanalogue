@@ -63,6 +63,9 @@ where
                     let Ok(win_val) = window_function(&mod_data[window_idx..window_end_idx]) else {
                         continue;
                     };
+                    // there is no way to trigger the errors below as we control how CurrRead is
+                    // populated quite strictly. Nevertheless, I am leaving these in for
+                    // future-proofing.
                     let win_start = starts[window_idx].ok_or_else(|| {
                         Error::InvalidState("Missing sequence start position".to_string())
                     })?;
@@ -108,7 +111,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::analysis::threshold_and_mean;
+    use crate::analysis::{threshold_and_mean, threshold_and_mean_and_thres_win};
+    use crate::F32Bw0and1;
     use rust_htslib::bam::{self, Read};
     use std::rc::Rc;
 
@@ -130,6 +134,54 @@ mod tests {
         // Perform comparison
         let output_str = String::from_utf8(output)?;
         let expected_output = std::fs::read_to_string("./examples/example_1_window_reads")?;
+        assert_eq!(output_str, expected_output);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_window_reads_example_1_gt_0pt4() -> Result<(), Error> {
+        // Set input, output, options
+        let mut output = Vec::new();
+        let mut bam_reader = bam::Reader::from_path("./examples/example_1.bam")?;
+        let bam_records = bam_reader.records().map(|r| r.map(Rc::new));
+        let window_options: InputWindowing =
+            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+        let mods = InputMods::default();
+        let threshold = F32Bw0and1::new(0.4).unwrap();
+
+        // Run the window_reads function with threshold_and_mean_and_thres_win using 0.4 threshold
+        assert!(run(&mut output, bam_records, window_options, mods, |x| {
+            threshold_and_mean_and_thres_win(x, threshold).map(|y| y.into())
+        },)?);
+
+        // Perform comparison
+        let output_str = String::from_utf8(output)?;
+        let expected_output = std::fs::read_to_string("./examples/example_1_window_reads_gt_0pt4")?;
+        assert_eq!(output_str, expected_output);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_window_reads_example_1_gt_0pt8() -> Result<(), Error> {
+        // Set input, output, options
+        let mut output = Vec::new();
+        let mut bam_reader = bam::Reader::from_path("./examples/example_1.bam")?;
+        let bam_records = bam_reader.records().map(|r| r.map(Rc::new));
+        let window_options: InputWindowing =
+            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+        let mods = InputMods::default();
+        let threshold = F32Bw0and1::new(0.8).unwrap();
+
+        // Run the window_reads function with threshold_and_mean_and_thres_win using 0.8 threshold
+        assert!(run(&mut output, bam_records, window_options, mods, |x| {
+            threshold_and_mean_and_thres_win(x, threshold).map(|y| y.into())
+        },)?);
+
+        // Perform comparison
+        let output_str = String::from_utf8(output)?;
+        let expected_output = std::fs::read_to_string("./examples/example_1_window_reads_gt_0pt8")?;
         assert_eq!(output_str, expected_output);
 
         Ok(())
