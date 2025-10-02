@@ -507,5 +507,4 @@ mod tests {
     fn verify_cli() {
         Cli::command().debug_assert();
     }
-
 }

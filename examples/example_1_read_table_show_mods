@@ -1,0 +1,5 @@
+# mod counts using probability threshold of 0.5
+read_id	align_length	sequence_length_template	alignment_type	mod_count
+a4f36092-b4d5-47a9-813e-c22c3b477a0c	48, 0	48	primary_forward, unmapped	T:3, T:3;7200:0
+fffffff1-10d2-49cb-8ca3-e8d48979001b	33	33	primary_reverse	T:1
+5d10eb9a-aae1-4db8-8ec6-7ebb34d32575	8	8	primary_forward	T:0
