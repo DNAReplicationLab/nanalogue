@@ -111,8 +111,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::analysis::{threshold_and_mean, threshold_and_mean_and_thres_win};
     use crate::F32Bw0and1;
+    use crate::analysis::{threshold_and_mean, threshold_and_mean_and_thres_win};
     use rust_htslib::bam::{self, Read};
     use std::rc::Rc;
 
@@ -122,7 +122,7 @@ mod tests {
     /// that use a threshold value for filtering.
     fn run_window_reads_test_with_threshold(
         threshold: Option<f32>,
-        expected_output_file: &str
+        expected_output_file: &str,
     ) -> Result<(), Error> {
         // Set input, output, options
         let mut output = Vec::new();
@@ -159,25 +159,16 @@ mod tests {
 
     #[test]
     fn test_window_reads_example_1() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
-            None,
-            "./examples/example_1_window_reads"
-        )
+        run_window_reads_test_with_threshold(None, "./examples/example_1_window_reads")
     }
 
     #[test]
     fn test_window_reads_example_1_gt_0pt4() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
-            Some(0.4),
-            "./examples/example_1_window_reads_gt_0pt4"
-        )
+        run_window_reads_test_with_threshold(Some(0.4), "./examples/example_1_window_reads_gt_0pt4")
     }
 
     #[test]
     fn test_window_reads_example_1_gt_0pt8() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
-            Some(0.8),
-            "./examples/example_1_window_reads_gt_0pt8"
-        )
+        run_window_reads_test_with_threshold(Some(0.8), "./examples/example_1_window_reads_gt_0pt8")
     }
 }

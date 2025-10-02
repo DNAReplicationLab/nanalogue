@@ -215,7 +215,9 @@ where
                 if cur_mod_idx < mod_dists.len()
                     && dist_from_last_mod_base == mod_dists[cur_mod_idx]
                 {
-                    let prob = &ml_tag[cur_mod_idx + num_mods_seen];
+                    let prob = ml_tag
+                        .get(cur_mod_idx + num_mods_seen)
+                        .ok_or(Error::InvalidModProbs)?;
                     if filter_mod_prob(prob)
                         && filter_mod_pos(&cur_seq_idx)
                         && !(min_qual > 0 && base_qual[cur_seq_idx] < min_qual)
@@ -238,7 +240,11 @@ where
                 }
             }
 
-            num_mods_seen += cur_mod_idx;
+            if cur_mod_idx == mod_dists.len() {
+                num_mods_seen += cur_mod_idx;
+            } else {
+                return Err(Error::InvalidModCoords);
+            }
 
             // if data matches filters, add to struct.
             if filter_mod_base_strand_tag(&mod_base, &mod_strand, &modification_type) {
@@ -255,8 +261,26 @@ where
         }
     }
 
+    if num_mods_seen != ml_tag.len() {
+        return Err(Error::InvalidModProbs);
+    }
+
     // needed so I can compare methods
     rtn.sort();
+
+    // Check for duplicate strand, modification_type combinations
+    let mut seen_combinations = HashSet::new();
+    for base_mod in &rtn {
+        let combination = (base_mod.strand, base_mod.modification_type);
+        if seen_combinations.contains(&combination) {
+            return Err(Error::InvalidDuplicates(format!(
+                "Duplicate strand '{}' and modification_type '{}' combination found",
+                base_mod.strand, base_mod.modification_type
+            )));
+        }
+        let _ = seen_combinations.insert(combination);
+    }
+
     Ok(BaseMods { base_mods: rtn })
 }
 
@@ -343,7 +367,6 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
         Ok(bam::Reader::from_path(bam_path)?)
     }
 }
-
 
 /// Trait that performs filtration
 pub trait BamPreFilt {
@@ -672,6 +695,148 @@ mod mod_parse_tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidDuplicates")]
+    fn test_nanalogue_mm_ml_parser_detects_duplicates() {
+        // Create a mock record with duplicate strand, modification_type
+        let mut record = bam::Record::new();
+
+        // Create a sequence - ATCG repeated
+        let seq_bytes = b"ATCGATCGATCGATCGATCG";
+        let qname = b"test_read";
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(20)]);
+        let quals = vec![30u8; 20]; // Quality scores of 30 for all bases
+        record.set(qname, Some(&cigar), seq_bytes, &quals);
+
+        // Set MM tag with duplicate T+ modifications
+        let mm_value = "T+T,0,3;T+T,1,2;"; // Two T+ modifications with same strand and modification_type
+        record.push_aux(b"MM", Aux::String(mm_value)).unwrap();
+
+        // Set ML tag (modification probabilities)
+        let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
+        record
+            .push_aux(b"ML", Aux::ArrayU8((&ml_values).into()))
+            .unwrap();
+
+        // Call the parser - should detect duplicates and return an error
+        let _ = nanalogue_mm_ml_parser(
+            &record,
+            |&_| true,         // Accept all probabilities
+            |&_| true,         // Accept all positions
+            |&_, &_, &_| true, // Accept all base/strand/tag combinations
+            0,                 // No quality threshold
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_nanalogue_mm_ml_parser_accepts_unique_combinations() -> Result<(), Error> {
+        // Create a mock record with unique strand, modification_type combinations
+        let mut record = bam::Record::new();
+
+        // Create a sequence - ATCG repeated
+        let seq_bytes = b"ATCGATCGATCGATCGATCG";
+        let qname = b"test_read";
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(20)]);
+        let quals = vec![30u8; 20]; // Quality scores of 30 for all bases
+        record.set(qname, Some(&cigar), seq_bytes, &quals);
+
+        // Set MM tag with unique combinations
+        let mm_value = "T+T,0,3;C+m,0,1;T-T,1,2;"; // T+, C+, T- (all different combinations)
+        record.push_aux(b"MM", Aux::String(mm_value))?;
+
+        // Set ML tag (modification probabilities)
+        let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8, 120u8, 140u8]);
+        record.push_aux(b"ML", Aux::ArrayU8((&ml_values).into()))?;
+
+        // Call the parser - should accept these unique combinations
+        let result = nanalogue_mm_ml_parser(
+            &record,
+            |&_| true,         // Accept all probabilities
+            |&_| true,         // Accept all positions
+            |&_, &_, &_| true, // Accept all base/strand/tag combinations
+            0,                 // No quality threshold
+        );
+
+        // Verify the parsing succeeds
+        assert!(
+            result.is_ok(),
+            "Valid combinations should not trigger error, but got: {:?}",
+            result
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidModCoords")]
+    fn test_nanalogue_mm_ml_parser_detects_invalid_mod_coords_1() {
+        // Create a mock record with duplicate strand, modification_type
+        let mut record = bam::Record::new();
+
+        // Create a sequence - ATCG repeated
+        let seq_bytes = b"ATCGATCGATCGATCGATCG";
+        let qname = b"test_read";
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(20)]);
+        let quals = vec![30u8; 20]; // Quality scores of 30 for all bases
+        record.set(qname, Some(&cigar), seq_bytes, &quals);
+
+        // Set MM tag with invalid coordinates as seq does not have
+        // 11 As (4 + 1 + 5 + 1).
+        let mm_value = "T+T,0,3;A-T,4,5;";
+        record.push_aux(b"MM", Aux::String(mm_value)).unwrap();
+
+        // Set ML tag (modification probabilities)
+        let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
+        record
+            .push_aux(b"ML", Aux::ArrayU8((&ml_values).into()))
+            .unwrap();
+
+        // Call the parser - should detect duplicates and return an error
+        let _ = nanalogue_mm_ml_parser(
+            &record,
+            |&_| true,         // Accept all probabilities
+            |&_| true,         // Accept all positions
+            |&_, &_, &_| true, // Accept all base/strand/tag combinations
+            0,                 // No quality threshold
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidModCoords")]
+    fn test_nanalogue_mm_ml_parser_detects_invalid_mod_coords_2() {
+        // Create a mock record with duplicate strand, modification_type
+        let mut record = bam::Record::new();
+
+        // Create a sequence - ATCG repeated
+        let seq_bytes = b"ATCGATCGATCGATCGATCG";
+        let qname = b"test_read";
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(20)]);
+        let quals = vec![30u8; 20]; // Quality scores of 30 for all bases
+        record.set(qname, Some(&cigar), seq_bytes, &quals);
+
+        // Set MM tag with invalid coords i.e. there aren't 11 C in the sequence
+        let mm_value = "T+T,0,3;C+m,4,5;T-T,1,2;";
+        record.push_aux(b"MM", Aux::String(mm_value)).unwrap();
+
+        // Set ML tag (modification probabilities)
+        let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8, 120u8, 140u8]);
+        record
+            .push_aux(b"ML", Aux::ArrayU8((&ml_values).into()))
+            .unwrap();
+
+        // Call the parser - should detect duplicates and return an error
+        let _ = nanalogue_mm_ml_parser(
+            &record,
+            |&_| true,         // Accept all probabilities
+            |&_| true,         // Accept all positions
+            |&_, &_, &_| true, // Accept all base/strand/tag combinations
+            0,                 // No quality threshold
+        )
+        .unwrap();
     }
 }
 

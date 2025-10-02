@@ -105,9 +105,9 @@ impl GenomicRegion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_htslib::bam;
-    use indoc::indoc;
     use bedrs::Coordinates;
+    use indoc::indoc;
+    use rust_htslib::bam;
 
     /// Tests comprehensive GenomicRegion parsing
     #[test]
@@ -195,12 +195,15 @@ mod tests {
 
     /// Creates a sample BAM header for testing
     fn create_test_header() -> bam::HeaderView {
-        bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
+        bam::HeaderView::from_bytes(
+            indoc! {b"@HD\tVN:1.6\tSO:coordinate
             @SQ\tSN:chr1\tLN:248956422
             @SQ\tSN:chr2\tLN:242193529
             @SQ\tSN:chrX\tLN:156040895
             @PG\tID:test\tPN:test"
-        }.as_ref())
+            }
+            .as_ref(),
+        )
     }
 
     /// Tests basic region conversion to BED3 format with chromosome and coordinates

@@ -9,6 +9,7 @@
 //! Note: Below, sequence or molecule refer to DNA.
 //! In the future, could refer to RNA or other kinds of molecules.
 
+use crate::F32Bw0and1;
 use csv;
 use rust_htslib;
 use serde_json;
@@ -17,7 +18,6 @@ use std::num::{ParseFloatError, ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
-use crate::F32Bw0and1;
 
 /// Enum that covers errors in our module.
 #[derive(Debug, Error)]
@@ -41,6 +41,14 @@ pub enum Error {
     /// Alignment coordinates (contig/start/end) are invalid.
     #[error("invalid alignment coordinates (contig/start/end)")]
     InvalidAlignCoords,
+
+    /// Modification coordinates are invalid
+    #[error("invalid mod coordinates")]
+    InvalidModCoords,
+
+    /// Modification probabilities are invalid
+    #[error("invalid mod probabilities")]
+    InvalidModProbs,
 
     /// Read id of molecule is invalid
     #[error("invalid read id")]

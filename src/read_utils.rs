@@ -7,9 +7,10 @@
 use bedrs::prelude::{Intersect, StrandedBed3};
 use bedrs::{Bed3, Coordinates, Strand};
 use bio_types::genome::AbstractInterval;
+use fibertools_rs::utils::bamranges::Ranges;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use rust_htslib::{bam::ext::BamRecordExtensions, bam::record::Record};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::num::NonZeroU64;
 use std::rc::Rc;
@@ -1282,9 +1283,6 @@ fn reconstruct_base_mods(
     alignment_type: ReadState,
     seq_len: u64,
 ) -> Result<BaseMods, Error> {
-    use fibertools_rs::utils::bamranges::Ranges;
-    use fibertools_rs::utils::basemods::BaseMod;
-
     let mut base_mods = Vec::new();
 
     for entry in mod_table {
@@ -1350,6 +1348,21 @@ fn reconstruct_base_mods(
             ranges,
             record_is_reverse: false, // Default value
         });
+    }
+
+    base_mods.sort();
+
+    // Check for duplicate strand, modification_type combinations
+    let mut seen_combinations = HashSet::new();
+    for base_mod in &base_mods {
+        let combination = (base_mod.strand, base_mod.modification_type);
+        if seen_combinations.contains(&combination) {
+            return Err(Error::InvalidDuplicates(format!(
+                "Duplicate strand '{}' and modification_type '{}' combination found",
+                base_mod.strand, base_mod.modification_type
+            )));
+        }
+        let _ = seen_combinations.insert(combination);
     }
 
     Ok(BaseMods { base_mods })
@@ -1423,6 +1436,75 @@ mod test_error_handling {
                 );
             }
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidDuplicates")]
+    fn test_reconstruct_base_mods_detects_duplicates() {
+        // Create a test case with duplicate strand and modification_type combinations
+        let mut mod_entries = Vec::new();
+
+        // First entry: T+ modification
+        mod_entries.push(ModTableEntry {
+            base: 'T',
+            is_strand_plus: true,
+            mod_code: ModChar::new('T'),
+            implicit: false,
+            data: vec![(0, 0, 10)], // Simple position data for testing
+        });
+
+        // Second entry: T+ modification again (duplicate)
+        mod_entries.push(ModTableEntry {
+            base: 'T',
+            is_strand_plus: true,
+            mod_code: ModChar::new('T'),
+            implicit: false,
+            data: vec![(1, 1, 20)], // Different position, same strand/mod
+        });
+
+        // Test reconstruct_base_mods with duplicate entries
+        let _ = reconstruct_base_mods(&mod_entries, ReadState::PrimaryFwd, 10).unwrap();
+    }
+
+    #[test]
+    fn test_reconstruct_base_mods_accepts_unique_combinations() {
+        // Create a valid case with different combinations
+        let mut valid_mod_entries = Vec::new();
+
+        // First entry: T+ modification
+        valid_mod_entries.push(ModTableEntry {
+            base: 'T',
+            is_strand_plus: true,
+            mod_code: ModChar::new('T'),
+            implicit: false,
+            data: vec![(0, 0, 10)],
+        });
+
+        // Second entry: C+ modification (different base, same strand)
+        valid_mod_entries.push(ModTableEntry {
+            base: 'C',
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            implicit: false,
+            data: vec![(1, 1, 20)],
+        });
+
+        // Third entry: T- modification (same base, different strand)
+        valid_mod_entries.push(ModTableEntry {
+            base: 'T',
+            is_strand_plus: false,
+            mod_code: ModChar::new('T'),
+            implicit: false,
+            data: vec![(2, 2, 30)],
+        });
+
+        // This should succeed since all combinations are unique
+        let valid_result = reconstruct_base_mods(&valid_mod_entries, ReadState::PrimaryFwd, 10);
+        assert!(
+            valid_result.is_ok(),
+            "Valid combinations should not trigger error, but got: {:?}",
+            valid_result
+        );
     }
 }
 

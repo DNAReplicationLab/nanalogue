@@ -96,14 +96,14 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValBelow1, Error>
 /// let result = threshold_and_mean_and_thres_win(&mod_data, threshold);
 /// assert!(result.is_err());
 /// ```
-pub fn threshold_and_mean_and_thres_win(mod_list: &[u8], threshold: F32Bw0and1) -> Result<F32Bw0and1, Error> {
+pub fn threshold_and_mean_and_thres_win(
+    mod_list: &[u8],
+    threshold: F32Bw0and1,
+) -> Result<F32Bw0and1, Error> {
     let density = threshold_and_mean(mod_list)?;
 
     if density.val() < threshold.val() {
-        Err(Error::WindowDensBelowThres {
-            density,
-            threshold,
-        })
+        Err(Error::WindowDensBelowThres { density, threshold })
     } else {
         Ok(density)
     }
