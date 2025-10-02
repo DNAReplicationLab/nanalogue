@@ -697,10 +697,7 @@ mod mod_parse_tests {
         Ok(())
     }
 
-    #[test]
-    #[should_panic(expected = "InvalidDuplicates")]
-    fn test_nanalogue_mm_ml_parser_detects_duplicates() {
-        // Create a mock record with duplicate strand, modification_type
+    fn create_test_record_and_parse(mm_value: &str, ml_values: Vec<u8>) -> Result<BaseMods, Error> {
         let mut record = bam::Record::new();
 
         // Create a sequence - ATCG repeated
@@ -710,57 +707,38 @@ mod mod_parse_tests {
         let quals = vec![30u8; 20]; // Quality scores of 30 for all bases
         record.set(qname, Some(&cigar), seq_bytes, &quals);
 
-        // Set MM tag with duplicate T+ modifications
-        let mm_value = "T+T,0,3;T+T,1,2;"; // Two T+ modifications with same strand and modification_type
-        record.push_aux(b"MM", Aux::String(mm_value)).unwrap();
+        // Set MM tag
+        record.push_aux(b"MM", Aux::String(mm_value))?;
 
         // Set ML tag (modification probabilities)
-        let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
-        record
-            .push_aux(b"ML", Aux::ArrayU8((&ml_values).into()))
-            .unwrap();
+        record.push_aux(b"ML", Aux::ArrayU8((&ml_values).into()))?;
 
-        // Call the parser - should detect duplicates and return an error
-        let _ = nanalogue_mm_ml_parser(
+        // Call the parser and return result
+        nanalogue_mm_ml_parser(
             &record,
             |&_| true,         // Accept all probabilities
             |&_| true,         // Accept all positions
             |&_, &_, &_| true, // Accept all base/strand/tag combinations
             0,                 // No quality threshold
         )
-        .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidDuplicates")]
+    fn test_nanalogue_mm_ml_parser_detects_duplicates() {
+        // Two T+ modifications with same strand and modification_type
+        let mm_value = "T+T,0,3;T+T,1,2;";
+        let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
+        let _ = create_test_record_and_parse(mm_value, ml_values).unwrap();
     }
 
     #[test]
     fn test_nanalogue_mm_ml_parser_accepts_unique_combinations() -> Result<(), Error> {
-        // Create a mock record with unique strand, modification_type combinations
-        let mut record = bam::Record::new();
-
-        // Create a sequence - ATCG repeated
-        let seq_bytes = b"ATCGATCGATCGATCGATCG";
-        let qname = b"test_read";
-        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(20)]);
-        let quals = vec![30u8; 20]; // Quality scores of 30 for all bases
-        record.set(qname, Some(&cigar), seq_bytes, &quals);
-
-        // Set MM tag with unique combinations
-        let mm_value = "T+T,0,3;C+m,0,1;T-T,1,2;"; // T+, C+, T- (all different combinations)
-        record.push_aux(b"MM", Aux::String(mm_value))?;
-
-        // Set ML tag (modification probabilities)
+        // T+, C+, T- (all different combinations)
+        let mm_value = "T+T,0,3;C+m,0,1;T-T,1,2;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8, 120u8, 140u8]);
-        record.push_aux(b"ML", Aux::ArrayU8((&ml_values).into()))?;
+        let result = create_test_record_and_parse(mm_value, ml_values);
 
-        // Call the parser - should accept these unique combinations
-        let result = nanalogue_mm_ml_parser(
-            &record,
-            |&_| true,         // Accept all probabilities
-            |&_| true,         // Accept all positions
-            |&_, &_, &_| true, // Accept all base/strand/tag combinations
-            0,                 // No quality threshold
-        );
-
-        // Verify the parsing succeeds
         assert!(
             result.is_ok(),
             "Valid combinations should not trigger error, but got: {:?}",
@@ -773,70 +751,37 @@ mod mod_parse_tests {
     #[test]
     #[should_panic(expected = "InvalidModCoords")]
     fn test_nanalogue_mm_ml_parser_detects_invalid_mod_coords_1() {
-        // Create a mock record with duplicate strand, modification_type
-        let mut record = bam::Record::new();
-
-        // Create a sequence - ATCG repeated
-        let seq_bytes = b"ATCGATCGATCGATCGATCG";
-        let qname = b"test_read";
-        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(20)]);
-        let quals = vec![30u8; 20]; // Quality scores of 30 for all bases
-        record.set(qname, Some(&cigar), seq_bytes, &quals);
-
-        // Set MM tag with invalid coordinates as seq does not have
-        // 11 As (4 + 1 + 5 + 1).
+        // Invalid coordinates: seq does not have 11 As (4 + 1 + 5 + 1)
         let mm_value = "T+T,0,3;A-T,4,5;";
-        record.push_aux(b"MM", Aux::String(mm_value)).unwrap();
-
-        // Set ML tag (modification probabilities)
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
-        record
-            .push_aux(b"ML", Aux::ArrayU8((&ml_values).into()))
-            .unwrap();
-
-        // Call the parser - should detect duplicates and return an error
-        let _ = nanalogue_mm_ml_parser(
-            &record,
-            |&_| true,         // Accept all probabilities
-            |&_| true,         // Accept all positions
-            |&_, &_, &_| true, // Accept all base/strand/tag combinations
-            0,                 // No quality threshold
-        )
-        .unwrap();
+        let _ = create_test_record_and_parse(mm_value, ml_values).unwrap();
     }
 
     #[test]
     #[should_panic(expected = "InvalidModCoords")]
     fn test_nanalogue_mm_ml_parser_detects_invalid_mod_coords_2() {
-        // Create a mock record with duplicate strand, modification_type
-        let mut record = bam::Record::new();
-
-        // Create a sequence - ATCG repeated
-        let seq_bytes = b"ATCGATCGATCGATCGATCG";
-        let qname = b"test_read";
-        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(20)]);
-        let quals = vec![30u8; 20]; // Quality scores of 30 for all bases
-        record.set(qname, Some(&cigar), seq_bytes, &quals);
-
-        // Set MM tag with invalid coords i.e. there aren't 11 C in the sequence
+        // Invalid coords: there aren't 11 C in the sequence
         let mm_value = "T+T,0,3;C+m,4,5;T-T,1,2;";
-        record.push_aux(b"MM", Aux::String(mm_value)).unwrap();
-
-        // Set ML tag (modification probabilities)
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8, 120u8, 140u8]);
-        record
-            .push_aux(b"ML", Aux::ArrayU8((&ml_values).into()))
-            .unwrap();
+        let _ = create_test_record_and_parse(mm_value, ml_values).unwrap();
+    }
 
-        // Call the parser - should detect duplicates and return an error
-        let _ = nanalogue_mm_ml_parser(
-            &record,
-            |&_| true,         // Accept all probabilities
-            |&_| true,         // Accept all positions
-            |&_, &_, &_| true, // Accept all base/strand/tag combinations
-            0,                 // No quality threshold
-        )
-        .unwrap();
+    #[test]
+    #[should_panic(expected = "InvalidModProbs")]
+    fn test_nanalogue_mm_ml_parser_detects_ml_tag_longer_than_mm_data() {
+        // ML tag has more values than modifications in MM tag
+        let mm_value = "T+T,0,3;"; // 2 modifications
+        let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]); // 4 values - too many!
+        let _ = create_test_record_and_parse(mm_value, ml_values).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidModProbs")]
+    fn test_nanalogue_mm_ml_parser_detects_ml_tag_shorter_than_mm_data() {
+        // ML tag has fewer values than modifications in MM tag
+        let mm_value = "T+T,0,3;"; // 2 modifications
+        let ml_values = Vec::from([100u8]); // 1 value - too few!
+        let _ = create_test_record_and_parse(mm_value, ml_values).unwrap();
     }
 }
 
