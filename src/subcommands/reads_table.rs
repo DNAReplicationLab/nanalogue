@@ -405,16 +405,18 @@ mod tests {
         headers
     }
 
-    #[test]
-    fn test_read_table_hide_mods() {
+    fn run_read_table_test(
+        mods: Option<InputMods<OptionalTag>>,
+        expected_output_file: &str,
+    ) {
         let mut reader = nanalogue_bam_reader("./examples/example_1.bam").expect("no error");
         let records: Vec<_> = reader.records().map(|r| r.map(Rc::new)).collect();
 
         let mut output = Vec::new();
-        assert!(run(&mut output, records, None, None, "").expect("no error"));
+        assert!(run(&mut output, records, mods, None, "").expect("no error"));
 
         let actual_output = String::from_utf8(output).expect("Invalid UTF-8");
-        let expected_output = std::fs::read_to_string("./examples/example_1_read_table_hide_mods")
+        let expected_output = std::fs::read_to_string(expected_output_file)
             .expect("Failed to read expected output file");
 
         let actual_lines = normalize_output(&actual_output);
@@ -430,27 +432,15 @@ mod tests {
     }
 
     #[test]
+    fn test_read_table_hide_mods() {
+        run_read_table_test(None, "./examples/example_1_read_table_hide_mods");
+    }
+
+    #[test]
     fn test_read_table_show_mods() {
-        let mut reader = nanalogue_bam_reader("./examples/example_1.bam").expect("no error");
-        let records: Vec<_> = reader.records().map(|r| r.map(Rc::new)).collect();
-
-        let mods = Some(InputMods::<OptionalTag>::default());
-        let mut output = Vec::new();
-        assert!(run(&mut output, records, mods, None, "").expect("no error"));
-
-        let actual_output = String::from_utf8(output).expect("Invalid UTF-8");
-        let expected_output = std::fs::read_to_string("./examples/example_1_read_table_show_mods")
-            .expect("Failed to read expected output file");
-
-        let actual_lines = normalize_output(&actual_output);
-        let expected_lines = normalize_output(&expected_output);
-
-        assert_eq!(
-            actual_lines,
-            expected_lines,
-            "\nActual output:\n{}\n\nExpected output:\n{}\n",
-            actual_lines.join("\n"),
-            expected_lines.join("\n")
+        run_read_table_test(
+            Some(InputMods::<OptionalTag>::default()),
+            "./examples/example_1_read_table_show_mods",
         );
     }
 }
