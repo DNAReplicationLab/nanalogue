@@ -405,10 +405,7 @@ mod tests {
         headers
     }
 
-    fn run_read_table_test(
-        mods: Option<InputMods<OptionalTag>>,
-        expected_output_file: &str,
-    ) {
+    fn run_read_table_test(mods: Option<InputMods<OptionalTag>>, expected_output_file: &str) {
         let mut reader = nanalogue_bam_reader("./examples/example_1.bam").expect("no error");
         let records: Vec<_> = reader.records().map(|r| r.map(Rc::new)).collect();
 
