@@ -150,23 +150,39 @@ mod tests {
         assert_eq!(coords.get_high(), u64::MAX);
     }
 
-    /// Tests GenomicRegion parsing error cases
+    /// Tests GenomicRegion parsing with wrong order coordinates
     #[test]
-    fn test_genomic_region_parsing_errors() {
-        // Wrong order coordinates should fail
-        assert!(GenomicRegion::from_str("chr1:2000-1000").is_err());
+    #[should_panic(expected = "WrongOrder")]
+    fn test_genomic_region_parsing_wrong_order() {
+        let _ = GenomicRegion::from_str("chr1:2000-1000").unwrap();
+    }
 
-        // Equal start and end should now fail (strict inequality)
-        assert!(GenomicRegion::from_str("chr1:1000-1000").is_err());
+    /// Tests GenomicRegion parsing with equal start and end (strict inequality)
+    #[test]
+    #[should_panic(expected = "WrongOrder")]
+    fn test_genomic_region_parsing_equal_coordinates() {
+        let _ = GenomicRegion::from_str("chr1:1000-1000").unwrap();
+    }
 
-        // Invalid coordinate format should fail
-        assert!(GenomicRegion::from_str("chr1:abc-def").is_err());
+    /// Tests GenomicRegion parsing with invalid coordinate format
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_genomic_region_parsing_invalid_coordinates() {
+        let _ = GenomicRegion::from_str("chr1:abc-def").unwrap();
+    }
 
-        // Invalid format should fail
-        assert!(GenomicRegion::from_str("chr1:1000-2000-3000").is_err());
+    /// Tests GenomicRegion parsing with invalid interval format (too many dashes)
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_genomic_region_parsing_too_many_dashes() {
+        let _ = GenomicRegion::from_str("chr1:1000-2000-3000").unwrap();
+    }
 
-        // Invalid format should fail
-        assert!(GenomicRegion::from_str("chr1:-2000").is_err());
+    /// Tests GenomicRegion parsing with missing start coordinate
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_genomic_region_parsing_missing_start() {
+        let _ = GenomicRegion::from_str("chr1:-2000").unwrap();
     }
 
     #[test]
