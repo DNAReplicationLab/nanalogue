@@ -254,62 +254,58 @@ mod tests {
         assert_eq!(interval.get_high(), u64::MAX);
     }
 
-    /// Tests OrdPair::from_interval error cases
     #[test]
-    fn test_ord_pair_from_interval_errors() {
-        // Equal start and end should fail (strict inequality enforced)
-        assert!(matches!(
-            OrdPair::<u64>::from_interval("1000-1000"),
-            Err(Error::WrongOrder)
-        ));
+    #[should_panic(expected = "WrongOrder")]
+    fn test_ord_pair_from_interval_equal_start_end_panics() {
+        let _ = OrdPair::<u64>::from_interval("1000-1000").unwrap();
+    }
 
-        // Start greater than end should fail
-        assert!(matches!(
-            OrdPair::<u64>::from_interval("2000-1000"),
-            Err(Error::WrongOrder)
-        ));
+    #[test]
+    #[should_panic(expected = "WrongOrder")]
+    fn test_ord_pair_from_interval_start_greater_than_end_panics() {
+        let _ = OrdPair::<u64>::from_interval("2000-1000").unwrap();
+    }
 
-        // Invalid format - no dash
-        assert!(matches!(
-            OrdPair::<u64>::from_interval("1000"),
-            Err(Error::OrdPairConversionError(_))
-        ));
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_interval_no_dash_panics() {
+        let _ = OrdPair::<u64>::from_interval("1000").unwrap();
+    }
 
-        // Invalid format - too many dashes
-        assert!(matches!(
-            OrdPair::<u64>::from_interval("1000-2000-3000"),
-            Err(Error::OrdPairConversionError(_))
-        ));
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_interval_too_many_dashes_panics() {
+        let _ = OrdPair::<u64>::from_interval("1000-2000-3000").unwrap();
+    }
 
-        // Invalid start coordinate
-        assert!(matches!(
-            OrdPair::<u64>::from_interval("abc-2000"),
-            Err(Error::OrdPairConversionError(_))
-        ));
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_interval_invalid_start_panics() {
+        let _ = OrdPair::<u64>::from_interval("abc-2000").unwrap();
+    }
 
-        // Invalid end coordinate
-        assert!(matches!(
-            OrdPair::<u64>::from_interval("1000-xyz"),
-            Err(Error::OrdPairConversionError(_))
-        ));
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_interval_invalid_end_panics() {
+        let _ = OrdPair::<u64>::from_interval("1000-xyz").unwrap();
+    }
 
-        // Empty string
-        assert!(matches!(
-            OrdPair::<u64>::from_interval(""),
-            Err(Error::OrdPairConversionError(_))
-        ));
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_interval_empty_string_panics() {
+        let _ = OrdPair::<u64>::from_interval("").unwrap();
+    }
 
-        // Just a dash
-        assert!(matches!(
-            OrdPair::<u64>::from_interval("-"),
-            Err(Error::OrdPairConversionError(_))
-        ));
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_interval_just_dash_panics() {
+        let _ = OrdPair::<u64>::from_interval("-").unwrap();
+    }
 
-        // Negative numbers (should fail for u64)
-        assert!(matches!(
-            OrdPair::<u64>::from_interval("-100-200"),
-            Err(Error::OrdPairConversionError(_))
-        ));
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_interval_negative_numbers_panics() {
+        let _ = OrdPair::<u64>::from_interval("-100-200").unwrap();
     }
 
     #[test]
