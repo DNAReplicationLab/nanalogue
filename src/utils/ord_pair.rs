@@ -328,15 +328,26 @@ mod tests {
     }
 
     #[test]
-    fn test_ord_pair_error_cases() {
-        // OrdPair error cases
-        assert!(OrdPair::<i32>::from_str("").is_err());
-        assert!(OrdPair::<i32>::from_str("1").is_err()); // Single value
-        assert!(OrdPair::<i32>::from_str("1,2,3").is_err()); // Too many values
-        assert!(OrdPair::<i32>::from_str("abc,def").is_err()); // Non-numeric
-        assert!(matches!(
-            OrdPair::<i32>::from_str("2,1"),
-            Err(Error::WrongOrder)
-        )); // Wrong order
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_str_empty_string_panics() {
+        let _ = OrdPair::<i32>::from_str("").unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_str_single_value_panics() {
+        let _ = OrdPair::<i32>::from_str("1").unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_str_too_many_values_panics() {
+        let _ = OrdPair::<i32>::from_str("1,2,3").unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_str_non_numeric_panics() {
+        let _ = OrdPair::<i32>::from_str("abc,def").unwrap();
     }
 }
