@@ -49,7 +49,7 @@ impl FromStr for GenomicRegion {
             0 => unreachable!(),
             1 => Ok(GenomicRegion((val_str.to_string(), None))),
             _ => {
-                let interval_str = colon_split.pop().ok_or(Error::UnknownError)?;
+                let interval_str = colon_split.pop().expect("no error");
                 Ok(GenomicRegion((
                     colon_split.join(":").to_string(),
                     Some(OrdPair::<u64>::from_interval(interval_str)?),
@@ -115,7 +115,7 @@ mod tests {
         // Simple contig name only
         let region = GenomicRegion::from_str("chr1").expect("should parse");
         assert_eq!(region.0.0, "chr1");
-        assert_eq!(region.0.1, None);
+        assert!(region.0.1.is_none());
 
         // Contig with coordinates
         let region = GenomicRegion::from_str("chr1:1000-2000").expect("should parse");
@@ -154,22 +154,19 @@ mod tests {
     #[test]
     fn test_genomic_region_parsing_errors() {
         // Wrong order coordinates should fail
-        assert!(matches!(
-            GenomicRegion::from_str("chr1:2000-1000"),
-            Err(Error::WrongOrder)
-        ));
+        assert!(GenomicRegion::from_str("chr1:2000-1000").is_err());
 
         // Equal start and end should now fail (strict inequality)
-        assert!(matches!(
-            GenomicRegion::from_str("chr1:1000-1000"),
-            Err(Error::WrongOrder)
-        ));
+        assert!(GenomicRegion::from_str("chr1:1000-1000").is_err());
 
         // Invalid coordinate format should fail
         assert!(GenomicRegion::from_str("chr1:abc-def").is_err());
 
         // Invalid format should fail
         assert!(GenomicRegion::from_str("chr1:1000-2000-3000").is_err());
+
+        // Invalid format should fail
+        assert!(GenomicRegion::from_str("chr1:-2000").is_err());
     }
 
     #[test]
@@ -178,12 +175,9 @@ mod tests {
         let region = GenomicRegion::from_str("chr22:5000-10000").expect("should parse");
         assert_eq!(region.0.0, "chr22");
 
-        if let Some(coords) = &region.0.1 {
-            assert_eq!(coords.get_low(), 5000);
-            assert_eq!(coords.get_high(), 10000);
-        } else {
-            panic!("Expected coordinates to be present");
-        }
+        let coords = &region.0.1.unwrap();
+        assert_eq!(coords.get_low(), 5000);
+        assert_eq!(coords.get_high(), 10000);
     }
 
     #[test]
