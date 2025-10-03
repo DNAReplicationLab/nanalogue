@@ -217,14 +217,18 @@ mod tests {
                 .get_high(),
             2
         );
-        assert!(matches!(
-            OrdPair::<u8>::from_str(",2"),
-            Err(Error::OrdPairConversionError(_))
-        ));
-        assert!(matches!(
-            OrdPair::<u8>::from_str("2,1"),
-            Err(Error::WrongOrder)
-        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "OrdPairConversionError")]
+    fn test_ord_pair_from_str_empty_first_value_panics() {
+        let _ = OrdPair::<u8>::from_str(",2").unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "WrongOrder")]
+    fn test_ord_pair_from_str_wrong_order_panics() {
+        let _ = OrdPair::<u8>::from_str("2,1").unwrap();
     }
 
     /// Tests if OrdPair can be converted into a range

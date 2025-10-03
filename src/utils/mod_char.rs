@@ -193,25 +193,22 @@ mod tests {
         assert_eq!(format!("{}", mod_char), "65536");
     }
 
-    /// Tests ModChar error cases
     #[test]
-    fn test_modchar_error_cases() {
-        // Empty string should fail
-        assert!(matches!(ModChar::from_str(""), Err(Error::EmptyModType)));
+    #[should_panic(expected = "EmptyModType")]
+    fn test_modchar_empty_string_panics() {
+        let _ = ModChar::from_str("").unwrap();
+    }
 
-        // Starting with special characters should fail
-        assert!(matches!(
-            ModChar::from_str("@123"),
-            Err(Error::InvalidModType)
-        ));
-        assert!(matches!(
-            ModChar::from_str("#abc"),
-            Err(Error::InvalidModType)
-        ));
+    #[test]
+    #[should_panic(expected = "InvalidModType")]
+    fn test_modchar_special_char_at_panics() {
+        let _ = ModChar::from_str("@123").unwrap();
+    }
 
-        // Invalid numeric values that can't convert to char should fail
-        // (Note: this would be numbers > u32::MAX or invalid unicode ranges)
-        // Most very large numbers should still work due to char's range
+    #[test]
+    #[should_panic(expected = "InvalidModType")]
+    fn test_modchar_special_char_hash_panics() {
+        let _ = ModChar::from_str("#abc").unwrap();
     }
 
     /// Tests ModChar display format consistency
