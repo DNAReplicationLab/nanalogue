@@ -11,13 +11,13 @@ use std::ops::RangeInclusive;
 use std::str::FromStr;
 
 /// Datatype holding two values low, high such that low <= high is guaranteed at creation.
-#[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
-pub struct OrdPair<T: Clone + Copy + Debug + Default> {
+#[derive(Debug, Clone, Copy, Default, PartialOrd, PartialEq, Serialize, Deserialize)]
+pub struct OrdPair<T: Clone + Copy + Debug> {
     low: T,
     high: T,
 }
 
-impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd> OrdPair<T> {
+impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     /// Constructor with two values, will fail if ordering in input is not respected.
     ///
     /// ```should_panic
@@ -131,7 +131,7 @@ impl OrdPair<u64> {
     }
 }
 
-impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> FromStr for OrdPair<T> {
+impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> FromStr for OrdPair<T> {
     type Err = Error;
 
     /// Parse a string to obtain an Ordered Pair, return Error if cannot be done.
@@ -159,7 +159,7 @@ impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> FromS
     }
 }
 
-impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> From<OrdPair<T>>
+impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> From<OrdPair<T>>
     for RangeInclusive<T>
 {
     /// Convert the OrdPair into a RangeInclusive i.e. (start..=end)
@@ -168,18 +168,14 @@ impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> From<
     }
 }
 
-impl<T: Clone + Copy + Debug + Default + PartialEq + PartialOrd + FromStr> Contains<T>
-    for OrdPair<T>
-{
+impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> Contains<T> for OrdPair<T> {
     /// Check if the provided value is within the Range of the OrdPair
     fn contains(&self, val: &T) -> bool {
         RangeInclusive::<T>::from(*self).contains(val)
     }
 }
 
-impl<T: Clone + Copy + Debug + Default + fmt::Display + PartialEq + PartialOrd> fmt::Display
-    for OrdPair<T>
-{
+impl<T: Clone + Copy + Debug + fmt::Display + PartialEq + PartialOrd> fmt::Display for OrdPair<T> {
     /// converts to string for display i.e. "low, high"
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}, {}", self.get_low(), self.get_high())

@@ -2,6 +2,8 @@
 //! Handles conversion between internal representation and BAM flags
 
 use crate::Error;
+use rand::Rng;
+use rand::distr::{Distribution, StandardUniform};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -34,6 +36,23 @@ pub enum ReadState {
     /// complements, as what would be the point of that?
     #[serde(rename = "unmapped")]
     Unmapped,
+}
+
+// Implements random pick of a variant
+impl Distribution<ReadState> for StandardUniform {
+    /// Allows us to randomly pick a variant
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ReadState {
+        match rng.random_range(0..7) {
+            0 => ReadState::PrimaryFwd,
+            1 => ReadState::PrimaryRev,
+            2 => ReadState::SecondaryFwd,
+            3 => ReadState::SecondaryRev,
+            4 => ReadState::SupplementaryFwd,
+            5 => ReadState::SupplementaryRev,
+            6 => ReadState::Unmapped,
+            _ => unreachable!(),
+        }
+    }
 }
 
 // Implements conversion of ReadState into the standard BAM flag format

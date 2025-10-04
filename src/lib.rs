@@ -39,6 +39,7 @@ pub mod error;
 pub mod read_utils;
 pub mod subcommands;
 pub mod utils;
+pub mod write_simulated_mod_bam;
 
 // Re-exports
 pub use cli::{

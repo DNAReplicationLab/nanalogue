@@ -3,8 +3,5 @@ cargo.def
 cargo.img
 ignore*
 slurm*
-ARCHITECTURAL_IMPROVEMENTS.md
-REFACTORING_ANALYSIS.md
-ERROR_IMPROVEMENTS.txt
-SERDE*
-UTILS_REFACTORING.md
+brainstorming*
+tmp*
