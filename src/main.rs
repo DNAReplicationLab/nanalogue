@@ -20,6 +20,7 @@ use clap::{Parser, Subcommand};
 use nanalogue_core::{
     self, BamPreFilt, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
     InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, nanalogue_bam_reader, subcommands,
+    write_simulated_mod_bam,
 };
 use std::io;
 use std::ops::RangeInclusive;
@@ -106,6 +107,15 @@ enum Commands {
         /// Input modification options
         #[clap(flatten)]
         mods: InputMods<OptionalTag>,
+    },
+    /// Write a simulated mod BAM file according to json options
+    WriteSimulatedModBAM {
+        /// Input JSON file path
+        json: String,
+        /// Output mod BAM file path
+        bam: String,
+        /// Output fasta file path
+        fasta: String,
     },
 }
 
@@ -486,6 +496,10 @@ fn main() -> Result<(), Error> {
                 mods,
                 analysis::threshold_and_gradient,
             )
+        }
+        Commands::WriteSimulatedModBAM { json, bam, fasta } => {
+            let json_str = std::fs::read_to_string(&json)?;
+            write_simulated_mod_bam::run(&json_str, &bam, &fasta)
         }
     };
 

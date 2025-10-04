@@ -34,6 +34,7 @@ use rust_htslib::bam;
 use rust_htslib::bam::Header;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::num::{NonZeroU32, NonZeroU64};
@@ -192,6 +193,7 @@ fn write_fasta(contigs: &[Contig], output_path: &str) -> Result<(), Error> {
 fn generate_reads<R: Rng>(
     contigs: &[Contig],
     config: &ReadConfig,
+    read_group: &str,
     rng: &mut R,
 ) -> Result<Vec<bam::Record>, Error> {
     let mut reads = Vec::new();
@@ -232,6 +234,7 @@ fn generate_reads<R: Rng>(
         let record = {
             let mut record = bam::Record::new();
             let qname = format!("{}", Uuid::new_v4()).into_bytes();
+            record.unset_flags();
             record.set_flags({
                 let random_state: ReadState = random();
                 u16::try_from(random_state)?
@@ -245,7 +248,9 @@ fn generate_reads<R: Rng>(
             } else {
                 record.set(&qname, None, &read_seq, &qual);
             }
-            record.push_aux(b"RG", Aux::U8(1))?;
+            record.set_mpos(-1);
+            record.set_mtid(-1);
+            record.push_aux(b"RG", Aux::String(read_group))?;
             record
         };
         reads.push(record);
@@ -256,6 +261,18 @@ fn generate_reads<R: Rng>(
 
 /// Writes BAM file with reads
 fn write_bam(reads: &[bam::Record], contigs: &[Contig], output_path: &str) -> Result<(), Error> {
+    let read_groups: Vec<String> = reads
+        .into_iter()
+        .flat_map(|r| {
+            r.aux(b"RG").ok().map(|s| match s {
+                Aux::String(k) => format!("{k}"),
+                _ => panic!("RG only permits strings!"),
+            })
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+
     let header = {
         let mut header = Header::new();
         for contig in contigs {
@@ -265,14 +282,16 @@ fn write_bam(reads: &[bam::Record], contigs: &[Contig], output_path: &str) -> Re
                     .push_tag(b"LN", contig.seq.len()),
             );
         }
-        let _ = header.push_record(
-            &bam::header::HeaderRecord::new(b"RG")
-                .push_tag(b"ID", 1)
-                .push_tag(b"PL", "ULTIMA")
-                .push_tag(b"LB", "blank")
-                .push_tag(b"SM", "blank")
-                .push_tag(b"PU", "blank"),
-        );
+        for k in read_groups {
+            let _ = header.push_record(
+                &bam::header::HeaderRecord::new(b"RG")
+                    .push_tag(b"ID", k)
+                    .push_tag(b"PL", "ONT")
+                    .push_tag(b"LB", "blank")
+                    .push_tag(b"SM", "blank")
+                    .push_tag(b"PU", "blank"),
+            );
+        }
         header
     };
 
@@ -320,8 +339,13 @@ pub fn run(
     let contigs = generate_contigs(config.contigs.number, config.contigs.len_range, &mut rng);
     let reads = {
         let mut temp_reads = Vec::new();
-        for k in config.reads {
-            temp_reads.append(&mut generate_reads(&contigs, &k, &mut rng)?);
+        for k in config.reads.into_iter().enumerate() {
+            temp_reads.append(&mut generate_reads(
+                &contigs,
+                &k.1,
+                &format!("{0}", k.0),
+                &mut rng,
+            )?);
         }
         temp_reads
     };
@@ -409,7 +433,7 @@ mod tests {
             mods: vec![],
         };
 
-        let reads = generate_reads(&contigs, &config, &mut rng).unwrap();
+        let reads = generate_reads(&contigs, &config, "1", &mut rng).unwrap();
         assert!(reads.len() <= 10);
 
         for read in &reads {
