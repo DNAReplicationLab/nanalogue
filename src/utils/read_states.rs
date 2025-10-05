@@ -3,7 +3,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
+use std::collections::HashSet;
 use std::str::FromStr;
 
 use super::read_state::ReadState;
@@ -27,7 +27,9 @@ impl FromStr for ReadStates {
     /// op = ReadStates::from_str("primary_reverse")?;
     /// assert_eq!(op.bam_flags(), &[16]);
     /// op = ReadStates::from_str("primary_reverse,primary_forward")?;
-    /// assert_eq!(op.bam_flags(), &[16, 0]);
+    /// assert_eq!(op.bam_flags(), &[0, 16]);
+    /// op = ReadStates::from_str("primary_reverse,primary_forward,primary_reverse")?;
+    /// assert_eq!(op.bam_flags(), &[0, 16]);
     /// # Ok::<(), Error>(())
     /// ```
     ///
@@ -38,10 +40,14 @@ impl FromStr for ReadStates {
     /// # Ok::<(), Error>(())
     /// ```
     fn from_str(s: &str) -> Result<ReadStates, Self::Err> {
-        let mut states = Vec::<u16>::new();
-        for part in s.split(',') {
-            states.push(u16::try_from(ReadState::from_str(part)?)?);
-        }
+        let mut states = {
+            let mut temp_states = HashSet::<u16>::new();
+            for part in s.split(',') {
+                let _: bool = temp_states.insert(u16::from(ReadState::from_str(part)?));
+            }
+            temp_states.into_iter().collect::<Vec<u16>>()
+        };
+        states.sort();
         Ok(ReadStates(states))
     }
 }
@@ -69,7 +75,10 @@ mod tests {
         assert_eq!(op.bam_flags(), &[16]);
 
         let op = ReadStates::from_str("primary_reverse,primary_forward")?;
-        assert_eq!(op.bam_flags(), &[16, 0]);
+        assert_eq!(op.bam_flags(), &[0, 16]);
+
+        let op = ReadStates::from_str("primary_reverse,primary_forward,primary_reverse")?;
+        assert_eq!(op.bam_flags(), &[0, 16]);
 
         Ok(())
     }

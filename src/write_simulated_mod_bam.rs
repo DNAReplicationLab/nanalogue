@@ -36,6 +36,7 @@ use rust_htslib::bam::record::{Aux, Cigar, CigarString};
 use serde::{Deserialize, Serialize};
 use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::RangeInclusive;
+use std::path::Path;
 use uuid::Uuid;
 
 /// Main configuration struct for simulation
@@ -214,7 +215,7 @@ fn generate_reads<R: Rng>(
             let qname = format!("{}", Uuid::new_v4()).into_bytes();
             record.unset_flags();
             let random_state: ReadState = random();
-            record.set_flags(u16::try_from(random_state)?);
+            record.set_flags(u16::from(random_state));
             match random_state {
                 ReadState::Unmapped => {
                     record.set(&qname, None, &read_seq, &qual);
@@ -264,11 +265,10 @@ fn generate_reads<R: Rng>(
 ///
 /// run(config_json, "output.bam", "reference.fasta").unwrap();
 /// ```
-pub fn run(
-    config_json: &str,
-    bam_output_path: &str,
-    fasta_output_path: &str,
-) -> Result<bool, Error> {
+pub fn run<F>(config_json: &str, bam_output_path: &F, fasta_output_path: &F) -> Result<bool, Error>
+where
+    F: AsRef<Path> + ?Sized,
+{
     let config: SimulationConfig = serde_json::from_str(config_json)?;
 
     let mut rng = rand::rng();

@@ -25,6 +25,7 @@ use bio_types::sequence::SequenceRead;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use fibertools_rs::utils::bio_io::{convert_seq_uppercase, get_u8_tag};
 use lazy_static::lazy_static;
+use rand::random;
 use regex::Regex;
 use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions, bam::record::Aux, tpool};
 use std::collections::HashSet;
@@ -502,7 +503,7 @@ impl BamPreFilt for bam::Record {
             1.0 => true,
             0.0 => false,
             v => {
-                let random_number: f32 = rand::random();
+                let random_number: f32 = random();
                 random_number < v
             }
         }
@@ -709,23 +710,15 @@ mod mod_parse_tests {
         // Two T+ modifications with same strand and modification_type
         let mm_value = "T+T,0,3;T+T,1,2;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
-        let _ = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
     }
 
     #[test]
-    fn test_nanalogue_mm_ml_parser_accepts_unique_combinations() -> Result<(), Error> {
+    fn test_nanalogue_mm_ml_parser_accepts_unique_combinations() {
         // T+, C+, T- (all different combinations)
         let mm_value = "T+T,0,3;C+m,0,1;T-T,1,2;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8, 120u8, 140u8]);
-        let result = create_test_record_and_parse(mm_value, ml_values);
-
-        assert!(
-            result.is_ok(),
-            "Valid combinations should not trigger error, but got: {:?}",
-            result
-        );
-
-        Ok(())
+        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
     }
 
     #[test]
@@ -734,7 +727,7 @@ mod mod_parse_tests {
         // Invalid coordinates: seq does not have 11 As (4 + 1 + 5 + 1)
         let mm_value = "T+T,0,3;A-T,4,5;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
-        let _ = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
     }
 
     #[test]
@@ -743,7 +736,7 @@ mod mod_parse_tests {
         // Invalid coords: there aren't 11 C in the sequence
         let mm_value = "T+T,0,3;C+m,4,5;T-T,1,2;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8, 120u8, 140u8]);
-        let _ = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
     }
 
     #[test]
@@ -752,7 +745,7 @@ mod mod_parse_tests {
         // ML tag has more values than modifications in MM tag
         let mm_value = "T+T,0,3;"; // 2 modifications
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]); // 4 values - too many!
-        let _ = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
     }
 
     #[test]
@@ -761,7 +754,7 @@ mod mod_parse_tests {
         // ML tag has fewer values than modifications in MM tag
         let mm_value = "T+T,0,3;"; // 2 modifications
         let ml_values = Vec::from([100u8]); // 1 value - too few!
-        let _ = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
     }
 }
 
@@ -774,9 +767,8 @@ mod zero_length_filtering_tests {
     fn test_zero_length_filtering_with_example_2_zero_len_sam() -> Result<(), Error> {
         // Test with include_zero_len = false and min_seq_len = 1 (should get 1 read)
         let mut reader = nanalogue_bam_reader("examples/example_2_zero_len.sam")?;
-        let mut bam_opts_exclude_zero = InputBam::default();
-        bam_opts_exclude_zero.include_zero_len = false;
-        bam_opts_exclude_zero.min_seq_len = 1;
+        let bam_opts_exclude_zero: InputBam =
+            serde_json::from_str(r#"{"min_seq_len": 1}"#).unwrap();
 
         let mut count_exclude_zero = 0;
         for record_result in reader.records() {
@@ -788,9 +780,8 @@ mod zero_length_filtering_tests {
 
         // Test with include_zero_len = true and min_seq_len = 1 (should get 2 reads)
         let mut reader = nanalogue_bam_reader("examples/example_2_zero_len.sam")?;
-        let mut bam_opts_include_zero = InputBam::default();
-        bam_opts_include_zero.include_zero_len = true;
-        bam_opts_include_zero.min_seq_len = 1;
+        let bam_opts_include_zero: InputBam =
+            serde_json::from_str(r#"{"min_seq_len": 1, "include_zero_len": true}"#).unwrap();
 
         let mut count_include_zero = 0;
         for record_result in reader.records() {
@@ -858,6 +849,9 @@ mod base_qual_filtering_tests {
 #[cfg(test)]
 mod bam_rc_record_tests {
     use super::*;
+    use rand::random_range;
+    use rust_htslib::bam::record;
+    use rust_htslib::bam::record::{Cigar, CigarString};
 
     #[test]
     fn test_bam_rc_records() -> Result<(), Error> {
@@ -946,7 +940,6 @@ mod bam_rc_record_tests {
 
     #[test]
     fn test_random_retrieval() -> Result<(), Error> {
-        use rust_htslib::bam::record;
         let mut count_retained = 0;
         let bam_opts: InputBam =
             serde_json::from_str(r#"{"sample_fraction": 0.5, "include_zero_len": true}"#).unwrap();
@@ -966,7 +959,6 @@ mod bam_rc_record_tests {
 
     #[test]
     fn test_single_read_id_filtering() -> Result<(), Error> {
-        use rust_htslib::bam::record;
         let mut count_retained = 0;
 
         let bam_opts: InputBam =
@@ -988,9 +980,6 @@ mod bam_rc_record_tests {
 
     #[test]
     fn test_seq_and_align_len_filtering() -> Result<(), Error> {
-        use rust_htslib::bam::record;
-        use rust_htslib::bam::record::{Cigar, CigarString};
-
         let bam_opts_min_len: InputBam = serde_json::from_str(r#"{"min_seq_len": 5000}"#).unwrap();
         let bam_opts_min_align_len: InputBam =
             serde_json::from_str(r#"{"min_align_len": 2500}"#).unwrap();
@@ -999,7 +988,7 @@ mod bam_rc_record_tests {
 
         for _ in 1..=10000 {
             let mut record = record::Record::new();
-            let seq_len: usize = rand::random_range(2..=10000);
+            let seq_len: usize = random_range(2..=10000);
             let match_len = seq_len / 2;
             let hard_clip_len = seq_len - match_len;
 
@@ -1012,25 +1001,14 @@ mod bam_rc_record_tests {
                 &vec![b'A'; seq_len],
                 &vec![50; seq_len],
             );
-
-            let random_num = rand::random_range(0..6);
-
-            match random_num {
-                0 => {}                      // primary_forward - no flags
-                1 => record.set_reverse(),   // primary_reverse
-                2 => record.set_secondary(), // secondary_forward
-                3 => {
-                    record.set_secondary();
-                    record.set_reverse();
-                } // secondary_reverse
-                4 => record.set_supplementary(), // supplementary_forward
-                5 => {
-                    record.set_supplementary();
-                    record.set_reverse();
-                } // supplementary_reverse
-                _ => unreachable!(),
-            }
-
+            record.unset_flags();
+            record.set_flags(loop {
+                let random_state: ReadState = random();
+                match random_state {
+                    ReadState::Unmapped => continue,
+                    v => break u16::from(v),
+                }
+            });
             if record.pre_filt(&bam_opts_min_align_len) {
                 count_retained.0 += 1;
             }
@@ -1046,19 +1024,17 @@ mod bam_rc_record_tests {
 
     #[test]
     fn test_filt_by_bitwise_or_flags() -> Result<(), Error> {
-        use rust_htslib::bam::record;
-
         // Create random subset of read states (ensure at least one)
         let selected_states = {
             let mut selected_states = Vec::new();
             let all_states = vec!["0", "4", "16", "256", "272", "2048", "2064"];
             for state in &all_states {
-                if rand::random::<f32>() < 0.5 {
+                if random::<f32>() < 0.5 {
                     selected_states.push(*state);
                 }
             }
             if selected_states.is_empty() {
-                selected_states.push(all_states[rand::random_range(0..all_states.len())]);
+                selected_states.push(all_states[random_range(0..all_states.len())]);
             }
             selected_states
         };
@@ -1073,26 +1049,11 @@ mod bam_rc_record_tests {
 
         for _ in 1..=70000 {
             let mut record = record::Record::new();
-            let random_num = rand::random_range(0..7);
-
-            match random_num {
-                0 => {}                      // primary_forward - no flags
-                1 => record.set_unmapped(),  // unmapped
-                2 => record.set_reverse(),   // primary_reverse
-                3 => record.set_secondary(), // secondary_forward
-                4 => {
-                    record.set_secondary();
-                    record.set_reverse();
-                } // secondary_reverse
-                5 => record.set_supplementary(), // supplementary_forward
-                6 => {
-                    record.set_supplementary();
-                    record.set_reverse();
-                } // supplementary_reverse
-                _ => unreachable!(),
-            }
-
-            //if record.filt_by_bitwise_or_flags(&read_states) {
+            record.unset_flags();
+            record.set_flags({
+                let random_state: ReadState = random();
+                u16::from(random_state)
+            });
             if record.pre_filt(&bam_opts) {
                 count_retained += 1;
             }
@@ -1109,9 +1070,6 @@ mod bam_rc_record_tests {
 
     #[test]
     fn test_filt_by_region() -> Result<(), Error> {
-        use rust_htslib::bam::record;
-        use rust_htslib::bam::record::{Cigar, CigarString};
-
         let mut count_retained = (0, 0);
 
         for _ in 1..=10000 {
@@ -1119,10 +1077,10 @@ mod bam_rc_record_tests {
 
             // Draw four numbers from 0 to 10000
             let four_nums = [
-                rand::random_range(0..=10000),
-                rand::random_range(0..=10000),
-                rand::random_range(0..=10000),
-                rand::random_range(0..=10000u64),
+                random_range(0..=10000),
+                random_range(0..=10000),
+                random_range(0..=10000),
+                random_range(0..=10000u64),
             ];
 
             // First two for record
@@ -1133,7 +1091,7 @@ mod bam_rc_record_tests {
 
             // Use the last two to set up region, with a random contig chosen
             // from a set of two.
-            let region_tid = if rand::random::<bool>() { 0 } else { 1 };
+            let region_tid = if random::<bool>() { 0 } else { 1 };
             let mut region_nums = [four_nums[2], four_nums[3]];
             region_nums.sort();
             let region_start = region_nums[0];
@@ -1165,7 +1123,7 @@ mod bam_rc_record_tests {
             );
 
             // Set tid and position, contig chosen from a random set of two.
-            let tid = if rand::random::<bool>() { 0 } else { 1 };
+            let tid = if random::<bool>() { 0 } else { 1 };
             record.set_tid(tid);
             record.set_pos(start_pos as i64);
 
@@ -1196,25 +1154,6 @@ mod bam_rc_record_tests {
         // within the region, so the probability is 1/6. This is one fourth of the
         // 2/3 used above. So the same criterion will work with the second count quadrupled.
         assert!(4 * count_retained.1 >= min_count && 4 * count_retained.1 <= max_count);
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod read_states_tests {
-    use super::*;
-    use std::str::FromStr;
-
-    #[test]
-    fn test_read_states() -> Result<(), Error> {
-        let op = ReadStates::from_str("primary_forward")?;
-        assert_eq!(op.bam_flags(), &[0]);
-        let op = ReadStates::from_str("unmapped,secondary_reverse,supplementary_reverse")?;
-        assert_eq!(op.bam_flags(), &[4, 256 + 16, 2048 + 16]);
-        let op = ReadStates::from_str("primary_reverse")?;
-        assert_eq!(op.bam_flags(), &[16]);
-        let op = ReadStates::from_str("primary_reverse,primary_forward")?;
-        assert_eq!(op.bam_flags(), &[16, 0]);
         Ok(())
     }
 }

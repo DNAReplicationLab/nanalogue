@@ -56,18 +56,17 @@ impl Distribution<ReadState> for StandardUniform {
 }
 
 // Implements conversion of ReadState into the standard BAM flag format
-impl TryFrom<ReadState> for u16 {
-    type Error = Error;
+impl From<ReadState> for u16 {
     /// converts our internal representation to the BAM flag format
-    fn try_from(value: ReadState) -> Result<u16, Error> {
+    fn from(value: ReadState) -> u16 {
         match value {
-            ReadState::PrimaryFwd => Ok(0),
-            ReadState::Unmapped => Ok(4),
-            ReadState::PrimaryRev => Ok(16),
-            ReadState::SecondaryFwd => Ok(256),
-            ReadState::SecondaryRev => Ok(272),
-            ReadState::SupplementaryFwd => Ok(2048),
-            ReadState::SupplementaryRev => Ok(2064),
+            ReadState::PrimaryFwd => 0,
+            ReadState::Unmapped => 4,
+            ReadState::PrimaryRev => 16,
+            ReadState::SecondaryFwd => 256,
+            ReadState::SecondaryRev => 272,
+            ReadState::SupplementaryFwd => 2048,
+            ReadState::SupplementaryRev => 2064,
         }
     }
 }
