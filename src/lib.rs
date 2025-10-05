@@ -36,6 +36,7 @@ use std::io::{BufRead, BufReader};
 pub mod analysis;
 pub mod cli;
 pub mod error;
+pub mod file_utils;
 pub mod read_utils;
 pub mod subcommands;
 pub mod utils;
@@ -47,6 +48,7 @@ pub use cli::{
     RequiredTag,
 };
 pub use error::Error;
+pub use file_utils::{nanalogue_bam_reader, write_denovo_bam, write_fasta};
 pub use read_utils::CurrRead;
 pub use utils::{
     Contains, F32AbsValBelow1, F32Bw0and1, FilterByRefCoords, GenomicRegion, Intersects, ModChar,
@@ -343,29 +345,6 @@ impl<'a> BamRcRecords<'a> {
             return Err(Error::UnknownError);
         }
         Ok(BamRcRecords { rc_records, header })
-    }
-}
-
-/// Opens BAM file, also copied and edited from fiberseq repo.
-///
-/// ```
-/// use nanalogue_core::{Error, nanalogue_bam_reader};
-/// use rust_htslib::bam::Read;
-/// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
-/// // the above file should contain four reads, so we are checking
-/// // if we load four records.
-/// let mut count = 0;
-/// for r in reader.records() {
-///     count = count + 1;
-/// }
-/// assert_eq!(count, 4);
-/// # Ok::<(), Error>(())
-/// ```
-pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
-    if bam_path == "-" {
-        Ok(bam::Reader::from_stdin()?)
-    } else {
-        Ok(bam::Reader::from_path(bam_path)?)
     }
 }
 
