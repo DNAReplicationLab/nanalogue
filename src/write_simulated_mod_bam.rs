@@ -34,7 +34,6 @@ use rust_htslib::bam;
 use rust_htslib::bam::Header;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::num::{NonZeroU32, NonZeroU64};
@@ -42,7 +41,7 @@ use std::ops::RangeInclusive;
 use uuid::Uuid;
 
 /// Main configuration struct for simulation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SimulationConfig {
     /// Configuration for contig generation
@@ -142,15 +141,6 @@ impl Default for ModConfig {
     }
 }
 
-impl Default for SimulationConfig {
-    fn default() -> Self {
-        Self {
-            contigs: ContigConfig::default(),
-            reads: Vec::new(),
-        }
-    }
-}
-
 /// Generates random DNA sequence of given length
 fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> Vec<u8> {
     const DNA_BASES: [u8; 4] = [b'A', b'C', b'G', b'T'];
@@ -180,7 +170,10 @@ fn generate_contigs<R: Rng>(
 }
 
 /// Writes contigs to a FASTA file
-fn write_fasta(contigs: &[Contig], output_path: &str) -> Result<(), Error> {
+fn write_fasta<I>(contigs: I, output_path: &str) -> Result<(), Error>
+where
+    I: IntoIterator<Item = Contig>,
+{
     let mut file = File::create(output_path)?;
     for contig in contigs {
         writeln!(file, ">{}", contig.name)?;
@@ -192,7 +185,7 @@ fn write_fasta(contigs: &[Contig], output_path: &str) -> Result<(), Error> {
 /// Generates reads that align to contigs
 fn generate_reads<R: Rng>(
     contigs: &[Contig],
-    config: &ReadConfig,
+    config: ReadConfig,
     read_group: &str,
     rng: &mut R,
 ) -> Result<Vec<bam::Record>, Error> {
@@ -260,31 +253,24 @@ fn generate_reads<R: Rng>(
 }
 
 /// Writes BAM file with reads
-fn write_bam(reads: &[bam::Record], contigs: &[Contig], output_path: &str) -> Result<(), Error> {
-    let read_groups: Vec<String> = reads
-        .into_iter()
-        .flat_map(|r| {
-            r.aux(b"RG").ok().map(|s| match s {
-                Aux::String(k) => format!("{k}"),
-                _ => panic!("RG only permits strings!"),
-            })
-        })
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-
+fn write_bam<I, J, K>(reads: I, contigs: J, read_groups: K, output_path: &str) -> Result<(), Error>
+where
+    I: IntoIterator<Item = bam::Record>,
+    J: IntoIterator<Item = (String, usize)>,
+    K: IntoIterator<Item = String>,
+{
     let header = {
         let mut header = Header::new();
-        for contig in contigs {
+        for k in contigs {
             let _ = header.push_record(
-                &bam::header::HeaderRecord::new(b"SQ")
-                    .push_tag(b"SN", &contig.name)
-                    .push_tag(b"LN", contig.seq.len()),
+                bam::header::HeaderRecord::new(b"SQ")
+                    .push_tag(b"SN", k.0)
+                    .push_tag(b"LN", k.1),
             );
         }
         for k in read_groups {
             let _ = header.push_record(
-                &bam::header::HeaderRecord::new(b"RG")
+                bam::header::HeaderRecord::new(b"RG")
                     .push_tag(b"ID", k)
                     .push_tag(b"PL", "ONT")
                     .push_tag(b"LB", "blank")
@@ -292,13 +278,14 @@ fn write_bam(reads: &[bam::Record], contigs: &[Contig], output_path: &str) -> Re
                     .push_tag(b"PU", "blank"),
             );
         }
+        let _ = header.push_comment(b"simulated BAM file, not real data");
         header
     };
 
     let mut writer = bam::Writer::from_path(output_path, &header, bam::Format::Bam)?;
 
     for read in reads {
-        writer.write(read)?;
+        writer.write(&read)?;
     }
 
     Ok(())
@@ -337,21 +324,22 @@ pub fn run(
     let mut rng = rand::rng();
 
     let contigs = generate_contigs(config.contigs.number, config.contigs.len_range, &mut rng);
+    let read_groups: Vec<String> = (0..config.reads.len()).map(|k| format!("{0}", k)).collect();
     let reads = {
         let mut temp_reads = Vec::new();
-        for k in config.reads.into_iter().enumerate() {
-            temp_reads.append(&mut generate_reads(
-                &contigs,
-                &k.1,
-                &format!("{0}", k.0),
-                &mut rng,
-            )?);
+        for k in config.reads.into_iter().zip(read_groups.clone()) {
+            temp_reads.append(&mut generate_reads(&contigs, k.0, &k.1, &mut rng)?);
         }
         temp_reads
     };
 
-    write_fasta(&contigs, fasta_output_path)?;
-    write_bam(&reads, &contigs, bam_output_path)?;
+    write_bam(
+        reads,
+        contigs.iter().map(|k| (k.name.clone(), k.seq.len())),
+        read_groups,
+        bam_output_path,
+    )?;
+    write_fasta(contigs, fasta_output_path)?;
 
     Ok(true)
 }
@@ -402,7 +390,7 @@ mod tests {
         ];
 
         let temp_path = format!("/tmp/{}.fa", Uuid::new_v4());
-        write_fasta(&contigs, &temp_path).expect("no error");
+        write_fasta(contigs, &temp_path).expect("no error");
 
         let content = std::fs::read_to_string(temp_path.clone()).expect("no error");
         assert_eq!(content, ">test_contig_0\nACGT\n>test_contig_1\nTGCA\n");
@@ -433,7 +421,7 @@ mod tests {
             mods: vec![],
         };
 
-        let reads = generate_reads(&contigs, &config, "1", &mut rng).unwrap();
+        let reads = generate_reads(&contigs, config, "1", &mut rng).unwrap();
         assert!(reads.len() <= 10);
 
         for read in &reads {
