@@ -172,12 +172,12 @@ fn generate_contigs<R: Rng>(
 /// Writes contigs to a FASTA file
 fn write_fasta<I>(contigs: I, output_path: &str) -> Result<(), Error>
 where
-    I: IntoIterator<Item = Contig>,
+    I: IntoIterator<Item = (String, Vec<u8>)>,
 {
     let mut file = File::create(output_path)?;
     for contig in contigs {
-        writeln!(file, ">{}", contig.name)?;
-        writeln!(file, "{}", String::from_utf8_lossy(&contig.seq))?;
+        writeln!(file, ">{}", contig.0)?;
+        writeln!(file, "{}", String::from_utf8_lossy(&contig.1))?;
     }
     Ok(())
 }
@@ -339,7 +339,10 @@ pub fn run(
         read_groups,
         bam_output_path,
     )?;
-    write_fasta(contigs, fasta_output_path)?;
+    write_fasta(
+        contigs.into_iter().map(|k| (k.name, k.seq)),
+        fasta_output_path,
+    )?;
 
     Ok(true)
 }
@@ -390,7 +393,7 @@ mod tests {
         ];
 
         let temp_path = format!("/tmp/{}.fa", Uuid::new_v4());
-        write_fasta(contigs, &temp_path).expect("no error");
+        write_fasta(contigs.into_iter().map(|k| (k.name, k.seq)), &temp_path).expect("no error");
 
         let content = std::fs::read_to_string(temp_path.clone()).expect("no error");
         assert_eq!(content, ">test_contig_0\nACGT\n>test_contig_1\nTGCA\n");
