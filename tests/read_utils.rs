@@ -50,7 +50,7 @@ fn test_set_seq_len() -> Result<(), Error> {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "InvalidDuplicates")]
 fn test_set_seq_len_duplicate_should_panic() {
     let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
     for record in reader.records() {
@@ -61,6 +61,69 @@ fn test_set_seq_len_duplicate_should_panic() {
             .set_seq_len(&r)
             .unwrap()
             .set_seq_len(&r)
+            .unwrap();
+        break;
+    }
+}
+
+#[test]
+fn test_set_align_len() -> Result<(), Error> {
+    let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    let mut count = 0;
+    for record in reader.records() {
+        let r = record?;
+        let curr_read = CurrRead::default().set_read_state(&r)?.set_align_len(&r)?;
+        let Ok(len) = curr_read.align_len() else {
+            unreachable!()
+        };
+        match count {
+            0 => assert_eq!(len, 8),
+            1 => assert_eq!(len, 48),
+            2 => assert_eq!(len, 33),
+            _ => unreachable!(),
+        }
+        count = count + 1;
+        if count == 3 {
+            break;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[should_panic(expected = "Unmapped")]
+fn test_set_align_len_unmapped_should_panic() {
+    // Fourth read in the following file is unmapped, so we check if
+    // we hit an error on that read
+    let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
+    let mut count = 0;
+    for record in reader.records() {
+        let r = record.unwrap();
+        if count < 3 {
+            count = count + 1;
+            continue;
+        } else {
+            let _ = CurrRead::default()
+                .set_read_state(&r)
+                .unwrap()
+                .set_align_len(&r)
+                .unwrap();
+        }
+    }
+}
+
+#[test]
+#[should_panic(expected = "InvalidDuplicates")]
+fn test_set_align_len_duplicate_should_panic() {
+    let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
+    for record in reader.records() {
+        let r = record.unwrap();
+        let _curr_read = CurrRead::default()
+            .set_read_state(&r)
+            .unwrap()
+            .set_align_len(&r)
+            .unwrap()
+            .set_align_len(&r)
             .unwrap();
         break;
     }
@@ -108,7 +171,7 @@ fn test_set_contig_id_and_start_unmapped_should_panic() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "InvalidDuplicates")]
 fn test_set_contig_id_and_start_duplicate_should_panic() {
     let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
     for record in reader.records() {
@@ -149,7 +212,7 @@ fn test_set_contig_name() -> Result<(), Error> {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Unmapped")]
 fn test_set_contig_name_unmapped_should_panic() {
     let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
     let mut count = 0;
@@ -165,7 +228,23 @@ fn test_set_contig_name_unmapped_should_panic() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Unmapped")]
+fn test_get_contig_name_unmapped_should_panic() {
+    let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
+    let mut count = 0;
+    for record in reader.records() {
+        if count < 3 {
+            count = count + 1;
+            continue;
+        }
+        let r = record.unwrap();
+        let curr_read = CurrRead::default().set_read_state(&r).unwrap();
+        curr_read.contig_name().unwrap();
+    }
+}
+
+#[test]
+#[should_panic(expected = "InvalidDuplicates")]
 fn test_set_contig_name_duplicate_should_panic() {
     let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
     for record in reader.records() {
@@ -204,7 +283,7 @@ fn test_set_read_id() -> Result<(), Error> {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "InvalidDuplicates")]
 fn test_set_read_id_duplicate_should_panic() {
     let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
     for record in reader.records() {
@@ -272,6 +351,13 @@ fn test_seq_on_ref_coords() -> Result<(), Error> {
 #[test]
 fn test_basecount_per_mod() -> Result<(), Error> {
     let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+    let first_count = Some(HashMap::from([(ModChar::new('T'), 0)]));
+    let second_count = Some(HashMap::from([(ModChar::new('T'), 3)]));
+    let third_count = Some(HashMap::from([(ModChar::new('T'), 1)]));
+    let fourth_count = Some(HashMap::from([
+        (ModChar::new('T'), 3),
+        (ModChar::new('ᰠ'), 0),
+    ]));
     let mut count = 0;
     for record in reader.records() {
         let r = record?;
@@ -281,18 +367,11 @@ fn test_basecount_per_mod() -> Result<(), Error> {
             0,
         )?;
         let modcount = curr_read.base_count_per_mod();
-        let zerocount = Some(HashMap::from([(ModChar::new('T'), 0)]));
-        let a = Some(HashMap::from([(ModChar::new('T'), 3)]));
-        let b = Some(HashMap::from([(ModChar::new('T'), 1)]));
-        let c = Some(HashMap::from([
-            (ModChar::new('T'), 3),
-            (ModChar::new('ᰠ'), 0),
-        ]));
         match (count, modcount) {
-            (0, v) => assert_eq!(v, zerocount),
-            (1, v) => assert_eq!(v, a),
-            (2, v) => assert_eq!(v, b),
-            (3, v) => assert_eq!(v, c),
+            (0, v) => assert_eq!(v, first_count),
+            (1, v) => assert_eq!(v, second_count),
+            (2, v) => assert_eq!(v, third_count),
+            (3, v) => assert_eq!(v, fourth_count),
             _ => unreachable!(),
         }
         count = count + 1;
@@ -307,9 +386,7 @@ fn test_try_from_stranded_bed3() -> Result<(), Error> {
     for record in reader.records() {
         let r = record?;
         let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
-        let Ok(bed3_stranded) = StrandedBed3::try_from(&curr_read) else {
-            unreachable!()
-        };
+        let bed3_stranded = StrandedBed3::try_from(&curr_read).unwrap();
         let exp_bed3_stranded = match count {
             0 => StrandedBed3::new(0, 9, 17, Strand::Forward),
             1 => StrandedBed3::new(2, 23, 71, Strand::Forward),
@@ -332,6 +409,8 @@ fn test_range_intersects() {
     assert!(!(0..3).intersects(&(5..7)));
     assert!(!(0..3).intersects(&(1..1)));
     assert!((1..3).intersects(&(0..2)));
+    assert!((1..3).intersects(&(0..4)));
+    assert!((0..4).intersects(&(1..3)));
 }
 
 #[cfg(test)]
