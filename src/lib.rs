@@ -854,35 +854,35 @@ mod bam_rc_record_tests {
     use rust_htslib::bam::record::{Cigar, CigarString};
 
     #[test]
-    fn test_bam_rc_records() -> Result<(), Error> {
-        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
+    fn test_bam_rc_records() {
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         let bam_rc_records = BamRcRecords::new(
             &mut reader,
             &mut InputBam::default(),
             &mut InputMods::default(),
-        )?;
+        )
+        .unwrap();
         assert_eq!(bam_rc_records.header.tid(b"dummyI"), Some(0));
         assert_eq!(bam_rc_records.header.tid(b"dummyII"), Some(1));
         assert_eq!(bam_rc_records.header.tid(b"dummyIII"), Some(2));
-        Ok(())
     }
 
     #[test]
-    fn test_example_3_read_list_1() -> Result<(), Error> {
+    fn test_example_3_read_list_1() {
         // Test with example_3_subset_1 - should see 2 reads
-        let mut reader = nanalogue_bam_reader("examples/example_3.bam")?;
+        let mut reader = nanalogue_bam_reader("examples/example_3.bam").unwrap();
         let mut bam_opts: InputBam =
             serde_json::from_str(r#"{"read_id_list": "examples/example_3_subset_1"}"#).unwrap();
 
         let bam_rc_records =
-            BamRcRecords::new(&mut reader, &mut bam_opts, &mut InputMods::default())?;
+            BamRcRecords::new(&mut reader, &mut bam_opts, &mut InputMods::default()).unwrap();
 
         // Count lines in the read ID file
-        let file = File::open("examples/example_3_subset_1")?;
+        let file = File::open("examples/example_3_subset_1").unwrap();
         let reader_file = BufReader::new(file);
         let mut line_count = 0;
         for line in reader_file.lines() {
-            let line = line?;
+            let line = line.unwrap();
             let line = line.trim();
             if !line.is_empty() && !line.starts_with('#') {
                 line_count += 1;
@@ -892,33 +892,31 @@ mod bam_rc_record_tests {
 
         let mut count = 0;
         for record_result in bam_rc_records.rc_records {
-            let record = record_result?;
+            let record = record_result.unwrap();
             if record.pre_filt(&bam_opts) {
                 count += 1;
             }
         }
         assert_eq!(count, 2);
-
-        Ok(())
     }
 
     #[test]
-    fn test_example_3_read_list_2() -> Result<(), Error> {
+    fn test_example_3_read_list_2() {
         // Test with example_3_subset_w_invalid - should see 2 reads
         // even though file contains 3 read IDs
-        let mut reader = nanalogue_bam_reader("examples/example_3.bam")?;
+        let mut reader = nanalogue_bam_reader("examples/example_3.bam").unwrap();
         let mut bam_opts: InputBam =
             serde_json::from_str(r#"{"read_id_list": "examples/example_3_subset_w_invalid"}"#)
                 .unwrap();
         let bam_rc_records =
-            BamRcRecords::new(&mut reader, &mut bam_opts, &mut InputMods::default())?;
+            BamRcRecords::new(&mut reader, &mut bam_opts, &mut InputMods::default()).unwrap();
 
         // Count lines in the read ID file
-        let file = File::open("examples/example_3_subset_w_invalid")?;
+        let file = File::open("examples/example_3_subset_w_invalid").unwrap();
         let reader_file = BufReader::new(file);
         let mut line_count = 0;
         for line in reader_file.lines() {
-            let line = line?;
+            let line = line.unwrap();
             let line = line.trim();
             if !line.is_empty() && !line.starts_with('#') {
                 line_count += 1;
@@ -928,18 +926,16 @@ mod bam_rc_record_tests {
 
         let mut count = 0;
         for record_result in bam_rc_records.rc_records {
-            let record = record_result?;
+            let record = record_result.unwrap();
             if record.pre_filt(&bam_opts) {
                 count += 1;
             }
         }
         assert_eq!(count, 2);
-
-        Ok(())
     }
 
     #[test]
-    fn test_random_retrieval() -> Result<(), Error> {
+    fn test_random_retrieval() {
         let mut count_retained = 0;
         let bam_opts: InputBam =
             serde_json::from_str(r#"{"sample_fraction": 0.5, "include_zero_len": true}"#).unwrap();
@@ -954,11 +950,10 @@ mod bam_rc_record_tests {
         // 50% retention rate => 5000 reads, so we test if 4500-5500 reads come through
         // (this is quite lax actually)
         assert!(count_retained >= 4500 && count_retained <= 5500);
-        Ok(())
     }
 
     #[test]
-    fn test_single_read_id_filtering() -> Result<(), Error> {
+    fn test_single_read_id_filtering() {
         let mut count_retained = 0;
 
         let bam_opts: InputBam =
@@ -975,11 +970,10 @@ mod bam_rc_record_tests {
         }
 
         assert_eq!(count_retained, 1);
-        Ok(())
     }
 
     #[test]
-    fn test_seq_and_align_len_filtering() -> Result<(), Error> {
+    fn test_seq_and_align_len_filtering() {
         let bam_opts_min_len: InputBam = serde_json::from_str(r#"{"min_seq_len": 5000}"#).unwrap();
         let bam_opts_min_align_len: InputBam =
             serde_json::from_str(r#"{"min_align_len": 2500}"#).unwrap();
@@ -1019,11 +1013,10 @@ mod bam_rc_record_tests {
 
         assert!(count_retained.0 >= 4500 && count_retained.0 <= 5500);
         assert!(count_retained.1 >= 4500 && count_retained.1 <= 5500);
-        Ok(())
     }
 
     #[test]
-    fn test_filt_by_bitwise_or_flags() -> Result<(), Error> {
+    fn test_filt_by_bitwise_or_flags() {
         // Create random subset of read states (ensure at least one)
         let selected_states = {
             let mut selected_states = Vec::new();
@@ -1065,11 +1058,10 @@ mod bam_rc_record_tests {
         let max_count = expected_count + tolerance;
 
         assert!(count_retained >= min_count && count_retained <= max_count);
-        Ok(())
     }
 
     #[test]
-    fn test_filt_by_region() -> Result<(), Error> {
+    fn test_filt_by_region() {
         let mut count_retained = (0, 0);
 
         for _ in 1..=10000 {
@@ -1155,6 +1147,5 @@ mod bam_rc_record_tests {
         // within the region, so the probability is 1/6. This is one fourth of the
         // 2/3 used above. So the same criterion will work with the second count quadrupled.
         assert!(4 * count_retained.1 >= min_count && 4 * count_retained.1 <= max_count);
-        Ok(())
     }
 }

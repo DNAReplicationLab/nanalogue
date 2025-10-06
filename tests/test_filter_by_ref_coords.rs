@@ -2,11 +2,11 @@
 //! Tests focus on filtering reads by reference coordinates
 
 use indoc::indoc;
-use nanalogue_core::{CurrRead, Error, FilterByRefCoords, read_utils::AlignAndModData};
+use nanalogue_core::{CurrRead, FilterByRefCoords, read_utils::AlignAndModData};
 use serde_json;
 
 #[test]
-fn test_ranges_filter_by_ref_coords_via_curr_read() -> Result<(), Error> {
+fn test_ranges_filter_by_ref_coords_via_curr_read() {
     // Input JSON with modification data spanning reference positions 10-30
     let input_json = indoc! {r#"
         {
@@ -72,17 +72,16 @@ fn test_ranges_filter_by_ref_coords_via_curr_read() -> Result<(), Error> {
         }"#};
 
     // Deserialize input, apply filter, and compare with expected
-    let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+    let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
     curr_read.filter_by_ref_pos(15, 25);
 
-    let expected_curr_read: CurrRead<AlignAndModData> = serde_json::from_str(expected_json)?;
+    let expected_curr_read: CurrRead<AlignAndModData> =
+        serde_json::from_str(expected_json).unwrap();
     assert_eq!(curr_read, expected_curr_read);
-
-    Ok(())
 }
 
 #[test]
-fn test_ranges_filter_no_overlap_1() -> Result<(), Error> {
+fn test_ranges_filter_no_overlap_1() {
     // Input JSON with modification data
     let input_json = indoc! {r#"
         {
@@ -125,17 +124,16 @@ fn test_ranges_filter_no_overlap_1() -> Result<(), Error> {
         }"#};
 
     // Deserialize input, apply filter, and compare with expected
-    let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+    let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
     curr_read.filter_by_ref_pos(26, 60);
 
-    let expected_curr_read: CurrRead<AlignAndModData> = serde_json::from_str(expected_json)?;
+    let expected_curr_read: CurrRead<AlignAndModData> =
+        serde_json::from_str(expected_json).unwrap();
     assert_eq!(curr_read, expected_curr_read);
-
-    Ok(())
 }
 
 #[test]
-fn test_ranges_filter_no_overlap_2() -> Result<(), Error> {
+fn test_ranges_filter_no_overlap_2() {
     // Input JSON with modification data (same as test_1)
     let input_json = indoc! {r#"
         {
@@ -177,17 +175,16 @@ fn test_ranges_filter_no_overlap_2() -> Result<(), Error> {
         }"#};
 
     // Deserialize input, apply filter, and compare with expected
-    let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+    let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
     curr_read.filter_by_ref_pos(0, 15);
 
-    let expected_curr_read: CurrRead<AlignAndModData> = serde_json::from_str(expected_json)?;
+    let expected_curr_read: CurrRead<AlignAndModData> =
+        serde_json::from_str(expected_json).unwrap();
     assert_eq!(curr_read, expected_curr_read);
-
-    Ok(())
 }
 
 #[test]
-fn test_ranges_filter_partial_overlap() -> Result<(), Error> {
+fn test_ranges_filter_partial_overlap() {
     // Input JSON with modification data
     let input_json = indoc! {r#"
         {
@@ -235,17 +232,16 @@ fn test_ranges_filter_partial_overlap() -> Result<(), Error> {
         }"#};
 
     // Deserialize input, apply filter, and compare with expected
-    let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+    let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
     curr_read.filter_by_ref_pos(20, 30);
 
-    let expected_curr_read: CurrRead<AlignAndModData> = serde_json::from_str(expected_json)?;
+    let expected_curr_read: CurrRead<AlignAndModData> =
+        serde_json::from_str(expected_json).unwrap();
     assert_eq!(curr_read, expected_curr_read);
-
-    Ok(())
 }
 
 #[test]
-fn test_ranges_filter_reverse_strand() -> Result<(), Error> {
+fn test_ranges_filter_reverse_strand() {
     // Input JSON with reverse strand modification data
     let input_json = indoc! {r#"
         {
@@ -292,11 +288,10 @@ fn test_ranges_filter_reverse_strand() -> Result<(), Error> {
         }"#};
 
     // Deserialize input, apply filter, and compare with expected
-    let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
+    let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
     curr_read.filter_by_ref_pos(20, 30);
 
-    let expected_curr_read: CurrRead<AlignAndModData> = serde_json::from_str(expected_json)?;
+    let expected_curr_read: CurrRead<AlignAndModData> =
+        serde_json::from_str(expected_json).unwrap();
     assert_eq!(curr_read, expected_curr_read);
-
-    Ok(())
 }
