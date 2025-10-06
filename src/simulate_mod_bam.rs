@@ -17,9 +17,14 @@
 //!     "mapq_range": [10, 20],
 //!     "base_qual_range": [10, 20],
 //!     "len_range": [0.1, 0.8],
+//!     "barcode": "ACGTAA",
 //!     "mods": []
 //!   }]
 //! }"#;
+//!
+//! // Note: "barcode" field is optional and can be omitted; barcodes added to both ends.
+//! //       As sequences and lengths are generated independently of barcodes,
+//! //       a barcode will _add_ 2 times so many bp to sequence length statistics.
 //!
 //! run(
 //!     config_json,
@@ -71,6 +76,8 @@ pub struct ReadConfig {
     pub base_qual_range: OrdPair<u8>,
     /// Read length range as fraction of contig [min, max] (e.g.: [0.1, 0.8] = 10% to 80%)
     pub len_range: OrdPair<F32Bw0and1>,
+    /// Optional barcode DNA sequence to add to read ends
+    pub barcode: Option<String>,
     /// Modification configurations
     pub mods: Vec<ModConfig>,
 }
@@ -118,6 +125,7 @@ impl Default for ReadConfig {
             base_qual_range: OrdPair::new(0, 0).unwrap(),
             len_range: OrdPair::new(F32Bw0and1::new(0.0).unwrap(), F32Bw0and1::new(0.0).unwrap())
                 .unwrap(),
+            barcode: None,
             mods: Vec::new(),
         }
     }
@@ -153,6 +161,87 @@ pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> 
     (0..length.get())
         .map(|_| DNA_BASES[rng.random_range(0..4)])
         .collect()
+}
+
+/// Validates that a DNA sequence contains only valid bases (A, C, G, T).
+/// Does not accept ambiguous bases like 'N'.
+///
+/// # Examples
+/// ```
+/// use nanalogue_core::simulate_mod_bam::is_valid_dna_restrictive;
+///
+/// assert!(is_valid_dna_restrictive("ACGT"));
+/// assert!(is_valid_dna_restrictive("acgt"));
+/// assert!(!is_valid_dna_restrictive("ACGTN"));
+/// assert!(!is_valid_dna_restrictive(""));
+/// ```
+pub fn is_valid_dna_restrictive(seq: &str) -> bool {
+    if seq.is_empty() {
+        return false;
+    }
+    seq.bytes()
+        .all(|b| matches!(b.to_ascii_uppercase(), b'A' | b'C' | b'G' | b'T'))
+}
+
+/// Adds barcodes to read sequence based on strand orientation.
+///
+/// For forward and unmapped reads:
+/// - Prepends barcode to read sequence
+/// - Appends reverse complement of barcode to read sequence
+///
+/// For reverse reads:
+/// - Prepends complement of barcode to read sequence
+/// - Appends reverse of barcode (not reverse complement) to read sequence
+///
+/// # Examples
+/// ```
+/// use nanalogue_core::simulate_mod_bam::add_barcode;
+/// use nanalogue_core::ReadState;
+///
+/// let read_seq = b"GGGGGGGG".to_vec();
+/// let barcode = "ACGTAA".to_string();
+///
+/// // Forward read: barcode + seq + revcomp(barcode)
+/// let result = add_barcode(read_seq.clone(), barcode.clone(), ReadState::PrimaryFwd).unwrap();
+/// assert_eq!(result, b"ACGTAAGGGGGGGGTTACGT".to_vec());
+///
+/// // Reverse read: comp(barcode) + seq + rev(barcode)
+/// let result = add_barcode(read_seq.clone(), barcode.clone(), ReadState::PrimaryRev).unwrap();
+/// assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
+/// ```
+pub fn add_barcode(
+    read_seq: Vec<u8>,
+    barcode: String,
+    read_state: ReadState,
+) -> Result<Vec<u8>, Error> {
+    // Validate barcode
+    if !is_valid_dna_restrictive(&barcode) {
+        return Err(Error::InvalidSeq);
+    }
+
+    let bc_bytes: Vec<u8> = barcode.bytes().map(|b| b.to_ascii_uppercase()).collect();
+
+    let result = match read_state {
+        ReadState::PrimaryFwd
+        | ReadState::SecondaryFwd
+        | ReadState::SupplementaryFwd
+        | ReadState::Unmapped => {
+            // Forward/Unmapped: barcode + read_seq + reverse_complement(barcode)
+            let revcomp_bc = bio::alphabets::dna::revcomp(&bc_bytes);
+            [bc_bytes, read_seq, revcomp_bc].concat()
+        }
+        ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
+            // Reverse: complement(barcode) + read_seq + reverse(barcode)
+            let comp_bc: Vec<u8> = bc_bytes
+                .iter()
+                .map(|&b| bio::alphabets::dna::complement(b))
+                .collect();
+            let rev_bc: Vec<u8> = bc_bytes.iter().copied().rev().collect();
+            [comp_bc, read_seq, rev_bc].concat()
+        }
+    };
+
+    Ok(result)
 }
 
 /// Generates contigs according to configuration
@@ -209,8 +298,11 @@ pub fn generate_contigs_denovo<R: Rng>(
 ///     base_qual_range: OrdPair::new(20, 30).unwrap(),
 ///     len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(),
 ///         F32Bw0and1::new(0.5).unwrap()).unwrap(),
+///     barcode: None,
 ///     mods: vec![],
 /// };
+/// // NOTE: barcodes are optional, and will add 2*barcode_length to length statistics.
+/// //       i.e. length stats are imposed independent of barcodes.
 /// let mut rng = rand::rng();
 /// let reads = generate_reads_denovo(&contigs, config, "RG1", &mut rng).unwrap();
 /// assert_eq!(reads.len(), 10);
@@ -244,11 +336,19 @@ pub fn generate_reads_denovo<R: Rng>(
         };
 
         // Extract sequence from contig
+        let random_state: ReadState = random();
         let end_pos = (start_pos + read_len) as usize;
-        let read_seq = contig.seq[start_pos as usize..end_pos].to_vec();
+        let read_seq = {
+            let temp_seq = contig.seq[start_pos as usize..end_pos].to_vec();
+            // Add barcode if specified
+            match &config.barcode {
+                Some(barcode) => add_barcode(temp_seq, barcode.clone(), random_state)?,
+                None => temp_seq,
+            }
+        };
 
-        // Generate quality scores
-        let qual: Vec<u8> = (0..read_len)
+        // Generate quality scores (for final read length including barcodes)
+        let qual: Vec<u8> = (0..read_seq.len())
             .map(|_| rng.random_range(RangeInclusive::from(config.base_qual_range)))
             .collect();
 
@@ -260,7 +360,6 @@ pub fn generate_reads_denovo<R: Rng>(
             let mut record = bam::Record::new();
             let qname = format!("{}", Uuid::new_v4()).into_bytes();
             record.unset_flags();
-            let random_state: ReadState = random();
             record.set_flags(u16::from(random_state));
             match random_state {
                 ReadState::Unmapped => {
@@ -270,7 +369,17 @@ pub fn generate_reads_denovo<R: Rng>(
                     record.set_pos(-1);
                 }
                 _ => {
-                    let cigar = CigarString(vec![Cigar::Match(read_len as u32)]);
+                    let cigar = match &config.barcode {
+                        Some(barcode) => {
+                            let barcode_len = barcode.len() as u32;
+                            CigarString(vec![
+                                Cigar::SoftClip(barcode_len),
+                                Cigar::Match(read_len as u32),
+                                Cigar::SoftClip(barcode_len),
+                            ])
+                        }
+                        None => CigarString(vec![Cigar::Match(read_len as u32)]),
+                    };
                     record.set(&qname, Some(&cigar), &read_seq, &qual);
                     record.set_mapq(mapq);
                     record.set_tid(contig_idx as i32);
@@ -305,10 +414,12 @@ pub fn generate_reads_denovo<R: Rng>(
 ///     "mapq_range": [10, 20],
 ///     "base_qual_range": [10, 20],
 ///     "len_range": [0.1, 0.8],
-///     "mods": []
 ///   }]
 /// }"#;
 ///
+/// // Note: Optional "barcode" field can be added to reads (e.g., "barcode": "ACGTAA")
+/// //       Length statistics are imposed independent of barcodes; so they will add
+/// //       2x barcode length on top of these.
 /// run(config_json, "output.bam", "reference.fasta").unwrap();
 /// ```
 pub fn run<F>(config_json: &str, bam_output_path: &F, fasta_output_path: &F) -> Result<bool, Error>
@@ -447,6 +558,7 @@ mod tests {
             base_qual_range: OrdPair::new(30, 50).unwrap(),
             len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.8).unwrap())
                 .unwrap(),
+            barcode: None,
             mods: vec![],
         };
 

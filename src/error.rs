@@ -50,6 +50,10 @@ pub enum Error {
     #[error("invalid mod probabilities")]
     InvalidModProbs,
 
+    /// Sequence is invalid
+    #[error("invalid sequence")]
+    InvalidSeq,
+
     /// Read id of molecule is invalid
     #[error("invalid read id")]
     InvalidReadID,

@@ -84,10 +84,7 @@ fn test_set_seq_len_random() -> Result<(), Error> {
         },
         "reads": [{
             "number": 1000,
-            "mapq_range": [10, 10],
-            "base_qual_range": [10, 10],
-            "len_range": [0.1, 0.2],
-            "mods": []
+            "len_range": [0.1, 0.2]
         }]
     }"#;
     let sim = TempBamSimulation::new(config_json).unwrap();
@@ -314,7 +311,7 @@ fn test_get_contig_name_without_setting_should_panic() {
     for record in reader.records() {
         let r = record.unwrap();
         let curr_read = CurrRead::default().set_read_state(&r).unwrap();
-        let _ :&str = curr_read.contig_name().unwrap();
+        let _: &str = curr_read.contig_name().unwrap();
         break;
     }
 }
@@ -365,7 +362,7 @@ fn test_get_read_id_without_setting_should_panic() {
     for record in reader.records() {
         let r = record.unwrap();
         let curr_read = CurrRead::default().set_read_state(&r).unwrap();
-        let _ :&str = curr_read.read_id().unwrap();
+        let _: &str = curr_read.read_id().unwrap();
         break;
     }
 }
