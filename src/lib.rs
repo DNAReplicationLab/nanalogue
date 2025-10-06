@@ -49,8 +49,9 @@ pub use cli::{
     RequiredTag,
 };
 pub use error::Error;
-pub use file_utils::{nanalogue_bam_reader, write_denovo_bam, write_fasta};
+pub use file_utils::{nanalogue_bam_reader, write_bam_denovo, write_fasta};
 pub use read_utils::CurrRead;
+pub use subcommands::{find_modified_reads, read_info, read_stats, reads_table, window_reads};
 pub use utils::{
     Contains, F32AbsValBelow1, F32Bw0and1, FilterByRefCoords, GenomicRegion, Intersects, ModChar,
     OrdPair, ReadState, ReadStates, RestrictModCalledStrand, ThresholdState,

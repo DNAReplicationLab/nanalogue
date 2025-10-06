@@ -19,8 +19,8 @@ use bedrs::{Bed3, Coordinates};
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
     self, BamPreFilt, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
-    InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, nanalogue_bam_reader, subcommands,
-    simulate_mod_bam,
+    InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, nanalogue_bam_reader,
+    find_modified_reads, read_info, read_stats, reads_table, window_reads, simulate_mod_bam,
 };
 use std::io;
 use std::ops::RangeInclusive;
@@ -279,7 +279,7 @@ fn main() -> Result<(), Error> {
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
-            subcommands::reads_table::run(
+            reads_table::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 Some(mods),
@@ -296,7 +296,7 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records =
                 BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
-            subcommands::reads_table::run(
+            reads_table::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 None,
@@ -308,13 +308,13 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records =
                 BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
-            subcommands::read_stats::run(&mut handle, pre_filt!(bam_rc_records, &bam))
+            read_stats::run(&mut handle, pre_filt!(bam_rc_records, &bam))
         }
         Commands::ReadInfo { mut bam } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records =
                 BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
-            subcommands::read_info::run(&mut handle, pre_filt!(bam_rc_records, &bam))
+            read_info::run(&mut handle, pre_filt!(bam_rc_records, &bam))
         }
         Commands::FindModifiedReads {
             command:
@@ -327,7 +327,7 @@ fn main() -> Result<(), Error> {
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
-            subcommands::find_modified_reads::run(
+            find_modified_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
@@ -351,7 +351,7 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
-            subcommands::find_modified_reads::run(
+            find_modified_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
@@ -375,7 +375,7 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
-            subcommands::find_modified_reads::run(
+            find_modified_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
@@ -401,7 +401,7 @@ fn main() -> Result<(), Error> {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
-            subcommands::find_modified_reads::run(
+            find_modified_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
@@ -426,7 +426,7 @@ fn main() -> Result<(), Error> {
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
-            subcommands::find_modified_reads::run(
+            find_modified_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
@@ -451,7 +451,7 @@ fn main() -> Result<(), Error> {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_min_grad_to_1 = OrdPair::new(min_grad, F32Bw0and1::one())?;
-            subcommands::find_modified_reads::run(
+            find_modified_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
@@ -474,7 +474,7 @@ fn main() -> Result<(), Error> {
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
-            subcommands::window_reads::run(
+            window_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
@@ -489,7 +489,7 @@ fn main() -> Result<(), Error> {
         } => {
             let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
-            subcommands::window_reads::run(
+            window_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,

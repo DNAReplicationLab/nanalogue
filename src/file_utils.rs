@@ -49,7 +49,7 @@ where
 /// Although this function can be used for other tasks like subsetting
 /// BAM files, this is not advised as the history of the BAM file
 /// stored in its header would be lost as we are generating a new header here.
-pub fn write_denovo_bam<I, J, K, L, M>(
+pub fn write_bam_denovo<I, J, K, L, M>(
     reads: I,
     contigs: J,
     read_groups: K,

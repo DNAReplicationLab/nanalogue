@@ -29,7 +29,7 @@
 //! ```
 
 use crate::{Error, F32Bw0and1, ModChar, OrdPair, ReadState};
-use crate::{write_denovo_bam, write_fasta};
+use crate::{write_bam_denovo, write_fasta};
 use rand::{Rng, random};
 use rust_htslib::bam;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
@@ -160,11 +160,11 @@ pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> 
 /// ```
 /// use std::num::{NonZeroU32, NonZeroU64};
 /// use nanalogue_core::OrdPair;
-/// use nanalogue_core::simulate_mod_bam::generate_contigs;
+/// use nanalogue_core::simulate_mod_bam::generate_contigs_denovo;
 /// use rand::Rng;
 ///
 /// let mut rng = rand::rng();
-/// let contigs = generate_contigs(
+/// let contigs = generate_contigs_denovo(
 ///     NonZeroU32::new(3).unwrap(),
 ///     OrdPair::new(NonZeroU64::new(100).unwrap(), NonZeroU64::new(200).unwrap()).unwrap(),
 ///     &mut rng
@@ -172,7 +172,7 @@ pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> 
 /// assert_eq!(contigs.len(), 3);
 /// assert!(contigs.iter().all(|c| (100..=200).contains(&c.seq.len())));
 /// ```
-pub fn generate_contigs<R: Rng>(
+pub fn generate_contigs_denovo<R: Rng>(
     contig_number: NonZeroU32,
     len_range: OrdPair<NonZeroU64>,
     rng: &mut R,
@@ -196,7 +196,7 @@ pub fn generate_contigs<R: Rng>(
 /// ```
 /// use std::num::NonZeroU32;
 /// use nanalogue_core::{OrdPair, F32Bw0and1};
-/// use nanalogue_core::simulate_mod_bam::{Contig, ReadConfig, generate_reads};
+/// use nanalogue_core::simulate_mod_bam::{Contig, ReadConfig, generate_reads_denovo};
 /// use rand::Rng;
 ///
 /// let contigs = vec![Contig {
@@ -212,10 +212,10 @@ pub fn generate_contigs<R: Rng>(
 ///     mods: vec![],
 /// };
 /// let mut rng = rand::rng();
-/// let reads = generate_reads(&contigs, config, "RG1", &mut rng).unwrap();
+/// let reads = generate_reads_denovo(&contigs, config, "RG1", &mut rng).unwrap();
 /// assert_eq!(reads.len(), 10);
 /// ```
-pub fn generate_reads<R: Rng>(
+pub fn generate_reads_denovo<R: Rng>(
     contigs: &[Contig],
     config: ReadConfig,
     read_group: &str,
@@ -319,18 +319,18 @@ where
 
     let mut rng = rand::rng();
 
-    let contigs = generate_contigs(config.contigs.number, config.contigs.len_range, &mut rng);
+    let contigs = generate_contigs_denovo(config.contigs.number, config.contigs.len_range, &mut rng);
     let read_groups: Vec<String> = (0..config.reads.len()).map(|k| k.to_string()).collect();
     let reads = {
         let mut temp_reads = Vec::new();
         for k in config.reads.into_iter().zip(read_groups.clone()) {
-            temp_reads.append(&mut generate_reads(&contigs, k.0, &k.1, &mut rng)?);
+            temp_reads.append(&mut generate_reads_denovo(&contigs, k.0, &k.1, &mut rng)?);
         }
         temp_reads.sort_by_key(|k| (k.is_unmapped(), k.tid(), k.pos(), k.is_reverse()));
         temp_reads
     };
 
-    write_denovo_bam(
+    write_bam_denovo(
         reads,
         contigs.iter().map(|k| (k.name.clone(), k.seq.len())),
         read_groups,
@@ -363,13 +363,13 @@ mod tests {
 
     /// Tests contig generation
     #[test]
-    fn test_generate_contigs() {
+    fn test_generate_contigs_denovo() {
         let config = ContigConfig {
             number: NonZeroU32::new(5).unwrap(),
             len_range: OrdPair::new(NonZeroU64::new(100).unwrap(), NonZeroU64::new(200).unwrap())
                 .unwrap(),
         };
-        let contigs = generate_contigs(config.number, config.len_range, &mut rand::rng());
+        let contigs = generate_contigs_denovo(config.number, config.len_range, &mut rand::rng());
         assert_eq!(contigs.len(), 5);
         for (i, contig) in contigs.iter().enumerate() {
             assert_eq!(contig.name, format!("contig_{}", i));
@@ -382,7 +382,7 @@ mod tests {
 
     /// Tests read generation with desired properties.
     #[test]
-    fn test_generate_reads() {
+    fn test_generate_reads_denovo() {
         let mut rng = rand::rng();
         let contigs = vec![
             Contig {
@@ -404,7 +404,7 @@ mod tests {
             mods: vec![],
         };
 
-        let reads = generate_reads(&contigs, config, "1", &mut rng).unwrap();
+        let reads = generate_reads_denovo(&contigs, config, "1", &mut rng).unwrap();
         assert_eq!(reads.len(), 10);
 
         for read in &reads {
