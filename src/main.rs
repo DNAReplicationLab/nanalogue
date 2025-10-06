@@ -19,8 +19,8 @@ use bedrs::{Bed3, Coordinates};
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
     self, BamPreFilt, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
-    InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, nanalogue_bam_reader,
-    find_modified_reads, read_info, read_stats, reads_table, window_reads, simulate_mod_bam,
+    InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, find_modified_reads,
+    nanalogue_bam_reader, read_info, read_stats, reads_table, simulate_mod_bam, window_reads,
 };
 use std::io;
 use std::ops::RangeInclusive;

@@ -207,7 +207,7 @@ pub fn generate_contigs_denovo<R: Rng>(
 ///     number: NonZeroU32::new(10).unwrap(),
 ///     mapq_range: OrdPair::new(10, 20).unwrap(),
 ///     base_qual_range: OrdPair::new(20, 30).unwrap(),
-///     len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(), 
+///     len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(),
 ///         F32Bw0and1::new(0.5).unwrap()).unwrap(),
 ///     mods: vec![],
 /// };
@@ -319,7 +319,8 @@ where
 
     let mut rng = rand::rng();
 
-    let contigs = generate_contigs_denovo(config.contigs.number, config.contigs.len_range, &mut rng);
+    let contigs =
+        generate_contigs_denovo(config.contigs.number, config.contigs.len_range, &mut rng);
     let read_groups: Vec<String> = (0..config.reads.len()).map(|k| k.to_string()).collect();
     let reads = {
         let mut temp_reads = Vec::new();
@@ -350,6 +351,50 @@ mod tests {
     use super::*;
     use rust_htslib::bam::Read;
     use std::path::Path;
+
+    /// Temporary BAM simulation with automatic cleanup
+    ///
+    /// Creates temporary BAM and FASTA files for testing purposes and
+    /// automatically removes them when dropped.
+    struct TempBamSimulation {
+        bam_path: String,
+        fasta_path: String,
+    }
+
+    impl TempBamSimulation {
+        /// Creates a new temporary BAM simulation from JSON configuration
+        fn new(config_json: &str) -> Result<Self, Error> {
+            let bam_path = format!("/tmp/{}.bam", Uuid::new_v4());
+            let fasta_path = format!("/tmp/{}.fa", Uuid::new_v4());
+
+            if !(run(config_json, &bam_path, &fasta_path)?) {
+                return Err(Error::UnknownError);
+            }
+
+            Ok(Self {
+                bam_path,
+                fasta_path,
+            })
+        }
+
+        /// Returns the path to the temporary BAM file
+        fn bam_path(&self) -> &str {
+            &self.bam_path
+        }
+
+        /// Returns the path to the temporary FASTA file
+        fn fasta_path(&self) -> &str {
+            &self.fasta_path
+        }
+    }
+
+    impl Drop for TempBamSimulation {
+        fn drop(&mut self) {
+            // Ignore errors during cleanup - files may already be deleted
+            let _ = std::fs::remove_file(&self.bam_path);
+            let _ = std::fs::remove_file(&self.fasta_path);
+        }
+    }
 
     /// Test for generation of random DNA of a given length
     #[test]
@@ -450,5 +495,38 @@ mod tests {
         // delete files
         std::fs::remove_file(bam_path).unwrap();
         std::fs::remove_file(fasta_path).unwrap();
+    }
+
+    /// Tests TempBamSimulation struct functionality
+    #[test]
+    fn test_temp_bam_simulation_struct() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 2,
+                "len_range": [100, 200]
+            },
+            "reads": [{
+                "number": 1000,
+                "mapq_range": [10, 20],
+                "base_qual_range": [10, 20],
+                "len_range": [0.1, 0.8],
+                "mods": []
+            }]
+        }"#;
+
+        // Create temporary simulation
+        let sim = TempBamSimulation::new(config_json).unwrap();
+
+        // Verify files exist
+        assert!(Path::new(sim.bam_path()).exists());
+        assert!(Path::new(sim.fasta_path()).exists());
+
+        // Read BAM file and check contig, read count
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+        let header = reader.header();
+        assert_eq!(header.target_count(), 2);
+        assert_eq!(reader.records().count(), 1000);
+
+        // Files will be automatically cleaned up when sim is dropped
     }
 }

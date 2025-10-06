@@ -39,9 +39,9 @@ pub mod cli;
 pub mod error;
 pub mod file_utils;
 pub mod read_utils;
+pub mod simulate_mod_bam;
 pub mod subcommands;
 pub mod utils;
-pub mod simulate_mod_bam;
 
 // Re-exports
 pub use cli::{

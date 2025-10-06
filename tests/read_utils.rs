@@ -9,7 +9,7 @@ use rust_htslib::bam::Read;
 use std::collections::HashMap;
 
 #[test]
-fn test_set_read_state() -> Result<(), Error> {
+fn test_set_read_state_example_1() -> Result<(), Error> {
     let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
     let mut count = 0;
     for record in reader.records() {
@@ -20,6 +20,29 @@ fn test_set_read_state() -> Result<(), Error> {
             1 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
             2 => assert_eq!(curr_read.read_state(), ReadState::PrimaryRev),
             3 => assert_eq!(curr_read.read_state(), ReadState::Unmapped),
+            _ => unreachable!(),
+        }
+        count = count + 1;
+    }
+    Ok(())
+}
+
+#[test]
+fn test_set_read_state_example_3() -> Result<(), Error> {
+    let mut reader = nanalogue_bam_reader(&"examples/example_3.bam")?;
+    let mut count = 1; // NOTE that we start the counter from 1 here
+                       // as reads are called 001, 002, ..., 010 here.
+                       // so it is easier for us to read code when counter starts from 1.
+    for record in reader.records() {
+        let r = record?;
+        let curr_read = CurrRead::default().set_read_state(&r)?;
+        match count {
+            1 | 4 | 5 | 8 | 10 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
+            2 => assert_eq!(curr_read.read_state(), ReadState::SecondaryFwd),
+            3 => assert_eq!(curr_read.read_state(), ReadState::PrimaryRev),
+            6 => assert_eq!(curr_read.read_state(), ReadState::SecondaryRev),
+            7 => assert_eq!(curr_read.read_state(), ReadState::SupplementaryFwd),
+            9 => assert_eq!(curr_read.read_state(), ReadState::SupplementaryRev),
             _ => unreachable!(),
         }
         count = count + 1;
