@@ -642,4 +642,66 @@ mod tests {
 
         // Files will be automatically cleaned up when sim is dropped
     }
+
+    /// Tests add_barcode function with forward and reverse reads
+    #[test]
+    fn test_add_barcode() {
+        let read_seq = b"GGGGGGGG".to_vec();
+        let barcode = "ACGTAA".to_string();
+
+        // Test forward read: barcode + seq + revcomp(barcode)
+        let result = add_barcode(read_seq.clone(), barcode.clone(), ReadState::PrimaryFwd).unwrap();
+        assert_eq!(result, b"ACGTAAGGGGGGGGTTACGT".to_vec());
+
+        // Test reverse read: comp(barcode) + seq + rev(barcode)
+        let result = add_barcode(read_seq.clone(), barcode.clone(), ReadState::PrimaryRev).unwrap();
+        assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
+    }
+
+    /// Tests add_barcode with invalid barcode
+    #[test]
+    #[should_panic(expected = "InvalidSeq")]
+    fn test_add_barcode_invalid() {
+        let read_seq = b"GGGGGGGG".to_vec();
+        let invalid_barcode = "ACGTN".to_string();
+        let _result: Vec<u8> = add_barcode(read_seq, invalid_barcode, ReadState::PrimaryFwd).unwrap();
+    }
+
+    /// Tests read generation with barcode
+    #[test]
+    fn test_generate_reads_denovo_with_barcode() {
+        let mut rng = rand::rng();
+        let contigs = vec![Contig {
+            name: "contig_0".to_string(),
+            seq: b"ACGTACGTACGTACGTACGT".to_vec(),
+        }];
+
+        let config = ReadConfig {
+            number: NonZeroU32::new(10).unwrap(),
+            mapq_range: OrdPair::new(10, 20).unwrap(),
+            base_qual_range: OrdPair::new(30, 50).unwrap(),
+            len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.8).unwrap())
+                .unwrap(),
+            barcode: Some("GTACGG".to_string()),
+            mods: vec![],
+        };
+
+        let reads = generate_reads_denovo(&contigs, config, "1", &mut rng).unwrap();
+        assert_eq!(reads.len(), 10);
+
+        for read in &reads {
+            let seq = read.seq().as_bytes();
+            let seq_len = seq.len();
+
+            if read.is_reverse() {
+                // Reverse: comp(GTACGG)=CATGCC at start, rev(GTACGG)=GGCATG at end
+                assert_eq!(&seq[..6], b"CATGCC");
+                assert_eq!(&seq[seq_len - 6..], b"GGCATG");
+            } else {
+                // Forward: GTACGG at start, revcomp(GTACGG)=CCGTAC at end
+                assert_eq!(&seq[..6], b"GTACGG");
+                assert_eq!(&seq[seq_len - 6..], b"CCGTAC");
+            }
+        }
+    }
 }
