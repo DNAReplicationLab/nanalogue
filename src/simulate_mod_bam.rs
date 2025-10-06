@@ -5,7 +5,7 @@
 //! ## Example Usage
 //!
 //! ```no_run
-//! use nanalogue_core::write_simulated_mod_bam::run;
+//! use nanalogue_core::simulate_mod_bam::run;
 //!
 //! let config_json = r#"{
 //!   "contigs": {
@@ -145,7 +145,7 @@ impl Default for ModConfig {
 /// ```
 /// use std::num::NonZeroU64;
 /// use rand::Rng;
-/// use nanalogue_core::write_simulated_mod_bam::generate_random_dna_sequence;
+/// use nanalogue_core::simulate_mod_bam::generate_random_dna_sequence;
 ///
 /// let mut rng = rand::rng();
 /// let seq = generate_random_dna_sequence(NonZeroU64::new(100).unwrap(), &mut rng);
@@ -164,7 +164,7 @@ pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> 
 /// ```
 /// use std::num::{NonZeroU32, NonZeroU64};
 /// use nanalogue_core::OrdPair;
-/// use nanalogue_core::write_simulated_mod_bam::generate_contigs;
+/// use nanalogue_core::simulate_mod_bam::generate_contigs;
 /// use rand::Rng;
 ///
 /// let mut rng = rand::rng();
@@ -200,7 +200,7 @@ pub fn generate_contigs<R: Rng>(
 /// ```
 /// use std::num::NonZeroU32;
 /// use nanalogue_core::{OrdPair, F32Bw0and1};
-/// use nanalogue_core::write_simulated_mod_bam::{Contig, ReadConfig, generate_reads};
+/// use nanalogue_core::simulate_mod_bam::{Contig, ReadConfig, generate_reads};
 /// use rand::Rng;
 ///
 /// let contigs = vec![Contig {
@@ -297,7 +297,7 @@ pub fn generate_reads<R: Rng>(
 /// # Example
 ///
 /// ```no_run
-/// use nanalogue_core::write_simulated_mod_bam::run;
+/// use nanalogue_core::simulate_mod_bam::run;
 ///
 /// let config_json = r#"{
 ///   "contigs": {
