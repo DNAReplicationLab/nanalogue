@@ -89,9 +89,6 @@ pub struct ModConfig {
     pub win: NonZeroU32,
     /// Modification density range e.g. [0.2, 0.8]
     pub mod_range: OrdPair<F32Bw0and1>,
-    /// Use implicit notation, i.e. "." or "" to say missing bases are unmodified.
-    /// Defaults to using "?" i.e. missing bases are missing.
-    pub implicit: bool,
 }
 
 /// Represents a contig with name and sequence
@@ -135,7 +132,6 @@ impl Default for ModConfig {
             win: NonZeroU32::new(1).unwrap(),
             mod_range: OrdPair::new(F32Bw0and1::new(0.0).unwrap(), F32Bw0and1::new(0.0).unwrap())
                 .unwrap(),
-            implicit: false,
         }
     }
 }
