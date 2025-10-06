@@ -1148,6 +1148,7 @@ mod bam_rc_record_tests {
         let min_count = expected_count.saturating_sub(tolerance);
         let max_count = expected_count + tolerance;
         assert!(count_retained.0 >= min_count && count_retained.0 <= max_count);
+
         // the chance that two randomly chosen intervals are such that one is
         // contained within the other is 1/3, and we are looking for the region
         // being contained completely within the read and NOT the read being contained

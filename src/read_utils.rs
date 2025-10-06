@@ -1362,7 +1362,7 @@ fn reconstruct_base_mods(
                 base_mod.strand, base_mod.modification_type
             )));
         }
-        let _ :bool = seen_combinations.insert(combination);
+        let _: bool = seen_combinations.insert(combination);
     }
 
     Ok(BaseMods { base_mods })
@@ -1400,25 +1400,23 @@ mod test_error_handling {
     #[should_panic(expected = "InvalidDuplicates")]
     fn test_reconstruct_base_mods_detects_duplicates() {
         // Create a test case with duplicate strand and modification_type combinations
-        let mut mod_entries = Vec::new();
-
-        // First entry: T+ modification
-        mod_entries.push(ModTableEntry {
-            base: 'T',
-            is_strand_plus: true,
-            mod_code: ModChar::new('T'),
-            implicit: false,
-            data: vec![(0, 0, 10)], // Simple position data for testing
-        });
-
-        // Second entry: T+ modification again (duplicate)
-        mod_entries.push(ModTableEntry {
-            base: 'T',
-            is_strand_plus: true,
-            mod_code: ModChar::new('T'),
-            implicit: false,
-            data: vec![(1, 1, 20)], // Different position, same strand/mod
-        });
+        // i.e. we have two entries for T+T below with different data
+        let mod_entries = vec![
+            ModTableEntry {
+                base: 'T',
+                is_strand_plus: true,
+                mod_code: ModChar::new('T'),
+                implicit: false,
+                data: vec![(0, 0, 10)],
+            },
+            ModTableEntry {
+                base: 'T',
+                is_strand_plus: true,
+                mod_code: ModChar::new('T'),
+                implicit: false,
+                data: vec![(1, 1, 20)],
+            },
+        ];
 
         // Test reconstruct_base_mods with duplicate entries
         let _: BaseMods = reconstruct_base_mods(&mod_entries, ReadState::PrimaryFwd, 10).unwrap();
@@ -1427,38 +1425,35 @@ mod test_error_handling {
     #[test]
     fn test_reconstruct_base_mods_accepts_unique_combinations() {
         // Create a valid case with different combinations
-        let mut valid_mod_entries = Vec::new();
-
         // First entry: T+ modification
-        valid_mod_entries.push(ModTableEntry {
-            base: 'T',
-            is_strand_plus: true,
-            mod_code: ModChar::new('T'),
-            implicit: false,
-            data: vec![(0, 0, 10)],
-        });
-
         // Second entry: C+ modification (different base, same strand)
-        valid_mod_entries.push(ModTableEntry {
-            base: 'C',
-            is_strand_plus: true,
-            mod_code: ModChar::new('m'),
-            implicit: false,
-            data: vec![(1, 1, 20)],
-        });
-
         // Third entry: T- modification (same base, different strand)
-        valid_mod_entries.push(ModTableEntry {
-            base: 'T',
-            is_strand_plus: false,
-            mod_code: ModChar::new('T'),
-            implicit: false,
-            data: vec![(2, 2, 30)],
-        });
+        let mod_entries = vec![
+            ModTableEntry {
+                base: 'T',
+                is_strand_plus: true,
+                mod_code: ModChar::new('T'),
+                implicit: false,
+                data: vec![(0, 0, 10)],
+            },
+            ModTableEntry {
+                base: 'C',
+                is_strand_plus: true,
+                mod_code: ModChar::new('m'),
+                implicit: false,
+                data: vec![(1, 1, 20)],
+            },
+            ModTableEntry {
+                base: 'T',
+                is_strand_plus: false,
+                mod_code: ModChar::new('T'),
+                implicit: false,
+                data: vec![(2, 2, 30)],
+            },
+        ];
 
         // This should succeed since all combinations are unique
-        let _: BaseMods =
-            reconstruct_base_mods(&valid_mod_entries, ReadState::PrimaryFwd, 10).unwrap();
+        let _: BaseMods = reconstruct_base_mods(&mod_entries, ReadState::PrimaryFwd, 10).unwrap();
     }
 }
 
