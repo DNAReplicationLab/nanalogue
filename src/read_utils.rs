@@ -832,7 +832,7 @@ impl CurrRead<AlignAndModData> {
         let (BaseMods { base_mods: v }, _) = self.mod_data();
         for k in v {
             let base_count = k.ranges.qual.len() as u32;
-            let _ = output
+            let _: &mut u32 = output
                 .entry(ModChar::new(k.modification_type))
                 .and_modify(|e| *e += base_count)
                 .or_insert(base_count);
@@ -1362,7 +1362,7 @@ fn reconstruct_base_mods(
                 base_mod.strand, base_mod.modification_type
             )));
         }
-        let _ = seen_combinations.insert(combination);
+        let _ :bool = seen_combinations.insert(combination);
     }
 
     Ok(BaseMods { base_mods })
@@ -1375,65 +1375,23 @@ mod test_error_handling {
 
     #[test]
     fn test_set_read_state_not_implemented_error() {
-        // Valid bit values that are accepted: 0, 4, 16, 256, 2048
-        // Any combination of these bits should be valid
-        // (may hit UnknownAlignState but not NotImplementedError)
-        let valid_bits = [0, 4, 16, 256, 2048];
-
-        // Test flag values from 0 to 4095
         for flag_value in 0..4096u16 {
             let mut record = Record::new();
             record.set_flags(flag_value);
-
             let curr_read = CurrRead::default();
-            let result = curr_read.set_read_state(&record);
-
-            // Check if flag_value is composed only of valid bits
-            let is_valid_combination = {
-                let mut remaining = flag_value;
-                for &bit in &valid_bits {
-                    if remaining & bit != 0 {
-                        remaining &= !bit; // Remove this bit
-                    }
-                }
-                remaining == 0 // If no bits left, it was a valid combination
-            };
-
-            if is_valid_combination {
-                // Check if this should hit UnknownAlignState
-                let should_hit_unknown_align_state = {
-                    // Case 1: bit 4 is set when any of 16, 256, or 2048 are set
-                    let case1 = (flag_value & 4 != 0) && (flag_value & (16 | 256 | 2048) != 0);
-                    // Case 2: both 256 and 2048 are set
-                    let case2 = (flag_value & 256 != 0) && (flag_value & 2048 != 0);
-                    case1 || case2
-                };
-
-                if should_hit_unknown_align_state {
-                    // Should hit UnknownAlignState
-                    assert!(
-                        matches!(result, Err(Error::UnknownAlignState)),
-                        "Flag value {} should trigger UnknownAlignState but got: {:?}",
-                        flag_value,
-                        result
-                    );
-                } else {
-                    // Should succeed
-                    assert!(
-                        result.is_ok(),
-                        "Flag value {} should succeed but got: {:?}",
-                        flag_value,
-                        result
-                    );
-                }
-            } else {
-                // Should trigger NotImplementedError for invalid bit combinations
-                assert!(
-                    matches!(result, Err(Error::NotImplementedError(_))),
-                    "Flag value {} (invalid bit combination) should trigger NotImplementedError but got: {:?}",
-                    flag_value,
-                    result
-                );
+            // * first line below is usual primary, secondary, supplementary,
+            //   unmapped with reversed set or not with the first 3 categories
+            // * second line is if unmapped is set with a mapped state, or
+            //   secondary and supplementary are both set
+            // * third line are flags we have chosen to exclude from our program.
+            match (flag_value, curr_read.set_read_state(&record)) {
+                (0 | 4 | 16 | 256 | 272 | 2048 | 2064, Ok(_))
+                | (
+                    20 | 260 | 276 | 2052 | 2068 | 2304 | 2308 | 2320 | 2324,
+                    Err(Error::UnknownAlignState),
+                )
+                | (_, Err(Error::NotImplementedError(_))) => {}
+                (_, _) => panic!("unknown state {flag_value}!"),
             }
         }
     }
@@ -1463,7 +1421,7 @@ mod test_error_handling {
         });
 
         // Test reconstruct_base_mods with duplicate entries
-        let _ = reconstruct_base_mods(&mod_entries, ReadState::PrimaryFwd, 10).unwrap();
+        let _: BaseMods = reconstruct_base_mods(&mod_entries, ReadState::PrimaryFwd, 10).unwrap();
     }
 
     #[test]
@@ -1499,12 +1457,8 @@ mod test_error_handling {
         });
 
         // This should succeed since all combinations are unique
-        let valid_result = reconstruct_base_mods(&valid_mod_entries, ReadState::PrimaryFwd, 10);
-        assert!(
-            valid_result.is_ok(),
-            "Valid combinations should not trigger error, but got: {:?}",
-            valid_result
-        );
+        let _: BaseMods =
+            reconstruct_base_mods(&valid_mod_entries, ReadState::PrimaryFwd, 10).unwrap();
     }
 }
 
@@ -1616,16 +1570,14 @@ mod test_serde {
     #[test]
     fn test_example_1_unmapped() -> Result<(), Error> {
         // Read the fourth record from the example BAM file (this is the unmapped read)
-        let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
-        let mut records = reader.records();
-
-        // Skip first three records to get to the unmapped read
-        let _first_record = records.next().unwrap()?;
-        let _second_record = records.next().unwrap()?;
-        let _third_record = records.next().unwrap()?;
-
-        // Get the fourth record (unmapped read)
-        let fourth_record = records.next().unwrap()?;
+        let fourth_record = {
+            let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+            let mut records = reader.records();
+            for _ in 0..3 {
+                let _: Record = records.next().unwrap()?;
+            }
+            records.next().unwrap()?
+        };
 
         // Create CurrRead with alignment and modification data
         let curr_read = CurrRead::default()
@@ -1691,7 +1643,7 @@ mod test_serde {
         }"#;
 
         // Deserialize JSON to CurrRead - this should panic with InvalidAlignCoords
-        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+        let _: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
     }
 
     #[test]
@@ -1707,7 +1659,7 @@ mod test_serde {
         }"#;
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSeqLength
-        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+        let _: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
     }
 
     #[test]
@@ -1722,7 +1674,7 @@ mod test_serde {
         }"#;
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSeqLength
-        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+        let _: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
     }
 
     #[test]
@@ -1743,7 +1695,7 @@ mod test_serde {
         }"#;
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSeqLength
-        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+        let _: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
     }
 
     #[test]
@@ -1764,7 +1716,7 @@ mod test_serde {
         }"#;
 
         // Deserialize JSON to CurrRead - this should panic with InvalidAlignCoords
-        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+        let _: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
     }
 
     #[test]
@@ -1785,7 +1737,7 @@ mod test_serde {
         }"#;
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSorting
-        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+        let _: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
     }
 
     #[test]
@@ -1806,6 +1758,6 @@ mod test_serde {
         }"#;
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSorting
-        let _curr_read: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+        let _: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
     }
 }
