@@ -346,55 +346,56 @@ where
     Ok(true)
 }
 
+/// Temporary BAM simulation with automatic cleanup
+///
+/// Creates temporary BAM and FASTA files for testing purposes and
+/// automatically removes them when dropped.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TempBamSimulation {
+    bam_path: String,
+    fasta_path: String,
+}
+
+impl TempBamSimulation {
+    /// Creates a new temporary BAM simulation from JSON configuration
+    pub fn new(config_json: &str) -> Result<Self, Error> {
+        let bam_path = format!("/tmp/{}.bam", Uuid::new_v4());
+        let fasta_path = format!("/tmp/{}.fa", Uuid::new_v4());
+
+        if !(run(config_json, &bam_path, &fasta_path)?) {
+            return Err(Error::UnknownError);
+        }
+
+        Ok(Self {
+            bam_path,
+            fasta_path,
+        })
+    }
+
+    /// Returns the path to the temporary BAM file
+    pub fn bam_path(&self) -> &str {
+        &self.bam_path
+    }
+
+    /// Returns the path to the temporary FASTA file
+    pub fn fasta_path(&self) -> &str {
+        &self.fasta_path
+    }
+}
+
+impl Drop for TempBamSimulation {
+    fn drop(&mut self) {
+        // Ignore errors during cleanup - files may already be deleted
+        let _ = std::fs::remove_file(&self.bam_path);
+        let _ = std::fs::remove_file(&self.fasta_path);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rust_htslib::bam::Read;
     use std::path::Path;
-
-    /// Temporary BAM simulation with automatic cleanup
-    ///
-    /// Creates temporary BAM and FASTA files for testing purposes and
-    /// automatically removes them when dropped.
-    struct TempBamSimulation {
-        bam_path: String,
-        fasta_path: String,
-    }
-
-    impl TempBamSimulation {
-        /// Creates a new temporary BAM simulation from JSON configuration
-        fn new(config_json: &str) -> Result<Self, Error> {
-            let bam_path = format!("/tmp/{}.bam", Uuid::new_v4());
-            let fasta_path = format!("/tmp/{}.fa", Uuid::new_v4());
-
-            if !(run(config_json, &bam_path, &fasta_path)?) {
-                return Err(Error::UnknownError);
-            }
-
-            Ok(Self {
-                bam_path,
-                fasta_path,
-            })
-        }
-
-        /// Returns the path to the temporary BAM file
-        fn bam_path(&self) -> &str {
-            &self.bam_path
-        }
-
-        /// Returns the path to the temporary FASTA file
-        fn fasta_path(&self) -> &str {
-            &self.fasta_path
-        }
-    }
-
-    impl Drop for TempBamSimulation {
-        fn drop(&mut self) {
-            // Ignore errors during cleanup - files may already be deleted
-            let _ = std::fs::remove_file(&self.bam_path);
-            let _ = std::fs::remove_file(&self.fasta_path);
-        }
-    }
 
     /// Test for generation of random DNA of a given length
     #[test]

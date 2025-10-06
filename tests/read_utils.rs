@@ -2,6 +2,7 @@
 
 use bedrs::prelude::StrandedBed3;
 use bedrs::{Bed3, Coordinates, Strand};
+use nanalogue_core::simulate_mod_bam::TempBamSimulation;
 use nanalogue_core::{
     CurrRead, Error, Intersects, ModChar, ReadState, ThresholdState, nanalogue_bam_reader,
 };
@@ -31,8 +32,8 @@ fn test_set_read_state_example_1() -> Result<(), Error> {
 fn test_set_read_state_example_3() -> Result<(), Error> {
     let mut reader = nanalogue_bam_reader(&"examples/example_3.bam")?;
     let mut count = 1; // NOTE that we start the counter from 1 here
-                       // as reads are called 001, 002, ..., 010 here.
-                       // so it is easier for us to read code when counter starts from 1.
+    // as reads are called 001, 002, ..., 010 here.
+    // so it is easier for us to read code when counter starts from 1.
     for record in reader.records() {
         let r = record?;
         let curr_read = CurrRead::default().set_read_state(&r)?;
@@ -69,6 +70,40 @@ fn test_set_seq_len() -> Result<(), Error> {
         }
         count = count + 1;
     }
+    Ok(())
+}
+
+#[test]
+fn test_set_seq_len_random() -> Result<(), Error> {
+    let config_json = r#"{
+        "contigs": {
+            "number": 2,
+            "len_range": [1000, 1000]
+        },
+        "reads": [{
+            "number": 1000,
+            "mapq_range": [10, 10],
+            "base_qual_range": [10, 10],
+            "len_range": [0.1, 0.2],
+            "mods": []
+        }]
+    }"#;
+    let sim = TempBamSimulation::new(config_json).unwrap();
+    let mut reader = nanalogue_bam_reader(sim.bam_path())?;
+    let mut sum :f32 = 0.0;
+    let mut deviation_sq :f32 = 0.0;
+
+    for record in reader.records() {
+        let r = record?;
+        let curr_read = CurrRead::default().set_read_state(&r)?.set_seq_len(&r)?;
+        let len  = curr_read.seq_len().unwrap() as f32;
+        sum += len;
+        deviation_sq += (len  - 150.0) * (len  - 150.0);
+    }
+    // mean should be 150, and variance (200-100)^2/12. 
+    // we check these to 10% tolerance
+    assert!((0.9 * sum/1000.0 .. 1.1 * sum/1000.0).contains(&150.0));
+    assert!((0.9 * deviation_sq/1000.0 .. 1.1 * deviation_sq/1000.0).contains(&(10000.0/12.0)));
     Ok(())
 }
 
