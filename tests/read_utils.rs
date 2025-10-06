@@ -209,8 +209,7 @@ fn test_set_align_len_random() -> Result<(), Error> {
     // we check these to 10% tolerance
     assert!((0.9 * sum_al / count..1.1 * sum_al / count).contains(&150.0));
     assert!(
-        (0.9 * deviation_sq_al / count..1.1 * deviation_sq_al / count)
-            .contains(&(10000.0 / 12.0))
+        (0.9 * deviation_sq_al / count..1.1 * deviation_sq_al / count).contains(&(10000.0 / 12.0))
     );
 
     // sequence length:
@@ -218,8 +217,7 @@ fn test_set_align_len_random() -> Result<(), Error> {
     // we check these to 10% tolerance
     assert!((0.9 * sum_sl / count..1.1 * sum_sl / count).contains(&162.0));
     assert!(
-        (0.9 * deviation_sq_sl / count..1.1 * deviation_sq_sl / count)
-            .contains(&(10000.0 / 12.0))
+        (0.9 * deviation_sq_sl / count..1.1 * deviation_sq_sl / count).contains(&(10000.0 / 12.0))
     );
     Ok(())
 }

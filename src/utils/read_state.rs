@@ -243,20 +243,24 @@ mod tests {
         }
     }
 
-    /// Tests ReadState from_str error cases
+    /// Tests ReadState from_str with invalid state string
     #[test]
-    fn test_readstate_from_str_errors() {
-        assert!(matches!(
-            ReadState::from_str("invalid_state"),
-            Err(Error::UnknownAlignState)
-        ));
-        assert!(matches!(
-            ReadState::from_str(""),
-            Err(Error::UnknownAlignState)
-        ));
-        assert!(matches!(
-            ReadState::from_str("primary"), // Incomplete
-            Err(Error::UnknownAlignState)
-        ));
+    #[should_panic(expected = "UnknownAlignState")]
+    fn test_readstate_from_str_invalid_state() {
+        let _result: ReadState = ReadState::from_str("invalid_state").unwrap();
+    }
+
+    /// Tests ReadState from_str with empty string
+    #[test]
+    #[should_panic(expected = "UnknownAlignState")]
+    fn test_readstate_from_str_empty_string() {
+        let _result: ReadState = ReadState::from_str("").unwrap();
+    }
+
+    /// Tests ReadState from_str with incomplete string
+    #[test]
+    #[should_panic(expected = "UnknownAlignState")]
+    fn test_readstate_from_str_incomplete_string() {
+        let _result: ReadState = ReadState::from_str("primary").unwrap();
     }
 }
