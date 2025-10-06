@@ -152,6 +152,79 @@ fn test_set_align_len() -> Result<(), Error> {
 }
 
 #[test]
+fn test_set_align_len_random() -> Result<(), Error> {
+    // creates 2 contigs of 1000 bp each and reads of random
+    // mapping, position etc. with lengths b/w 10-20% of contig size.
+    // then, with a barcode, the alignment length is the same but the
+    // seq length will increase by 2 times the barcode length.
+    let config_json = r#"{
+        "contigs": {
+            "number": 2,
+            "len_range": [1000, 1000]
+        },
+        "reads": [{
+            "number": 1000,
+            "len_range": [0.1, 0.2],
+            "barcode": "AAGTAA"
+        }]
+    }"#;
+    let sim = TempBamSimulation::new(config_json).unwrap();
+    let mut reader = nanalogue_bam_reader(sim.bam_path())?;
+
+    let (sum_sl, deviation_sq_sl, sum_al, deviation_sq_al, count) = {
+        let mut sum_sl: f32 = 0.0;
+        let mut deviation_sq_sl: f32 = 0.0;
+        let mut sum_al: f32 = 0.0;
+        let mut deviation_sq_al: f32 = 0.0;
+        let mut count: f32 = 0.0;
+
+        for record in reader.records() {
+            let r = record?;
+            let curr_read = {
+                let curr_read_result = CurrRead::default()
+                    .set_read_state(&r)?
+                    .set_seq_len(&r)?
+                    .set_align_len(&r);
+                match curr_read_result {
+                    Err(Error::Unmapped) => continue,
+                    v => v,
+                }
+            }?;
+
+            let len = curr_read.seq_len().unwrap() as f32;
+            sum_sl += len;
+            deviation_sq_sl += (len - 162.0) * (len - 162.0);
+
+            let len = curr_read.align_len().unwrap() as f32;
+            sum_al += len;
+            deviation_sq_al += (len - 150.0) * (len - 150.0);
+
+            count += 1.0;
+        }
+        (sum_sl, deviation_sq_sl, sum_al, deviation_sq_al, count)
+    };
+
+    // alignment length:
+    // mean should be 150, and variance (200-100)^2/12.
+    // we check these to 10% tolerance
+    assert!((0.9 * sum_al / count..1.1 * sum_al / count).contains(&150.0));
+    assert!(
+        (0.9 * deviation_sq_al / count..1.1 * deviation_sq_al / count)
+            .contains(&(10000.0 / 12.0))
+    );
+
+    // sequence length:
+    // mean should be 162 i.e. 150 + 2*6 (AAGTAA), and variance the same (200-100)^2/12.
+    // we check these to 10% tolerance
+    assert!((0.9 * sum_sl / count..1.1 * sum_sl / count).contains(&162.0));
+    assert!(
+        (0.9 * deviation_sq_sl / count..1.1 * deviation_sq_sl / count)
+            .contains(&(10000.0 / 12.0))
+    );
+    Ok(())
+}
+
+#[test]
 #[should_panic(expected = "Unmapped")]
 fn test_set_align_len_unmapped_should_panic() {
     // Fourth read in the following file is unmapped, so we check if
