@@ -499,6 +499,7 @@ impl Drop for TempBamSimulation {
         // Ignore errors during cleanup - files may already be deleted
         let _ = std::fs::remove_file(&self.bam_path);
         let _ = std::fs::remove_file(&self.fasta_path);
+        let _ = std::fs::remove_file(&(self.bam_path.clone() + ".bai"));
     }
 }
 
@@ -606,8 +607,9 @@ mod tests {
         assert_eq!(reader.records().count(), 1000);
 
         // delete files
-        std::fs::remove_file(bam_path).unwrap();
+        std::fs::remove_file(&bam_path).unwrap();
         std::fs::remove_file(fasta_path).unwrap();
+        std::fs::remove_file(bam_path + ".bai").unwrap();
     }
 
     /// Tests TempBamSimulation struct functionality
@@ -664,32 +666,30 @@ mod tests {
     fn test_add_barcode_invalid() {
         let read_seq = b"GGGGGGGG".to_vec();
         let invalid_barcode = "ACGTN".to_string();
-        let _result: Vec<u8> = add_barcode(read_seq, invalid_barcode, ReadState::PrimaryFwd).unwrap();
+        let _result: Vec<u8> =
+            add_barcode(read_seq, invalid_barcode, ReadState::PrimaryFwd).unwrap();
     }
 
     /// Tests read generation with barcode
     #[test]
     fn test_generate_reads_denovo_with_barcode() {
-        let mut rng = rand::rng();
-        let contigs = vec![Contig {
-            name: "contig_0".to_string(),
-            seq: b"ACGTACGTACGTACGTACGT".to_vec(),
-        }];
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [20, 20]
+            },
+            "reads": [{
+                "number": 10,
+                "len_range": [0.2, 0.8],
+                "barcode": "GTACGG"
+            }]
+        }"#;
 
-        let config = ReadConfig {
-            number: NonZeroU32::new(10).unwrap(),
-            mapq_range: OrdPair::new(10, 20).unwrap(),
-            base_qual_range: OrdPair::new(30, 50).unwrap(),
-            len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.8).unwrap())
-                .unwrap(),
-            barcode: Some("GTACGG".to_string()),
-            mods: vec![],
-        };
+        let sim = TempBamSimulation::new(config_json).unwrap();
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
-        let reads = generate_reads_denovo(&contigs, config, "1", &mut rng).unwrap();
-        assert_eq!(reads.len(), 10);
-
-        for read in &reads {
+        for record in reader.records() {
+            let read = record.unwrap();
             let seq = read.seq().as_bytes();
             let seq_len = seq.len();
 
