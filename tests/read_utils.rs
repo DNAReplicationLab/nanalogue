@@ -75,6 +75,8 @@ fn test_set_seq_len() -> Result<(), Error> {
 
 #[test]
 fn test_set_seq_len_random() -> Result<(), Error> {
+    // creates 2 contigs of 1000 bp each and reads of random
+    // mapping, position etc. with lengths b/w 10-20% of contig size.
     let config_json = r#"{
         "contigs": {
             "number": 2,
@@ -90,20 +92,24 @@ fn test_set_seq_len_random() -> Result<(), Error> {
     }"#;
     let sim = TempBamSimulation::new(config_json).unwrap();
     let mut reader = nanalogue_bam_reader(sim.bam_path())?;
-    let mut sum :f32 = 0.0;
-    let mut deviation_sq :f32 = 0.0;
 
-    for record in reader.records() {
-        let r = record?;
-        let curr_read = CurrRead::default().set_read_state(&r)?.set_seq_len(&r)?;
-        let len  = curr_read.seq_len().unwrap() as f32;
-        sum += len;
-        deviation_sq += (len  - 150.0) * (len  - 150.0);
-    }
-    // mean should be 150, and variance (200-100)^2/12. 
+    let (sum, deviation_sq) = {
+        let mut sum: f32 = 0.0;
+        let mut deviation_sq: f32 = 0.0;
+        for record in reader.records() {
+            let r = record?;
+            let curr_read = CurrRead::default().set_read_state(&r)?.set_seq_len(&r)?;
+            let len = curr_read.seq_len().unwrap() as f32;
+            sum += len;
+            deviation_sq += (len - 150.0) * (len - 150.0);
+        }
+        (sum, deviation_sq)
+    };
+
+    // mean should be 150, and variance (200-100)^2/12.
     // we check these to 10% tolerance
-    assert!((0.9 * sum/1000.0 .. 1.1 * sum/1000.0).contains(&150.0));
-    assert!((0.9 * deviation_sq/1000.0 .. 1.1 * deviation_sq/1000.0).contains(&(10000.0/12.0)));
+    assert!((0.9 * sum / 1000.0..1.1 * sum / 1000.0).contains(&150.0));
+    assert!((0.9 * deviation_sq / 1000.0..1.1 * deviation_sq / 1000.0).contains(&(10000.0 / 12.0)));
     Ok(())
 }
 
@@ -302,6 +308,18 @@ fn test_get_contig_name_unmapped_should_panic() {
 }
 
 #[test]
+#[should_panic(expected = "UnavailableData")]
+fn test_get_contig_name_without_setting_should_panic() {
+    let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
+    for record in reader.records() {
+        let r = record.unwrap();
+        let curr_read = CurrRead::default().set_read_state(&r).unwrap();
+        let _ :&str = curr_read.contig_name().unwrap();
+        break;
+    }
+}
+
+#[test]
 #[should_panic(expected = "InvalidDuplicates")]
 fn test_set_contig_name_duplicate_should_panic() {
     let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
@@ -338,6 +356,18 @@ fn test_set_read_id() -> Result<(), Error> {
         count = count + 1;
     }
     Ok(())
+}
+
+#[test]
+#[should_panic(expected = "UnavailableData")]
+fn test_get_read_id_without_setting_should_panic() {
+    let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
+    for record in reader.records() {
+        let r = record.unwrap();
+        let curr_read = CurrRead::default().set_read_state(&r).unwrap();
+        let _ :&str = curr_read.read_id().unwrap();
+        break;
+    }
 }
 
 #[test]

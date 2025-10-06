@@ -1403,7 +1403,7 @@ mod test_error_handling {
                     Err(Error::UnknownAlignState),
                 )
                 | (_, Err(Error::NotImplementedError(_))) => {}
-                (_, _) => panic!("unknown state {flag_value}!"),
+                (_, _) => unreachable!(),
             }
         }
     }
