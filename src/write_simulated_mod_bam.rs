@@ -141,7 +141,18 @@ impl Default for ModConfig {
 }
 
 /// Generates random DNA sequence of given length
-fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> Vec<u8> {
+///
+/// ```
+/// use std::num::NonZeroU64;
+/// use rand::Rng;
+/// use nanalogue_core::write_simulated_mod_bam::generate_random_dna_sequence;
+///
+/// let mut rng = rand::rng();
+/// let seq = generate_random_dna_sequence(NonZeroU64::new(100).unwrap(), &mut rng);
+/// assert_eq!(seq.len(), 100);
+/// assert!(seq.iter().all(|&base| [b'A', b'C', b'G', b'T'].contains(&base)));
+/// ```
+pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> Vec<u8> {
     const DNA_BASES: [u8; 4] = [b'A', b'C', b'G', b'T'];
     (0..length.get())
         .map(|_| DNA_BASES[rng.random_range(0..4)])
@@ -149,7 +160,23 @@ fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> Vec<
 }
 
 /// Generates contigs according to configuration
-fn generate_contigs<R: Rng>(
+///
+/// ```
+/// use std::num::{NonZeroU32, NonZeroU64};
+/// use nanalogue_core::OrdPair;
+/// use nanalogue_core::write_simulated_mod_bam::generate_contigs;
+/// use rand::Rng;
+///
+/// let mut rng = rand::rng();
+/// let contigs = generate_contigs(
+///     NonZeroU32::new(3).unwrap(),
+///     OrdPair::new(NonZeroU64::new(100).unwrap(), NonZeroU64::new(200).unwrap()).unwrap(),
+///     &mut rng
+/// );
+/// assert_eq!(contigs.len(), 3);
+/// assert!(contigs.iter().all(|c| (100..=200).contains(&c.seq.len())));
+/// ```
+pub fn generate_contigs<R: Rng>(
     contig_number: NonZeroU32,
     len_range: OrdPair<NonZeroU64>,
     rng: &mut R,
@@ -169,7 +196,30 @@ fn generate_contigs<R: Rng>(
 }
 
 /// Generates reads that align to contigs
-fn generate_reads<R: Rng>(
+///
+/// ```
+/// use std::num::NonZeroU32;
+/// use nanalogue_core::{OrdPair, F32Bw0and1};
+/// use nanalogue_core::write_simulated_mod_bam::{Contig, ReadConfig, generate_reads};
+/// use rand::Rng;
+///
+/// let contigs = vec![Contig {
+///     name: "chr1".to_string(),
+///     seq: b"ACGTACGTACGTACGT".to_vec(),
+/// }];
+/// let config = ReadConfig {
+///     number: NonZeroU32::new(10).unwrap(),
+///     mapq_range: OrdPair::new(10, 20).unwrap(),
+///     base_qual_range: OrdPair::new(20, 30).unwrap(),
+///     len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(), 
+///         F32Bw0and1::new(0.5).unwrap()).unwrap(),
+///     mods: vec![],
+/// };
+/// let mut rng = rand::rng();
+/// let reads = generate_reads(&contigs, config, "RG1", &mut rng).unwrap();
+/// assert_eq!(reads.len(), 10);
+/// ```
+pub fn generate_reads<R: Rng>(
     contigs: &[Contig],
     config: ReadConfig,
     read_group: &str,
