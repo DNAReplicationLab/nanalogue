@@ -142,6 +142,13 @@ pub struct Contig {
     pub seq: DNARestrictive,
 }
 
+impl Contig {
+    /// Returns a reference to the contig's DNA sequence bytes
+    pub fn seq(&self) -> &[u8] {
+        self.seq.get()
+    }
+}
+
 impl Default for ContigConfig {
     fn default() -> Self {
         Self {
@@ -244,11 +251,7 @@ pub fn is_valid_dna_restrictive(seq: &str) -> bool {
 /// let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryRev);
 /// assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
 /// ```
-pub fn add_barcode(
-    read_seq: Vec<u8>,
-    barcode: &DNARestrictive,
-    read_state: ReadState,
-) -> Vec<u8> {
+pub fn add_barcode(read_seq: Vec<u8>, barcode: &DNARestrictive, read_state: ReadState) -> Vec<u8> {
     let bc_bytes = barcode.get();
 
     match read_state {
@@ -287,7 +290,7 @@ pub fn add_barcode(
 ///     &mut rng
 /// );
 /// assert_eq!(contigs.len(), 3);
-/// assert!(contigs.iter().all(|c| (100..=200).contains(&c.seq.get().len())));
+/// assert!(contigs.iter().all(|c| (100..=200).contains(&c.seq().len())));
 /// ```
 pub fn generate_contigs_denovo<R: Rng>(
     contig_number: NonZeroU32,
@@ -297,10 +300,8 @@ pub fn generate_contigs_denovo<R: Rng>(
     (0..contig_number.get())
         .map(|i| {
             let length = rng.random_range(len_range.get_low().get()..=len_range.get_high().get());
-            let seq_bytes = generate_random_dna_sequence(
-                NonZeroU64::try_from(length).expect("no error"),
-                rng,
-            );
+            let seq_bytes =
+                generate_random_dna_sequence(NonZeroU64::try_from(length).expect("no error"), rng);
             let seq_str = std::str::from_utf8(&seq_bytes).expect("valid DNA sequence");
             Contig {
                 name: format!("contig_{}", i),
@@ -350,7 +351,7 @@ pub fn generate_reads_denovo<R: Rng>(
         // Select a random contig
         let contig_idx = rng.random_range(0..contigs.len());
         let contig = &contigs[contig_idx];
-        let contig_len = contig.seq.get().len() as u64;
+        let contig_len = contig.seq().len() as u64;
 
         // Calculate read length as fraction of contig length
         let min_read_len = (config.len_range.get_low().val() * contig_len as f32) as u64;
@@ -370,7 +371,7 @@ pub fn generate_reads_denovo<R: Rng>(
         let random_state: ReadState = random();
         let end_pos = (start_pos + read_len) as usize;
         let read_seq = {
-            let temp_seq = contig.seq.get()[start_pos as usize..end_pos].to_vec();
+            let temp_seq = contig.seq()[start_pos as usize..end_pos].to_vec();
             // Add barcode if specified
             match &config.barcode {
                 Some(barcode) => add_barcode(temp_seq, barcode, random_state),
@@ -475,13 +476,16 @@ where
 
     write_bam_denovo(
         reads,
-        contigs.iter().map(|k| (k.name.clone(), k.seq.get().len())),
+        contigs.iter().map(|k| (k.name.clone(), k.seq().len())),
         read_groups,
         vec![String::from("simulated BAM file, not real data")],
         bam_output_path,
     )?;
     write_fasta(
-        contigs.into_iter().map(|k| (k.name, k.seq.get().to_vec())),
+        contigs.into_iter().map(|k| {
+            let seq_vec = k.seq().to_vec();
+            (k.name, seq_vec)
+        }),
         fasta_output_path,
     )?;
 
@@ -562,8 +566,8 @@ mod tests {
         assert_eq!(contigs.len(), 5);
         for (i, contig) in contigs.iter().enumerate() {
             assert_eq!(contig.name, format!("contig_{}", i));
-            assert!((100..=200).contains(&contig.seq.get().len()));
-            for base in contig.seq.get() {
+            assert!((100..=200).contains(&contig.seq().len()));
+            for base in contig.seq() {
                 assert!([b'A', b'C', b'G', b'T'].contains(base));
             }
         }
