@@ -2,6 +2,7 @@
 //! Includes genomic coordinates, constrained numerics, and BAM-related types
 
 pub mod contains;
+pub mod dna_restrictive;
 pub mod f32_abs_val_below1;
 pub mod f32_bw0and1;
 pub mod filter_by_ref_coords;
@@ -16,6 +17,7 @@ pub mod threshold_state;
 
 // Re-export all public items to maintain API compatibility
 pub use contains::*;
+pub use dna_restrictive::*;
 pub use f32_abs_val_below1::*;
 pub use f32_bw0and1::*;
 pub use filter_by_ref_coords::*;

@@ -33,7 +33,7 @@
 //! ).unwrap();
 //! ```
 
-use crate::{Error, F32Bw0and1, ModChar, OrdPair, ReadState};
+use crate::{DNARestrictive, Error, F32Bw0and1, ModChar, OrdPair, ReadState};
 use crate::{write_bam_denovo, write_fasta};
 use rand::{Rng, random};
 use rust_htslib::bam;
@@ -44,40 +44,6 @@ use std::ops::RangeInclusive;
 use std::path::Path;
 use std::str::FromStr;
 use uuid::Uuid;
-
-/// Validated DNA sequence wrapper that guarantees only valid bases (A, C, G, T).
-/// Stores sequences in uppercase.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DNARestrictive(Vec<u8>);
-
-impl DNARestrictive {
-    /// Returns a reference to the underlying DNA sequence bytes
-    pub fn get(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl FromStr for DNARestrictive {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if !is_valid_dna_restrictive(s) {
-            return Err(Error::InvalidSeq);
-        }
-        let bytes: Vec<u8> = s.bytes().map(|b| b.to_ascii_uppercase()).collect();
-        Ok(DNARestrictive(bytes))
-    }
-}
-
-impl<'de> Deserialize<'de> for DNARestrictive {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        DNARestrictive::from_str(&s).map_err(|e| serde::de::Error::custom(e.to_string()))
-    }
-}
 
 /// Main configuration struct for simulation
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -205,25 +171,6 @@ pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> 
         .collect()
 }
 
-/// Validates that a DNA sequence contains only valid bases (A, C, G, T).
-/// Does not accept ambiguous bases like 'N'.
-///
-/// # Examples
-/// ```
-/// use nanalogue_core::simulate_mod_bam::is_valid_dna_restrictive;
-///
-/// assert!(is_valid_dna_restrictive("ACGT"));
-/// assert!(is_valid_dna_restrictive("acgt"));
-/// assert!(!is_valid_dna_restrictive("ACGTN"));
-/// assert!(!is_valid_dna_restrictive(""));
-/// ```
-pub fn is_valid_dna_restrictive(seq: &str) -> bool {
-    (!seq.is_empty())
-        && seq
-            .bytes()
-            .all(|b| matches!(b.to_ascii_uppercase(), b'A' | b'C' | b'G' | b'T'))
-}
-
 /// Adds barcodes to read sequence based on strand orientation.
 ///
 /// For forward and unmapped reads:
@@ -236,8 +183,8 @@ pub fn is_valid_dna_restrictive(seq: &str) -> bool {
 ///
 /// # Examples
 /// ```
-/// use nanalogue_core::simulate_mod_bam::{add_barcode, DNARestrictive};
-/// use nanalogue_core::ReadState;
+/// use nanalogue_core::simulate_mod_bam::add_barcode;
+/// use nanalogue_core::{ReadState, DNARestrictive};
 /// use std::str::FromStr;
 ///
 /// let read_seq = b"GGGGGGGG".to_vec();
@@ -316,8 +263,8 @@ pub fn generate_contigs_denovo<R: Rng>(
 /// ```
 /// use std::num::NonZeroU32;
 /// use std::str::FromStr;
-/// use nanalogue_core::{OrdPair, F32Bw0and1};
-/// use nanalogue_core::simulate_mod_bam::{Contig, ReadConfig, generate_reads_denovo, DNARestrictive};
+/// use nanalogue_core::{DNARestrictive, OrdPair, F32Bw0and1};
+/// use nanalogue_core::simulate_mod_bam::{Contig, ReadConfig, generate_reads_denovo};
 /// use rand::Rng;
 ///
 /// let contigs = vec![Contig {
@@ -693,14 +640,6 @@ mod tests {
         // Test reverse read: comp(barcode) + seq + rev(barcode)
         let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryRev);
         assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
-    }
-
-    /// Tests DNARestrictive parsing with invalid barcode
-    #[test]
-    #[should_panic(expected = "InvalidSeq")]
-    fn test_dna_restrictive_invalid() {
-        let invalid_barcode = "ACGTN";
-        let _ = DNARestrictive::from_str(invalid_barcode).unwrap();
     }
 
     /// Tests read generation with barcode
