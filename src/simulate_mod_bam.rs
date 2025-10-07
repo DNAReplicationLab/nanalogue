@@ -134,12 +134,12 @@ pub struct ModConfig {
 }
 
 /// Represents a contig with name and sequence
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Contig {
     /// Contig name
     pub name: String,
     /// Contig sequence (A, C, G, T)
-    pub seq: Vec<u8>,
+    pub seq: DNARestrictive,
 }
 
 impl Default for ContigConfig {
@@ -287,7 +287,7 @@ pub fn add_barcode(
 ///     &mut rng
 /// );
 /// assert_eq!(contigs.len(), 3);
-/// assert!(contigs.iter().all(|c| (100..=200).contains(&c.seq.len())));
+/// assert!(contigs.iter().all(|c| (100..=200).contains(&c.seq.get().len())));
 /// ```
 pub fn generate_contigs_denovo<R: Rng>(
     contig_number: NonZeroU32,
@@ -297,12 +297,14 @@ pub fn generate_contigs_denovo<R: Rng>(
     (0..contig_number.get())
         .map(|i| {
             let length = rng.random_range(len_range.get_low().get()..=len_range.get_high().get());
+            let seq_bytes = generate_random_dna_sequence(
+                NonZeroU64::try_from(length).expect("no error"),
+                rng,
+            );
+            let seq_str = std::str::from_utf8(&seq_bytes).expect("valid DNA sequence");
             Contig {
                 name: format!("contig_{}", i),
-                seq: generate_random_dna_sequence(
-                    NonZeroU64::try_from(length).expect("no error"),
-                    rng,
-                ),
+                seq: DNARestrictive::from_str(seq_str).expect("valid DNA sequence"),
             }
         })
         .collect()
@@ -312,13 +314,14 @@ pub fn generate_contigs_denovo<R: Rng>(
 ///
 /// ```
 /// use std::num::NonZeroU32;
+/// use std::str::FromStr;
 /// use nanalogue_core::{OrdPair, F32Bw0and1};
-/// use nanalogue_core::simulate_mod_bam::{Contig, ReadConfig, generate_reads_denovo};
+/// use nanalogue_core::simulate_mod_bam::{Contig, ReadConfig, generate_reads_denovo, DNARestrictive};
 /// use rand::Rng;
 ///
 /// let contigs = vec![Contig {
 ///     name: "chr1".to_string(),
-///     seq: b"ACGTACGTACGTACGT".to_vec(),
+///     seq: DNARestrictive::from_str("ACGTACGTACGTACGT").unwrap(),
 /// }];
 /// let config = ReadConfig {
 ///     number: NonZeroU32::new(10).unwrap(),
@@ -347,7 +350,7 @@ pub fn generate_reads_denovo<R: Rng>(
         // Select a random contig
         let contig_idx = rng.random_range(0..contigs.len());
         let contig = &contigs[contig_idx];
-        let contig_len = contig.seq.len() as u64;
+        let contig_len = contig.seq.get().len() as u64;
 
         // Calculate read length as fraction of contig length
         let min_read_len = (config.len_range.get_low().val() * contig_len as f32) as u64;
@@ -367,7 +370,7 @@ pub fn generate_reads_denovo<R: Rng>(
         let random_state: ReadState = random();
         let end_pos = (start_pos + read_len) as usize;
         let read_seq = {
-            let temp_seq = contig.seq[start_pos as usize..end_pos].to_vec();
+            let temp_seq = contig.seq.get()[start_pos as usize..end_pos].to_vec();
             // Add barcode if specified
             match &config.barcode {
                 Some(barcode) => add_barcode(temp_seq, barcode, random_state),
@@ -472,13 +475,13 @@ where
 
     write_bam_denovo(
         reads,
-        contigs.iter().map(|k| (k.name.clone(), k.seq.len())),
+        contigs.iter().map(|k| (k.name.clone(), k.seq.get().len())),
         read_groups,
         vec![String::from("simulated BAM file, not real data")],
         bam_output_path,
     )?;
     write_fasta(
-        contigs.into_iter().map(|k| (k.name, k.seq)),
+        contigs.into_iter().map(|k| (k.name, k.seq.get().to_vec())),
         fasta_output_path,
     )?;
 
@@ -559,9 +562,9 @@ mod tests {
         assert_eq!(contigs.len(), 5);
         for (i, contig) in contigs.iter().enumerate() {
             assert_eq!(contig.name, format!("contig_{}", i));
-            assert!((100..=200).contains(&contig.seq.len()));
-            for base in contig.seq.clone() {
-                assert!([b'A', b'C', b'G', b'T'].contains(&base));
+            assert!((100..=200).contains(&contig.seq.get().len()));
+            for base in contig.seq.get() {
+                assert!([b'A', b'C', b'G', b'T'].contains(base));
             }
         }
     }
@@ -573,11 +576,11 @@ mod tests {
         let contigs = vec![
             Contig {
                 name: "contig_0".to_string(),
-                seq: b"ACGTACGTACGTACGTACGT".to_vec(),
+                seq: DNARestrictive::from_str("ACGTACGTACGTACGTACGT").unwrap(),
             },
             Contig {
                 name: "contig_1".to_string(),
-                seq: b"TGCATGCATGCATGCATGCA".to_vec(),
+                seq: DNARestrictive::from_str("TGCATGCATGCATGCATGCA").unwrap(),
             },
         ];
 
