@@ -505,6 +505,56 @@ fn test_seq_on_ref_coords() -> Result<(), Error> {
 }
 
 #[test]
+fn test_seq_on_ref_coords_2() -> Result<(), Error> {
+    // make a random BAM file but contigs are all just a 10 bp
+    // sequence repeated to fill the required length.
+    // so, we can easily check sequence retrieval.
+    let config_json = r#"{
+        "contigs": {
+            "number": 2,
+            "len_range": [1000, 1000],
+            "repeated_seq": "AAGCTAGCTG"
+        },
+        "reads": [{
+            "number": 1000,
+            "len_range": [0.1, 0.2]
+        }]
+    }"#;
+    let sim = TempBamSimulation::new(config_json).unwrap();
+    let mut reader = nanalogue_bam_reader(sim.bam_path())?;
+    let mut cnt = 0;
+
+    for record in reader.records() {
+        let r = record?;
+        let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
+
+        // Skip unmapped reads, for others, check sequence match.
+        // We probe first contig 225-236, so if we have AAGCTAGCTG repeated
+        // over and over, we expect the following result.
+        let expected_seq = "AGCTGAAGCTA";
+        if curr_read.read_state().to_string() != "unmapped" {
+            let region = Bed3::new(0, 225, 236);
+            match curr_read.seq_on_ref_coords(&r, &region) {
+                Err(Error::UnavailableData) => {}
+                Ok(v) => {
+                    if !expected_seq.contains(str::from_utf8(&v).expect("no error")) {
+                        panic!("unknown sequence")
+                    }
+                    cnt += 1;
+                }
+                _ => panic!("erroneous outcome"),
+            }
+        }
+    }
+    // 1000 reads with 2 contigs but 1/7 are unmapped => ~430 reads per contig (1000/2 * 6/7).
+    // if their length varies from 100-200 bp, we expect ~1/10-1/5 of reads
+    // to pass through any given base i.e. ~43-86. So, 10 is actually quite lax, we've left it
+    // this lax to account for (extreme) statistical outliers.
+    assert!(cnt > 10);
+    Ok(())
+}
+
+#[test]
 fn test_basecount_per_mod() -> Result<(), Error> {
     let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
     let first_count = Some(HashMap::from([(ModChar::new('T'), 0)]));
