@@ -22,9 +22,11 @@
 //!   }]
 //! }"#;
 //!
-//! // Note: "barcode" field is optional and can be omitted; barcodes added to both ends.
-//! //       As sequences and lengths are generated independently of barcodes,
-//! //       a barcode will _add_ 2 times so many bp to sequence length statistics.
+//! // Note: * "barcode" field is optional and can be omitted; barcodes added to both ends.
+//! //         As sequences and lengths are generated independently of barcodes,
+//! //         a barcode will _add_ 2 times so many bp to sequence length statistics.
+//! //       * "repeated_seq" field is optional in contigs; if set, contigs are made by
+//! //         repeating this sequence instead of generating random sequences.
 //!
 //! run(
 //!     config_json,
@@ -56,13 +58,15 @@ pub struct SimulationConfig {
 }
 
 /// Configuration for contig generation
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ContigConfig {
     /// Number of contigs to generate
     pub number: NonZeroU32,
     /// Contig length range in bp [min, max]
     pub len_range: OrdPair<NonZeroU64>,
+    /// Optional repeated sequence to use for contigs instead of random generation
+    pub repeated_seq: Option<DNARestrictive>,
 }
 
 /// Configuration for read generation
@@ -121,6 +125,7 @@ impl Default for ContigConfig {
             number: NonZeroU32::new(1).unwrap(),
             len_range: OrdPair::new(NonZeroU64::new(1).unwrap(), NonZeroU64::new(1).unwrap())
                 .unwrap(),
+            repeated_seq: None,
         }
     }
 }
@@ -222,7 +227,7 @@ pub fn add_barcode(read_seq: Vec<u8>, barcode: &DNARestrictive, read_state: Read
     }
 }
 
-/// Generates contigs according to configuration
+/// Generates contigs with random sequence according to configuration
 ///
 /// ```
 /// use std::num::{NonZeroU32, NonZeroU64};
@@ -253,6 +258,60 @@ pub fn generate_contigs_denovo<R: Rng>(
             Contig {
                 name: format!("contig_{}", i),
                 seq: DNARestrictive::from_str(seq_str).expect("valid DNA sequence"),
+            }
+        })
+        .collect()
+}
+
+/// Generates contigs with repeated sequence pattern
+///
+/// Creates contigs by repeating a given DNA sequence to reach a random length
+/// within the specified range. The last repetition is clipped if needed.
+///
+/// ```
+/// use std::num::{NonZeroU32, NonZeroU64};
+/// use std::str::FromStr;
+/// use nanalogue_core::{DNARestrictive, OrdPair};
+/// use nanalogue_core::simulate_mod_bam::generate_contigs_denovo_repeated_seq;
+///
+/// let seq = DNARestrictive::from_str("ACGT").unwrap();
+/// let contigs = generate_contigs_denovo_repeated_seq(
+///     NonZeroU32::new(2).unwrap(),
+///     OrdPair::new(NonZeroU64::new(10).unwrap(), NonZeroU64::new(12).unwrap()).unwrap(),
+///     seq
+/// );
+/// assert_eq!(contigs.len(), 2);
+/// for (i, contig) in contigs.iter().enumerate() {
+///     assert_eq!(contig.name, format!("contig_{}", i));
+///     match contig.seq() {
+///         b"ACGTACGTAC" | b"ACGTACGTACG" | b"ACGTACGTACGT" => {},
+///         _ => panic!("Unexpected sequence"),
+///     }
+/// }
+/// ```
+pub fn generate_contigs_denovo_repeated_seq(
+    contig_number: NonZeroU32,
+    len_range: OrdPair<NonZeroU64>,
+    seq: DNARestrictive,
+) -> Vec<Contig> {
+    let mut rng = rand::rng();
+    let seq_bytes = seq.get();
+
+    (0..contig_number.get())
+        .map(|i| {
+            let length = rng.random_range(len_range.get_low().get()..=len_range.get_high().get());
+            let contig_seq: Vec<u8> = seq_bytes
+                .iter()
+                .cycle()
+                .take(length as usize)
+                .copied()
+                .collect();
+            let seq_str =
+                std::str::from_utf8(&contig_seq).expect("valid UTF-8 from repeated DNA sequence");
+            Contig {
+                name: format!("contig_{}", i),
+                seq: DNARestrictive::from_str(seq_str)
+                    .expect("valid DNA sequence from repeated pattern"),
             }
         })
         .collect()
@@ -399,6 +458,8 @@ pub fn generate_reads_denovo<R: Rng>(
 /// // Note: Optional "barcode" field can be added to reads (e.g., "barcode": "ACGTAA")
 /// //       Length statistics are imposed independent of barcodes; so they will add
 /// //       2x barcode length on top of these.
+/// //       Optional "repeated_seq" field can be added to contigs (e.g., "repeated_seq": "ACGT")
+/// //       to create contigs by repeating a sequence instead of random generation.
 /// run(config_json, "output.bam", "reference.fasta").unwrap();
 /// ```
 pub fn run<F>(config_json: &str, bam_output_path: &F, fasta_output_path: &F) -> Result<bool, Error>
@@ -409,8 +470,14 @@ where
 
     let mut rng = rand::rng();
 
-    let contigs =
-        generate_contigs_denovo(config.contigs.number, config.contigs.len_range, &mut rng);
+    let contigs = match config.contigs.repeated_seq {
+        Some(seq) => generate_contigs_denovo_repeated_seq(
+            config.contigs.number,
+            config.contigs.len_range,
+            seq,
+        ),
+        None => generate_contigs_denovo(config.contigs.number, config.contigs.len_range, &mut rng),
+    };
     let read_groups: Vec<String> = (0..config.reads.len()).map(|k| k.to_string()).collect();
     let reads = {
         let mut temp_reads = Vec::new();
@@ -508,6 +575,7 @@ mod tests {
             number: NonZeroU32::new(5).unwrap(),
             len_range: OrdPair::new(NonZeroU64::new(100).unwrap(), NonZeroU64::new(200).unwrap())
                 .unwrap(),
+            repeated_seq: None,
         };
         let contigs = generate_contigs_denovo(config.number, config.len_range, &mut rand::rng());
         assert_eq!(contigs.len(), 5);
@@ -674,6 +742,36 @@ mod tests {
                 assert_eq!(&seq[..6], b"GTACGG");
                 assert_eq!(&seq[seq_len - 6..], b"CCGTAC");
             }
+        }
+    }
+
+    /// Tests contig generation with repeated sequence
+    #[test]
+    fn test_generate_contigs_denovo_repeated_seq() {
+        let seq = DNARestrictive::from_str("ACGT").unwrap();
+        let contigs = generate_contigs_denovo_repeated_seq(
+            NonZeroU32::new(10000).unwrap(),
+            OrdPair::new(NonZeroU64::new(10).unwrap(), NonZeroU64::new(12).unwrap()).unwrap(),
+            seq,
+        );
+
+        let mut counts = [0, 0, 0];
+
+        assert_eq!(contigs.len(), 10000);
+        for (i, contig) in contigs.iter().enumerate() {
+            assert_eq!(contig.name, format!("contig_{}", i));
+            let idx = match contig.seq() {
+                b"ACGTACGTAC" => 0,
+                b"ACGTACGTACG" => 1,
+                b"ACGTACGTACGT" => 2,
+                _ => panic!("Unexpected sequence"),
+            };
+            counts[idx] += 1;
+        }
+
+        // 3000/10000 is quite lax actually - we expect ~3333 each
+        for count in counts {
+            assert!(count >= 3000);
         }
     }
 }
