@@ -378,6 +378,7 @@ pub fn generate_reads_denovo<R: Rng>(
         let end_pos = (start_pos + read_len) as usize;
         let (read_seq, cigar) = {
             let temp_seq = contig.seq()[start_pos as usize..end_pos].to_vec();
+            let cigar_ops = vec![Cigar::Match(read_len as u32)];
 
             // Add barcode if specified
             match &config.barcode {
@@ -385,14 +386,17 @@ pub fn generate_reads_denovo<R: Rng>(
                     let barcode_len = barcode.get().len() as u32;
                     (
                         add_barcode(temp_seq, barcode, random_state),
-                        CigarString(vec![
-                            Cigar::SoftClip(barcode_len),
-                            Cigar::Match(read_len as u32),
-                            Cigar::SoftClip(barcode_len),
-                        ]),
+                        CigarString(
+                            [
+                                &[Cigar::SoftClip(barcode_len)],
+                                &cigar_ops[..],
+                                &[Cigar::SoftClip(barcode_len)],
+                            ]
+                            .concat(),
+                        ),
                     )
                 }
-                None => (temp_seq, CigarString(vec![Cigar::Match(read_len as u32)])),
+                None => (temp_seq, CigarString(cigar_ops)),
             }
         };
 

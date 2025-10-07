@@ -637,9 +637,17 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             .aligned_pairs_full()
             .filter(|x| x[1].is_some_and(|y| interval.contains(&y)))
         {
+            // the logic below is as follows:
+            // * matches or mismatches, we show the base on the sequence.
+            //   so SNPs for example (i.e. a 1 bp difference from the ref) will show up
+            //   as a base different from the reference.
+            // * a deletion or a ref skip ("N" in cigar) will show up as dot(s) i.e. ".".
+            // * insertions or soft clips i.e. stretches of bases present on the
+            //   read but not on the reference are not displayed.
             match w {
-                [Some(x), _] => s.push(seq[usize::try_from(x)?]),
-                [None, _] => s.push(b'.'),
+                [Some(x), Some(_)] => s.push(seq[usize::try_from(x)?]),
+                [None, Some(_)] => s.push(b'.'),
+                [_, None] => unreachable!(),
             }
         }
         if s.is_empty() {
