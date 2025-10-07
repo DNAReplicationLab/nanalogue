@@ -42,7 +42,42 @@ use serde::{Deserialize, Serialize};
 use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::RangeInclusive;
 use std::path::Path;
+use std::str::FromStr;
 use uuid::Uuid;
+
+/// Validated DNA sequence wrapper that guarantees only valid bases (A, C, G, T).
+/// Stores sequences in uppercase.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DNARestrictive(Vec<u8>);
+
+impl DNARestrictive {
+    /// Returns a reference to the underlying DNA sequence bytes
+    pub fn get(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl FromStr for DNARestrictive {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !is_valid_dna_restrictive(s) {
+            return Err(Error::InvalidSeq);
+        }
+        let bytes: Vec<u8> = s.bytes().map(|b| b.to_ascii_uppercase()).collect();
+        Ok(DNARestrictive(bytes))
+    }
+}
+
+impl<'de> Deserialize<'de> for DNARestrictive {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        DNARestrictive::from_str(&s).map_err(|e| serde::de::Error::custom(e.to_string()))
+    }
+}
 
 /// Main configuration struct for simulation
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -77,7 +112,7 @@ pub struct ReadConfig {
     /// Read length range as fraction of contig [min, max] (e.g.: [0.1, 0.8] = 10% to 80%)
     pub len_range: OrdPair<F32Bw0and1>,
     /// Optional barcode DNA sequence to add to read ends
-    pub barcode: Option<String>,
+    pub barcode: Option<DNARestrictive>,
     /// Modification configurations
     pub mods: Vec<ModConfig>,
 }
@@ -176,11 +211,10 @@ pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> 
 /// assert!(!is_valid_dna_restrictive(""));
 /// ```
 pub fn is_valid_dna_restrictive(seq: &str) -> bool {
-    if seq.is_empty() {
-        return false;
-    }
-    seq.bytes()
-        .all(|b| matches!(b.to_ascii_uppercase(), b'A' | b'C' | b'G' | b'T'))
+    (!seq.is_empty())
+        && seq
+            .bytes()
+            .all(|b| matches!(b.to_ascii_uppercase(), b'A' | b'C' | b'G' | b'T'))
 }
 
 /// Adds barcodes to read sequence based on strand orientation.
@@ -195,40 +229,36 @@ pub fn is_valid_dna_restrictive(seq: &str) -> bool {
 ///
 /// # Examples
 /// ```
-/// use nanalogue_core::simulate_mod_bam::add_barcode;
+/// use nanalogue_core::simulate_mod_bam::{add_barcode, DNARestrictive};
 /// use nanalogue_core::ReadState;
+/// use std::str::FromStr;
 ///
 /// let read_seq = b"GGGGGGGG".to_vec();
-/// let barcode = "ACGTAA".to_string();
+/// let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
 ///
 /// // Forward read: barcode + seq + revcomp(barcode)
-/// let result = add_barcode(read_seq.clone(), barcode.clone(), ReadState::PrimaryFwd).unwrap();
+/// let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryFwd);
 /// assert_eq!(result, b"ACGTAAGGGGGGGGTTACGT".to_vec());
 ///
 /// // Reverse read: comp(barcode) + seq + rev(barcode)
-/// let result = add_barcode(read_seq.clone(), barcode.clone(), ReadState::PrimaryRev).unwrap();
+/// let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryRev);
 /// assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
 /// ```
 pub fn add_barcode(
     read_seq: Vec<u8>,
-    barcode: String,
+    barcode: &DNARestrictive,
     read_state: ReadState,
-) -> Result<Vec<u8>, Error> {
-    // Validate barcode
-    if !is_valid_dna_restrictive(&barcode) {
-        return Err(Error::InvalidSeq);
-    }
+) -> Vec<u8> {
+    let bc_bytes = barcode.get();
 
-    let bc_bytes: Vec<u8> = barcode.bytes().map(|b| b.to_ascii_uppercase()).collect();
-
-    let result = match read_state {
+    match read_state {
         ReadState::PrimaryFwd
         | ReadState::SecondaryFwd
         | ReadState::SupplementaryFwd
         | ReadState::Unmapped => {
             // Forward/Unmapped: barcode + read_seq + reverse_complement(barcode)
-            let revcomp_bc = bio::alphabets::dna::revcomp(&bc_bytes);
-            [bc_bytes, read_seq, revcomp_bc].concat()
+            let revcomp_bc = bio::alphabets::dna::revcomp(bc_bytes);
+            [bc_bytes, &read_seq[..], &revcomp_bc[..]].concat()
         }
         ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
             // Reverse: complement(barcode) + read_seq + reverse(barcode)
@@ -237,11 +267,9 @@ pub fn add_barcode(
                 .map(|&b| bio::alphabets::dna::complement(b))
                 .collect();
             let rev_bc: Vec<u8> = bc_bytes.iter().copied().rev().collect();
-            [comp_bc, read_seq, rev_bc].concat()
+            [&comp_bc[..], &read_seq[..], &rev_bc[..]].concat()
         }
-    };
-
-    Ok(result)
+    }
 }
 
 /// Generates contigs according to configuration
@@ -342,7 +370,7 @@ pub fn generate_reads_denovo<R: Rng>(
             let temp_seq = contig.seq[start_pos as usize..end_pos].to_vec();
             // Add barcode if specified
             match &config.barcode {
-                Some(barcode) => add_barcode(temp_seq, barcode.clone(), random_state)?,
+                Some(barcode) => add_barcode(temp_seq, barcode, random_state),
                 None => temp_seq,
             }
         };
@@ -371,7 +399,7 @@ pub fn generate_reads_denovo<R: Rng>(
                 _ => {
                     let cigar = match &config.barcode {
                         Some(barcode) => {
-                            let barcode_len = barcode.len() as u32;
+                            let barcode_len = barcode.get().len() as u32;
                             CigarString(vec![
                                 Cigar::SoftClip(barcode_len),
                                 Cigar::Match(read_len as u32),
@@ -649,25 +677,23 @@ mod tests {
     #[test]
     fn test_add_barcode() {
         let read_seq = b"GGGGGGGG".to_vec();
-        let barcode = "ACGTAA".to_string();
+        let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
 
         // Test forward read: barcode + seq + revcomp(barcode)
-        let result = add_barcode(read_seq.clone(), barcode.clone(), ReadState::PrimaryFwd).unwrap();
+        let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryFwd);
         assert_eq!(result, b"ACGTAAGGGGGGGGTTACGT".to_vec());
 
         // Test reverse read: comp(barcode) + seq + rev(barcode)
-        let result = add_barcode(read_seq.clone(), barcode.clone(), ReadState::PrimaryRev).unwrap();
+        let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryRev);
         assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
     }
 
-    /// Tests add_barcode with invalid barcode
+    /// Tests DNARestrictive parsing with invalid barcode
     #[test]
     #[should_panic(expected = "InvalidSeq")]
-    fn test_add_barcode_invalid() {
-        let read_seq = b"GGGGGGGG".to_vec();
-        let invalid_barcode = "ACGTN".to_string();
-        let _result: Vec<u8> =
-            add_barcode(read_seq, invalid_barcode, ReadState::PrimaryFwd).unwrap();
+    fn test_dna_restrictive_invalid() {
+        let invalid_barcode = "ACGTN";
+        let _ = DNARestrictive::from_str(invalid_barcode).unwrap();
     }
 
     /// Tests read generation with barcode
