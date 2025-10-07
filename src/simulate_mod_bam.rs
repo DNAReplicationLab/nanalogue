@@ -376,22 +376,30 @@ pub fn generate_reads_denovo<R: Rng>(
         // Extract sequence from contig
         let random_state: ReadState = random();
         let end_pos = (start_pos + read_len) as usize;
-        let read_seq = {
+        let (read_seq, cigar) = {
             let temp_seq = contig.seq()[start_pos as usize..end_pos].to_vec();
+
             // Add barcode if specified
             match &config.barcode {
-                Some(barcode) => add_barcode(temp_seq, barcode, random_state),
-                None => temp_seq,
+                Some(barcode) => {
+                    let barcode_len = barcode.get().len() as u32;
+                    (
+                        add_barcode(temp_seq, barcode, random_state),
+                        CigarString(vec![
+                            Cigar::SoftClip(barcode_len),
+                            Cigar::Match(read_len as u32),
+                            Cigar::SoftClip(barcode_len),
+                        ]),
+                    )
+                }
+                None => (temp_seq, CigarString(vec![Cigar::Match(read_len as u32)])),
             }
         };
 
-        // Generate quality scores (for final read length including barcodes)
+        // Generate quality scores (for final read length including any adjustments like barcodes)
         let qual: Vec<u8> = (0..read_seq.len())
             .map(|_| rng.random_range(RangeInclusive::from(config.base_qual_range)))
             .collect();
-
-        // Generate MAPQ
-        let mapq = rng.random_range(RangeInclusive::from(config.mapq_range));
 
         // Create BAM record
         let record = {
@@ -407,17 +415,7 @@ pub fn generate_reads_denovo<R: Rng>(
                     record.set_pos(-1);
                 }
                 _ => {
-                    let cigar = match &config.barcode {
-                        Some(barcode) => {
-                            let barcode_len = barcode.get().len() as u32;
-                            CigarString(vec![
-                                Cigar::SoftClip(barcode_len),
-                                Cigar::Match(read_len as u32),
-                                Cigar::SoftClip(barcode_len),
-                            ])
-                        }
-                        None => CigarString(vec![Cigar::Match(read_len as u32)]),
-                    };
+                    let mapq = rng.random_range(RangeInclusive::from(config.mapq_range));
                     record.set(&qname, Some(&cigar), &read_seq, &qual);
                     record.set_mapq(mapq);
                     record.set_tid(contig_idx as i32);

@@ -643,7 +643,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             }
         }
         if s.is_empty() {
-            Err(Error::UnavailableData)
+            Err(Error::DeletedRegionRetrieval)
         } else {
             Ok(s)
         }

@@ -182,4 +182,8 @@ pub enum Error {
         /// The threshold value
         threshold: F32Bw0and1,
     },
+
+    /// Data is being retrieved from a region deleted on the reference
+    #[error("data retrieved from a region deleted on reference")]
+    DeletedRegionRetrieval,
 }

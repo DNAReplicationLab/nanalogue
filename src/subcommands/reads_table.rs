@@ -278,7 +278,9 @@ where
         // get sequence
         let sequence = match &seq_region {
             Some(v) if v.len() != 0 => Some(match curr_read_state.seq_on_ref_coords(&record, v) {
-                Err(Error::UnavailableData) => Ok(String::from("*")),
+                Err(Error::UnavailableData) | Err(Error::DeletedRegionRetrieval) => {
+                    Ok(String::from("*"))
+                }
                 Err(e) => Err(e),
                 Ok(w) => Ok(String::from_utf8(w)?),
             }?),
