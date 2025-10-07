@@ -37,7 +37,7 @@ impl<'de> Deserialize<'de> for DNARestrictive {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        DNARestrictive::from_str(&s).map_err(|e| serde::de::Error::custom(e.to_string()))
+        DNARestrictive::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -55,9 +55,11 @@ impl<'de> Deserialize<'de> for DNARestrictive {
 /// ```
 pub fn is_valid_dna_restrictive(seq: &str) -> bool {
     (!seq.is_empty())
-        && seq
-            .bytes()
-            .all(|b| matches!(b.to_ascii_uppercase(), b'A' | b'C' | b'G' | b'T'))
+        && seq.bytes().all(|b| {
+            [b'A', b'a', b'T', b't', b'G', b'g', b'C', b'c']
+                .into_iter()
+                .any(|c| c == b)
+        })
 }
 
 #[cfg(test)]
