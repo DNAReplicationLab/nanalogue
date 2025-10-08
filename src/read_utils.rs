@@ -633,23 +633,49 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         let mut s: Vec<u8> =
             Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
 
+        // we may have to trim the sequence if we hit a bunch of unaligned base
+        // pairs right at the end e.g. a softclip. so, we record the last aligned
+        // position here.
+        let mut last_aligned_bp = 0;
+
         for w in record
             .aligned_pairs_full()
-            .filter(|x| x[1].is_some_and(|y| interval.contains(&y)))
+            .skip_while(|x| x[1].is_none_or(|y| !interval.contains(&y)))
+            .take_while(|x| x[1].is_none_or(|y| interval.contains(&y)))
         {
             // the logic below is as follows:
             // * matches or mismatches, we show the base on the sequence.
             //   so SNPs for example (i.e. a 1 bp difference from the ref) will show up
             //   as a base different from the reference.
             // * a deletion or a ref skip ("N" in cigar) will show up as dot(s) i.e. ".".
-            // * insertions or soft clips i.e. stretches of bases present on the
-            //   read but not on the reference are not displayed.
+            // * insertions are displayed i.e. bases in the middle of a read present
+            //   on the read but not on the reference
+            // * clipped bases at the end of the read are not displayed. these are bp
+            //   on the read but not on the reference and are denoted as soft or hard
+            //   clips on the CIGAR string e.g. barcodes from sequencing
+            // * some CIGAR combinations are illogical and we are assuming they do not happen
+            //   e.g. a read's CIGAR can end with, say 10D20S, this means last 10 bp
+            //   are in a deletion and the next 20 are a softclip. This is illogical,
+            //   as they must be combined into a 30-bp softclip i.e. 30S. So if the
+            //   aligner produces such illogical states, then the sequences reported
+            //   here may be erroneous.
             match w {
-                [Some(x), Some(_)] => s.push(seq[usize::try_from(x)?]),
-                [None, Some(_)] => s.push(b'.'),
-                [_, None] => unreachable!(),
+                [Some(x), Some(_)] => {
+                    s.push(seq[usize::try_from(x)?]);
+                    last_aligned_bp += 1;
+                },
+                [Some(x), None] => s.push(seq[usize::try_from(x)?]),
+                [None, Some(_)] => {
+                    s.push(b'.');
+                    last_aligned_bp += 1;
+                },
+                _ => {}
             }
         }
+
+        // if last few bp in sequence are all unmapped, we remove them here.
+        let _: Vec<_> = s.drain(last_aligned_bp..).collect();
+
         if s.is_empty() {
             Err(Error::DeletedRegionRetrieval)
         } else {

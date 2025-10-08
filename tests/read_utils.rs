@@ -516,7 +516,7 @@ fn test_seq_on_ref_coords_2() -> Result<(), Error> {
             "repeated_seq": "AAGCTAGCTG"
         },
         "reads": [{
-            "number": 1000,
+            "number": 10000,
             "len_range": [0.1, 0.2]
         }]
     }"#;
@@ -546,12 +546,80 @@ fn test_seq_on_ref_coords_2() -> Result<(), Error> {
             }
         }
     }
-    // 1000 reads with 2 contigs but 1/7 are unmapped => ~430 reads per contig (1000/2 * 6/7).
+    // 10000 reads with 2 contigs but 1/7 are unmapped => ~4300 reads per contig (10000/2 * 6/7).
     // if their length varies from 100-200 bp, we expect ~1/10-1/5 of reads
-    // to pass through any given base i.e. ~43-86. So, 10 is actually quite lax, we've left it
+    // to pass through any given base i.e. ~430-860. So, 200 is actually quite lax, we've left it
     // this lax to account for (extreme) statistical outliers.
-    assert!(cnt > 10);
+    assert!(cnt > 200);
     Ok(())
+}
+
+#[test]
+fn test_seq_on_ref_coords_2_but_barcode() {
+    // make a random BAM file but contigs are all just a 10 bp
+    // sequence repeated to fill the required length, but with a
+    // barcode. Occasionally we will get a barcode in the region, 
+    // so we check that the barcode is removed.
+    let config_json = r#"{
+        "contigs": {
+            "number": 1,
+            "len_range": [300, 300],
+            "repeated_seq": "AAGCTAGCTG"
+        },
+        "reads": [{
+            "number": 10000,
+            "len_range": [0.03, 0.03],
+            "barcode": "CAG"
+        }]
+    }"#;
+    let sim = TempBamSimulation::new(config_json).unwrap();
+    let mut reader = nanalogue_bam_reader(sim.bam_path()).unwrap();
+
+    // We probe first contig 225-229, so if we have AAGCTAGCTG repeated
+    // over and over, we expect the sequence here to be "AGCT".
+    // A read can start or stop here which gives
+    // the following possibilities: 
+    let expected_seqs = [
+        "AGCT", "T", "CT", "GCT", "AGC", "AG", "A",
+    ];
+
+    // create a table of individual counts
+    let mut cnt_individual: HashMap<String, u32> = HashMap::new();
+    for k in expected_seqs {
+        cnt_individual.insert(k.to_string(), 0);
+    }
+
+    for record in reader.records() {
+        let r = record.unwrap();
+        let curr_read = CurrRead::default().try_from_only_alignment(&r).unwrap();
+
+        // Skip unmapped reads, for others, check sequence match.
+        if curr_read.read_state().to_string() != "unmapped" {
+            let region = Bed3::new(0, 225, 229);
+            match curr_read.seq_on_ref_coords(&r, &region) {
+                Err(Error::UnavailableData) => {}
+                Ok(v) => {
+                    if !expected_seqs
+                        .iter()
+                        .any(|k| *k == str::from_utf8(&v).expect("no error"))
+                    {
+                        panic!("unknown sequence {v:?}")
+                    } else {
+                        let _ = cnt_individual
+                            .entry(String::from_utf8(v).expect("string conversion error"))
+                            .and_modify(|m| *m += 1);
+                    }
+                }
+                _ => panic!("erroneous outcome"),
+            }
+        }
+    }
+
+    // check that every entry in the list of possible sequences is visited at least once.
+    // (we are not going to bother calculating the expected statistics of this count!)
+    for k in cnt_individual.into_values() {
+        assert!(k >= 1)
+    }
 }
 
 #[test]
