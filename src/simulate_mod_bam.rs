@@ -369,7 +369,8 @@ pub fn generate_reads_denovo<R: Rng>(
         // Calculate read length as fraction of contig length
         let min_read_len = (config.len_range.get_low().val() * contig_len as f32) as u64;
         let max_read_len = (config.len_range.get_high().val() * contig_len as f32) as u64;
-        let read_len = rng.random_range(min_read_len..=max_read_len);
+        let max_read_len = max_read_len.max(min_read_len);
+        let read_len = rng.random_range(min_read_len..=max_read_len.min(contig_len));
 
         // Set starting position
         let start_pos = rng.random_range(0..=(contig_len.saturating_sub(read_len)));

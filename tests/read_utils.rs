@@ -283,7 +283,7 @@ fn test_set_contig_id_and_start() -> Result<(), Error> {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Unmapped")]
 fn test_set_contig_id_and_start_unmapped_should_panic() {
     let mut reader = nanalogue_bam_reader(&"examples/example_1.bam").unwrap();
     let mut count = 0;

@@ -38,7 +38,7 @@ fn get_stats_from_heap(
         // of the two reads in the middle of the pack. We don't do this as
         // we assume lots of reads so there's no point in making such an accurate
         // calculation.
-        if median == 0 && counter > heap_size / 2 - 1 {
+        if median == 0 && counter > (heap_size / 2).saturating_sub(1) {
             median = v;
         }
 

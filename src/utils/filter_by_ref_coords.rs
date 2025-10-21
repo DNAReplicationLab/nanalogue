@@ -20,9 +20,9 @@ impl FilterByRefCoords for Ranges {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
     fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
-        let (last_invalid_win, last_valid_win) = {
-            let mut last_invalid_window: usize = 0;
-            let mut last_valid_window: usize = 0;
+        let (start_index, stop_index) = {
+            let mut last_invalid_window: Option<usize> = None;
+            let mut last_valid_window: Option<usize> = None;
             let mut previous_start: Option<i64> = None;
             let mut previous_end: Option<i64> = None;
             for k in self
@@ -33,24 +33,30 @@ impl FilterByRefCoords for Ranges {
             {
                 // ensure start <= end for each interval and intervals are sorted.
                 assert!(((*k.1.0).is_none() || (*k.1.1).is_none()) || *(k.1.0) <= *(k.1.1));
-                if previous_start.is_some() {
-                    assert!((*k.1.0).is_none() || (*k.1.0) > previous_start);
-                    assert!((*k.1.1).is_none() || (*k.1.1) > previous_start);
-                }
-                if previous_end.is_some() {
-                    assert!((*k.1.0).is_none() || (*k.1.0) >= previous_end);
-                    assert!((*k.1.1).is_none() || (*k.1.1) >= previous_end);
-                }
+                assert!((*k.1.0).is_none() || (*k.1.0) > previous_start);
+                assert!((*k.1.1).is_none() || (*k.1.1) > previous_start);
+                assert!((*k.1.0).is_none() || (*k.1.0) >= previous_end);
+                assert!((*k.1.1).is_none() || (*k.1.1) >= previous_end);
+
                 if (*k.1.0).is_some_and(|x| x < start) && (*k.1.1).is_some_and(|x| x <= start) {
-                    last_invalid_window = k.0;
+                    last_invalid_window = Some(k.0);
                 }
                 if (*k.1.0).is_some_and(|x| x < end) {
-                    last_valid_window = k.0;
+                    last_valid_window = Some(k.0);
                 }
-                previous_start = *(k.1.0);
-                previous_end = *(k.1.1);
+                match *(k.1.0) {
+                    Some(v) => previous_start = Some(i64::try_from(v).unwrap()),
+                    _ => {}
+                };
+                match *(k.1.1) {
+                    Some(v) => previous_end = Some(i64::try_from(v).unwrap()),
+                    _ => {}
+                };
             }
-            (last_invalid_window, last_valid_window)
+            (
+                last_invalid_window.map_or(0, |x| x + 1),
+                last_valid_window.map_or(0, |x| x + 1),
+            )
         };
 
         for k in [
@@ -61,15 +67,11 @@ impl FilterByRefCoords for Ranges {
             &mut self.reference_ends,
             &mut self.reference_lengths,
         ] {
-            k.extract_if(last_valid_win + 1.., |_| true).for_each(drop);
-            k.extract_if(0..=last_invalid_win, |_| true).for_each(drop);
+            k.truncate(stop_index);
+            let _: Vec<_> = k.drain(0..start_index).collect();
         }
-        self.qual
-            .extract_if(last_valid_win + 1.., |_| true)
-            .for_each(drop);
-        self.qual
-            .extract_if(0..=last_invalid_win, |_| true)
-            .for_each(drop);
+        self.qual.truncate(stop_index);
+        let _: Vec<_> = self.qual.drain(0..start_index).collect();
     }
 }
 
