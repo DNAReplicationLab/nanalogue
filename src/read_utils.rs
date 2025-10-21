@@ -634,7 +634,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
 
         // we may have to trim the sequence if we hit a bunch of unaligned base
-        // pairs right at the end e.g. a softclip. 
+        // pairs right at the end e.g. a softclip.
         let mut trim_end_bp = 0;
 
         for w in record
@@ -662,24 +662,22 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                 [Some(x), Some(_)] => {
                     s.push(seq[usize::try_from(x)?]);
                     trim_end_bp = 0;
-                },
+                }
                 [Some(x), None] => {
                     s.push(seq[usize::try_from(x)?]);
                     trim_end_bp += 1;
-                },
+                }
                 [None, Some(_)] => {
                     s.push(b'.');
                     trim_end_bp = 0;
-                },
+                }
                 _ => {}
             }
         }
 
         // if last few bp in sequence are all unmapped, we remove them here.
         for _ in 0..trim_end_bp {
-            let Some(_) = s.pop() else {
-                unreachable!()
-            };
+            let Some(_) = s.pop() else { unreachable!() };
         }
 
         if s.is_empty() {

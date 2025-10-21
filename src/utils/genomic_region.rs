@@ -152,14 +152,14 @@ mod tests {
 
     /// Tests GenomicRegion parsing with wrong order coordinates
     #[test]
-    #[should_panic(expected = "WrongOrder")]
+    #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_wrong_order() {
         let _ = GenomicRegion::from_str("chr1:2000-1000").unwrap();
     }
 
     /// Tests GenomicRegion parsing with equal start and end (strict inequality)
     #[test]
-    #[should_panic(expected = "WrongOrder")]
+    #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_equal_coordinates() {
         let _ = GenomicRegion::from_str("chr1:1000-1000").unwrap();
     }

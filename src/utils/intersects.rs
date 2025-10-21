@@ -10,7 +10,7 @@ pub trait Intersects<T> {
 }
 
 impl Intersects<Range<u64>> for Range<u64> {
-    /// Check if a range is within another range
+    /// Check if two ranges intersect (overlap)
     ///
     /// ```
     /// use nanalogue_core::Intersects;

@@ -186,4 +186,12 @@ pub enum Error {
     /// Data is being retrieved from a region deleted on the reference
     #[error("data retrieved from a region deleted on reference")]
     DeletedRegionRetrieval,
+
+    /// Window does not contain any data
+    #[error("window does not contain any data")]
+    EmptyWindow,
+
+    /// Data is not of sufficient size (e.g. in a window)
+    #[error("data is not of sufficient size (e.g. in a window)")]
+    InsufficientDataSize,
 }

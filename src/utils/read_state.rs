@@ -74,7 +74,7 @@ impl From<ReadState> for u16 {
 // Implements conversion of the standard BAM flag format into ReadState
 impl TryFrom<u16> for ReadState {
     type Error = Error;
-    /// converts our internal representation to the BAM flag format
+    /// converts BAM flag format to our internal representation
     fn try_from(value: u16) -> Result<ReadState, Error> {
         match value {
             0 => Ok(ReadState::PrimaryFwd),

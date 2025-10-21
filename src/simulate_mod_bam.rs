@@ -273,12 +273,15 @@ pub fn generate_contigs_denovo<R: Rng>(
 /// use std::str::FromStr;
 /// use nanalogue_core::{DNARestrictive, OrdPair};
 /// use nanalogue_core::simulate_mod_bam::generate_contigs_denovo_repeated_seq;
+/// use rand::Rng;
 ///
+/// let mut rng = rand::rng();
 /// let seq = DNARestrictive::from_str("ACGT").unwrap();
 /// let contigs = generate_contigs_denovo_repeated_seq(
 ///     NonZeroU32::new(2).unwrap(),
 ///     OrdPair::new(NonZeroU64::new(10).unwrap(), NonZeroU64::new(12).unwrap()).unwrap(),
-///     seq
+///     seq,
+///     &mut rng
 /// );
 /// assert_eq!(contigs.len(), 2);
 /// for (i, contig) in contigs.iter().enumerate() {
@@ -289,12 +292,12 @@ pub fn generate_contigs_denovo<R: Rng>(
 ///     }
 /// }
 /// ```
-pub fn generate_contigs_denovo_repeated_seq(
+pub fn generate_contigs_denovo_repeated_seq<R: Rng>(
     contig_number: NonZeroU32,
     len_range: OrdPair<NonZeroU64>,
     seq: DNARestrictive,
+    rng: &mut R,
 ) -> Vec<Contig> {
-    let mut rng = rand::rng();
     let seq_bytes = seq.get();
 
     (0..contig_number.get())
@@ -477,6 +480,7 @@ where
             config.contigs.number,
             config.contigs.len_range,
             seq,
+            &mut rng,
         ),
         None => generate_contigs_denovo(config.contigs.number, config.contigs.len_range, &mut rng),
     };
@@ -755,6 +759,7 @@ mod tests {
             NonZeroU32::new(10000).unwrap(),
             OrdPair::new(NonZeroU64::new(10).unwrap(), NonZeroU64::new(12).unwrap()).unwrap(),
             seq,
+            &mut rand::rng(),
         );
 
         let mut counts = [0, 0, 0];

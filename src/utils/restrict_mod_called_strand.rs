@@ -38,7 +38,7 @@ impl Default for RestrictModCalledStrand {
 impl FromStr for RestrictModCalledStrand {
     type Err = Error;
 
-    /// Parse a string to obtain float and then convert if b/w 0 and 1
+    /// Parse a string to create a RestrictModCalledStrand ("bc or "bc_comp")
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
         match val_str {
             "bc" => Ok(RestrictModCalledStrand(true)),

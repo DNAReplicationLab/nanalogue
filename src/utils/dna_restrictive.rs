@@ -1,7 +1,7 @@
 //! # DNA Restrictive
 //!
 //! Validated DNA sequence wrapper that guarantees only valid bases (A, C, G, T).
-//! Provides type-safe handling of DNA sequences with compile-time validation.
+//! Provides type-safe handling of DNA sequences.
 
 use crate::Error;
 use serde::{Deserialize, Serialize};

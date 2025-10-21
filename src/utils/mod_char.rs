@@ -108,14 +108,14 @@ impl FromStr for ModChar {
 
 impl fmt::Display for ModChar {
     /// converts to string for display. If the value is in the alphabet,
-    /// display it. Otherwise, display the equivalent u8 number.
+    /// display it. Otherwise, display the equivalent number.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "{}",
             match self.val() {
                 w @ ('A'..='Z' | 'a'..='z') => w.to_string(),
-                w => format!("{}", w as u32),
+                w => (w as u32).to_string(),
             }
         )
     }

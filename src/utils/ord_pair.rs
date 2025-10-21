@@ -11,10 +11,19 @@ use std::ops::RangeInclusive;
 use std::str::FromStr;
 
 /// Datatype holding two values low, high such that low <= high is guaranteed at creation.
-#[derive(Debug, Clone, Copy, Default, PartialOrd, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
 pub struct OrdPair<T: Clone + Copy + Debug> {
     low: T,
     high: T,
+}
+
+impl<T: Clone + Copy + Debug + Default + Ord> Default for OrdPair<T> {
+    fn default() -> Self {
+        OrdPair {
+            low: T::default(),
+            high: T::default(),
+        }
+    }
 }
 
 impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
@@ -121,7 +130,9 @@ impl OrdPair<u64> {
                         high: end,
                     })
                 } else {
-                    Err(Error::WrongOrder)
+                    Err(Error::OrdPairConversionError(
+                        "Genomic intervals require start < end (strict inequality)".to_string(),
+                    ))
                 }
             }
             _ => Err(Error::OrdPairConversionError(
@@ -159,16 +170,14 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> FromStr for Ord
     }
 }
 
-impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> From<OrdPair<T>>
-    for RangeInclusive<T>
-{
+impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> From<OrdPair<T>> for RangeInclusive<T> {
     /// Convert the OrdPair into a RangeInclusive i.e. (start..=end)
     fn from(value: OrdPair<T>) -> Self {
         RangeInclusive::<T>::new(value.get_low(), value.get_high())
     }
 }
 
-impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> Contains<T> for OrdPair<T> {
+impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> Contains<T> for OrdPair<T> {
     /// Check if the provided value is within the Range of the OrdPair
     fn contains(&self, val: &T) -> bool {
         RangeInclusive::<T>::from(*self).contains(val)
@@ -251,13 +260,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "WrongOrder")]
+    #[should_panic(expected = "OrdPairConversionError")]
     fn test_ord_pair_from_interval_equal_start_end_panics() {
         let _ = OrdPair::<u64>::from_interval("1000-1000").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "WrongOrder")]
+    #[should_panic(expected = "OrdPairConversionError")]
     fn test_ord_pair_from_interval_start_greater_than_end_panics() {
         let _ = OrdPair::<u64>::from_interval("2000-1000").unwrap();
     }

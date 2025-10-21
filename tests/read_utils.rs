@@ -558,7 +558,7 @@ fn test_seq_on_ref_coords_2() -> Result<(), Error> {
 fn test_seq_on_ref_coords_2_but_barcode() {
     // make a random BAM file but contigs are all just a 10 bp
     // sequence repeated to fill the required length, but with a
-    // barcode. Occasionally we will get a barcode in the region, 
+    // barcode. Occasionally we will get a barcode in the region,
     // so we check that the barcode is removed.
     let config_json = r#"{
         "contigs": {
@@ -578,10 +578,8 @@ fn test_seq_on_ref_coords_2_but_barcode() {
     // We probe first contig 225-229, so if we have AAGCTAGCTG repeated
     // over and over, we expect the sequence here to be "AGCT".
     // A read can start or stop here which gives
-    // the following possibilities: 
-    let expected_seqs = [
-        "AGCT", "T", "CT", "GCT", "AGC", "AG", "A",
-    ];
+    // the following possibilities:
+    let expected_seqs = ["AGCT", "T", "CT", "GCT", "AGC", "AG", "A"];
 
     // create a table of individual counts
     let mut cnt_individual: HashMap<String, u32> = HashMap::new();

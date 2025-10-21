@@ -17,7 +17,10 @@ use crate::{Contains, Error, F32AbsValBelow1, F32Bw0and1, ThresholdState};
 /// assert_eq!(result.val(), 1.0);
 /// ```
 pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
-    let win_size: usize = mod_list.len();
+    let win_size: usize = match mod_list.len() {
+        0 => Err(Error::EmptyWindow),
+        v => Ok(v),
+    }?;
     let count_mod: usize = mod_list
         .iter()
         .filter(|x| ThresholdState::GtEq(128).contains(x))
@@ -53,7 +56,10 @@ pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
 /// assert_eq!(result.val(), 0.4);
 /// ```
 pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValBelow1, Error> {
-    let win_size = mod_list.len();
+    let win_size = match mod_list.len() {
+        0 | 1 => Err(Error::InsufficientDataSize),
+        v => Ok(v),
+    }?;
     let x_mean: f32 = (win_size as f32 + 1.0) / 2.0;
     let numerator: f32 = mod_list
         .iter()
