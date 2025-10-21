@@ -15,7 +15,7 @@ pub mod read_states;
 pub mod restrict_mod_called_strand;
 pub mod threshold_state;
 
-// Re-export all public items to maintain API compatibility
+// Re-export public utility types and functions to expose the utils API
 pub use contains::*;
 pub use dna_restrictive::*;
 pub use f32_abs_val_below1::*;

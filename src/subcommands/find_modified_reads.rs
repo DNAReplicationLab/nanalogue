@@ -110,20 +110,20 @@ mod tests {
         Ok(read_ids)
     }
 
+    /// Helper function that computes the mean of modification probabilities
+    fn mean_window_function(mod_data: &[u8]) -> Result<F32Bw0and1, Error> {
+        if mod_data.is_empty() {
+            return F32Bw0and1::new(0.0);
+        }
+        let sum: f32 = mod_data.iter().map(|&x| x as f32).sum();
+        let mean = sum / (mod_data.len() as f32);
+        F32Bw0and1::new(mean / 255.0)
+    }
+
     /// Tests the find_modified_reads::run function with a simple filter
     /// that looks for reads with average modification probabilities above a threshold
     #[test]
     fn test_find_modified_reads_basic() -> Result<(), Error> {
-        // Define window function: compute mean of modification probabilities
-        let window_function = |mod_data: &[u8]| -> Result<F32Bw0and1, Error> {
-            if mod_data.is_empty() {
-                return F32Bw0and1::new(0.0);
-            }
-            let sum: f32 = mod_data.iter().map(|&x| x as f32).sum();
-            let mean = sum / (mod_data.len() as f32);
-            F32Bw0and1::new(mean / 255.0)
-        };
-
         // Define window filter: keep reads with at least one window above threshold
         let window_filter =
             |windows: &Vec<F32Bw0and1>| -> bool { windows.iter().any(|&w| w.val() > 0.7) };
@@ -133,7 +133,7 @@ mod tests {
             2,
             1,
             'T',
-            window_function,
+            mean_window_function,
             window_filter,
         )?;
 
@@ -148,15 +148,6 @@ mod tests {
     /// Tests find_modified_reads with a filter that rejects all reads
     #[test]
     fn test_find_modified_reads_reject_all() -> Result<(), Error> {
-        let window_function = |mod_data: &[u8]| -> Result<F32Bw0and1, Error> {
-            if mod_data.is_empty() {
-                return F32Bw0and1::new(0.0);
-            }
-            let sum: f32 = mod_data.iter().map(|&x| x as f32).sum();
-            let mean = sum / (mod_data.len() as f32);
-            F32Bw0and1::new(mean / 255.0)
-        };
-
         // Filter that rejects everything
         let window_filter = |_windows: &Vec<F32Bw0and1>| -> bool { false };
 
@@ -165,7 +156,7 @@ mod tests {
             2,
             1,
             'T',
-            window_function,
+            mean_window_function,
             window_filter,
         )?;
 
@@ -180,15 +171,6 @@ mod tests {
     /// Tests find_modified_reads with a filter that accepts all reads
     #[test]
     fn test_find_modified_reads_accept_all() -> Result<(), Error> {
-        let window_function = |mod_data: &[u8]| -> Result<F32Bw0and1, Error> {
-            if mod_data.is_empty() {
-                return F32Bw0and1::new(0.0);
-            }
-            let sum: f32 = mod_data.iter().map(|&x| x as f32).sum();
-            let mean = sum / (mod_data.len() as f32);
-            F32Bw0and1::new(mean / 255.0)
-        };
-
         // Filter that accepts everything with non-empty windows
         let window_filter = |windows: &Vec<F32Bw0and1>| -> bool { !windows.is_empty() };
 
@@ -197,7 +179,7 @@ mod tests {
             2,
             1,
             'T',
-            window_function,
+            mean_window_function,
             window_filter,
         )?;
 

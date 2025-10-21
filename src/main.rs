@@ -253,17 +253,14 @@ fn main() -> Result<(), Error> {
 
     /// decides whether to display sequence from a region,
     /// the full basecalled sequence, or neither
+    /// Note: clap's conflicts_with ensures seq_region and seq_full are mutually exclusive
     macro_rules! seq_display {
         ( $b : expr, $c : expr, $d : expr) => {
             match ($b, $c) {
                 (None, false) => None,
                 (Some(v), false) => Some(v.try_to_bed3($d)?),
                 (None, true) => Some(Bed3::<i32, u64>::empty()),
-                (Some(_), true) => {
-                    return Err(Error::NotImplementedError(
-                        "cannot call seq-region and seq-full together".to_string(),
-                    ));
-                }
+                (Some(_), true) => unreachable!("clap prevents seq_region and seq_full together"),
             }
         };
     }
