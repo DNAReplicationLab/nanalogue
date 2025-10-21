@@ -634,9 +634,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
 
         // we may have to trim the sequence if we hit a bunch of unaligned base
-        // pairs right at the end e.g. a softclip. so, we record the last aligned
-        // position here.
-        let mut last_aligned_bp = 0;
+        // pairs right at the end e.g. a softclip. 
+        let mut trim_end_bp = 0;
 
         for w in record
             .aligned_pairs_full()
@@ -662,19 +661,26 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             match w {
                 [Some(x), Some(_)] => {
                     s.push(seq[usize::try_from(x)?]);
-                    last_aligned_bp += 1;
+                    trim_end_bp = 0;
                 },
-                [Some(x), None] => s.push(seq[usize::try_from(x)?]),
+                [Some(x), None] => {
+                    s.push(seq[usize::try_from(x)?]);
+                    trim_end_bp += 1;
+                },
                 [None, Some(_)] => {
                     s.push(b'.');
-                    last_aligned_bp += 1;
+                    trim_end_bp = 0;
                 },
                 _ => {}
             }
         }
 
         // if last few bp in sequence are all unmapped, we remove them here.
-        let _: Vec<_> = s.drain(last_aligned_bp..).collect();
+        for _ in 0..trim_end_bp {
+            let Some(_) = s.pop() else {
+                unreachable!()
+            };
+        }
 
         if s.is_empty() {
             Err(Error::DeletedRegionRetrieval)
