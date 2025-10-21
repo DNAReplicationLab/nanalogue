@@ -89,6 +89,16 @@ impl GenomicRegion {
                             contig_length,
                         });
                     }
+
+                    // Also check end coordinate for closed intervals
+                    if end != u64::MAX && end > contig_length {
+                        let region_str = format!("{}:{}-{}", contig_name, start, end);
+                        return Err(Error::InvalidRegionError {
+                            region: region_str,
+                            start,
+                            contig_length,
+                        });
+                    }
                 }
 
                 (start, end)

@@ -40,7 +40,9 @@ where
     let mut file = File::create(output_path)?;
     for contig in contigs {
         writeln!(file, ">{}", contig.0)?;
-        writeln!(file, "{}", String::from_utf8_lossy(&contig.1))?;
+        let sequence = String::from_utf8(contig.1)
+            .map_err(|e| Error::InvalidState(format!("Invalid UTF-8 in sequence: {}", e)))?;
+        writeln!(file, "{}", sequence)?;
     }
     Ok(())
 }
@@ -112,10 +114,10 @@ mod tests {
             ("test_contig_1".to_string(), b"TGCA".to_vec()),
         ];
 
-        let temp_path = format!("/tmp/{}.fa", Uuid::new_v4());
+        let temp_path = std::env::temp_dir().join(format!("{}.fa", Uuid::new_v4()));
         write_fasta(contigs.into_iter(), &temp_path).expect("no error");
 
-        let content = std::fs::read_to_string(temp_path.clone()).expect("no error");
+        let content = std::fs::read_to_string(&temp_path).expect("no error");
         assert_eq!(content, ">test_contig_0\nACGT\n>test_contig_1\nTGCA\n");
 
         std::fs::remove_file(&temp_path).expect("no error");

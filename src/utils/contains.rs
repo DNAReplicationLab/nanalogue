@@ -1,8 +1,8 @@
 //! Contains trait for testing if a value is within some interval
 //! Used by various types to implement containment checking
 
-/// Implements test if a value is within some interval
+/// Trait for testing whether a value is contained within an interval.
 pub trait Contains<T> {
-    /// see if value is contained within
+    /// Returns true if the value is contained within this interval.
     fn contains(&self, val: &T) -> bool;
 }

@@ -57,7 +57,8 @@ pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
 /// ```
 pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValBelow1, Error> {
     let win_size = match mod_list.len() {
-        0 | 1 => Err(Error::InsufficientDataSize),
+        0 => Err(Error::EmptyWindow),
+        1 => Err(Error::InsufficientDataSize),
         v => Ok(v),
     }?;
     let x_mean: f32 = (win_size as f32 + 1.0) / 2.0;
@@ -185,5 +186,26 @@ mod tests {
 
         // This should panic with a WindowDensBelowThres error
         let _ = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "EmptyWindow")]
+    fn test_threshold_and_mean_empty_array() {
+        let mod_data: [u8; 0] = [];
+        let _ = threshold_and_mean(&mod_data).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "EmptyWindow")]
+    fn test_threshold_and_gradient_empty_array() {
+        let mod_data: [u8; 0] = [];
+        let _ = threshold_and_gradient(&mod_data).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "InsufficientDataSize")]
+    fn test_threshold_and_gradient_single_element() {
+        let mod_data = [128];
+        let _ = threshold_and_gradient(&mod_data).unwrap();
     }
 }

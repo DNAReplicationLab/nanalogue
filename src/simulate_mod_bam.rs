@@ -525,16 +525,17 @@ pub struct TempBamSimulation {
 impl TempBamSimulation {
     /// Creates a new temporary BAM simulation from JSON configuration
     pub fn new(config_json: &str) -> Result<Self, Error> {
-        let bam_path = format!("/tmp/{}.bam", Uuid::new_v4());
-        let fasta_path = format!("/tmp/{}.fa", Uuid::new_v4());
+        let temp_dir = std::env::temp_dir();
+        let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
+        let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
 
         if !(run(config_json, &bam_path, &fasta_path)?) {
             return Err(Error::UnknownError);
         }
 
         Ok(Self {
-            bam_path,
-            fasta_path,
+            bam_path: bam_path.to_string_lossy().to_string(),
+            fasta_path: fasta_path.to_string_lossy().to_string(),
         })
     }
 
@@ -650,11 +651,12 @@ mod tests {
         }"#;
 
         // create files with random names and check for existence
-        let bam_path = format!("/tmp/{}.bam", Uuid::new_v4());
-        let fasta_path = format!("/tmp/{}.fa", Uuid::new_v4());
+        let temp_dir = std::env::temp_dir();
+        let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
+        let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
         assert!(run(config_json, &bam_path, &fasta_path).unwrap());
-        assert!(Path::new(&bam_path).exists());
-        assert!(Path::new(&fasta_path).exists());
+        assert!(bam_path.exists());
+        assert!(fasta_path.exists());
 
         // read BAM file and check contig, read count
         let mut reader = bam::Reader::from_path(&bam_path).unwrap();
@@ -663,9 +665,10 @@ mod tests {
         assert_eq!(reader.records().count(), 1000);
 
         // delete files
+        let bai_path = bam_path.with_extension("bam.bai");
         std::fs::remove_file(&bam_path).unwrap();
         std::fs::remove_file(fasta_path).unwrap();
-        std::fs::remove_file(bam_path + ".bai").unwrap();
+        std::fs::remove_file(bai_path).unwrap();
     }
 
     /// Tests TempBamSimulation struct functionality

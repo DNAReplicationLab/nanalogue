@@ -15,14 +15,12 @@ impl F32AbsValBelow1 {
     /// ```should_panic
     /// use nanalogue_core::Error;
     /// use nanalogue_core::F32AbsValBelow1;
-    /// let x = F32AbsValBelow1::new(-1.1)?;
-    /// # Ok::<(), nanalogue_core::Error>(())
+    /// let x = F32AbsValBelow1::new(-1.1).unwrap();
     /// ```
     /// ```should_panic
     /// # use nanalogue_core::Error;
     /// # use nanalogue_core::F32AbsValBelow1;
-    /// let x = F32AbsValBelow1::new(1.1)?;
-    /// # Ok::<(), nanalogue_core::Error>(())
+    /// let x = F32AbsValBelow1::new(1.1).unwrap();
     /// ```
     /// ```
     /// # use nanalogue_core::Error;
