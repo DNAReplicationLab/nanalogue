@@ -71,7 +71,9 @@ impl From<ReadState> for u16 {
     }
 }
 
-// Implements conversion of the standard BAM flag format into ReadState
+// Implements conversion of the standard BAM flag format into ReadState.
+// NOTE: this function is geared towards our API where we do not deal with
+// paired reads etc. which have other flags set in the BAM record.
 impl TryFrom<u16> for ReadState {
     type Error = Error;
     /// converts BAM flag format to our internal representation

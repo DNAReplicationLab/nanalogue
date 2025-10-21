@@ -85,7 +85,7 @@ impl GenomicRegion {
 
                         return Err(Error::InvalidRegionError {
                             region: region_str,
-                            start,
+                            pos: start,
                             contig_length,
                         });
                     }
@@ -95,7 +95,7 @@ impl GenomicRegion {
                         let region_str = format!("{}:{}-{}", contig_name, start, end);
                         return Err(Error::InvalidRegionError {
                             region: region_str,
-                            start,
+                            pos: end,
                             contig_length,
                         });
                     }

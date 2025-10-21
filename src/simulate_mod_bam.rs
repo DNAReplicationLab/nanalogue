@@ -372,13 +372,7 @@ pub fn generate_reads_denovo<R: Rng>(
         let read_len = rng.random_range(min_read_len..=max_read_len);
 
         // Set starting position
-        let start_pos = {
-            if read_len > contig_len {
-                unreachable!()
-            } else {
-                rng.random_range(0..=(contig_len - read_len))
-            }
-        };
+        let start_pos = rng.random_range(0..=(contig_len.saturating_sub(read_len)));
 
         // Extract sequence from contig
         let random_state: ReadState = random();
@@ -520,7 +514,7 @@ where
 ///
 /// Creates temporary BAM and FASTA files for testing purposes and
 /// automatically removes them when dropped.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TempBamSimulation {
     bam_path: String,
     fasta_path: String,

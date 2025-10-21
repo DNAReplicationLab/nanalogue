@@ -31,8 +31,7 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     ///
     /// ```should_panic
     /// use nanalogue_core::OrdPair;
-    /// let x = OrdPair::<f32>::new(1.0,0.0)?;
-    /// # Ok::<(), nanalogue_core::Error>(())
+    /// let x = OrdPair::<f32>::new(1.0,0.0).unwrap();
     /// ```
     /// ```
     /// # use nanalogue_core::OrdPair;

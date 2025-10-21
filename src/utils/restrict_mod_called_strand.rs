@@ -16,7 +16,7 @@ use std::str::FromStr;
 /// command line interface, we allow creation of this from a string
 /// "bc" or "bc_comp" i.e. basecalled or basecalled complement instead
 /// of "+" and "-", which may be mistaken for the alignment strand.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RestrictModCalledStrand(bool);
 
 /// default mod strand restriction is +

@@ -43,7 +43,7 @@ impl FromStr for ReadStates {
         let mut states = {
             let mut temp_states = HashSet::<u16>::new();
             for part in s.split(',') {
-                let _: bool = temp_states.insert(u16::from(ReadState::from_str(part)?));
+                let _: bool = temp_states.insert(u16::from(ReadState::from_str(part.trim())?));
             }
             temp_states.into_iter().collect::<Vec<u16>>()
         };

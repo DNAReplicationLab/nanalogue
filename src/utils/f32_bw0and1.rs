@@ -18,8 +18,7 @@ impl F32Bw0and1 {
     /// ```should_panic
     /// use nanalogue_core::Error;
     /// use nanalogue_core::F32Bw0and1;
-    /// let x = F32Bw0and1::new(-0.1)?;
-    /// # Ok::<(), nanalogue_core::Error>(())
+    /// let x = F32Bw0and1::new(-0.1).unwrap();
     /// ```
     /// ```
     /// # use nanalogue_core::Error;
@@ -93,8 +92,7 @@ impl FromStr for F32Bw0and1 {
     /// # use std::str::FromStr;
     /// #
     /// // Just outside boundaries should fail
-    /// let outside = F32Bw0and1::from_str("1.000001")?;
-    /// # Ok::<(), nanalogue_core::Error>(())
+    /// let outside = F32Bw0and1::from_str("1.000001").unwrap();
     /// ```
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
         Self::new(f32::from_str(val_str)?)
