@@ -165,7 +165,7 @@ pub enum Error {
     #[error("cannot deserialize when implicit is set to true")]
     DeSerializeImplicit,
 
-    /// Sorting validation failure in modification data
+    /// Sorting validation failure
     #[error("invalid sorting: {0}")]
     InvalidSorting(String),
 

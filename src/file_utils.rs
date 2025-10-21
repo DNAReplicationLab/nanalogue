@@ -90,9 +90,25 @@ where
         header
     };
 
+    // Write BAM file ensuring reads are already sorted
     let mut writer = bam::Writer::from_path(output_path, &header, bam::Format::Bam)?;
+    let mut curr_read_key: (bool, i32, i64, bool);
+    let mut prev_read_key: (bool, i32, i64, bool) = (false, -1, -1, false);
     for read in reads {
-        writer.write(&read)?;
+        curr_read_key = (
+            read.is_unmapped(),
+            read.tid(),
+            read.pos(),
+            read.is_reverse(),
+        );
+        if prev_read_key > curr_read_key {
+            return Err(Error::InvalidSorting(
+                "reads input to write bam denovo have not been sorted properly".to_string(),
+            ));
+        } else {
+            prev_read_key = curr_read_key;
+            writer.write(&read)?;
+        }
     }
     drop(writer); // Close BAM file before creating index
 
