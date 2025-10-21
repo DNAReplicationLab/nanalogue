@@ -17,7 +17,7 @@ pub fn run<W, F, G, D>(
     mod_options: InputMods<RequiredTag>,
     window_function: F,
     window_filter: G,
-) -> Result<bool, Error>
+) -> Result<(), Error>
 where
     W: std::io::Write,
     F: Fn(&[u8]) -> Result<F32Bw0and1, Error>,
@@ -42,7 +42,7 @@ where
         }
     }
 
-    Ok(true)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -93,14 +93,14 @@ mod tests {
 
         // Run the function
         let mut output = Vec::new();
-        assert!(run(
+        run(
             &mut output,
             records,
             window_options,
             mod_options,
             window_function,
             window_filter,
-        )?);
+        )?;
 
         // Parse output into vector of read IDs
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");

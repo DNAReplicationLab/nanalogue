@@ -21,10 +21,10 @@ impl FilterByRefCoords for Ranges {
     /// are retained. does not use contig in filtering.
     fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
         let (last_invalid_win, last_valid_win) = {
-            let mut last_invalid_window = 0;
-            let mut last_valid_window = 0;
-            let mut previous_start = Some(0);
-            let mut previous_end = Some(0);
+            let mut last_invalid_window: usize = 0;
+            let mut last_valid_window: usize = 0;
+            let mut previous_start: Option<i64> = None;
+            let mut previous_end: Option<i64> = None;
             for k in self
                 .reference_starts
                 .iter()

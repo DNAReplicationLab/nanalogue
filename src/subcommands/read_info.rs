@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 /// Gets information on reads and prints it to standard output
 /// in a JSON format.
-pub fn run<W, D>(handle: &mut W, bam_records: D) -> Result<bool, Error>
+pub fn run<W, D>(handle: &mut W, bam_records: D) -> Result<(), Error>
 where
     W: std::io::Write,
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
@@ -32,7 +32,7 @@ where
     }
 
     writeln!(handle, "\n]")?;
-    Ok(true)
+    Ok(())
 }
 
 // Tests follow
@@ -63,7 +63,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        assert!(run(&mut output_buffer, records.into_iter())?);
+        run(&mut output_buffer, records.into_iter())?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -101,7 +101,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        assert!(run(&mut output_buffer, records.into_iter())?);
+        run(&mut output_buffer, records.into_iter())?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -135,7 +135,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        assert!(run(&mut output_buffer, records.into_iter())?);
+        run(&mut output_buffer, records.into_iter())?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -164,7 +164,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        assert!(run(&mut output_buffer, records.into_iter())?);
+        run(&mut output_buffer, records.into_iter())?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([

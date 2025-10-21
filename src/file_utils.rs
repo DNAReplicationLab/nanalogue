@@ -68,14 +68,14 @@ where
     let header = {
         let mut header = bam::Header::new();
         for k in contigs {
-            let _ = header.push_record(
+            let _: &mut bam::Header = header.push_record(
                 bam::header::HeaderRecord::new(b"SQ")
                     .push_tag(b"SN", k.0)
                     .push_tag(b"LN", k.1),
             );
         }
         for k in read_groups {
-            let _ = header.push_record(
+            let _: &mut bam::Header = header.push_record(
                 bam::header::HeaderRecord::new(b"RG")
                     .push_tag(b"ID", k)
                     .push_tag(b"PL", "ONT")
@@ -85,7 +85,7 @@ where
             );
         }
         for k in comments {
-            let _ = header.push_comment(k.as_bytes());
+            let _: &mut bam::Header = header.push_comment(k.as_bytes());
         }
         header
     };

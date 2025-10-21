@@ -332,8 +332,9 @@ pub struct InputWindowing {
     pub step: NonZeroU32,
 }
 
-/// Implements a default for InputWindowing
-/// NOTE: we just choose 1 as the default value arbitrarily.
+/// Implements a default for InputWindowing.
+/// NOTE the defaults of 1 for each are just for ease of programming.
+/// We do not expose these defaults to the command-line user.
 impl Default for InputWindowing {
     fn default() -> Self {
         InputWindowing {

@@ -354,6 +354,10 @@ pub fn generate_reads_denovo<R: Rng>(
     read_group: &str,
     rng: &mut R,
 ) -> Result<Vec<bam::Record>, Error> {
+    if contigs.is_empty() {
+        return Err(Error::UnavailableData);
+    }
+
     let mut reads = Vec::new();
 
     for _ in 0..config.number.get() {
@@ -467,7 +471,7 @@ pub fn generate_reads_denovo<R: Rng>(
 /// //       to create contigs by repeating a sequence instead of random generation.
 /// run(config_json, "output.bam", "reference.fasta").unwrap();
 /// ```
-pub fn run<F>(config_json: &str, bam_output_path: &F, fasta_output_path: &F) -> Result<bool, Error>
+pub fn run<F>(config_json: &str, bam_output_path: &F, fasta_output_path: &F) -> Result<(), Error>
 where
     F: AsRef<Path> + ?Sized,
 {
@@ -509,7 +513,7 @@ where
         fasta_output_path,
     )?;
 
-    Ok(true)
+    Ok(())
 }
 
 /// Temporary BAM simulation with automatic cleanup
@@ -529,9 +533,7 @@ impl TempBamSimulation {
         let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
         let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
 
-        if !(run(config_json, &bam_path, &fasta_path)?) {
-            return Err(Error::UnknownError);
-        }
+        run(config_json, &bam_path, &fasta_path)?;
 
         Ok(Self {
             bam_path: bam_path.to_string_lossy().to_string(),
@@ -654,7 +656,7 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
         let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
-        assert!(run(config_json, &bam_path, &fasta_path).unwrap());
+        run(config_json, &bam_path, &fasta_path).unwrap();
         assert!(bam_path.exists());
         assert!(fasta_path.exists());
 

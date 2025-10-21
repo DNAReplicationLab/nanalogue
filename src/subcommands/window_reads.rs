@@ -17,7 +17,7 @@ pub fn run<W, F, D>(
     window_options: InputWindowing,
     mods: InputMods<OptionalTag>,
     window_function: F,
-) -> Result<bool, Error>
+) -> Result<(), Error>
 where
     W: std::io::Write,
     F: Fn(&[u8]) -> Result<F32AbsValBelow1, Error>,
@@ -60,8 +60,15 @@ where
             if win_size <= mod_data.len() {
                 for window_idx in (0..=mod_data.len() - win_size).step_by(slide_size) {
                     let window_end_idx = window_idx + win_size;
-                    let Ok(win_val) = window_function(&mod_data[window_idx..window_end_idx]) else {
-                        continue;
+                    let win_val = match window_function(&mod_data[window_idx..window_end_idx]) {
+                        Ok(val) => val,
+                        Err(e) => {
+                            eprintln!(
+                                "Warning: Skipping window at {}:{}-{} due to error: {}",
+                                qname, window_idx, window_end_idx, e
+                            );
+                            continue;
+                        }
                     };
                     // there is no way to trigger the errors below as we control how CurrRead is
                     // populated quite strictly. Nevertheless, I am leaving these in for
@@ -105,7 +112,7 @@ where
         }
     }
 
-    Ok(true)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -136,16 +143,16 @@ mod tests {
         match threshold {
             None => {
                 // Use threshold_and_mean when no threshold is specified
-                assert!(run(&mut output, bam_records, window_options, mods, |x| {
+                run(&mut output, bam_records, window_options, mods, |x| {
                     threshold_and_mean(x).map(|y| y.into())
-                },)?);
+                })?;
             }
             Some(thres_val) => {
                 // Use threshold_and_mean_and_thres_win with specified threshold
                 let threshold = F32Bw0and1::new(thres_val).unwrap();
-                assert!(run(&mut output, bam_records, window_options, mods, |x| {
+                run(&mut output, bam_records, window_options, mods, |x| {
                     threshold_and_mean_and_thres_win(x, threshold).map(|y| y.into())
-                },)?);
+                })?;
             }
         }
 

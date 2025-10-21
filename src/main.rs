@@ -504,7 +504,7 @@ fn main() -> Result<(), Error> {
     };
 
     match result {
-        Ok(true) | Ok(false) => Ok(()),
+        Ok(()) => Ok(()),
         Err(e) => {
             eprintln!("Error during execution: {e}");
             std::process::exit(1);

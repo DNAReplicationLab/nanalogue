@@ -5,9 +5,6 @@
 //! reference genomes, modification information on them, and other miscellaneous
 //! information. We convert errors from other packages to this error type so that
 //! error handling in our package becomes easier.
-//!
-//! Note: Below, sequence or molecule refer to DNA.
-//! In the future, could refer to RNA or other kinds of molecules.
 
 use crate::F32Bw0and1;
 use csv;

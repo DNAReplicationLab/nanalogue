@@ -234,7 +234,7 @@ pub fn run<W, D>(
     mut mods: Option<InputMods<OptionalTag>>,
     seq_region: Option<Bed3<i32, u64>>,
     seq_summ_path: &str,
-) -> Result<bool, Error>
+) -> Result<(), Error>
 where
     W: std::io::Write,
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
@@ -371,7 +371,7 @@ where
         }
     }
 
-    Ok(true)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -412,7 +412,7 @@ mod tests {
         let records: Vec<_> = reader.records().map(|r| r.map(Rc::new)).collect();
 
         let mut output = Vec::new();
-        assert!(run(&mut output, records, mods, None, "").expect("no error"));
+        run(&mut output, records, mods, None, "").expect("no error");
 
         let actual_output = String::from_utf8(output).expect("Invalid UTF-8");
         let expected_output = std::fs::read_to_string(expected_output_file)

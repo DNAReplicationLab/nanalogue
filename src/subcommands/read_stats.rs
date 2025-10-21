@@ -63,7 +63,7 @@ fn get_stats_from_heap(
 
 /// Reads the input BAM file and prints statistics
 /// such as mean and median read lengths, N50s etc.
-pub fn run<W, D>(handle: &mut W, bam_records: D) -> Result<bool, Error>
+pub fn run<W, D>(handle: &mut W, bam_records: D) -> Result<(), Error>
 where
     W: std::io::Write,
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
@@ -165,7 +165,7 @@ where
     writeln!(handle, "seq_len_median\t{seq_len_median}")?;
     writeln!(handle, "seq_len_n50\t{seq_len_n50}")?;
 
-    Ok(true)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -184,7 +184,7 @@ mod tests {
 
         let bam_records = bam_reader.records().map(|r| r.map(Rc::new));
 
-        assert!(run(&mut output, bam_records)?);
+        run(&mut output, bam_records)?;
 
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
 

@@ -1374,6 +1374,12 @@ fn reconstruct_base_mods(
             .map(|&ref_start_opt| ref_start_opt.map(|_| 0))
             .collect();
 
+        // Marks if a read is reverse aligned
+        let is_reverse = matches!(
+            alignment_type,
+            ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev
+        );
+
         let ranges = Ranges {
             starts,
             ends,
@@ -1383,10 +1389,7 @@ fn reconstruct_base_mods(
             reference_lengths,
             qual,
             seq_len: seq_len.try_into()?,
-            reverse: matches!(
-                alignment_type,
-                ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev
-            ),
+            reverse: is_reverse,
         };
 
         let strand = if entry.is_strand_plus { '+' } else { '-' };
@@ -1396,7 +1399,7 @@ fn reconstruct_base_mods(
             strand,
             modification_type: entry.mod_code.val(),
             ranges,
-            record_is_reverse: false, // Default value
+            record_is_reverse: is_reverse,
         });
     }
 
