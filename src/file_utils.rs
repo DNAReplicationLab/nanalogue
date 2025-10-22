@@ -40,9 +40,8 @@ where
     let mut file = File::create(output_path)?;
     for contig in contigs {
         writeln!(file, ">{}", contig.0)?;
-        let sequence = String::from_utf8(contig.1)
-            .map_err(|e| Error::InvalidState(format!("Invalid UTF-8 in sequence: {}", e)))?;
-        writeln!(file, "{}", sequence)?;
+        file.write_all(&contig.1)?;
+        writeln!(file)?;
     }
     Ok(())
 }
