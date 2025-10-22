@@ -4,7 +4,7 @@
 //! these windows
 
 use crate::{
-    CurrRead, Error, F32AbsValBelow1, InputMods, InputWindowing, ModChar, OptionalTag, ReadState,
+    CurrRead, Error, F32AbsValAtMost1, InputMods, InputWindowing, ModChar, OptionalTag, ReadState,
 };
 use fibertools_rs::utils::basemods::BaseMods;
 use rust_htslib::bam::Record;
@@ -20,7 +20,7 @@ pub fn run<W, F, D>(
 ) -> Result<(), Error>
 where
     W: std::io::Write,
-    F: Fn(&[u8]) -> Result<F32AbsValBelow1, Error>,
+    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // Get windowing parameters

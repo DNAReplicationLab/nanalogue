@@ -454,7 +454,7 @@ fn main() -> Result<(), Error> {
                 win,
                 mods,
                 |x| {
-                    Ok(F32Bw0and1::abs_f32_abs_val_below_1(
+                    Ok(F32Bw0and1::abs_f32_abs_val_at_most_1(
                         analysis::threshold_and_gradient(x)?,
                     ))
                 },

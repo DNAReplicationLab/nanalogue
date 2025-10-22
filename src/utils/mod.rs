@@ -3,7 +3,7 @@
 
 pub mod contains;
 pub mod dna_restrictive;
-pub mod f32_abs_val_below1;
+pub mod f32_abs_val_at_most1;
 pub mod f32_bw0and1;
 pub mod filter_by_ref_coords;
 pub mod genomic_region;
@@ -18,7 +18,7 @@ pub mod threshold_state;
 // Re-export public utility types and functions to expose the utils API
 pub use contains::*;
 pub use dna_restrictive::*;
-pub use f32_abs_val_below1::*;
+pub use f32_abs_val_at_most1::*;
 pub use f32_bw0and1::*;
 pub use filter_by_ref_coords::*;
 pub use genomic_region::*;

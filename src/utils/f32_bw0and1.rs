@@ -1,7 +1,7 @@
 //! F32Bw0and1 struct for constrained float between 0 and 1
 //! Ensures floating-point values are within valid range at construction
 
-use super::f32_abs_val_below1::F32AbsValBelow1;
+use super::f32_abs_val_at_most1::F32AbsValAtMost1;
 use crate::Error;
 use serde::{Deserialize, Serialize};
 use std::convert::From;
@@ -54,8 +54,8 @@ impl F32Bw0and1 {
     pub fn zero() -> Self {
         F32Bw0and1::new(0.0).expect("no error")
     }
-    /// Converts from F32AbsValBelow1 using the absolute value
-    pub fn abs_f32_abs_val_below_1(val: F32AbsValBelow1) -> Self {
+    /// Converts from F32AbsValAtMost1 using the absolute value
+    pub fn abs_f32_abs_val_at_most_1(val: F32AbsValAtMost1) -> Self {
         F32Bw0and1::new(f32::abs(val.val())).expect("no error")
     }
 }
@@ -113,10 +113,10 @@ impl fmt::Display for F32Bw0and1 {
     }
 }
 
-impl From<F32Bw0and1> for F32AbsValBelow1 {
+impl From<F32Bw0and1> for F32AbsValAtMost1 {
     /// Convert between the two types of floats
     fn from(value: F32Bw0and1) -> Self {
-        F32AbsValBelow1::new(value.val()).expect("no F32 conversion error")
+        F32AbsValAtMost1::new(value.val()).expect("no F32 conversion error")
     }
 }
 
@@ -184,21 +184,21 @@ mod tests {
 
     #[test]
     fn test_f32_types_integration() {
-        // Test conversion from F32Bw0and1 to F32AbsValBelow1
+        // Test conversion from F32Bw0and1 to F32AbsValAtMost1
         let pos_values = vec![0.0, 0.25, 0.5, 0.75, 1.0];
         for val in pos_values {
             let bw_val = F32Bw0and1::new(val).expect("should create");
-            let abs_val: F32AbsValBelow1 = bw_val.into();
+            let abs_val: F32AbsValAtMost1 = bw_val.into();
             assert_eq!(abs_val.val(), val);
         }
 
         // Test conversion via absolute value function
-        let neg_val = F32AbsValBelow1::new(-0.5).expect("should create");
-        let abs_converted = F32Bw0and1::abs_f32_abs_val_below_1(neg_val);
+        let neg_val = F32AbsValAtMost1::new(-0.5).expect("should create");
+        let abs_converted = F32Bw0and1::abs_f32_abs_val_at_most_1(neg_val);
         assert_eq!(abs_converted.val(), 0.5);
 
-        let pos_val = F32AbsValBelow1::new(0.7).expect("should create");
-        let abs_converted = F32Bw0and1::abs_f32_abs_val_below_1(pos_val);
+        let pos_val = F32AbsValAtMost1::new(0.7).expect("should create");
+        let abs_converted = F32Bw0and1::abs_f32_abs_val_at_most_1(pos_val);
         assert_eq!(abs_converted.val(), 0.7);
     }
 

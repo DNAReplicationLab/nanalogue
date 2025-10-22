@@ -1,7 +1,7 @@
 //! # Analysis functions for modification data processing.
 //!
 //! Contains threshold_and_mean and threshold_and_gradient calculations.
-use crate::{Contains, Error, F32AbsValBelow1, F32Bw0and1, ThresholdState};
+use crate::{Contains, Error, F32AbsValAtMost1, F32Bw0and1, ThresholdState};
 
 /// Threshold and calculate mean modification density per window
 ///
@@ -44,7 +44,7 @@ pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
 ///
 /// ```
 /// use nanalogue_core::analysis::threshold_and_gradient;
-/// use nanalogue_core::F32AbsValBelow1;
+/// use nanalogue_core::F32AbsValAtMost1;
 ///
 /// // Test with increasing modification pattern
 /// // For [0, 0, 128, 200]: x_mean = 2.5, modified positions are 3,4
@@ -55,7 +55,7 @@ pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
 /// let result = threshold_and_gradient(&mod_data).unwrap();
 /// assert_eq!(result.val(), 0.4);
 /// ```
-pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValBelow1, Error> {
+pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error> {
     let win_size = match mod_list.len() {
         0 => Err(Error::EmptyWindow),
         1 => Err(Error::InsufficientDataSize),
@@ -76,7 +76,7 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValBelow1, Error>
     let denominator: f32 = (1..=win_size)
         .map(|x| (x as f32 - x_mean) * (x as f32 - x_mean))
         .sum();
-    F32AbsValBelow1::new(numerator / denominator)
+    F32AbsValAtMost1::new(numerator / denominator)
 }
 
 /// Threshold, calculate mean modification density per window, and check against threshold
