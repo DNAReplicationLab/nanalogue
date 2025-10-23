@@ -8,7 +8,10 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-/// Opens BAM file, copied and edited from fiberseq repo.
+/// Opens BAM file, copied and edited from fibertools-rs repo.
+///
+/// The fibertools repo (<https://github.com/fiberseq/fibertools-rs>)
+/// is under the MIT license (please see their Cargo.toml).
 ///
 /// ```
 /// use nanalogue_core::{Error, file_utils::nanalogue_bam_reader};

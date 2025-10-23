@@ -6,6 +6,9 @@ description = "Mod BAM parsing tools in rust"
 license = "MIT"
 readme = "README.md"
 authors = ["Sathish Thiyagarajan <sathish.thiyagarajan@earlham.ac.uk>"]
+repository = "https://github.com/DNAReplicationLab/nanalogue.git"
+categories = ["Command line utilities", "Parsing tools", "Science"]
+keywords = ["modbam", "bam", "dna", "rna", "dna_methylation", "dna_mods", "rna_mods", "rna_methylation" ]
 
 [dependencies]
 fibertools-rs = "0.7.0"

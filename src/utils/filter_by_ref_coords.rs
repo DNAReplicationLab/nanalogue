@@ -44,7 +44,7 @@ impl FilterByRefCoords for Ranges {
                     if v < end {
                         last_valid_window = Some(k.0);
                     }
-                    is_possible_invalid =  v < start;
+                    is_possible_invalid = v < start;
                 } else {
                     is_possible_invalid = false;
                 }

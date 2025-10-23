@@ -62,8 +62,10 @@ pub use utils::{
 };
 
 /// Extracts mod information from BAM record to the Fibertools-rs BaseMods Struct.
+///
 /// We are copying and modifying code from the fibertools-rs repository
-/// (<https://github.com/fiberseq/fibertools-rs>).
+/// (<https://github.com/fiberseq/fibertools-rs>) which is under the MIT license
+/// (please see their Cargo.toml) to create this function.
 ///
 /// Following is an example of reading and parsing modification data, with
 /// no filters applied.
