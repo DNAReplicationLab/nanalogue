@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn test_f32_abs_val_at_most1_val() {
-        for test_val in vec![0.0, 0.1, -0.7, 1.0, -1.0] {
+        for test_val in [0.0, 0.1, -0.7, 1.0, -1.0] {
             let val = F32AbsValAtMost1::new(test_val).expect("should create");
             assert_eq!(val.val(), test_val);
         }

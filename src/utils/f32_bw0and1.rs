@@ -207,10 +207,10 @@ mod tests {
         // Test some intermediate values
         let half = F32Bw0and1::new(0.5).expect("should create");
         let half_u8: u8 = half.into();
-        assert!(half_u8 >= 127 && half_u8 <= 128); // Should be ~127.5
+        assert!((127..=128).contains(&half_u8)); // Should be ~127.5
 
         // Test exact calculation
-        let test_val = F32Bw0and1::new(0.39215686274509803).expect("should create");
+        let test_val = F32Bw0and1::new(0.392_156_87).expect("should create");
         let converted_u8: u8 = test_val.into();
         assert_eq!(converted_u8, 100u8);
 

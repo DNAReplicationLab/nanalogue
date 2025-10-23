@@ -3,7 +3,6 @@
 
 use indoc::indoc;
 use nanalogue_core::{CurrRead, FilterByRefCoords, read_utils::AlignAndModData};
-use serde_json;
 
 #[test]
 fn test_ranges_filter_by_ref_coords_via_curr_read() {

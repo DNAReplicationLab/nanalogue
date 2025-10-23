@@ -1520,7 +1520,7 @@ mod test_serde {
     #[test]
     fn test_first_record_serde() -> Result<(), Error> {
         // Read the first record from the example BAM file
-        let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let first_record = reader.records().next().unwrap()?;
 
         // Create CurrRead with alignment and modification data
@@ -1573,7 +1573,7 @@ mod test_serde {
     #[test]
     fn test_first_record_roundtrip() -> Result<(), Error> {
         // Read the first record from the example BAM file (same as serialization test)
-        let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let first_record = reader.records().next().unwrap()?;
 
         // Create the original CurrRead with alignment and modification data
@@ -1619,7 +1619,7 @@ mod test_serde {
     fn test_example_1_unmapped() -> Result<(), Error> {
         // Read the fourth record from the example BAM file (this is the unmapped read)
         let fourth_record = {
-            let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
+            let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
             let mut records = reader.records();
             for _ in 0..3 {
                 let _: Record = records.next().unwrap()?;

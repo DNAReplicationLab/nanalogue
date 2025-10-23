@@ -121,7 +121,7 @@ mod tests {
 
         // Verify seq_len and reverse flag are preserved
         assert_eq!(ranges.seq_len, 50);
-        assert_eq!(ranges.reverse, false);
+        assert!(!ranges.reverse);
     }
 
     #[test]
@@ -153,7 +153,7 @@ mod tests {
 
         // Verify metadata is preserved
         assert_eq!(ranges.seq_len, 80);
-        assert_eq!(ranges.reverse, true);
+        assert!(ranges.reverse);
     }
 
     #[test]
@@ -183,7 +183,7 @@ mod tests {
 
         // Verify metadata is preserved
         assert_eq!(ranges.seq_len, 50);
-        assert_eq!(ranges.reverse, false);
+        assert!(!ranges.reverse);
     }
 
     #[test]
@@ -212,6 +212,6 @@ mod tests {
 
         // Verify metadata is preserved
         assert_eq!(ranges.seq_len, 50);
-        assert_eq!(ranges.reverse, true);
+        assert!(ranges.reverse);
     }
 }

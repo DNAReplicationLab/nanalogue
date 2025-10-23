@@ -816,7 +816,7 @@ mod invalid_seq_length_tests {
 
         let mut cnt = 0;
         for record_result in reader.records() {
-            cnt = cnt + 1;
+            cnt += 1;
             assert!(record_result.is_err());
         }
         assert_eq!(cnt, 1);
@@ -956,7 +956,7 @@ mod bam_rc_record_tests {
 
         // 50% retention rate => 5000 reads, so we test if 4500-5500 reads come through
         // (this is quite lax actually)
-        assert!(count_retained >= 4500 && count_retained <= 5500);
+        assert!((4500..=5500).contains(&count_retained));
     }
 
     #[test]
@@ -994,7 +994,7 @@ mod bam_rc_record_tests {
             let hard_clip_len = seq_len - match_len;
 
             record.set(
-                &vec![b'r', b'e', b'a', b'd'],
+                &[b'r', b'e', b'a', b'd'],
                 Some(&CigarString(vec![
                     Cigar::Match(match_len as u32),
                     Cigar::HardClip(hard_clip_len as u32),
@@ -1115,7 +1115,7 @@ mod bam_rc_record_tests {
 
             // Set sequence details first
             record.set(
-                &vec![b'r', b'e', b'a', b'd'],
+                &[b'r', b'e', b'a', b'd'],
                 Some(&CigarString(vec![Cigar::Match(seq_len as u32)])),
                 &vec![b'A'; seq_len as usize],
                 &vec![255; seq_len as usize],

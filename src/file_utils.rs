@@ -133,7 +133,7 @@ mod tests {
         ];
 
         let temp_path = std::env::temp_dir().join(format!("{}.fa", Uuid::new_v4()));
-        write_fasta(contigs.into_iter(), &temp_path).expect("no error");
+        write_fasta(contigs, &temp_path).expect("no error");
 
         let content = std::fs::read_to_string(&temp_path).expect("no error");
         assert_eq!(content, ">test_contig_0\nACGT\n>test_contig_1\nTGCA\n");

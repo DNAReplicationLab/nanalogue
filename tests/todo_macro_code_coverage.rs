@@ -47,83 +47,83 @@ mod tests {
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_tag_state_tag_panics() {
-        let test_obj = TestTagState::default();
+        let test_obj = TestTagState;
         test_obj.tag();
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_input_mod_options_tag_panics() {
-        let test_obj = TestInputModOptions::default();
+        let test_obj = TestInputModOptions;
         test_obj.tag();
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_input_mod_options_mod_strand_panics() {
-        let test_obj = TestInputModOptions::default();
+        let test_obj = TestInputModOptions;
         test_obj.mod_strand();
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_input_mod_options_mod_prob_filter_panics() {
-        let test_obj = TestInputModOptions::default();
+        let test_obj = TestInputModOptions;
         test_obj.mod_prob_filter();
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_input_mod_options_trim_read_ends_mod_panics() {
-        let test_obj = TestInputModOptions::default();
+        let test_obj = TestInputModOptions;
         test_obj.trim_read_ends_mod();
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_input_mod_options_base_qual_filter_mod_panics() {
-        let test_obj = TestInputModOptions::default();
+        let test_obj = TestInputModOptions;
         test_obj.base_qual_filter_mod();
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_input_region_options_region_filter_panics() {
-        let test_obj = TestInputRegionOptions::default();
+        let test_obj = TestInputRegionOptions;
         test_obj.region_filter();
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_input_region_options_region_filter_genomic_string_panics() {
-        let test_obj = TestInputRegionOptions::default();
+        let test_obj = TestInputRegionOptions;
         test_obj.region_filter_genomic_string();
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_input_region_options_set_region_filter_panics() {
-        let mut test_obj = TestInputRegionOptions::default();
+        let mut test_obj = TestInputRegionOptions;
         test_obj.set_region_filter(None);
     }
 
     #[test]
     fn test_input_region_options_is_full_overlap_false() {
-        let test_obj = TestInputRegionOptions::default();
+        let test_obj = TestInputRegionOptions;
         assert!(!test_obj.is_full_overlap());
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_filter_by_ref_coords_filter_by_ref_pos_panics() {
-        let mut test_obj = TestFilterByRefCoords::default();
+        let mut test_obj = TestFilterByRefCoords;
         test_obj.filter_by_ref_pos(0, 100);
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_bam_pre_filt_pre_filt_panics() {
-        let test_obj = TestBamPreFilt::default();
+        let test_obj = TestBamPreFilt;
         let input_bam = nanalogue_core::cli::InputBam {
             bam_path: "test.bam".to_string(),
             min_seq_len: 0,
@@ -147,28 +147,28 @@ mod tests {
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_bam_pre_filt_filt_by_len_panics() {
-        let test_obj = TestBamPreFilt::default();
+        let test_obj = TestBamPreFilt;
         test_obj.filt_by_len(100, false);
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_bam_pre_filt_filt_by_align_len_panics() {
-        let test_obj = TestBamPreFilt::default();
+        let test_obj = TestBamPreFilt;
         test_obj.filt_by_align_len(100);
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_bam_pre_filt_filt_by_read_id_panics() {
-        let test_obj = TestBamPreFilt::default();
+        let test_obj = TestBamPreFilt;
         test_obj.filt_by_read_id("test_read");
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_bam_pre_filt_filt_by_read_id_set_panics() {
-        let test_obj = TestBamPreFilt::default();
+        let test_obj = TestBamPreFilt;
         let read_ids = HashSet::new();
         test_obj.filt_by_read_id_set(&read_ids);
     }
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_bam_pre_filt_filt_by_bitwise_or_flags_panics() {
-        let test_obj = TestBamPreFilt::default();
+        let test_obj = TestBamPreFilt;
         let states = ReadStates::default();
         test_obj.filt_by_bitwise_or_flags(&states);
     }
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_bam_pre_filt_filt_random_subset_panics() {
-        let test_obj = TestBamPreFilt::default();
+        let test_obj = TestBamPreFilt;
         let fraction = F32Bw0and1::new(0.5).unwrap();
         test_obj.filt_random_subset(fraction);
     }
@@ -192,14 +192,14 @@ mod tests {
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_bam_pre_filt_filt_by_mapq_panics() {
-        let test_obj = TestBamPreFilt::default();
+        let test_obj = TestBamPreFilt;
         test_obj.filt_by_mapq(30, false);
     }
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
     fn test_bam_pre_filt_filt_by_region_panics() {
-        let test_obj = TestBamPreFilt::default();
+        let test_obj = TestBamPreFilt;
         let region = Bed3::new(1, 1000, 2000);
         test_obj.filt_by_region(&region, false);
     }

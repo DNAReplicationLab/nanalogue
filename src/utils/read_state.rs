@@ -193,7 +193,7 @@ mod tests {
 
         for state in states {
             // Convert to u16 and back
-            let flag: u16 = state.try_into().expect("conversion to u16 should work");
+            let flag: u16 = state.into();
             let recovered_state: ReadState =
                 flag.try_into().expect("conversion from u16 should work");
             assert_eq!(state, recovered_state);
@@ -203,13 +203,13 @@ mod tests {
     /// Tests specific ReadState u16 flag values
     #[test]
     fn test_readstate_specific_flag_values() {
-        assert_eq!(u16::try_from(ReadState::PrimaryFwd).unwrap(), 0);
-        assert_eq!(u16::try_from(ReadState::Unmapped).unwrap(), 4);
-        assert_eq!(u16::try_from(ReadState::PrimaryRev).unwrap(), 16);
-        assert_eq!(u16::try_from(ReadState::SecondaryFwd).unwrap(), 256);
-        assert_eq!(u16::try_from(ReadState::SecondaryRev).unwrap(), 272);
-        assert_eq!(u16::try_from(ReadState::SupplementaryFwd).unwrap(), 2048);
-        assert_eq!(u16::try_from(ReadState::SupplementaryRev).unwrap(), 2064);
+        assert_eq!(u16::from(ReadState::PrimaryFwd), 0);
+        assert_eq!(u16::from(ReadState::Unmapped), 4);
+        assert_eq!(u16::from(ReadState::PrimaryRev), 16);
+        assert_eq!(u16::from(ReadState::SecondaryFwd), 256);
+        assert_eq!(u16::from(ReadState::SecondaryRev), 272);
+        assert_eq!(u16::from(ReadState::SupplementaryFwd), 2048);
+        assert_eq!(u16::from(ReadState::SupplementaryRev), 2064);
     }
 
     /// Tests ReadState from invalid u16 values
