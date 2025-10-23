@@ -1,4 +1,7 @@
 #![deny(
+    clippy::cast_possible_truncation,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
     missing_copy_implementations,
     missing_debug_implementations,
     missing_docs,

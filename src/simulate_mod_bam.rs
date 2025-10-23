@@ -35,8 +35,9 @@
 //! ).unwrap();
 //! ```
 
-use crate::{DNARestrictive, Error, F32Bw0and1, ModChar, OrdPair, ReadState};
+use crate::{DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, ModChar, OrdPair, ReadState};
 use crate::{write_bam_denovo, write_fasta};
+use itertools::join;
 use rand::{Rng, random};
 use rust_htslib::bam;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
@@ -88,7 +89,7 @@ pub struct ReadConfig {
 }
 
 /// Configuration for modification generation
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModConfig {
     /// Base that is modified (A, C, G, T, etc.)
@@ -97,10 +98,21 @@ pub struct ModConfig {
     pub is_strand_plus: bool,
     /// Modification code (character or numeric)
     pub mod_code: ModChar,
-    /// Window size for modification density variation
-    pub win: NonZeroU32,
-    /// Modification density range e.g. [0.2, 0.8]
-    pub mod_range: OrdPair<F32Bw0and1>,
+    /// Vector of window sizes for modification density variation.
+    /// e.g. if you want reads with a window of 100 bases with each
+    /// modified with a probability in the range 0.4-0.6 and the next
+    /// 200 modified in the range 0.1-0.2 (and this two window config
+    /// repeating forever), you need to set this win array to
+    /// [100, 200] and the mod range array to [[0.4, 0.6], [0.1, 0.2]]
+    /// (Remembering to adjust the datatypes of the inputs suitably
+    /// i.e. use NonZeroU32 etc.)
+    /// NOTE: "bases" in the above description refer to bases of interest
+    /// set in the base field i.e. 100 bases with base set to "T" mean
+    /// 100 thymidines specifically.
+    pub win: Vec<NonZeroU32>,
+    /// Vector of modification density range e.g. [[0.4, 0.6], [0.1, 0.2]].
+    /// Also see description of win above.
+    pub mod_range: Vec<OrdPair<F32Bw0and1>>,
 }
 
 /// Represents a contig with name and sequence
@@ -112,10 +124,10 @@ pub struct Contig {
     pub seq: DNARestrictive,
 }
 
-impl Contig {
-    /// Returns a reference to the contig's DNA sequence bytes
-    pub fn seq(&self) -> &[u8] {
-        self.seq.get()
+impl GetDNARestrictive for Contig {
+    /// Returns a reference to the contig's DNA
+    fn get_dna_restrictive(&self) -> &DNARestrictive {
+        &self.seq
     }
 }
 
@@ -150,11 +162,121 @@ impl Default for ModConfig {
             base: 'C',
             is_strand_plus: true,
             mod_code: ModChar::new('m'),
-            win: NonZeroU32::new(1).unwrap(),
-            mod_range: OrdPair::new(F32Bw0and1::new(0.0).unwrap(), F32Bw0and1::new(0.0).unwrap())
-                .unwrap(),
+            win: vec![NonZeroU32::new(1).unwrap()],
+            mod_range: vec![
+                OrdPair::new(F32Bw0and1::new(0.0).unwrap(), F32Bw0and1::new(1.0).unwrap()).unwrap(),
+            ],
         }
     }
+}
+
+/// Generates iterator with DNA modification probabilities
+///
+/// # Examples
+///
+/// ```
+/// use std::num::NonZeroU32;
+/// use std::str::FromStr;
+/// use nanalogue_core::{DNARestrictive, F32Bw0and1, ModChar, OrdPair};
+/// use nanalogue_core::simulate_mod_bam::{ModConfig, generate_random_dna_modification};
+/// use rand::Rng;
+///
+/// // Create a DNA sequence with multiple cytosines
+/// let seq = DNARestrictive::from_str("ACGTCGCGATCGACGTCGCGATCG").unwrap();
+///
+/// // Configure modification for cytosines on plus strand.
+/// // NOTE: we use mod ranges with an identical low and high value below
+/// // because we do not want to deal with random values in an example.
+///
+/// let mod_config = vec![ModConfig {
+///     base: 'C',
+///     is_strand_plus: true,
+///     mod_code: ModChar::new('m'),
+///     win: vec![NonZeroU32::new(2).unwrap(), NonZeroU32::new(3).unwrap()],
+///     mod_range: vec![
+///         OrdPair::new(F32Bw0and1::new(0.8).unwrap(), F32Bw0and1::new(0.8).unwrap()).unwrap(),
+///         OrdPair::new(F32Bw0and1::new(0.4).unwrap(), F32Bw0and1::new(0.4).unwrap()).unwrap()
+///     ]}, ModConfig {
+///     base: 'A',
+///     is_strand_plus: false,
+///     mod_code: ModChar::new('a'),
+///     win: vec![NonZeroU32::new(2).unwrap()],
+///     mod_range: vec![
+///         OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.2).unwrap()).unwrap()
+///     ]}];
+///
+/// let mut rng = rand::rng();
+/// let (mm_str, ml_str) = generate_random_dna_modification(&mod_config, &seq, &mut rng);
+///
+/// // MM string format: C+m?prob1,prob2,prob3,prob4,...;A-a?,...;
+/// assert_eq!(mm_str, String::from("C+m?,204,204,102,102,102,204,204,102;A-a?,51,51,51,51;"));
+///
+/// // ML string contains gap coordinates
+/// assert_eq!(ml_str, vec![0; 12]);
+/// ```
+pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
+    mod_configs: &[ModConfig],
+    seq: &S,
+    rng: &mut R,
+) -> (String, Vec<u8>) {
+    let seq_bytes = seq.get_dna_restrictive().get();
+    let mut total_mod_count: usize = 0;
+    let mut mm_str = String::from("");
+    for mod_config in mod_configs {
+        let base = match mod_config.base {
+            'A' => b'A',
+            'G' => b'G',
+            'C' => b'C',
+            'T' => b'T',
+            'N' => b'N',
+            _ => panic!("wrong base"),
+        };
+        let strand = if mod_config.is_strand_plus { '+' } else { '-' };
+        let mod_code = mod_config.mod_code;
+        let mut count = if base == b'N' {
+            seq_bytes.len()
+        } else {
+            let mut count: usize = 0;
+            for z in seq_bytes {
+                if *z == base {
+                    count += 1
+                }
+            }
+            count
+        };
+        let mut output: Vec<u8> = Vec::with_capacity(count);
+        for k in mod_config
+            .win
+            .iter()
+            .cycle()
+            .zip(mod_config.mod_range.iter().cycle())
+        {
+            let low = u8::from(k.1.get_low());
+            let high = u8::from(k.1.get_high());
+            for _ in 0..k.0.get() {
+                output.push(rng.random_range(low..=high));
+                count -= 1;
+                total_mod_count += 1;
+                if count == 0 {
+                    break;
+                }
+            }
+            if count == 0 {
+                break;
+            }
+        }
+        if !output.is_empty() {
+            mm_str += format!(
+                "{}{}{}?,{};",
+                base as char,
+                strand,
+                mod_code,
+                join(output, ",")
+            )
+            .as_str();
+        }
+    }
+    (mm_str, vec![0; total_mod_count])
 }
 
 /// Generates random DNA sequence of given length
@@ -203,8 +325,12 @@ pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> 
 /// let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryRev);
 /// assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
 /// ```
-pub fn add_barcode(read_seq: Vec<u8>, barcode: &DNARestrictive, read_state: ReadState) -> Vec<u8> {
-    let bc_bytes = barcode.get();
+pub fn add_barcode<S: GetDNARestrictive>(
+    read_seq: Vec<u8>,
+    barcode: &S,
+    read_state: ReadState,
+) -> Vec<u8> {
+    let bc_bytes = barcode.get_dna_restrictive().get();
 
     match read_state {
         ReadState::PrimaryFwd
@@ -231,7 +357,7 @@ pub fn add_barcode(read_seq: Vec<u8>, barcode: &DNARestrictive, read_state: Read
 ///
 /// ```
 /// use std::num::{NonZeroU32, NonZeroU64};
-/// use nanalogue_core::OrdPair;
+/// use nanalogue_core::{OrdPair, GetDNARestrictive};
 /// use nanalogue_core::simulate_mod_bam::generate_contigs_denovo;
 /// use rand::Rng;
 ///
@@ -242,7 +368,7 @@ pub fn add_barcode(read_seq: Vec<u8>, barcode: &DNARestrictive, read_state: Read
 ///     &mut rng
 /// );
 /// assert_eq!(contigs.len(), 3);
-/// assert!(contigs.iter().all(|c| (100..=200).contains(&c.seq().len())));
+/// assert!(contigs.iter().all(|c| (100..=200).contains(&c.get_dna_restrictive().get().len())));
 /// ```
 pub fn generate_contigs_denovo<R: Rng>(
     contig_number: NonZeroU32,
@@ -271,7 +397,7 @@ pub fn generate_contigs_denovo<R: Rng>(
 /// ```
 /// use std::num::{NonZeroU32, NonZeroU64};
 /// use std::str::FromStr;
-/// use nanalogue_core::{DNARestrictive, OrdPair};
+/// use nanalogue_core::{DNARestrictive, GetDNARestrictive, OrdPair};
 /// use nanalogue_core::simulate_mod_bam::generate_contigs_denovo_repeated_seq;
 /// use rand::Rng;
 ///
@@ -286,19 +412,19 @@ pub fn generate_contigs_denovo<R: Rng>(
 /// assert_eq!(contigs.len(), 2);
 /// for (i, contig) in contigs.iter().enumerate() {
 ///     assert_eq!(contig.name, format!("contig_{}", i));
-///     match contig.seq() {
+///     match contig.get_dna_restrictive().get() {
 ///         b"ACGTACGTAC" | b"ACGTACGTACG" | b"ACGTACGTACGT" => {},
 ///         _ => panic!("Unexpected sequence"),
 ///     }
 /// }
 /// ```
-pub fn generate_contigs_denovo_repeated_seq<R: Rng>(
+pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
     contig_number: NonZeroU32,
     len_range: OrdPair<NonZeroU64>,
-    seq: DNARestrictive,
+    seq: S,
     rng: &mut R,
 ) -> Vec<Contig> {
-    let seq_bytes = seq.get();
+    let seq_bytes = seq.get_dna_restrictive().get();
 
     (0..contig_number.get())
         .map(|i| {
@@ -306,7 +432,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng>(
             let contig_seq: Vec<u8> = seq_bytes
                 .iter()
                 .cycle()
-                .take(length as usize)
+                .take(usize::try_from(length).expect("number conversion error"))
                 .copied()
                 .collect();
             let seq_str =
@@ -348,8 +474,12 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng>(
 /// let reads = generate_reads_denovo(&contigs, config, "RG1", &mut rng).unwrap();
 /// assert_eq!(reads.len(), 10);
 /// ```
-pub fn generate_reads_denovo<R: Rng>(
-    contigs: &[Contig],
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "read length calculated as a fraction of contig length, managed with trunc()"
+)]
+pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
+    contigs: &[S],
     config: ReadConfig,
     read_group: &str,
     rng: &mut R,
@@ -364,7 +494,7 @@ pub fn generate_reads_denovo<R: Rng>(
         // Select a random contig
         let contig_idx = rng.random_range(0..contigs.len());
         let contig = &contigs[contig_idx];
-        let contig_len = contig.seq().len() as u64;
+        let contig_len = contig.get_dna_restrictive().get().len() as u64;
 
         // Skip if contig is empty
         if contig_len == 0 {
@@ -374,10 +504,10 @@ pub fn generate_reads_denovo<R: Rng>(
         }
 
         // Calculate read length as fraction of contig length
-        let min_read_len = (config.len_range.get_low().val() * contig_len as f32) as u64;
-        let max_read_len = (config.len_range.get_high().val() * contig_len as f32) as u64;
-        let max_read_len = max_read_len.max(min_read_len);
-        let read_len = rng.random_range(min_read_len..=max_read_len.min(contig_len));
+        let read_len = (rng
+            .random_range(config.len_range.get_low().val()..=config.len_range.get_high().val())
+            * contig_len as f32)
+            .trunc() as u64;
 
         // Ensure read length is at least 1
         if read_len == 0 {
@@ -391,15 +521,20 @@ pub fn generate_reads_denovo<R: Rng>(
 
         // Extract sequence from contig
         let random_state: ReadState = random();
-        let end_pos = (start_pos + read_len) as usize;
+        let end_pos = usize::try_from(start_pos + read_len).expect("number conversion error");
         let (read_seq, cigar) = {
-            let temp_seq = contig.seq()[start_pos as usize..end_pos].to_vec();
-            let cigar_ops = vec![Cigar::Match(read_len as u32)];
+            let temp_seq = contig.get_dna_restrictive().get()
+                [usize::try_from(start_pos).expect("number conversion error")..end_pos]
+                .to_vec();
+            let cigar_ops = vec![Cigar::Match(
+                u32::try_from(read_len).expect("number conversion error"),
+            )];
 
             // Add barcode if specified
             match &config.barcode {
                 Some(barcode) => {
-                    let barcode_len = barcode.get().len() as u32;
+                    let barcode_len = u32::try_from(barcode.get_dna_restrictive().get().len())
+                        .expect("number conversion error");
                     (
                         add_barcode(temp_seq, barcode, random_state),
                         CigarString(
@@ -421,10 +556,33 @@ pub fn generate_reads_denovo<R: Rng>(
             .map(|_| rng.random_range(RangeInclusive::from(config.base_qual_range)))
             .collect();
 
+        // Generate modification information after reverse complementing sequence if needed
+        let seq: DNARestrictive;
+        let (mm_data, ml_data) = generate_random_dna_modification(
+            &config.mods,
+            match random_state {
+                ReadState::Unmapped
+                | ReadState::PrimaryFwd
+                | ReadState::SecondaryFwd
+                | ReadState::SupplementaryFwd => {
+                    seq = DNARestrictive::from_str(str::from_utf8(&read_seq).unwrap()).unwrap();
+                    &seq
+                }
+                _ => {
+                    seq = DNARestrictive::from_str(
+                        str::from_utf8(&bio::alphabets::dna::revcomp(&read_seq)).unwrap(),
+                    )
+                    .unwrap();
+                    &seq
+                }
+            },
+            rng,
+        );
+
         // Create BAM record
         let record = {
             let mut record = bam::Record::new();
-            let qname = format!("{}", Uuid::new_v4()).into_bytes();
+            let qname = format!("{}.{}", read_group, Uuid::new_v4()).into_bytes();
             record.unset_flags();
             record.set_flags(u16::from(random_state));
             match random_state {
@@ -438,13 +596,17 @@ pub fn generate_reads_denovo<R: Rng>(
                     let mapq = rng.random_range(RangeInclusive::from(config.mapq_range));
                     record.set(&qname, Some(&cigar), &read_seq, &qual);
                     record.set_mapq(mapq);
-                    record.set_tid(contig_idx as i32);
-                    record.set_pos(start_pos as i64);
+                    record.set_tid(i32::try_from(contig_idx).expect("number conversion error"));
+                    record.set_pos(i64::try_from(start_pos).expect("number conversion error"));
                 }
             }
             record.set_mpos(-1);
             record.set_mtid(-1);
             record.push_aux(b"RG", Aux::String(read_group))?;
+            if !mm_data.is_empty() && !ml_data.is_empty() {
+                record.push_aux(b"MM", Aux::String(mm_data.as_str()))?;
+                record.push_aux(b"ML", Aux::ArrayU8((&ml_data).into()))?;
+            }
             record
         };
         reads.push(record);
@@ -509,14 +671,16 @@ where
 
     write_bam_denovo(
         reads,
-        contigs.iter().map(|k| (k.name.clone(), k.seq().len())),
+        contigs
+            .iter()
+            .map(|k| (k.name.clone(), k.get_dna_restrictive().get().len())),
         read_groups,
         vec![String::from("simulated BAM file, not real data")],
         bam_output_path,
     )?;
     write_fasta(
         contigs.into_iter().map(|k| {
-            let seq_vec = k.seq().to_vec();
+            let seq_vec = k.get_dna_restrictive().get().to_vec();
             (k.name, seq_vec)
         }),
         fasta_output_path,
@@ -599,8 +763,8 @@ mod tests {
         assert_eq!(contigs.len(), 5);
         for (i, contig) in contigs.iter().enumerate() {
             assert_eq!(contig.name, format!("contig_{}", i));
-            assert!((100..=200).contains(&contig.seq().len()));
-            for base in contig.seq() {
+            assert!((100..=200).contains(&contig.get_dna_restrictive().get().len()));
+            for base in contig.get_dna_restrictive().get() {
                 assert!([b'A', b'C', b'G', b'T'].contains(base));
             }
         }
@@ -781,7 +945,7 @@ mod tests {
         assert_eq!(contigs.len(), 10000);
         for (i, contig) in contigs.iter().enumerate() {
             assert_eq!(contig.name, format!("contig_{}", i));
-            let idx = match contig.seq() {
+            let idx = match contig.get_dna_restrictive().get() {
                 b"ACGTACGTAC" => 0,
                 b"ACGTACGTACG" => 1,
                 b"ACGTACGTACGT" => 2,

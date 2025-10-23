@@ -25,6 +25,7 @@ impl FilterByRefCoords for Ranges {
             let mut last_valid_window: Option<usize> = None;
             let mut previous_start: Option<i64> = None;
             let mut previous_end: Option<i64> = None;
+            let mut is_possible_invalid: bool;
             for k in self
                 .reference_starts
                 .iter()
@@ -38,20 +39,22 @@ impl FilterByRefCoords for Ranges {
                 assert!((*k.1.0).is_none() || (*k.1.0) >= previous_end);
                 assert!((*k.1.1).is_none() || (*k.1.1) >= previous_end);
 
-                if (*k.1.0).is_some_and(|x| x < start) && (*k.1.1).is_some_and(|x| x <= start) {
-                    last_invalid_window = Some(k.0);
+                if let Some(v) = *(k.1.0) {
+                    previous_start = Some(v);
+                    if v < end {
+                        last_valid_window = Some(k.0);
+                    }
+                    is_possible_invalid =  v < start;
+                } else {
+                    is_possible_invalid = false;
                 }
-                if (*k.1.0).is_some_and(|x| x < end) {
-                    last_valid_window = Some(k.0);
+
+                if let Some(v) = *(k.1.1) {
+                    previous_end = Some(v);
+                    if is_possible_invalid && v <= start {
+                        last_invalid_window = Some(k.0);
+                    }
                 }
-                match *(k.1.0) {
-                    Some(v) => previous_start = Some(i64::try_from(v).unwrap()),
-                    _ => {}
-                };
-                match *(k.1.1) {
-                    Some(v) => previous_end = Some(i64::try_from(v).unwrap()),
-                    _ => {}
-                };
             }
             (
                 last_invalid_window.map_or(0, |x| x + 1),

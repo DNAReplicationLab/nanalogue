@@ -881,7 +881,7 @@ impl CurrRead<AlignAndModData> {
         let mut output = HashMap::<ModChar, u32>::new();
         let (BaseMods { base_mods: v }, _) = self.mod_data();
         for k in v {
-            let base_count = k.ranges.qual.len() as u32;
+            let base_count = u32::try_from(k.ranges.qual.len()).expect("number conversion error");
             let _: &mut u32 = output
                 .entry(ModChar::new(k.modification_type))
                 .and_modify(|e| *e += base_count)

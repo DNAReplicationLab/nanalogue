@@ -1,4 +1,7 @@
 #![deny(
+    clippy::cast_possible_truncation,
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
     missing_copy_implementations,
     missing_debug_implementations,
     missing_docs,
@@ -54,8 +57,8 @@ pub use read_utils::CurrRead;
 pub use subcommands::{find_modified_reads, read_info, read_stats, reads_table, window_reads};
 pub use utils::{
     Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1, FilterByRefCoords, GenomicRegion,
-    Intersects, ModChar, OrdPair, ReadState, ReadStates, RestrictModCalledStrand, ThresholdState,
-    is_valid_dna_restrictive,
+    GetDNARestrictive, Intersects, ModChar, OrdPair, ReadState, ReadStates,
+    RestrictModCalledStrand, ThresholdState, is_valid_dna_restrictive,
 };
 
 /// Extracts mod information from BAM record to the Fibertools-rs BaseMods Struct.

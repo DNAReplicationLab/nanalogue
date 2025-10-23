@@ -19,6 +19,18 @@ impl DNARestrictive {
     }
 }
 
+/// Trait that returns a DNARestrictive object
+pub trait GetDNARestrictive {
+    /// Returns a DNARestrictive object
+    fn get_dna_restrictive(&self) -> &DNARestrictive;
+}
+
+impl GetDNARestrictive for DNARestrictive {
+    fn get_dna_restrictive(&self) -> &DNARestrictive {
+        self
+    }
+}
+
 impl FromStr for DNARestrictive {
     type Err = Error;
 

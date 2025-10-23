@@ -102,14 +102,25 @@ impl FromStr for F32Bw0and1 {
 impl From<u8> for F32Bw0and1 {
     /// Convert from a u8 i.e. a number >= 0 and <= 255
     fn from(value: u8) -> Self {
-        F32Bw0and1::new((value as f32) / (u8::MAX as f32 + 1.0)).expect("no F32 conversion error")
+        F32Bw0and1::new((value as f32) / (u8::MAX as f32)).expect("no F32 conversion error")
+    }
+}
+
+impl From<F32Bw0and1> for u8 {
+    /// Convert into a u8 i.e. a number >= 0 and <= 255
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "float to non-negative int involves loss, we limit this with round()"
+    )]
+    fn from(value: F32Bw0and1) -> Self {
+        (value.val() * 255.0).round() as u8
     }
 }
 
 impl fmt::Display for F32Bw0and1 {
     /// converts to string for display.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.val())
+        self.val().fmt(f)
     }
 }
 
@@ -169,7 +180,7 @@ mod tests {
         assert_eq!(zero.val(), 0.0);
 
         let max = F32Bw0and1::from(255u8);
-        assert!(max.val() < 1.0); // Should be 255/256 = 0.99609375
+        assert_eq!(max.val(), 1.0);
 
         // Test some intermediate values
         let half = F32Bw0and1::from(128u8);
@@ -178,8 +189,49 @@ mod tests {
         // Test exact calculation
         let test_val = 100u8;
         let converted = F32Bw0and1::from(test_val);
-        let expected = (test_val as f32) / (u8::MAX as f32 + 1.0);
+        let expected = (test_val as f32) / (u8::MAX as f32);
         assert_eq!(converted.val(), expected);
+    }
+
+    #[test]
+    fn test_f32_bw0and1_into_u8() {
+        // Test boundary values
+        let zero = F32Bw0and1::new(0.0).expect("should create");
+        let zero_u8: u8 = zero.into();
+        assert_eq!(zero_u8, 0u8);
+
+        let one = F32Bw0and1::new(1.0).expect("should create");
+        let one_u8: u8 = one.into();
+        assert_eq!(one_u8, 255u8);
+
+        // Test some intermediate values
+        let half = F32Bw0and1::new(0.5).expect("should create");
+        let half_u8: u8 = half.into();
+        assert!(half_u8 >= 127 && half_u8 <= 128); // Should be ~127.5
+
+        // Test exact calculation
+        let test_val = F32Bw0and1::new(0.39215686274509803).expect("should create");
+        let converted_u8: u8 = test_val.into();
+        assert_eq!(converted_u8, 100u8);
+
+        // Test near-boundary values
+        let near_zero = F32Bw0and1::new(0.001).expect("should create");
+        let near_zero_u8: u8 = near_zero.into();
+        assert_eq!(near_zero_u8, 0u8);
+
+        let near_one = F32Bw0and1::new(0.999).expect("should create");
+        let near_one_u8: u8 = near_one.into();
+        assert_eq!(near_one_u8, 255u8);
+    }
+
+    #[test]
+    fn test_f32_bw0and1_u8_roundtrip() {
+        // Test that converting u8 -> F32Bw0and1 -> u8 gives reasonable results
+        for val in [0u8, 1, 50, 100, 128, 200, 254, 255] {
+            let f32_val = F32Bw0and1::from(val);
+            let converted_back: u8 = f32_val.into();
+            assert_eq!(converted_back, val);
+        }
     }
 
     #[test]

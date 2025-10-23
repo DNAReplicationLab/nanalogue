@@ -42,36 +42,36 @@ impl Default for ThresholdState {
 /// ```
 /// use nanalogue_core::{ThresholdState, OrdPair};
 /// let b = ThresholdState::GtEq(100);
-/// assert_eq!("probabilities >= 0.390625", format!("{}", b));
+/// assert_eq!("probabilities >= 0.3922", format!("{}", b));
 /// ```
 /// Example 2:
 /// ```
 /// # use nanalogue_core::{ThresholdState, OrdPair};
 /// let b = ThresholdState::InvertGtEqLtEq(OrdPair::new(200, 220).expect("no error"));
-/// assert_eq!("probabilities < 0.78125 or > 0.859375", format!("{}", b));
+/// assert_eq!("probabilities < 0.7843 or > 0.8627", format!("{}", b));
 /// ```
 ///
 /// Example 3:
 /// ```
 /// # use nanalogue_core::{ThresholdState, OrdPair};
 /// let b = ThresholdState::Both((100, OrdPair::new(200, 220).expect("no error")));
-/// assert_eq!("probabilities >= 0.390625 and (probabilities < 0.78125 or > 0.859375)", format!("{}", b));
+/// assert_eq!("probabilities >= 0.3922 and (probabilities < 0.7843 or > 0.8627)", format!("{}", b));
 /// ```
 impl fmt::Display for ThresholdState {
     /// display the u8 thresholds as a floating point number between 0 and 1
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match &self {
-            ThresholdState::GtEq(v) => format!("probabilities >= {}", F32Bw0and1::from(*v)),
+            ThresholdState::GtEq(v) => format!("probabilities >= {:.4}", F32Bw0and1::from(*v)),
             ThresholdState::InvertGtEqLtEq(v) => {
                 format!(
-                    "probabilities < {} or > {}",
+                    "probabilities < {:.4} or > {:.4}",
                     F32Bw0and1::from(v.get_low()),
                     F32Bw0and1::from(v.get_high())
                 )
             }
             ThresholdState::Both((a, b)) => {
                 format!(
-                    "{} and ({})",
+                    "{:.4} and ({:.4})",
                     ThresholdState::GtEq(*a),
                     ThresholdState::InvertGtEqLtEq(*b)
                 )
@@ -141,10 +141,9 @@ mod tests {
         assert!(threshold.contains(&100));
         assert!(!threshold.contains(&99));
 
-        // Test display
+        // Test display; 100/255 is approx 0.3922
         let display_str = format!("{}", threshold);
-        assert!(display_str.contains("probabilities >="));
-        assert!(display_str.contains("0.390625")); // 100/256 = 0.390625
+        assert!(display_str.contains("probabilities >= 0.3922"));
     }
 
     #[test]
