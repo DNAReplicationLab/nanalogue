@@ -12,8 +12,7 @@ use std::collections::HashMap;
 #[test]
 fn test_set_read_state_example_1() -> Result<(), Error> {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-    let mut count = 0;
-    for record in reader.records() {
+    for (count, record) in reader.records().enumerate() {
         let r = record?;
         let curr_read = CurrRead::default().set_read_state(&r)?;
         match count {
@@ -23,7 +22,6 @@ fn test_set_read_state_example_1() -> Result<(), Error> {
             3 => assert_eq!(curr_read.read_state(), ReadState::Unmapped),
             _ => unreachable!(),
         }
-        count += 1;
     }
     Ok(())
 }
@@ -54,8 +52,7 @@ fn test_set_read_state_example_3() -> Result<(), Error> {
 #[test]
 fn test_set_seq_len() -> Result<(), Error> {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-    let mut count = 0;
-    for record in reader.records() {
+    for (count, record) in reader.records().enumerate() {
         let r = record?;
         let curr_read = CurrRead::default().set_read_state(&r)?.set_seq_len(&r)?;
         let Ok(len) = curr_read.seq_len() else {
@@ -68,7 +65,6 @@ fn test_set_seq_len() -> Result<(), Error> {
             3 => assert_eq!(len, 48),
             _ => unreachable!(),
         }
-        count += 1;
     }
     Ok(())
 }
@@ -114,7 +110,7 @@ fn test_set_seq_len_random() -> Result<(), Error> {
 #[should_panic(expected = "InvalidDuplicates")]
 fn test_set_seq_len_duplicate_should_panic() {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
-    for record in reader.records() {
+    if let Some(record) = reader.records().next() {
         let r = record.unwrap();
         let _curr_read = CurrRead::default()
             .set_read_state(&r)
@@ -123,7 +119,6 @@ fn test_set_seq_len_duplicate_should_panic() {
             .unwrap()
             .set_seq_len(&r)
             .unwrap();
-        break;
     }
 }
 
@@ -248,7 +243,7 @@ fn test_set_align_len_unmapped_should_panic() {
 #[should_panic(expected = "InvalidDuplicates")]
 fn test_set_align_len_duplicate_should_panic() {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
-    for record in reader.records() {
+    if let Some(record) = reader.records().next() {
         let r = record.unwrap();
         let _curr_read = CurrRead::default()
             .set_read_state(&r)
@@ -257,7 +252,6 @@ fn test_set_align_len_duplicate_should_panic() {
             .unwrap()
             .set_align_len(&r)
             .unwrap();
-        break;
     }
 }
 
@@ -306,7 +300,7 @@ fn test_set_contig_id_and_start_unmapped_should_panic() {
 #[should_panic(expected = "InvalidDuplicates")]
 fn test_set_contig_id_and_start_duplicate_should_panic() {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
-    for record in reader.records() {
+    if let Some(record) = reader.records().next() {
         let r = record.unwrap();
         let _curr_read = CurrRead::default()
             .set_read_state(&r)
@@ -315,7 +309,6 @@ fn test_set_contig_id_and_start_duplicate_should_panic() {
             .unwrap()
             .set_contig_id_and_start(&r)
             .unwrap();
-        break;
     }
 }
 
@@ -391,7 +384,7 @@ fn test_get_contig_name_without_setting_should_panic() {
 #[should_panic(expected = "InvalidDuplicates")]
 fn test_set_contig_name_duplicate_should_panic() {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
-    for record in reader.records() {
+    if let Some(record) = reader.records().next() {
         let r = record.unwrap();
         let _curr_read = CurrRead::default()
             .set_read_state(&r)
@@ -400,15 +393,13 @@ fn test_set_contig_name_duplicate_should_panic() {
             .unwrap()
             .set_contig_name(&r)
             .unwrap();
-        break;
     }
 }
 
 #[test]
 fn test_set_read_id() -> Result<(), Error> {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-    let mut count = 0;
-    for record in reader.records() {
+    for (count, record) in reader.records().enumerate() {
         let r = record?;
         let curr_read = CurrRead::default().set_read_state(&r)?.set_read_id(&r)?;
         let Ok(read_id) = curr_read.read_id() else {
@@ -421,7 +412,6 @@ fn test_set_read_id() -> Result<(), Error> {
             | (3, "a4f36092-b4d5-47a9-813e-c22c3b477a0c") => {}
             _ => unreachable!(),
         }
-        count += 1;
     }
     Ok(())
 }
@@ -430,11 +420,10 @@ fn test_set_read_id() -> Result<(), Error> {
 #[should_panic(expected = "UnavailableData")]
 fn test_get_read_id_without_setting_should_panic() {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
-    for record in reader.records() {
+    if let Some(record) = reader.records().next() {
         let r = record.unwrap();
         let curr_read = CurrRead::default().set_read_state(&r).unwrap();
         let _: &str = curr_read.read_id().unwrap();
-        break;
     }
 }
 
@@ -442,7 +431,7 @@ fn test_get_read_id_without_setting_should_panic() {
 #[should_panic(expected = "InvalidDuplicates")]
 fn test_set_read_id_duplicate_should_panic() {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
-    for record in reader.records() {
+    if let Some(record) = reader.records().next() {
         let r = record.unwrap();
         let _curr_read = CurrRead::default()
             .set_read_state(&r)
@@ -451,15 +440,13 @@ fn test_set_read_id_duplicate_should_panic() {
             .unwrap()
             .set_read_id(&r)
             .unwrap();
-        break;
     }
 }
 
 #[test]
 fn test_strand() -> Result<(), Error> {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-    let mut count = 0;
-    for record in reader.records() {
+    for (count, record) in reader.records().enumerate() {
         let r = record?;
         let curr_read = CurrRead::default().set_read_state(&r)?;
         let strand = curr_read.strand();
@@ -467,7 +454,6 @@ fn test_strand() -> Result<(), Error> {
             (0, '+') | (1, '+') | (2, '-') | (3, '.') => {}
             _ => unreachable!(),
         }
-        count += 1;
     }
     Ok(())
 }
@@ -630,8 +616,7 @@ fn test_basecount_per_mod() -> Result<(), Error> {
         (ModChar::new('T'), 3),
         (ModChar::new('ᰠ'), 0),
     ]));
-    let mut count = 0;
-    for record in reader.records() {
+    for (count, record) in reader.records().enumerate() {
         let r = record?;
         let curr_read = CurrRead::default().set_read_state(&r)?.set_mod_data(
             &r,
@@ -646,7 +631,6 @@ fn test_basecount_per_mod() -> Result<(), Error> {
             (3, v) => assert_eq!(v, fourth_count),
             _ => unreachable!(),
         }
-        count += 1;
     }
     Ok(())
 }
@@ -654,8 +638,7 @@ fn test_basecount_per_mod() -> Result<(), Error> {
 #[test]
 fn test_try_from_stranded_bed3() -> Result<(), Error> {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-    let mut count = 0;
-    for record in reader.records() {
+    for (count, record) in reader.records().enumerate() {
         let r = record?;
         let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
         let bed3_stranded = StrandedBed3::try_from(&curr_read).unwrap();
@@ -670,7 +653,6 @@ fn test_try_from_stranded_bed3() -> Result<(), Error> {
         assert_eq!(bed3_stranded.start(), exp_bed3_stranded.start());
         assert_eq!(bed3_stranded.end(), exp_bed3_stranded.end());
         assert_eq!(bed3_stranded.strand(), exp_bed3_stranded.strand());
-        count += 1;
     }
     Ok(())
 }

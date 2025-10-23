@@ -996,8 +996,8 @@ mod bam_rc_record_tests {
             record.set(
                 b"read",
                 Some(&CigarString(vec![
-                    Cigar::Match(match_len as u32),
-                    Cigar::HardClip(hard_clip_len as u32),
+                    Cigar::Match(u32::try_from(match_len).unwrap()),
+                    Cigar::HardClip(u32::try_from(hard_clip_len).unwrap()),
                 ])),
                 &vec![b'A'; seq_len],
                 &vec![50; seq_len],
@@ -1060,7 +1060,7 @@ mod bam_rc_record_tests {
         }
 
         let expected_count = selected_states.len() * 10000;
-        let tolerance = (expected_count as f32 * 0.2) as usize;
+        let tolerance = expected_count.div_ceil(5);
         let min_count = expected_count.saturating_sub(tolerance);
         let max_count = expected_count + tolerance;
 
@@ -1116,9 +1116,11 @@ mod bam_rc_record_tests {
             // Set sequence details first
             record.set(
                 b"read",
-                Some(&CigarString(vec![Cigar::Match(seq_len as u32)])),
-                &vec![b'A'; seq_len as usize],
-                &vec![255; seq_len as usize],
+                Some(&CigarString(vec![Cigar::Match(
+                    u32::try_from(seq_len).unwrap(),
+                )])),
+                &vec![b'A'; usize::try_from(seq_len).unwrap()],
+                &vec![255; usize::try_from(seq_len).unwrap()],
             );
 
             // Set tid and position, contig chosen from a random set of two.
@@ -1142,8 +1144,8 @@ mod bam_rc_record_tests {
         // the chance that two randomly chosen intervals on the interval [0, l]
         // intersect is 2/3, and then we have the added random element of one
         // of two contigs, so the probability is 2/3 * 1/2 = 1/3.
-        let expected_count: usize = 10000 / 3; // ~3333
-        let tolerance = (expected_count as f32 * 0.2) as usize;
+        let expected_count: usize = 10000_usize.div_ceil(3); // ~3333
+        let tolerance = expected_count.div_ceil(5);
         let min_count = expected_count.saturating_sub(tolerance);
         let max_count = expected_count + tolerance;
         assert!(count_retained.0 >= min_count && count_retained.0 <= max_count);
