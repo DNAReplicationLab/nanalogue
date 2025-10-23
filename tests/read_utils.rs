@@ -372,11 +372,10 @@ fn test_get_contig_name_unmapped_should_panic() {
 #[should_panic(expected = "UnavailableData")]
 fn test_get_contig_name_without_setting_should_panic() {
     let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
-    for record in reader.records() {
+    if let Some(record) = reader.records().next() {
         let r = record.unwrap();
         let curr_read = CurrRead::default().set_read_state(&r).unwrap();
         let _: &str = curr_read.contig_name().unwrap();
-        break;
     }
 }
 
