@@ -994,7 +994,7 @@ mod bam_rc_record_tests {
             let hard_clip_len = seq_len - match_len;
 
             record.set(
-                &[b'r', b'e', b'a', b'd'],
+                b"read",
                 Some(&CigarString(vec![
                     Cigar::Match(match_len as u32),
                     Cigar::HardClip(hard_clip_len as u32),
@@ -1115,7 +1115,7 @@ mod bam_rc_record_tests {
 
             // Set sequence details first
             record.set(
-                &[b'r', b'e', b'a', b'd'],
+                b"read",
                 Some(&CigarString(vec![Cigar::Match(seq_len as u32)])),
                 &vec![b'A'; seq_len as usize],
                 &vec![255; seq_len as usize],
