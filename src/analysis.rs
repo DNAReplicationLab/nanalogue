@@ -8,7 +8,7 @@ use crate::{Contains, Error, F32AbsValAtMost1, F32Bw0and1, ThresholdState};
 /// # Errors
 ///
 /// Returns `Error::EmptyWindow` if the input slice is empty,
-/// or error associated with F32Bw0and1 creation.
+/// or error associated with `F32Bw0and1` creation.
 ///
 /// # Examples
 ///
@@ -30,6 +30,11 @@ pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
         .iter()
         .filter(|x| ThresholdState::GtEq(128).contains(x))
         .count();
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "if two nums below have >6 digits, we suffer precision loss. \
+may fix in future. this means we are using ~Mbp windows, which is unlikely..."
+    )]
     F32Bw0and1::new(count_mod as f32 / win_size as f32)
 }
 
@@ -49,7 +54,7 @@ pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
 ///
 /// Returns `Error::EmptyWindow` if the input slice is empty, or
 /// `Error::InsufficientDataSize` if the input slice has only one element, or
-/// an error associated with F32AbsValAtMost1 creation.
+/// an error associated with `F32AbsValAtMost1` creation.
 ///
 /// # Examples
 ///
@@ -66,6 +71,11 @@ pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
 /// let result = threshold_and_gradient(&mod_data).unwrap();
 /// assert_eq!(result.val(), 0.4);
 /// ```
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "if win_size or mod_list length has too many digits (>6), we suffer precision loss. \
+may fix in future. this means we are using ~Mbp windows, which is unlikely..."
+)]
 pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error> {
     let win_size = match mod_list.len() {
         0 => Err(Error::EmptyWindow),
@@ -99,7 +109,7 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error
 ///
 /// Returns `Error::EmptyWindow` if the input slice is empty, or
 /// `Error::WindowDensBelowThres` if the calculated density is below the threshold, or
-/// error associated with F32Bw0and1 creation.
+/// error associated with `F32Bw0and1` creation.
 ///
 /// # Examples
 ///

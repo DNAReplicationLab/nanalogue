@@ -1,17 +1,3 @@
-#![deny(
-    clippy::cast_possible_truncation,
-    clippy::allow_attributes,
-    clippy::allow_attributes_without_reason,
-    missing_copy_implementations,
-    missing_debug_implementations,
-    missing_docs,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications,
-    unused_results
-)]
 //! # Nanalogue Core (Nanalogue = Nucleic Acid Analogue)
 //!
 //! We process and calculate data associated with DNA molecules, their alignments to
@@ -166,8 +152,7 @@ where
                 .expect("error");
 
             let is_implicit = match cap.get(6).map_or("", |m| m.as_str()).as_bytes() {
-                b"" => true,
-                b"." => true,
+                b"" | b"." => true,
                 b"?" => false,
                 _ => unreachable!(),
             };
@@ -528,7 +513,7 @@ impl BamPreFilt for bam::Record {
                 let start: u64 = self.pos().try_into().expect("no error");
                 let end: u64 = self.reference_end().try_into().expect("no error");
                 if full_region {
-                    (start..end).contains(&region_start) && (start..(end + 1)).contains(&region_end)
+                    (start..end).contains(&region_start) && (start..=end).contains(&region_end)
                 } else {
                     (start..end).intersects(&(region_start..region_end))
                 }
@@ -1006,7 +991,7 @@ mod bam_rc_record_tests {
             record.set_flags(loop {
                 let random_state: ReadState = random();
                 match random_state {
-                    ReadState::Unmapped => continue,
+                    ReadState::Unmapped => {}
                     v => break u16::from(v),
                 }
             });
@@ -1090,7 +1075,7 @@ mod bam_rc_record_tests {
 
             // Use the last two to set up region, with a random contig chosen
             // from a set of two.
-            let region_tid = if random::<bool>() { 0 } else { 1 };
+            let region_tid = i32::from(random::<bool>());
             let mut region_nums = [four_nums[2], four_nums[3]];
             region_nums.sort_unstable();
             let region_start = region_nums[0];
@@ -1124,13 +1109,13 @@ mod bam_rc_record_tests {
             );
 
             // Set tid and position, contig chosen from a random set of two.
-            let tid = if random::<bool>() { 0 } else { 1 };
+            let tid = i32::from(random::<bool>());
             record.set_tid(tid);
-            record.set_pos(start_pos as i64);
+            record.set_pos(i64::try_from(start_pos).unwrap());
 
             // Verify reference_end calculation
             use rust_htslib::bam::ext::BamRecordExtensions;
-            let expected_ref_end = start_pos as i64 + seq_len as i64;
+            let expected_ref_end = i64::try_from(start_pos + seq_len).unwrap();
             assert_eq!(record.reference_end(), expected_ref_end);
 
             if record.pre_filt(&bam_opts_no_full_region) {

@@ -220,7 +220,7 @@ mod tests {
         }
 
         // Numbers converted to char should display as their numeric value
-        let test_numbers = vec![123, 456, 789, 472232];
+        let test_numbers = vec![123, 456, 789, 472_232];
         for num in test_numbers {
             let mod_char = ModChar::from_str(&num.to_string()).expect("should parse");
             assert_eq!(format!("{mod_char}"), num.to_string());

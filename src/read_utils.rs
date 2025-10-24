@@ -1156,7 +1156,8 @@ impl SerializedCurrRead {
                 match &self.alignment {
                     Some(alignment) => {
                         // For aligned reads, ref_start should be in [start, end) or -1
-                        let align_range = alignment.start as i64..alignment.end as i64;
+                        let align_range =
+                            i64::try_from(alignment.start)?..i64::try_from(alignment.end)?;
                         if ref_start != -1 && !align_range.contains(&ref_start) {
                             return Err(Error::InvalidAlignCoords);
                         }

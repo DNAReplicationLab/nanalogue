@@ -146,12 +146,12 @@ mod tests {
         assert!(F32Bw0and1::new(1.0).is_ok());
 
         // Test near-boundary values
-        assert!(F32Bw0and1::new(0.000001).is_ok());
-        assert!(F32Bw0and1::new(0.999999).is_ok());
+        assert!(F32Bw0and1::new(0.000_001).is_ok());
+        assert!(F32Bw0and1::new(0.999_999).is_ok());
 
         // Test outside boundaries
-        assert!(F32Bw0and1::new(-0.000001).is_err());
-        assert!(F32Bw0and1::new(1.000001).is_err());
+        assert!(F32Bw0and1::new(-0.000_001).is_err());
+        assert!(F32Bw0and1::new(1.000_001).is_err());
     }
 
     #[test]

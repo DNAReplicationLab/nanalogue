@@ -5,6 +5,7 @@ use bedrs::{Bed3, Coordinates, Strand};
 use nanalogue_core::simulate_mod_bam::TempBamSimulation;
 use nanalogue_core::{
     CurrRead, Error, Intersects, ModChar, ReadState, ThresholdState, nanalogue_bam_reader,
+    read_utils::OnlyAlignData,
 };
 use rust_htslib::bam::Read;
 use std::collections::HashMap;
@@ -348,7 +349,7 @@ fn test_set_contig_name_unmapped_should_panic() {
         }
         let r = record.unwrap();
         let curr_read = CurrRead::default().set_read_state(&r).unwrap();
-        curr_read.set_contig_name(&r).unwrap();
+        let _: CurrRead<OnlyAlignData> = curr_read.set_contig_name(&r).unwrap();
     }
 }
 
@@ -364,7 +365,7 @@ fn test_get_contig_name_unmapped_should_panic() {
         }
         let r = record.unwrap();
         let curr_read = CurrRead::default().set_read_state(&r).unwrap();
-        curr_read.contig_name().unwrap();
+        let _: &str = curr_read.contig_name().unwrap();
     }
 }
 
@@ -569,7 +570,7 @@ fn test_seq_on_ref_coords_2_but_barcode() {
     // create a table of individual counts
     let mut cnt_individual: HashMap<String, u32> = HashMap::new();
     for k in expected_seqs {
-        cnt_individual.insert(k.to_string(), 0);
+        let _: Option<u32> = cnt_individual.insert(k.to_string(), 0);
     }
 
     for record in reader.records() {

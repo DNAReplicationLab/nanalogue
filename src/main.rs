@@ -1,17 +1,3 @@
-#![deny(
-    clippy::cast_possible_truncation,
-    clippy::allow_attributes,
-    clippy::allow_attributes_without_reason,
-    missing_copy_implementations,
-    missing_debug_implementations,
-    missing_docs,
-    trivial_casts,
-    trivial_numeric_casts,
-    unused_extern_crates,
-    unused_import_braces,
-    unused_qualifications,
-    unused_results
-)]
 //! # Nanalogue (Nucleic Acid Analogue)
 //!
 //! We process and calculate data associated with DNA molecules, their alignments to

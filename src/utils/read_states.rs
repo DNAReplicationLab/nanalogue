@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "UnknownAlignState")]
     fn test_invalid_state() {
         let _op = ReadStates::from_str("random").unwrap();
     }

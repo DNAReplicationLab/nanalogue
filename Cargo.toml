@@ -36,3 +36,20 @@ path = "src/lib.rs"
 [[bin]]
 name = "nanalogue"
 path = "src/main.rs"
+
+[lints.clippy]
+pedantic = "deny"
+cast_possible_truncation = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
+[lints.rust]
+missing_copy_implementations = "deny"
+missing_debug_implementations = "deny"
+missing_docs = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unused_extern_crates = "deny"
+unused_import_braces = "deny"
+unused_qualifications = "deny"
+unused_results = "deny"

@@ -318,15 +318,15 @@ pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> 
 /// let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
 ///
 /// // Forward read: barcode + seq + revcomp(barcode)
-/// let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryFwd);
+/// let result = add_barcode(&read_seq, &barcode, ReadState::PrimaryFwd);
 /// assert_eq!(result, b"ACGTAAGGGGGGGGTTACGT".to_vec());
 ///
 /// // Reverse read: comp(barcode) + seq + rev(barcode)
-/// let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryRev);
+/// let result = add_barcode(&read_seq, &barcode, ReadState::PrimaryRev);
 /// assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
 /// ```
 pub fn add_barcode<S: GetDNARestrictive>(
-    read_seq: Vec<u8>,
+    read_seq: &[u8],
     barcode: &S,
     read_state: ReadState,
 ) -> Vec<u8> {
@@ -339,7 +339,7 @@ pub fn add_barcode<S: GetDNARestrictive>(
         | ReadState::Unmapped => {
             // Forward/Unmapped: barcode + read_seq + reverse_complement(barcode)
             let revcomp_bc = bio::alphabets::dna::revcomp(bc_bytes);
-            [bc_bytes, &read_seq[..], &revcomp_bc[..]].concat()
+            [bc_bytes, read_seq, &revcomp_bc[..]].concat()
         }
         ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
             // Reverse: complement(barcode) + read_seq + reverse(barcode)
@@ -348,7 +348,7 @@ pub fn add_barcode<S: GetDNARestrictive>(
                 .map(|&b| bio::alphabets::dna::complement(b))
                 .collect();
             let rev_bc: Vec<u8> = bc_bytes.iter().copied().rev().collect();
-            [&comp_bc[..], &read_seq[..], &rev_bc[..]].concat()
+            [&comp_bc[..], read_seq, &rev_bc[..]].concat()
         }
     }
 }
@@ -382,7 +382,7 @@ pub fn generate_contigs_denovo<R: Rng>(
                 generate_random_dna_sequence(NonZeroU64::try_from(length).expect("no error"), rng);
             let seq_str = std::str::from_utf8(&seq_bytes).expect("valid DNA sequence");
             Contig {
-                name: format!("contig_{i}"),
+                name: format!("contig_{i:05}"),
                 seq: DNARestrictive::from_str(seq_str).expect("valid DNA sequence"),
             }
         })
@@ -406,12 +406,12 @@ pub fn generate_contigs_denovo<R: Rng>(
 /// let contigs = generate_contigs_denovo_repeated_seq(
 ///     NonZeroU32::new(2).unwrap(),
 ///     OrdPair::new(NonZeroU64::new(10).unwrap(), NonZeroU64::new(12).unwrap()).unwrap(),
-///     seq,
+///     &seq,
 ///     &mut rng
 /// );
 /// assert_eq!(contigs.len(), 2);
 /// for (i, contig) in contigs.iter().enumerate() {
-///     assert_eq!(contig.name, format!("contig_{}", i));
+///     assert_eq!(contig.name, format!("contig_0000{i}"));
 ///     match contig.get_dna_restrictive().get() {
 ///         b"ACGTACGTAC" | b"ACGTACGTACG" | b"ACGTACGTACGT" => {},
 ///         _ => panic!("Unexpected sequence"),
@@ -421,7 +421,7 @@ pub fn generate_contigs_denovo<R: Rng>(
 pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
     contig_number: NonZeroU32,
     len_range: OrdPair<NonZeroU64>,
-    seq: S,
+    seq: &S,
     rng: &mut R,
 ) -> Vec<Contig> {
     let seq_bytes = seq.get_dna_restrictive().get();
@@ -438,7 +438,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
             let seq_str =
                 std::str::from_utf8(&contig_seq).expect("valid UTF-8 from repeated DNA sequence");
             Contig {
-                name: format!("contig_{i}"),
+                name: format!("contig_{i:05}"),
                 seq: DNARestrictive::from_str(seq_str)
                     .expect("valid DNA sequence from repeated pattern"),
             }
@@ -536,7 +536,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
                     let barcode_len = u32::try_from(barcode.get_dna_restrictive().get().len())
                         .expect("number conversion error");
                     (
-                        add_barcode(temp_seq, barcode, random_state),
+                        add_barcode(&temp_seq, barcode, random_state),
                         CigarString(
                             [
                                 &[Cigar::SoftClip(barcode_len)],
@@ -651,7 +651,7 @@ where
         Some(seq) => generate_contigs_denovo_repeated_seq(
             config.contigs.number,
             config.contigs.len_range,
-            seq,
+            &seq,
             &mut rng,
         ),
         None => generate_contigs_denovo(config.contigs.number, config.contigs.len_range, &mut rng),
@@ -761,7 +761,7 @@ mod tests {
         let contigs = generate_contigs_denovo(config.number, config.len_range, &mut rand::rng());
         assert_eq!(contigs.len(), 5);
         for (i, contig) in contigs.iter().enumerate() {
-            assert_eq!(contig.name, format!("contig_{i}"));
+            assert_eq!(contig.name, format!("contig_0000{i}"));
             assert!((100..=200).contains(&contig.get_dna_restrictive().get().len()));
             for base in contig.get_dna_restrictive().get() {
                 assert!([b'A', b'C', b'G', b'T'].contains(base));
@@ -885,11 +885,11 @@ mod tests {
         let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
 
         // Test forward read: barcode + seq + revcomp(barcode)
-        let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryFwd);
+        let result = add_barcode(&read_seq, &barcode, ReadState::PrimaryFwd);
         assert_eq!(result, b"ACGTAAGGGGGGGGTTACGT".to_vec());
 
         // Test reverse read: comp(barcode) + seq + rev(barcode)
-        let result = add_barcode(read_seq.clone(), &barcode, ReadState::PrimaryRev);
+        let result = add_barcode(&read_seq, &barcode, ReadState::PrimaryRev);
         assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
     }
 
@@ -935,7 +935,7 @@ mod tests {
         let contigs = generate_contigs_denovo_repeated_seq(
             NonZeroU32::new(10000).unwrap(),
             OrdPair::new(NonZeroU64::new(10).unwrap(), NonZeroU64::new(12).unwrap()).unwrap(),
-            seq,
+            &seq,
             &mut rand::rng(),
         );
 
@@ -943,7 +943,7 @@ mod tests {
 
         assert_eq!(contigs.len(), 10000);
         for (i, contig) in contigs.iter().enumerate() {
-            assert_eq!(contig.name, format!("contig_{i}"));
+            assert_eq!(contig.name, format!("contig_{i:05}"));
             let idx = match contig.get_dna_restrictive().get() {
                 b"ACGTACGTAC" => 0,
                 b"ACGTACGTACG" => 1,
