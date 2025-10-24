@@ -1,4 +1,3 @@
-#![deny(missing_docs)]
 //! # Makes a table of information on reads
 //!
 //! This file contains routines used to calculate some information per
@@ -47,10 +46,10 @@ impl fmt::Display for ModCountTbl {
         write!(
             f,
             "{}",
-            if !v.is_empty() {
-                join(v.into_iter().map(|k| format!("{}:{}", k.0, k.1)), ";")
-            } else {
+            if v.is_empty() {
                 "NA".to_string()
+            } else {
+                join(v.into_iter().map(|k| format!("{}:{}", k.0, k.1)), ";")
             }
         )
     }
@@ -106,11 +105,11 @@ impl fmt::Display for ReadInstance {
                 vec_csv!(rs),
                 match vec_csv!(mc) {
                     v if !v.is_empty() => format!("\t{v}"),
-                    _ => "".to_string(),
+                    _ => String::new(),
                 },
                 match vec_csv!(sq) {
                     v if !v.is_empty() => format!("\t{v}"),
-                    _ => "".to_string(),
+                    _ => String::new(),
                 },
             ),
         }
@@ -193,8 +192,8 @@ struct TSVRecord {
     sequence_length_template: u64,
 }
 
-/// Opens a TSV file, extracts 'read_id' and 'sequence_length_template' columns,
-/// and builds a HashMap.
+/// Opens a TSV file, extracts '`read_id`' and '`sequence_length_template`' columns,
+/// and builds a `HashMap`.
 fn process_tsv(file_path: &str) -> Result<HashMap<String, Read>, Error> {
     let mut data_map = HashMap::<String, Read>::new();
 
@@ -217,10 +216,10 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, Read>, Error> {
                     .is_some()
                 {
                     Err(Error::InvalidDuplicates(file_path.to_string()))?;
-                };
+                }
             }
         }
-    };
+    }
 
     Ok(data_map)
 }
@@ -251,7 +250,7 @@ where
             ref mut v @ ThresholdState::GtEq(w) => *v = ThresholdState::GtEq(u8::max(128, w)),
             ref mut v @ ThresholdState::InvertGtEqLtEq(w) => *v = ThresholdState::Both((128, w)),
             ref mut v @ ThresholdState::Both((w, x)) => {
-                *v = ThresholdState::Both((u8::max(128, w), x))
+                *v = ThresholdState::Both((u8::max(128, w), x));
             }
         },
     }
@@ -278,7 +277,7 @@ where
         // get sequence
         let sequence = match &seq_region {
             Some(v) if v.len() != 0 => Some(match curr_read_state.seq_on_ref_coords(&record, v) {
-                Err(Error::UnavailableData) | Err(Error::DeletedRegionRetrieval) => {
+                Err(Error::UnavailableData | Error::DeletedRegionRetrieval) => {
                     Ok(String::from("*"))
                 }
                 Err(e) => Err(e),
@@ -307,7 +306,7 @@ where
         let _ = data_map
             .entry(qname)
             .and_modify(|entry| {
-                entry.add_align_len(align_len, mod_count.clone(), read_state, sequence.clone())
+                entry.add_align_len(align_len, mod_count.clone(), read_state, sequence.clone());
             })
             .or_insert(Read::new_align_len(
                 align_len, seq_len, mod_count, read_state, sequence,
@@ -315,9 +314,9 @@ where
     }
 
     // set up an output header string
-    let mut output_header = String::from("");
+    let mut output_header = String::new();
     if is_seq_summ_data {
-        output_header = output_header + "# seq summ file: " + seq_summ_path + "\n"
+        output_header = output_header + "# seq summ file: " + seq_summ_path + "\n";
     }
     output_header.push_str(&format!(
         "{}read_id\talign_length\tsequence_length_template\talignment_type{}{}",
@@ -342,7 +341,7 @@ where
     // If both seq summ and BAM file are available, then the length in the seq
     // summ file takes precedence. If only the BAM file is available, then
     // we use the sequence length in the BAM file as the basecalled sequence length.
-    for (key, val) in data_map.iter() {
+    for (key, val) in &data_map {
         match (&val, is_seq_summ_data) {
             (Read(ReadInstance::OnlyBc(_)), _)
             | (

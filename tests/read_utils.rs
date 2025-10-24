@@ -1,4 +1,4 @@
-//! Tests for read_utils.rs extracted from doctests
+//! Tests for `read_utils.rs` extracted from doctests
 
 use bedrs::prelude::StrandedBed3;
 use bedrs::{Bed3, Coordinates, Strand};
@@ -406,9 +406,8 @@ fn test_set_read_id() -> Result<(), Error> {
         };
         match (count, read_id) {
             (0, "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575")
-            | (1, "a4f36092-b4d5-47a9-813e-c22c3b477a0c")
-            | (2, "fffffff1-10d2-49cb-8ca3-e8d48979001b")
-            | (3, "a4f36092-b4d5-47a9-813e-c22c3b477a0c") => {}
+            | (1 | 3, "a4f36092-b4d5-47a9-813e-c22c3b477a0c")
+            | (2, "fffffff1-10d2-49cb-8ca3-e8d48979001b") => {}
             _ => unreachable!(),
         }
     }
@@ -450,7 +449,7 @@ fn test_strand() -> Result<(), Error> {
         let curr_read = CurrRead::default().set_read_state(&r)?;
         let strand = curr_read.strand();
         match (count, strand) {
-            (0, '+') | (1, '+') | (2, '-') | (3, '.') => {}
+            (0 | 1, '+') | (2, '-') | (3, '.') => {}
             _ => unreachable!(),
         }
     }
@@ -522,9 +521,10 @@ fn test_seq_on_ref_coords_2() -> Result<(), Error> {
             match curr_read.seq_on_ref_coords(&r, &region) {
                 Err(Error::UnavailableData) => {}
                 Ok(v) => {
-                    if !expected_seq.contains(str::from_utf8(&v).expect("no error")) {
-                        panic!("unknown sequence")
-                    }
+                    assert!(
+                        expected_seq.contains(str::from_utf8(&v).expect("no error")),
+                        "unknown sequence"
+                    );
                     cnt += 1;
                 }
                 _ => panic!("erroneous outcome"),
@@ -582,15 +582,15 @@ fn test_seq_on_ref_coords_2_but_barcode() {
             match curr_read.seq_on_ref_coords(&r, &region) {
                 Err(Error::UnavailableData) => {}
                 Ok(v) => {
-                    if !expected_seqs
+                    if expected_seqs
                         .iter()
                         .any(|k| *k == str::from_utf8(&v).expect("no error"))
                     {
-                        panic!("unknown sequence {v:?}")
-                    } else {
                         let _ = cnt_individual
                             .entry(String::from_utf8(v).expect("string conversion error"))
                             .and_modify(|m| *m += 1);
+                    } else {
+                        panic!("unknown sequence {v:?}")
                     }
                 }
                 _ => panic!("erroneous outcome"),
@@ -601,7 +601,7 @@ fn test_seq_on_ref_coords_2_but_barcode() {
     // check that every entry in the list of possible sequences is visited at least once.
     // (we are not going to bother calculating the expected statistics of this count!)
     for k in cnt_individual.into_values() {
-        assert!(k >= 1)
+        assert!(k >= 1);
     }
 }
 
@@ -721,7 +721,7 @@ mod test_curr_read_align_and_mod_data {
         let tag = ModChar::new('m');
 
         let window_function = |mod_data: &[u8]| -> Result<F32Bw0and1, Error> {
-            let sum: f32 = mod_data.iter().map(|&x| x as f32).sum();
+            let sum: f32 = mod_data.iter().map(|&x| f32::from(x)).sum();
             let mean = sum / (mod_data.len() as f32);
             F32Bw0and1::new(mean / 256.0)
         };

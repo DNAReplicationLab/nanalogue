@@ -1,4 +1,4 @@
-//! ModChar struct for handling DNA modification tags
+//! `ModChar` struct for handling DNA modification tags
 //! Handles both letter and numeric modification codes from BAM files
 
 use crate::Error;
@@ -7,10 +7,10 @@ use std::fmt;
 use std::str::FromStr;
 
 /// Our struct to hold a modification tag.
-/// The BAM file format uses the syntax base+mod_code in its ML tag
+/// The BAM file format uses the syntax `base+mod_code` in its ML tag
 /// to show which modification is represented e.g. C+m, A+a, T+T, ...
-/// This can be a letter or a number e.g. T+472232 represents BrdU as that is its CheBI code.
-/// As we rely on a fibertools-rs data structure to store mod information (BaseMod),
+/// This can be a letter or a number e.g. T+472232 represents `BrdU` as that is its `CheBI` code.
+/// As we rely on a fibertools-rs data structure to store mod information (`BaseMod`),
 /// which uses a char datatype to represent the mod code, representing a one letter
 /// mod code is easy, but numbers need to be converted to char first.
 /// Fortunately, rust's char datatype is almost equivalent to u32, so we just
@@ -19,7 +19,7 @@ use std::str::FromStr;
 /// (as 97 is the ascii code of a),
 /// and the rust char datatype does not allow a set of u32s somewhere between 55000
 /// and 59000. We have chosen to live with this problem. I think the probability of
-/// having a DNA modification with a CheBI code overlapping with ASCII values or
+/// having a DNA modification with a `CheBI` code overlapping with ASCII values or
 /// within this narrow range of values near 59000 is very small.
 #[derive(Debug, Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ModChar(char);
@@ -33,6 +33,7 @@ impl Default for ModChar {
 
 impl ModChar {
     /// We initialize with a character
+    #[must_use]
     pub fn new(val: char) -> Self {
         ModChar(val)
     }
@@ -45,6 +46,7 @@ impl ModChar {
     ///     assert_eq!(x.val(), y);
     /// }
     /// ```
+    #[must_use]
     pub fn val(&self) -> char {
         self.0
     }
@@ -142,7 +144,7 @@ impl<'de> Deserialize<'de> for ModChar {
 mod tests {
     use super::*;
 
-    /// Tests if ModChar is displayed correctly
+    /// Tests if `ModChar` is displayed correctly
     #[test]
     fn test_display_mod_char() {
         assert_eq!(
@@ -159,35 +161,35 @@ mod tests {
         );
     }
 
-    /// Tests ModChar numeric conversion and edge cases
+    /// Tests `ModChar` numeric conversion and edge cases
     #[test]
     fn test_modchar_numeric_conversion() {
         // Test letter codes
         let mod_char = ModChar::from_str("m").expect("should parse");
         assert_eq!(mod_char.val(), 'm');
-        assert_eq!(format!("{}", mod_char), "m");
+        assert_eq!(format!("{mod_char}"), "m");
 
         let mod_char = ModChar::from_str("T").expect("should parse");
         assert_eq!(mod_char.val(), 'T');
-        assert_eq!(format!("{}", mod_char), "T");
+        assert_eq!(format!("{mod_char}"), "T");
 
         // Test small numeric codes
         let mod_char = ModChar::from_str("123").expect("should parse");
-        assert_eq!(format!("{}", mod_char), "123");
+        assert_eq!(format!("{mod_char}"), "123");
 
         // Test CheBI code for BrdU
         let mod_char = ModChar::from_str("472232").expect("should parse");
-        assert_eq!(format!("{}", mod_char), "472232");
+        assert_eq!(format!("{mod_char}"), "472232");
 
         // Test ASCII boundary - 97 is 'a'
         let mod_char = ModChar::from_str("97").expect("should parse");
         assert_eq!(mod_char.val(), 'a');
         // When the char value is in alphabet range, it displays as the letter, not the number
-        assert_eq!(format!("{}", mod_char), "a");
+        assert_eq!(format!("{mod_char}"), "a");
 
         // Test very large numbers that are valid unicode
         let mod_char = ModChar::from_str("65536").expect("should parse");
-        assert_eq!(format!("{}", mod_char), "65536");
+        assert_eq!(format!("{mod_char}"), "65536");
     }
 
     #[test]
@@ -208,20 +210,20 @@ mod tests {
         let _ = ModChar::from_str("#abc").unwrap();
     }
 
-    /// Tests ModChar display format consistency
+    /// Tests `ModChar` display format consistency
     #[test]
     fn test_modchar_display_consistency() {
         // Letters should display as letters
         for letter in ['a', 'b', 'z', 'A', 'B', 'Z'] {
             let mod_char = ModChar::new(letter);
-            assert_eq!(format!("{}", mod_char), letter.to_string());
+            assert_eq!(format!("{mod_char}"), letter.to_string());
         }
 
         // Numbers converted to char should display as their numeric value
         let test_numbers = vec![123, 456, 789, 472232];
         for num in test_numbers {
             let mod_char = ModChar::from_str(&num.to_string()).expect("should parse");
-            assert_eq!(format!("{}", mod_char), num.to_string());
+            assert_eq!(format!("{mod_char}"), num.to_string());
         }
     }
 }

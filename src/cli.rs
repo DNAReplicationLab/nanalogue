@@ -37,7 +37,7 @@ pub struct InputBam {
     /// Cannot be used together with --read-id.
     #[clap(long, conflicts_with = "read_id")]
     pub read_id_list: Option<String>,
-    /// Internal HashSet of read IDs loaded from read_id_list file.
+    /// Internal `HashSet` of read IDs loaded from `read_id_list` file.
     /// This is populated automatically and not exposed to users.
     #[clap(skip)]
     pub read_id_set: Option<HashSet<String>>,
@@ -54,9 +54,9 @@ pub struct InputBam {
     /// e.g. CIGAR strings.
     #[clap(long, default_value_t)]
     pub include_zero_len: bool,
-    /// Only retain reads of this type. Allowed types are primary_forward,
-    /// primary_reverse, secondary_forward, secondary_reverse, supplementary_forward,
-    /// supplementary_reverse and unmapped. Specify more than one type if needed
+    /// Only retain reads of this type. Allowed types are `primary_forward`,
+    /// `primary_reverse`, `secondary_forward`, `secondary_reverse`, `supplementary_forward`,
+    /// `supplementary_reverse` and unmapped. Specify more than one type if needed
     /// separated by commas, in which case reads of any type in list are retained.
     /// Defaults to retain reads of all types.
     #[clap(long)]
@@ -90,11 +90,11 @@ pub struct InputBam {
     pub full_region: bool,
 }
 
-/// Implements a default class for InputBAM
+/// Implements a default class for `InputBAM`
 impl Default for InputBam {
     fn default() -> Self {
         InputBam {
-            bam_path: "".to_string(),
+            bam_path: String::new(),
             min_seq_len: 0,
             min_align_len: None,
             read_id: None,
@@ -157,9 +157,9 @@ pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// modified tag
     #[clap(flatten)]
     pub tag: S,
-    /// modified strand, set this to bc or bc_comp, meaning
+    /// modified strand, set this to `bc` or `bc_comp`, meaning
     /// on basecalled strand or its complement. Some technologies
-    /// like PacBio or ONT duplex can call mod data on both a strand
+    /// like `PacBio` or `ONT` duplex can call mod data on both a strand
     /// and its complementary DNA and store it in the record corresponding
     /// to the strand, so you can use this filter to select only for
     /// mod data on a strand or its complement. Please note that this
@@ -195,7 +195,7 @@ pub struct InputMods<S: TagState + Args + FromArgMatches> {
     pub region_bed3: Option<Bed3<i32, u64>>,
 }
 
-/// Implements defaults for InputMods
+/// Implements defaults for `InputMods`
 impl Default for InputMods<OptionalTag> {
     fn default() -> Self {
         InputMods::<OptionalTag> {
@@ -293,9 +293,10 @@ impl<S: TagState + Args + FromArgMatches> InputRegionOptions for InputMods<S> {
     }
 }
 
-/// can return tag without encasing in an option in the RequiredTag variant
+/// can return tag without encasing in an option in the `RequiredTag` variant
 impl InputMods<RequiredTag> {
     /// retrieves tag
+    #[must_use]
     pub fn tag(&self) -> ModChar {
         self.tag.tag
     }
@@ -332,7 +333,7 @@ pub struct InputWindowing {
     pub step: NonZeroU32,
 }
 
-/// Implements a default for InputWindowing.
+/// Implements a default for `InputWindowing`.
 /// NOTE the defaults of 1 for each are just for ease of programming.
 /// We do not expose these defaults to the command-line user.
 impl Default for InputWindowing {

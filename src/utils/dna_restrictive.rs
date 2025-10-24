@@ -14,14 +14,15 @@ pub struct DNARestrictive(Vec<u8>);
 
 impl DNARestrictive {
     /// Returns a reference to the underlying DNA sequence bytes
+    #[must_use]
     pub fn get(&self) -> &[u8] {
         &self.0
     }
 }
 
-/// Trait that returns a DNARestrictive object
+/// Trait that returns a `DNARestrictive` object
 pub trait GetDNARestrictive {
-    /// Returns a DNARestrictive object
+    /// Returns a `DNARestrictive` object
     fn get_dna_restrictive(&self) -> &DNARestrictive;
 }
 
@@ -65,6 +66,7 @@ impl<'de> Deserialize<'de> for DNARestrictive {
 /// assert!(!is_valid_dna_restrictive("ACGTN"));
 /// assert!(!is_valid_dna_restrictive(""));
 /// ```
+#[must_use]
 pub fn is_valid_dna_restrictive(seq: &str) -> bool {
     (!seq.is_empty())
         && seq.bytes().all(|b| {
@@ -78,7 +80,7 @@ pub fn is_valid_dna_restrictive(seq: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// Tests DNARestrictive parsing with invalid barcode
+    /// Tests `DNARestrictive` parsing with invalid barcode
     #[test]
     #[should_panic(expected = "InvalidSeq")]
     fn test_dna_restrictive_invalid() {

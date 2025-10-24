@@ -1,4 +1,4 @@
-//! RestrictModCalledStrand struct for strand-specific modification filtering
+//! `RestrictModCalledStrand` struct for strand-specific modification filtering
 //! Controls whether to use modifications from basecalled or complement strand
 
 use crate::Error;
@@ -14,7 +14,7 @@ use std::str::FromStr;
 /// respectively. This denotes if mod data is from the basecalled
 /// strand or the complementary strand. To not confuse users of the
 /// command line interface, we allow creation of this from a string
-/// "bc" or "bc_comp" i.e. basecalled or basecalled complement instead
+/// "bc" or "`bc_comp`" i.e. basecalled or basecalled complement instead
 /// of "+" and "-", which may be mistaken for the alignment strand.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RestrictModCalledStrand(bool);
@@ -26,7 +26,7 @@ impl Default for RestrictModCalledStrand {
     }
 }
 
-/// Set states according to if we receive "bc" or "bc_comp"
+/// Set states according to if we receive "bc" or "`bc_comp`"
 ///
 /// ```
 /// use nanalogue_core::RestrictModCalledStrand;
@@ -38,7 +38,7 @@ impl Default for RestrictModCalledStrand {
 impl FromStr for RestrictModCalledStrand {
     type Err = Error;
 
-    /// Parse a string to create a RestrictModCalledStrand ("bc or "bc_comp")
+    /// Parse a string to create a `RestrictModCalledStrand` ("bc or "`bc_comp`")
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
         match val_str {
             "bc" => Ok(RestrictModCalledStrand(true)),
@@ -93,11 +93,11 @@ mod tests {
     #[test]
     fn test_restrict_mod_called_strand_basic() {
         let bc = RestrictModCalledStrand::from_str("bc").expect("should parse");
-        assert_eq!(format!("{}", bc), "+");
+        assert_eq!(format!("{bc}"), "+");
         assert_eq!(char::from(bc), '+');
 
         let bc_comp = RestrictModCalledStrand::from_str("bc_comp").expect("should parse");
-        assert_eq!(format!("{}", bc_comp), "-");
+        assert_eq!(format!("{bc_comp}"), "-");
         assert_eq!(char::from(bc_comp), '-');
     }
 

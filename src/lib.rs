@@ -61,7 +61,7 @@ pub use utils::{
     RestrictModCalledStrand, ThresholdState, is_valid_dna_restrictive,
 };
 
-/// Extracts mod information from BAM record to the Fibertools-rs BaseMods Struct.
+/// Extracts mod information from BAM record to the Fibertools-rs `BaseMods` Struct.
 ///
 /// We are copying and modifying code from the fibertools-rs repository
 /// (<https://github.com/fiberseq/fibertools-rs>) which is under the MIT license
@@ -177,7 +177,7 @@ where
             let mod_dists: Vec<usize> = mod_dists_str
                 .trim_end_matches(';')
                 .split(',')
-                .map(|s| s.trim())
+                .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(|s| s.parse().unwrap())
                 .collect();
@@ -187,7 +187,7 @@ where
             // rust_htslib will throw an error, so we don't have to check this.
             let base_qual: Vec<u8> = match (min_qual, record.is_reverse()) {
                 (0, _) => Vec::new(),
-                (_, true) => record.qual().iter().rev().cloned().collect(),
+                (_, true) => record.qual().iter().rev().copied().collect(),
                 (_, false) => record.qual().to_vec(),
             };
 
@@ -247,7 +247,7 @@ where
                         modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
                         modified_probabilities.push(0);
                     }
-                    dist_from_last_mod_base += 1
+                    dist_from_last_mod_base += 1;
                 }
             }
 
@@ -296,7 +296,7 @@ where
 }
 
 /// A global struct which contains BAM records for further usage.
-/// NOTE: we don't derive many traits here as the RcRecords object
+/// NOTE: we don't derive many traits here as the `RcRecords` object
 /// does not have many traits.
 ///
 /// ```
@@ -312,14 +312,14 @@ where
 /// ```
 #[derive(Debug)]
 pub struct BamRcRecords<'a> {
-    /// RcRecords object output by rust htslib which we can iterate over
+    /// `RcRecords` object output by rust htslib which we can iterate over
     pub rc_records: bam::RcRecords<'a, bam::Reader>,
     /// Header of the bam file
     pub header: bam::HeaderView,
 }
 
 impl<'a> BamRcRecords<'a> {
-    /// Extracts RcRecords from a BAM Reader
+    /// Extracts `RcRecords` from a BAM Reader
     pub fn new(
         bam_reader: &'a mut bam::Reader,
         bam_opts: &mut InputBam,
@@ -396,7 +396,7 @@ pub trait BamPreFilt {
     }
 }
 
-/// Trait that performs filtration on rust_htslib Record
+/// Trait that performs filtration on `rust_htslib` Record
 ///
 /// Filter in action below, 100 bp read passed with a 20 bp filter
 /// but fails with a 120 bp filter
@@ -968,7 +968,7 @@ mod bam_rc_record_tests {
 
         for i in 1..=1000 {
             let mut record = record::Record::new();
-            let read_id = format!("read{}", i);
+            let read_id = format!("read{i}");
             record.set_qname(read_id.as_bytes());
 
             if record.pre_filt(&bam_opts) {
@@ -1084,7 +1084,7 @@ mod bam_rc_record_tests {
 
             // First two for record
             let mut pos_nums = [four_nums[0], four_nums[1]];
-            pos_nums.sort();
+            pos_nums.sort_unstable();
             let start_pos = pos_nums[0];
             let end_pos = pos_nums[1];
 
@@ -1092,7 +1092,7 @@ mod bam_rc_record_tests {
             // from a set of two.
             let region_tid = if random::<bool>() { 0 } else { 1 };
             let mut region_nums = [four_nums[2], four_nums[3]];
-            region_nums.sort();
+            region_nums.sort_unstable();
             let region_start = region_nums[0];
             let region_end = region_nums[1];
             let bam_opts_no_full_region: InputBam = serde_json::from_str(

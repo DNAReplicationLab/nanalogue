@@ -136,8 +136,8 @@ enum FindModReadsCommands {
         #[clap(flatten)]
         mods: InputMods<RequiredTag>,
         /// only find reads such that all windowed density values are in these limits.
-        /// specify as low,high e.g. 0.2,0.7 so that the condition is that all windowed_values
-        /// satisfy low <= windowed_value <= high.
+        /// specify as low,high e.g. 0.2,0.7 so that the condition is that all `windowed_values`
+        /// satisfy low <= `windowed_value` <= high.
         #[clap(long)]
         dens_limits: OrdPair<F32Bw0and1>,
     },
@@ -256,7 +256,7 @@ fn main() -> Result<(), Error> {
 
     /// decides whether to display sequence from a region,
     /// the full basecalled sequence, or neither
-    /// Note: clap's conflicts_with ensures seq_region and seq_full are mutually exclusive
+    /// Note: clap's `conflicts_with` ensures `seq_region` and `seq_full` are mutually exclusive
     macro_rules! seq_display {
         ( $b : expr, $c : expr, $d : expr) => {
             match ($b, $c) {
@@ -433,8 +433,14 @@ fn main() -> Result<(), Error> {
                 mods,
                 analysis::threshold_and_mean,
                 |x| {
-                    x.iter().map(|r| r.val()).reduce(f32::max).unwrap_or(0.0)
-                        - x.iter().map(|r| r.val()).reduce(f32::min).unwrap_or(0.0)
+                    x.iter()
+                        .map(F32Bw0and1::val)
+                        .reduce(f32::max)
+                        .unwrap_or(0.0)
+                        - x.iter()
+                            .map(F32Bw0and1::val)
+                            .reduce(f32::min)
+                            .unwrap_or(0.0)
                         >= min_range.val()
                 },
             )
@@ -479,7 +485,7 @@ fn main() -> Result<(), Error> {
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 mods,
-                |x| analysis::threshold_and_mean(x).map(|y| y.into()),
+                |x| analysis::threshold_and_mean(x).map(Into::into),
             )
         }
         Commands::WindowGrad {

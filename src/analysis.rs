@@ -1,9 +1,14 @@
 //! # Analysis functions for modification data processing.
 //!
-//! Contains threshold_and_mean and threshold_and_gradient calculations.
+//! Contains `threshold_and_mean` and `threshold_and_gradient` calculations.
 use crate::{Contains, Error, F32AbsValAtMost1, F32Bw0and1, ThresholdState};
 
 /// Threshold and calculate mean modification density per window
+///
+/// # Errors
+///
+/// Returns `Error::EmptyWindow` if the input slice is empty,
+/// or error associated with F32Bw0and1 creation.
 ///
 /// # Examples
 ///
@@ -40,6 +45,12 @@ pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
 /// here is to use a simple method to calculate gradients and select
 /// interesting reads, we are o.k. with an approximate calculation.
 ///
+/// # Errors
+///
+/// Returns `Error::EmptyWindow` if the input slice is empty, or
+/// `Error::InsufficientDataSize` if the input slice has only one element, or
+/// an error associated with F32AbsValAtMost1 creation.
+///
 /// # Examples
 ///
 /// ```
@@ -61,7 +72,7 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error
         1 => Err(Error::InsufficientDataSize),
         v => Ok(v),
     }?;
-    let x_mean: f32 = (win_size as f32 + 1.0) / 2.0;
+    let x_mean: f32 = f32::midpoint(win_size as f32, 1.0);
     let numerator: f32 = mod_list
         .iter()
         .enumerate()
@@ -83,6 +94,12 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error
 ///
 /// This function calculates the mean modification density and returns an error if the
 /// mean is below the provided threshold value.
+///
+/// # Errors
+///
+/// Returns `Error::EmptyWindow` if the input slice is empty, or
+/// `Error::WindowDensBelowThres` if the calculated density is below the threshold, or
+/// error associated with F32Bw0and1 creation.
 ///
 /// # Examples
 ///

@@ -64,8 +64,7 @@ where
                         Ok(val) => val,
                         Err(e) => {
                             eprintln!(
-                                "Warning: Skipping window at {}:{}-{} due to error: {}",
-                                qname, window_idx, window_end_idx, e
+                                "Warning: Skipping window at {qname}:{window_idx}-{window_end_idx} due to error: {e}"
                             );
                             continue;
                         }
@@ -94,18 +93,7 @@ where
                         .unwrap_or(INVALID_REF_POS);
                     writeln!(
                         handle,
-                        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                        contig,
-                        ref_win_start,
-                        ref_win_end,
-                        qname,
-                        win_val,
-                        strand,
-                        base,
-                        mod_strand,
-                        mod_type,
-                        win_start,
-                        win_end
+                        "{contig}\t{ref_win_start}\t{ref_win_end}\t{qname}\t{win_val}\t{strand}\t{base}\t{mod_strand}\t{mod_type}\t{win_start}\t{win_end}"
                     )?;
                 }
             }
@@ -123,9 +111,9 @@ mod tests {
     use rust_htslib::bam::{self, Read};
     use std::rc::Rc;
 
-    /// Helper function to run window_reads tests with threshold_and_mean_and_thres_win
+    /// Helper function to run `window_reads` tests with `threshold_and_mean_and_thres_win`
     ///
-    /// This function encapsulates the common test setup and execution logic for window_reads tests
+    /// This function encapsulates the common test setup and execution logic for `window_reads` tests
     /// that use a threshold value for filtering.
     fn run_window_reads_test_with_threshold(
         threshold: Option<f32>,
@@ -144,14 +132,14 @@ mod tests {
             None => {
                 // Use threshold_and_mean when no threshold is specified
                 run(&mut output, bam_records, window_options, mods, |x| {
-                    threshold_and_mean(x).map(|y| y.into())
+                    threshold_and_mean(x).map(Into::into)
                 })?;
             }
             Some(thres_val) => {
                 // Use threshold_and_mean_and_thres_win with specified threshold
                 let threshold = F32Bw0and1::new(thres_val).unwrap();
                 run(&mut output, bam_records, window_options, mods, |x| {
-                    threshold_and_mean_and_thres_win(x, threshold).map(|y| y.into())
+                    threshold_and_mean_and_thres_win(x, threshold).map(Into::into)
                 })?;
             }
         }

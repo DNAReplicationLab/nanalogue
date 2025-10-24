@@ -22,13 +22,14 @@ where
     for k in bam_records {
         let record = k?;
 
-        match is_first_record_written.next().expect("no error") {
-            false => writeln!(handle)?,
-            true => writeln!(handle, ",")?,
+        if is_first_record_written.next().expect("no error") {
+            writeln!(handle, ",")?
+        } else {
+            writeln!(handle)?
         }
 
         let curr_read = CurrRead::try_from(record)?;
-        write!(handle, "{}", curr_read)?;
+        write!(handle, "{curr_read}")?;
     }
 
     writeln!(handle, "\n]")?;

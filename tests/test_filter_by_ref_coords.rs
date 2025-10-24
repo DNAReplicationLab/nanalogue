@@ -1,4 +1,4 @@
-//! Integration tests for FilterByRefCoords functionality
+//! Integration tests for `FilterByRefCoords` functionality
 //! Tests focus on filtering reads by reference coordinates
 
 use indoc::indoc;

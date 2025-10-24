@@ -10,31 +10,31 @@ use nanalogue_core::{
 use std::collections::HashSet;
 use std::num::NonZeroU32;
 
-/// Test struct that uses TagState default implementation
+/// Test struct that uses `TagState` default implementation
 #[derive(Debug, Default)]
 struct TestTagState;
 
 impl TagState for TestTagState {}
 
-/// Test struct that uses InputModOptions default implementation
+/// Test struct that uses `InputModOptions` default implementation
 #[derive(Debug, Default)]
 struct TestInputModOptions;
 
 impl InputModOptions for TestInputModOptions {}
 
-/// Test struct that uses InputRegionOptions default implementation
+/// Test struct that uses `InputRegionOptions` default implementation
 #[derive(Debug, Default)]
 struct TestInputRegionOptions;
 
 impl InputRegionOptions for TestInputRegionOptions {}
 
-/// Test struct that uses FilterByRefCoords default implementation
+/// Test struct that uses `FilterByRefCoords` default implementation
 #[derive(Debug, Default)]
 struct TestFilterByRefCoords;
 
 impl FilterByRefCoords for TestFilterByRefCoords {}
 
-/// Test struct that uses BamPreFilt default implementation
+/// Test struct that uses `BamPreFilt` default implementation
 #[derive(Debug, Default)]
 struct TestBamPreFilt;
 

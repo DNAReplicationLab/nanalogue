@@ -8,6 +8,10 @@ use rust_htslib::bam;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "sums can overflow but only if _huge_ amounts of data i.e. total sequence bp = (2^64-1)"
+)]
 fn get_stats_from_heap(
     mut input: BinaryHeap<u64>,
     total_length: u64,
@@ -26,8 +30,8 @@ fn get_stats_from_heap(
 
     while let Some(v) = input.pop() {
         if counter == 0 {
-            longest = v
-        };
+            longest = v;
+        }
 
         running_total_length += v;
 
@@ -35,14 +39,14 @@ fn get_stats_from_heap(
         // and a continuous distribution. If not, the answers can be slightly
         // different... for example, for the median, technically speaking,
         // if the number of reads is even, we are supposed to take the mean
-        // of the two reads in the middle of the pack. We don't do this as
+        // of the two lengths in the middle of the pack. We don't do this as
         // we assume lots of reads so there's no point in making such an accurate
         // calculation.
-        if median == 0 && counter > (heap_size / 2).saturating_sub(1) {
+        if median == 0 && counter > heap_size.div_ceil(2).saturating_sub(1) {
             median = v;
         }
 
-        if n50 == 0 && running_total_length > total_length / 2 {
+        if n50 == 0 && running_total_length > total_length.div_ceil(2) {
             n50 = v;
         }
 
@@ -63,6 +67,10 @@ fn get_stats_from_heap(
 
 /// Reads the input BAM file and prints statistics
 /// such as mean and median read lengths, N50s etc.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "sums can overflow but only if _huge_ amounts of data i.e. total sequence bp = (2^64-1)"
+)]
 pub fn run<W, D>(handle: &mut W, bam_records: D) -> Result<(), Error>
 where
     W: std::io::Write,
@@ -127,13 +135,13 @@ where
                 reversed_count += 1;
                 assign_align_len!();
             }
-        };
+        }
 
         // get length of alignment
         if let Ok(v) = curr_read.align_len() {
             align_len_total += v;
             align_len_heap.push(v);
-        };
+        }
 
         // get length of sequence.
         if let Ok(v) = curr_read.seq_len() {

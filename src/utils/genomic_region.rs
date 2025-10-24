@@ -1,4 +1,4 @@
-//! GenomicRegion struct for representing genomic coordinates
+//! `GenomicRegion` struct for representing genomic coordinates
 //! Handles parsing of genomic regions from standard string formats
 
 use super::ord_pair::OrdPair;
@@ -44,7 +44,7 @@ impl FromStr for GenomicRegion {
     type Err = Error;
 
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
-        let mut colon_split: Vec<&str> = val_str.split(":").collect();
+        let mut colon_split: Vec<&str> = val_str.split(':').collect();
         match colon_split.len() {
             0 => unreachable!(),
             1 => Ok(GenomicRegion((val_str.to_string(), None))),
@@ -78,9 +78,9 @@ impl GenomicRegion {
                 if let Some(contig_length) = header.target_len(u32::try_from(numeric_contig)?) {
                     if start >= contig_length {
                         let region_str = if end == u64::MAX {
-                            format!("{}:{}-", contig_name, start)
+                            format!("{contig_name}:{start}-")
                         } else {
-                            format!("{}:{}-{}", contig_name, start, end)
+                            format!("{contig_name}:{start}-{end}")
                         };
 
                         return Err(Error::InvalidRegionError {
@@ -92,7 +92,7 @@ impl GenomicRegion {
 
                     // Also check end coordinate for closed intervals
                     if end != u64::MAX && end > contig_length {
-                        let region_str = format!("{}:{}-{}", contig_name, start, end);
+                        let region_str = format!("{contig_name}:{start}-{end}");
                         return Err(Error::InvalidRegionError {
                             region: region_str,
                             pos: end,
@@ -119,7 +119,7 @@ mod tests {
     use indoc::indoc;
     use rust_htslib::bam;
 
-    /// Tests comprehensive GenomicRegion parsing
+    /// Tests comprehensive `GenomicRegion` parsing
     #[test]
     fn test_genomic_region_parsing() {
         // Simple contig name only
@@ -149,7 +149,7 @@ mod tests {
         assert_eq!(coords.get_high(), 789);
     }
 
-    /// Tests GenomicRegion parsing with open-ended support
+    /// Tests `GenomicRegion` parsing with open-ended support
     #[test]
     fn test_genomic_region_open_ended() {
         // Open-ended interval support
@@ -160,35 +160,35 @@ mod tests {
         assert_eq!(coords.get_high(), u64::MAX);
     }
 
-    /// Tests GenomicRegion parsing with wrong order coordinates
+    /// Tests `GenomicRegion` parsing with wrong order coordinates
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_wrong_order() {
         let _ = GenomicRegion::from_str("chr1:2000-1000").unwrap();
     }
 
-    /// Tests GenomicRegion parsing with equal start and end (strict inequality)
+    /// Tests `GenomicRegion` parsing with equal start and end (strict inequality)
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_equal_coordinates() {
         let _ = GenomicRegion::from_str("chr1:1000-1000").unwrap();
     }
 
-    /// Tests GenomicRegion parsing with invalid coordinate format
+    /// Tests `GenomicRegion` parsing with invalid coordinate format
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_invalid_coordinates() {
         let _ = GenomicRegion::from_str("chr1:abc-def").unwrap();
     }
 
-    /// Tests GenomicRegion parsing with invalid interval format (too many dashes)
+    /// Tests `GenomicRegion` parsing with invalid interval format (too many dashes)
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_too_many_dashes() {
         let _ = GenomicRegion::from_str("chr1:1000-2000-3000").unwrap();
     }
 
-    /// Tests GenomicRegion parsing with missing start coordinate
+    /// Tests `GenomicRegion` parsing with missing start coordinate
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_missing_start() {

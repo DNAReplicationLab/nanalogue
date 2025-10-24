@@ -1,6 +1,6 @@
-//! # ReadUtils
+//! # `ReadUtils`
 //!
-//! Implements CurrRead Struct for processing information retrieved from BAM files
+//! Implements `CurrRead` Struct for processing information retrieved from BAM files
 //! and the mod information in the BAM file using a parser implemented in
 //! another module.
 
@@ -22,19 +22,19 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Shows CurrRead has no data
+/// Shows `CurrRead` has no data
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct NoData;
 
-/// Shows CurrRead has only alignment data
+/// Shows `CurrRead` has only alignment data
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct OnlyAlignData;
 
-/// Shows CurrRead has only alignment data but with all fields filled
+/// Shows `CurrRead` has only alignment data but with all fields filled
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct OnlyAlignDataComplete;
 
-/// Shows CurrRead has alignment and modification data
+/// Shows `CurrRead` has alignment and modification data
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct AlignAndModData;
 
@@ -108,11 +108,11 @@ pub struct CurrRead<S: CurrReadState> {
     /// Base PHRED-quality threshold (no offset). Mods could have been filtered by this.
     mod_base_qual_thres: u8,
 
-    /// PhantomData marker for compiler's sake
+    /// `PhantomData` marker for compiler's sake
     marker: std::marker::PhantomData<S>,
 }
 
-/// Implements defaults for CurrRead
+/// Implements defaults for `CurrRead`
 impl Default for CurrRead<NoData> {
     fn default() -> Self {
         CurrRead::<NoData> {
@@ -305,9 +305,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set alignment length again!".to_string(),
             )),
-            None => match self.read_state() {
-                ReadState::Unmapped => Err(Error::Unmapped),
-                _ => {
+            None => {
+                if self.read_state() == ReadState::Unmapped {
+                    Err(Error::Unmapped)
+                } else {
                     // NOTE: right now, I don't know of a way to test the error below
                     // as rust htslib initializes an empty record with an alignment
                     // length of 1 (see the code below). This is only a note about
@@ -328,7 +329,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                         Err(Error::InvalidAlignLength)
                     }
                 }
-            },
+            }
         }?;
         Ok(self)
     }
@@ -560,6 +561,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// }
     /// # Ok::<(), Error>(())
     /// ```
+    #[must_use]
     pub fn strand(&self) -> char {
         match &self.state {
             ReadState::Unmapped => '.',
@@ -749,7 +751,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
 
 impl CurrRead<OnlyAlignDataComplete> {
     /// sets modification data using BAM record but with restrictions
-    /// applied by the InputMods options
+    /// applied by the `InputMods` options
     pub fn set_mod_data_restricted_options<S: InputModOptions + InputRegionOptions>(
         self,
         record: &Record,
@@ -783,7 +785,7 @@ impl CurrRead<OnlyAlignDataComplete> {
                 mod_options.base_qual_filter_mod(),
             )?;
             if let Some(v) = interval {
-                read.filter_by_ref_pos(i64::try_from(v.start)?, i64::try_from(v.end)?)
+                read.filter_by_ref_pos(i64::try_from(v.start)?, i64::try_from(v.end)?);
             }
             read
         })
@@ -792,6 +794,7 @@ impl CurrRead<OnlyAlignDataComplete> {
 
 impl CurrRead<AlignAndModData> {
     /// gets modification data
+    #[must_use]
     pub fn mod_data(&self) -> &(BaseMods, ThresholdState) {
         &self.mods
     }
@@ -909,7 +912,7 @@ where
 /// Implements display when mod data is available
 impl DisplayCondensedModData for CurrRead<AlignAndModData> {
     fn mod_data_section(&self) -> String {
-        let mut mod_count_str = String::from("");
+        let mut mod_count_str = String::new();
         let (BaseMods { base_mods: v }, w) = &self.mods;
         for k in v {
             mod_count_str += format!(
@@ -927,7 +930,7 @@ impl DisplayCondensedModData for CurrRead<AlignAndModData> {
             mod_count_str +=
                 format!("({}, PHRED base qual >= {})", w, self.mod_base_qual_thres).as_str();
         }
-        format!(",\n\t\"mod_count\": \"{}\"", mod_count_str)
+        format!(",\n\t\"mod_count\": \"{mod_count_str}\"")
     }
 }
 
@@ -937,7 +940,7 @@ where
     CurrRead<S>: DisplayCondensedModData,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut output_string = String::from("");
+        let mut output_string = String::new();
 
         if let Some(v) = &self.read_id {
             output_string = output_string + "\t\"read_id\": \"" + v + "\",\n";
@@ -974,7 +977,7 @@ where
     }
 }
 
-/// Converts CurrRead to StrandedBed3
+/// Converts `CurrRead` to `StrandedBed3`
 ///
 /// ```
 /// use bedrs::{Coordinates, Strand};
@@ -1028,7 +1031,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for Strand
     }
 }
 
-/// Convert a rust htslib record to our CurrRead struct.
+/// Convert a rust htslib record to our `CurrRead` struct.
 /// NOTE: This operation loads many types of data from the
 /// record and you may not be interested in all of them.
 /// So, unless you know for sure that you are dealing with
@@ -1063,7 +1066,7 @@ impl TryFrom<Rc<Record>> for CurrRead<AlignAndModData> {
     }
 }
 
-/// Implements filter by reference coordinates for our CurrRead
+/// Implements filter by reference coordinates for our `CurrRead`
 impl FilterByRefCoords for CurrRead<AlignAndModData> {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
@@ -1075,7 +1078,7 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
     }
 }
 
-/// Serialized representation of CurrRead with condensed JSON format
+/// Serialized representation of `CurrRead` with condensed JSON format
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 struct SerializedCurrRead {
@@ -1130,7 +1133,7 @@ struct ModTableEntry {
     mod_code: ModChar,
     /// Whether this modification data is implicit
     implicit: bool,
-    /// Modification data as [start, ref_start, qual] tuples
+    /// Modification data as [start, `ref_start`, qual] tuples
     data: Vec<(u64, i64, u8)>,
 }
 
@@ -1173,6 +1176,7 @@ impl SerializedCurrRead {
 }
 
 impl Serialize for CurrRead<AlignAndModData> {
+    #[allow(clippy::similar_names)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -1189,21 +1193,20 @@ impl TryFrom<CurrRead<AlignAndModData>> for SerializedCurrRead {
     fn try_from(curr_read: CurrRead<AlignAndModData>) -> Result<Self, Self::Error> {
         let alignment_type = curr_read.read_state();
 
-        let alignment = match curr_read.read_state() {
-            ReadState::Unmapped => None,
-            _ => {
-                let (contig_id, start) = curr_read.contig_id_and_start()?;
-                let align_len = curr_read.align_len()?;
-                let contig = curr_read.contig_name()?.to_string();
-                let end = start + align_len;
+        let alignment = if curr_read.read_state() == ReadState::Unmapped {
+            None
+        } else {
+            let (contig_id, start) = curr_read.contig_id_and_start()?;
+            let align_len = curr_read.align_len()?;
+            let contig = curr_read.contig_name()?.to_string();
+            let end = start + align_len;
 
-                Some(AlignmentInfo {
-                    start,
-                    end,
-                    contig,
-                    contig_id,
-                })
-            }
+            Some(AlignmentInfo {
+                start,
+                end,
+                contig,
+                contig_id,
+            })
         };
 
         let mod_table = condense_base_mods(&curr_read.mod_data().0)?;
@@ -1271,7 +1274,7 @@ impl TryFrom<SerializedCurrRead> for CurrRead<AlignAndModData> {
     }
 }
 
-/// Convert BaseMods to condensed mod_table format
+/// Convert `BaseMods` to condensed `mod_table` format
 fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error> {
     let mut mod_table = Vec::new();
 
@@ -1327,7 +1330,7 @@ fn validate_starts_sorting(starts: &[Option<i64>]) -> Result<(), Error> {
     Ok(())
 }
 
-/// Reconstruct BaseMods from condensed mod_table format
+/// Reconstruct `BaseMods` from condensed `mod_table` format
 fn reconstruct_base_mods(
     mod_table: &[ModTableEntry],
     alignment_type: ReadState,
@@ -1595,9 +1598,9 @@ mod test_serde {
 
     #[test]
     fn test_blank_json_record_roundtrip() -> Result<(), Error> {
-        let json_str = indoc! {r#"
+        let json_str = indoc! {r"
             {
-            }"#};
+            }"};
 
         // Deserialize JSON to CurrRead
         let curr_read: CurrRead<AlignAndModData> = serde_json::from_str(json_str)?;

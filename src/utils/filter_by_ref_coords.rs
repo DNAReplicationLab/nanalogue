@@ -1,4 +1,4 @@
-//! FilterByRefCoords trait for filtering by coordinates on the reference genome
+//! `FilterByRefCoords` trait for filtering by coordinates on the reference genome
 //! Provides interface for coordinate-based filtering operations
 
 use fibertools_rs::utils::bamranges::Ranges;

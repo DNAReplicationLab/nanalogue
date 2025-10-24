@@ -1,4 +1,4 @@
-//! ThresholdState enum for modification probability thresholds
+//! `ThresholdState` enum for modification probability thresholds
 //! Handles different threshold types for modification data filtering
 
 use super::contains::Contains;
@@ -142,7 +142,7 @@ mod tests {
         assert!(!threshold.contains(&99));
 
         // Test display; 100/255 is approx 0.3922
-        let display_str = format!("{}", threshold);
+        let display_str = format!("{threshold}");
         assert!(display_str.contains("probabilities >= 0.3922"));
     }
 
@@ -159,7 +159,7 @@ mod tests {
         assert!(threshold.contains(&250)); // outside range (above)
 
         // Test display
-        let display_str = format!("{}", threshold);
+        let display_str = format!("{threshold}");
         assert!(display_str.contains("probabilities <"));
         assert!(display_str.contains("or >"));
     }
@@ -179,7 +179,7 @@ mod tests {
         assert!(threshold.contains(&250)); // meets both conditions
 
         // Test display
-        let display_str = format!("{}", threshold);
+        let display_str = format!("{threshold}");
         assert!(display_str.contains("and"));
         assert!(display_str.contains("probabilities >="));
     }
@@ -205,7 +205,7 @@ mod tests {
         ];
 
         for threshold in thresholds {
-            let display_str = format!("{}", threshold);
+            let display_str = format!("{threshold}");
             assert!(display_str.contains("probabilities"));
             assert!(!display_str.is_empty());
         }

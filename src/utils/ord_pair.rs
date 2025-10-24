@@ -1,4 +1,4 @@
-//! OrdPair struct for ordered pairs with low <= high guarantee
+//! `OrdPair` struct for ordered pairs with low <= high guarantee
 //! Provides ordered pair datatype with validation and interval operations
 
 use super::contains::Contains;
@@ -69,7 +69,7 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
 
 impl OrdPair<u64> {
     /// Parse an interval string specifically for genomic regions.
-    /// Supports formats like "1000-2000" and "1000-" (where end defaults to u64::MAX).
+    /// Supports formats like "1000-2000" and "1000-" (where end defaults to `u64::MAX`).
     /// Enforces strict inequality (start < end).
     ///
     /// ```
@@ -153,7 +153,7 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> FromStr for Ord
                 ))
             };
         }
-        let v: Vec<&str> = val_str.split(",").map(|s| s.trim()).collect();
+        let v: Vec<&str> = val_str.split(',').map(str::trim).collect();
         match v.len() {
             2 => {
                 let Ok(low) = T::from_str(v[0]) else {
@@ -170,14 +170,14 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> FromStr for Ord
 }
 
 impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> From<OrdPair<T>> for RangeInclusive<T> {
-    /// Convert the OrdPair into a RangeInclusive i.e. (start..=end)
+    /// Convert the `OrdPair` into a `RangeInclusive` i.e. (start..=end)
     fn from(value: OrdPair<T>) -> Self {
         RangeInclusive::<T>::new(value.get_low(), value.get_high())
     }
 }
 
 impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> Contains<T> for OrdPair<T> {
-    /// Check if the provided value is within the Range of the OrdPair
+    /// Check if the provided value is within the Range of the `OrdPair`
     fn contains(&self, val: &T) -> bool {
         RangeInclusive::<T>::from(*self).contains(val)
     }
@@ -235,16 +235,16 @@ mod tests {
         let _ = OrdPair::<u8>::from_str("2,1").unwrap();
     }
 
-    /// Tests if OrdPair can be converted into a range
+    /// Tests if `OrdPair` can be converted into a range
     #[test]
     fn test_ord_pair_to_range() {
         assert_eq!(
             (3..=5),
             RangeInclusive::from(OrdPair::new(3, 5).expect("no failure"))
-        )
+        );
     }
 
-    /// Tests OrdPair::from_interval method for genomic intervals
+    /// Tests `OrdPair::from_interval` method for genomic intervals
     #[test]
     fn test_ord_pair_from_interval() {
         // Standard interval
@@ -325,10 +325,10 @@ mod tests {
     #[test]
     fn test_ord_pair_display() {
         let pair = OrdPair::new(10, 20).expect("should create");
-        assert_eq!(format!("{}", pair), "10, 20");
+        assert_eq!(format!("{pair}"), "10, 20");
 
         let float_pair = OrdPair::new(1.5, 2.5).expect("should create");
-        assert_eq!(format!("{}", float_pair), "1.5, 2.5");
+        assert_eq!(format!("{float_pair}"), "1.5, 2.5");
     }
 
     #[test]

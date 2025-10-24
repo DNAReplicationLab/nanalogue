@@ -87,7 +87,7 @@ pub enum Error {
     #[error("JSON parsing error: `{0}`")]
     JsonParseError(#[from] serde_json::Error),
 
-    /// OrdPair is an ordered pair, which can be obtained from
+    /// `OrdPair` is an ordered pair, which can be obtained from
     /// a string of the correct format. This error says string
     /// conversion failed.
     #[error("ordered pair conversion error: `{0}`")]
@@ -189,4 +189,8 @@ pub enum Error {
     /// Data is not of sufficient size (e.g. in a window)
     #[error("data is not of sufficient size (e.g. in a window)")]
     InsufficientDataSize,
+
+    /// Arithmetic error
+    #[error("unanticipated arithmetic error e.g. overflow")]
+    Arithmetic,
 }

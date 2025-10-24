@@ -1,4 +1,4 @@
-//! ReadStates struct for representing a collection of BAM alignment states
+//! `ReadStates` struct for representing a collection of BAM alignment states
 //! Handles conversion between string representation and BAM flags
 
 use crate::Error;
@@ -8,14 +8,14 @@ use std::str::FromStr;
 
 use super::read_state::ReadState;
 
-/// Implements a collection-of-states of ReadState
+/// Implements a collection-of-states of `ReadState`
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadStates(Vec<u16>);
 
 impl FromStr for ReadStates {
     type Err = Error;
 
-    /// converts a comma-separated list of read states to ReadStates
+    /// converts a comma-separated list of read states to `ReadStates`
     ///
     /// ```
     /// use nanalogue_core::{Error, ReadStates};
@@ -47,13 +47,14 @@ impl FromStr for ReadStates {
             }
             temp_states.into_iter().collect::<Vec<u16>>()
         };
-        states.sort();
+        states.sort_unstable();
         Ok(ReadStates(states))
     }
 }
 
 impl ReadStates {
     /// Returns the flags contained within
+    #[must_use]
     pub fn bam_flags(&self) -> &Vec<u16> {
         &self.0
     }

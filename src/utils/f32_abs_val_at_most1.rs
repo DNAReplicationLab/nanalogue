@@ -1,4 +1,4 @@
-//! F32AbsValAtMost1 struct for constrained float between -1 and 1
+//! `F32AbsValAtMost1` struct for constrained float between -1 and 1
 //! Ensures floating-point values are within valid range at construction
 
 use crate::Error;
@@ -51,6 +51,7 @@ impl F32AbsValAtMost1 {
     /// }
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
+    #[must_use]
     pub fn val(&self) -> f32 {
         self.0
     }
@@ -144,10 +145,10 @@ mod tests {
     #[test]
     fn test_f32_abs_val_at_most1_display() {
         let val = F32AbsValAtMost1::new(-0.5).expect("should create");
-        assert_eq!(format!("{}", val), "-0.5");
+        assert_eq!(format!("{val}"), "-0.5");
 
         let val = F32AbsValAtMost1::new(0.75).expect("should create");
-        assert_eq!(format!("{}", val), "0.75");
+        assert_eq!(format!("{val}"), "0.75");
     }
 
     #[test]

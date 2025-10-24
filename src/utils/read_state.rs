@@ -1,4 +1,4 @@
-//! ReadState enum for representing BAM alignment states
+//! `ReadState` enum for representing BAM alignment states
 //! Handles conversion between internal representation and BAM flags
 
 use crate::Error;
@@ -91,7 +91,7 @@ impl TryFrom<u16> for ReadState {
     }
 }
 
-/// Implements from string for ReadState
+/// Implements from string for `ReadState`
 ///
 /// ```
 /// use nanalogue_core::ReadState;
@@ -178,7 +178,7 @@ impl fmt::Display for ReadState {
 mod tests {
     use super::*;
 
-    /// Tests ReadState u16 conversion round-trip
+    /// Tests `ReadState` u16 conversion round-trip
     #[test]
     fn test_readstate_u16_conversion_roundtrip() {
         let states = vec![
@@ -200,7 +200,7 @@ mod tests {
         }
     }
 
-    /// Tests specific ReadState u16 flag values
+    /// Tests specific `ReadState` u16 flag values
     #[test]
     fn test_readstate_specific_flag_values() {
         assert_eq!(u16::from(ReadState::PrimaryFwd), 0);
@@ -212,7 +212,7 @@ mod tests {
         assert_eq!(u16::from(ReadState::SupplementaryRev), 2064);
     }
 
-    /// Tests ReadState from invalid u16 values
+    /// Tests `ReadState` from invalid u16 values
     #[test]
     fn test_readstate_invalid_u16_values() {
         // Test various invalid flag combinations
@@ -225,7 +225,7 @@ mod tests {
         }
     }
 
-    /// Tests ReadState string parsing and display consistency
+    /// Tests `ReadState` string parsing and display consistency
     #[test]
     fn test_readstate_string_consistency() {
         let states = vec![
@@ -239,27 +239,27 @@ mod tests {
         ];
 
         for state in states {
-            let string_repr = format!("{}", state);
+            let string_repr = format!("{state}");
             let parsed_state = ReadState::from_str(&string_repr).expect("should parse");
             assert_eq!(state, parsed_state);
         }
     }
 
-    /// Tests ReadState from_str with invalid state string
+    /// Tests `ReadState` `from_str` with invalid state string
     #[test]
     #[should_panic(expected = "UnknownAlignState")]
     fn test_readstate_from_str_invalid_state() {
         let _result: ReadState = ReadState::from_str("invalid_state").unwrap();
     }
 
-    /// Tests ReadState from_str with empty string
+    /// Tests `ReadState` `from_str` with empty string
     #[test]
     #[should_panic(expected = "UnknownAlignState")]
     fn test_readstate_from_str_empty_string() {
         let _result: ReadState = ReadState::from_str("").unwrap();
     }
 
-    /// Tests ReadState from_str with incomplete string
+    /// Tests `ReadState` `from_str` with incomplete string
     #[test]
     #[should_panic(expected = "UnknownAlignState")]
     fn test_readstate_from_str_incomplete_string() {

@@ -38,7 +38,7 @@ where
             v if !v.is_empty() => window_filter(&v),
             _ => false,
         } {
-            writeln!(handle, "{}", read_id)?;
+            writeln!(handle, "{read_id}")?;
         }
     }
 
@@ -54,7 +54,7 @@ mod tests {
     use rust_htslib::bam::Read as BamRead;
     use std::num::NonZeroU32;
 
-    /// Helper function that runs find_modified_reads with specified parameters
+    /// Helper function that runs `find_modified_reads` with specified parameters
     /// and returns the output as a vector of read IDs
     fn run_find_modified_reads_test<F, G>(
         bam_path: &str,
@@ -104,7 +104,7 @@ mod tests {
 
         // Parse output into vector of read IDs
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
-        let mut read_ids: Vec<String> = output_str.lines().map(|s| s.to_string()).collect();
+        let mut read_ids: Vec<String> = output_str.lines().map(ToString::to_string).collect();
         read_ids.sort();
 
         Ok(read_ids)
@@ -115,12 +115,12 @@ mod tests {
         if mod_data.is_empty() {
             return F32Bw0and1::new(0.0);
         }
-        let sum: f32 = mod_data.iter().map(|&x| x as f32).sum();
+        let sum: f32 = mod_data.iter().map(|&x| f32::from(x)).sum();
         let mean = sum / (mod_data.len() as f32);
         F32Bw0and1::new(mean / 255.0)
     }
 
-    /// Tests the find_modified_reads::run function with a simple filter
+    /// Tests the `find_modified_reads::run` function with a simple filter
     /// that looks for reads with average modification probabilities above a threshold
     #[test]
     fn test_find_modified_reads_basic() -> Result<(), Error> {
@@ -145,7 +145,7 @@ mod tests {
         Ok(())
     }
 
-    /// Tests find_modified_reads with a filter that rejects all reads
+    /// Tests `find_modified_reads` with a filter that rejects all reads
     #[test]
     fn test_find_modified_reads_reject_all() -> Result<(), Error> {
         // Filter that rejects everything
@@ -168,7 +168,7 @@ mod tests {
         Ok(())
     }
 
-    /// Tests find_modified_reads with a filter that accepts all reads
+    /// Tests `find_modified_reads` with a filter that accepts all reads
     #[test]
     fn test_find_modified_reads_accept_all() -> Result<(), Error> {
         // Filter that accepts everything with non-empty windows

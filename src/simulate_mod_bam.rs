@@ -105,7 +105,7 @@ pub struct ModConfig {
     /// repeating forever), you need to set this win array to
     /// [100, 200] and the mod range array to [[0.4, 0.6], [0.1, 0.2]]
     /// (Remembering to adjust the datatypes of the inputs suitably
-    /// i.e. use NonZeroU32 etc.)
+    /// i.e. use `NonZeroU32` etc.)
     /// NOTE: "bases" in the above description refer to bases of interest
     /// set in the base field i.e. 100 bases with base set to "T" mean
     /// 100 thymidines specifically.
@@ -221,7 +221,7 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
 ) -> (String, Vec<u8>) {
     let seq_bytes = seq.get_dna_restrictive().get();
     let mut total_mod_count: usize = 0;
-    let mut mm_str = String::from("");
+    let mut mm_str = String::new();
     for mod_config in mod_configs {
         let base = match mod_config.base {
             'A' => b'A',
@@ -239,7 +239,7 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
             let mut count: usize = 0;
             for z in seq_bytes {
                 if *z == base {
-                    count += 1
+                    count += 1;
                 }
             }
             count
@@ -382,7 +382,7 @@ pub fn generate_contigs_denovo<R: Rng>(
                 generate_random_dna_sequence(NonZeroU64::try_from(length).expect("no error"), rng);
             let seq_str = std::str::from_utf8(&seq_bytes).expect("valid DNA sequence");
             Contig {
-                name: format!("contig_{}", i),
+                name: format!("contig_{i}"),
                 seq: DNARestrictive::from_str(seq_str).expect("valid DNA sequence"),
             }
         })
@@ -438,7 +438,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
             let seq_str =
                 std::str::from_utf8(&contig_seq).expect("valid UTF-8 from repeated DNA sequence");
             Contig {
-                name: format!("contig_{}", i),
+                name: format!("contig_{i}"),
                 seq: DNARestrictive::from_str(seq_str)
                     .expect("valid DNA sequence from repeated pattern"),
             }
@@ -480,7 +480,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 )]
 pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
     contigs: &[S],
-    config: ReadConfig,
+    read_config: ReadConfig,
     read_group: &str,
     rng: &mut R,
 ) -> Result<Vec<bam::Record>, Error> {
@@ -490,7 +490,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 
     let mut reads = Vec::new();
 
-    for _ in 0..config.number.get() {
+    for _ in 0..read_config.number.get() {
         // Select a random contig
         let contig_idx = rng.random_range(0..contigs.len());
         let contig = &contigs[contig_idx];
@@ -504,9 +504,9 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
         }
 
         // Calculate read length as fraction of contig length
-        let read_len = (rng
-            .random_range(config.len_range.get_low().val()..=config.len_range.get_high().val())
-            * contig_len as f32)
+        let read_len = (rng.random_range(
+            read_config.len_range.get_low().val()..=read_config.len_range.get_high().val(),
+        ) * contig_len as f32)
             .trunc() as u64;
 
         // Ensure read length is at least 1
@@ -531,7 +531,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             )];
 
             // Add barcode if specified
-            match &config.barcode {
+            match &read_config.barcode {
                 Some(barcode) => {
                     let barcode_len = u32::try_from(barcode.get_dna_restrictive().get().len())
                         .expect("number conversion error");
@@ -553,13 +553,13 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 
         // Generate quality scores (for final read length including any adjustments like barcodes)
         let qual: Vec<u8> = (0..read_seq.len())
-            .map(|_| rng.random_range(RangeInclusive::from(config.base_qual_range)))
+            .map(|_| rng.random_range(RangeInclusive::from(read_config.base_qual_range)))
             .collect();
 
         // Generate modification information after reverse complementing sequence if needed
         let seq: DNARestrictive;
-        let (mm_data, ml_data) = generate_random_dna_modification(
-            &config.mods,
+        let (mod_prob_mm_tag, mod_pos_ml_tag) = generate_random_dna_modification(
+            &read_config.mods,
             match random_state {
                 ReadState::Unmapped
                 | ReadState::PrimaryFwd
@@ -585,27 +585,24 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             let qname = format!("{}.{}", read_group, Uuid::new_v4()).into_bytes();
             record.unset_flags();
             record.set_flags(u16::from(random_state));
-            match random_state {
-                ReadState::Unmapped => {
-                    record.set(&qname, None, &read_seq, &qual);
-                    record.set_mapq(255);
-                    record.set_tid(-1);
-                    record.set_pos(-1);
-                }
-                _ => {
-                    let mapq = rng.random_range(RangeInclusive::from(config.mapq_range));
-                    record.set(&qname, Some(&cigar), &read_seq, &qual);
-                    record.set_mapq(mapq);
-                    record.set_tid(i32::try_from(contig_idx).expect("number conversion error"));
-                    record.set_pos(i64::try_from(start_pos).expect("number conversion error"));
-                }
+            if random_state == ReadState::Unmapped {
+                record.set(&qname, None, &read_seq, &qual);
+                record.set_mapq(255);
+                record.set_tid(-1);
+                record.set_pos(-1);
+            } else {
+                let mapq = rng.random_range(RangeInclusive::from(read_config.mapq_range));
+                record.set(&qname, Some(&cigar), &read_seq, &qual);
+                record.set_mapq(mapq);
+                record.set_tid(i32::try_from(contig_idx).expect("number conversion error"));
+                record.set_pos(i64::try_from(start_pos).expect("number conversion error"));
             }
             record.set_mpos(-1);
             record.set_mtid(-1);
             record.push_aux(b"RG", Aux::String(read_group))?;
-            if !mm_data.is_empty() && !ml_data.is_empty() {
-                record.push_aux(b"MM", Aux::String(mm_data.as_str()))?;
-                record.push_aux(b"ML", Aux::ArrayU8((&ml_data).into()))?;
+            if !mod_prob_mm_tag.is_empty() && !mod_pos_ml_tag.is_empty() {
+                record.push_aux(b"MM", Aux::String(mod_prob_mm_tag.as_str()))?;
+                record.push_aux(b"ML", Aux::ArrayU8((&mod_pos_ml_tag).into()))?;
             }
             record
         };
@@ -715,11 +712,13 @@ impl TempBamSimulation {
     }
 
     /// Returns the path to the temporary BAM file
+    #[must_use]
     pub fn bam_path(&self) -> &str {
         &self.bam_path
     }
 
     /// Returns the path to the temporary FASTA file
+    #[must_use]
     pub fn fasta_path(&self) -> &str {
         &self.fasta_path
     }
@@ -762,7 +761,7 @@ mod tests {
         let contigs = generate_contigs_denovo(config.number, config.len_range, &mut rand::rng());
         assert_eq!(contigs.len(), 5);
         for (i, contig) in contigs.iter().enumerate() {
-            assert_eq!(contig.name, format!("contig_{}", i));
+            assert_eq!(contig.name, format!("contig_{i}"));
             assert!((100..=200).contains(&contig.get_dna_restrictive().get().len()));
             for base in contig.get_dna_restrictive().get() {
                 assert!([b'A', b'C', b'G', b'T'].contains(base));
@@ -846,7 +845,7 @@ mod tests {
         std::fs::remove_file(bai_path).unwrap();
     }
 
-    /// Tests TempBamSimulation struct functionality
+    /// Tests `TempBamSimulation` struct functionality
     #[test]
     fn test_temp_bam_simulation_struct() {
         let config_json = r#"{
@@ -879,7 +878,7 @@ mod tests {
         // Files will be automatically cleaned up when sim is dropped
     }
 
-    /// Tests add_barcode function with forward and reverse reads
+    /// Tests `add_barcode` function with forward and reverse reads
     #[test]
     fn test_add_barcode() {
         let read_seq = b"GGGGGGGG".to_vec();
@@ -944,7 +943,7 @@ mod tests {
 
         assert_eq!(contigs.len(), 10000);
         for (i, contig) in contigs.iter().enumerate() {
-            assert_eq!(contig.name, format!("contig_{}", i));
+            assert_eq!(contig.name, format!("contig_{i}"));
             let idx = match contig.get_dna_restrictive().get() {
                 b"ACGTACGTAC" => 0,
                 b"ACGTACGTACG" => 1,

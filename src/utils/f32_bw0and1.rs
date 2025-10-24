@@ -1,4 +1,4 @@
-//! F32Bw0and1 struct for constrained float between 0 and 1
+//! `F32Bw0and1` struct for constrained float between 0 and 1
 //! Ensures floating-point values are within valid range at construction
 
 use super::f32_abs_val_at_most1::F32AbsValAtMost1;
@@ -43,18 +43,22 @@ impl F32Bw0and1 {
     /// }
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
+    #[must_use]
     pub fn val(&self) -> f32 {
         self.0
     }
     /// Shortcut for 1.0
+    #[must_use]
     pub fn one() -> Self {
         F32Bw0and1::new(1.0).expect("no error")
     }
     /// Shortcut for 0.0
+    #[must_use]
     pub fn zero() -> Self {
         F32Bw0and1::new(0.0).expect("no error")
     }
-    /// Converts from F32AbsValAtMost1 using the absolute value
+    /// Converts from `F32AbsValAtMost1` using the absolute value
+    #[must_use]
     pub fn abs_f32_abs_val_at_most_1(val: F32AbsValAtMost1) -> Self {
         F32Bw0and1::new(f32::abs(val.val())).expect("no error")
     }
@@ -102,7 +106,7 @@ impl FromStr for F32Bw0and1 {
 impl From<u8> for F32Bw0and1 {
     /// Convert from a u8 i.e. a number >= 0 and <= 255
     fn from(value: u8) -> Self {
-        F32Bw0and1::new((value as f32) / (u8::MAX as f32)).expect("no F32 conversion error")
+        F32Bw0and1::new(f32::from(value) / f32::from(u8::MAX)).expect("no F32 conversion error")
     }
 }
 
@@ -189,7 +193,7 @@ mod tests {
         // Test exact calculation
         let test_val = 100u8;
         let converted = F32Bw0and1::from(test_val);
-        let expected = (test_val as f32) / (u8::MAX as f32);
+        let expected = f32::from(test_val) / f32::from(u8::MAX);
         assert_eq!(converted.val(), expected);
     }
 
@@ -257,9 +261,9 @@ mod tests {
     #[test]
     fn test_f32_bw0and1_display() {
         let val = F32Bw0and1::new(0.5).expect("should create");
-        assert_eq!(format!("{}", val), "0.5");
+        assert_eq!(format!("{val}"), "0.5");
 
         let val = F32Bw0and1::new(0.75).expect("should create");
-        assert_eq!(format!("{}", val), "0.75");
+        assert_eq!(format!("{val}"), "0.75");
     }
 }

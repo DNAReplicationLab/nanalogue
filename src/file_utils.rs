@@ -1,4 +1,4 @@
-//! # FileUtils
+//! # `FileUtils`
 //!
 //! Utility functions for file I/O operations with BAM and FASTA files.
 
@@ -12,6 +12,10 @@ use std::path::Path;
 ///
 /// The fibertools repo (<https://github.com/fiberseq/fibertools-rs>)
 /// is under the MIT license (please see their Cargo.toml).
+///
+/// # Errors
+///
+/// Returns an error if the BAM file cannot be opened or read.
 ///
 /// ```
 /// use nanalogue_core::{Error, file_utils::nanalogue_bam_reader};
@@ -35,6 +39,10 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 }
 
 /// Writes contigs to a FASTA file
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be created or written to.
 pub fn write_fasta<I, J>(contigs: I, output_path: &J) -> Result<(), Error>
 where
     I: IntoIterator<Item = (String, Vec<u8>)>,
@@ -53,6 +61,11 @@ where
 /// Although this function can be used for other tasks like subsetting
 /// BAM files, this is not advised as the history of the BAM file
 /// stored in its header would be lost as we are generating a new header here.
+///
+/// # Errors
+///
+/// Returns an error if the BAM file cannot be created or written to,
+/// if index creation fails, or if input reads are not sorted.
 pub fn write_bam_denovo<I, J, K, L, M>(
     reads: I,
     contigs: J,
@@ -107,10 +120,9 @@ where
             return Err(Error::InvalidSorting(
                 "reads input to write bam denovo have not been sorted properly".to_string(),
             ));
-        } else {
-            prev_read_key = curr_read_key;
-            writer.write(&read)?;
         }
+        prev_read_key = curr_read_key;
+        writer.write(&read)?;
     }
     drop(writer); // Close BAM file before creating index
 
