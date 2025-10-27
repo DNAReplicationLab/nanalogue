@@ -23,12 +23,12 @@ where
     F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
+    // constant to mark windows with basecalled coordinates but no reference coordinates.
+    const INVALID_REF_POS: i64 = -1;
+
     // Get windowing parameters
     let win_size: usize = window_options.win.get().try_into()?;
     let slide_size: usize = window_options.step.get().try_into()?;
-
-    // constant to mark windows with basecalled coordinates but no reference coordinates.
-    const INVALID_REF_POS: i64 = -1;
 
     // Go record by record in the BAM file,
     for r in bam_records {
@@ -57,14 +57,17 @@ where
             let base = base_mod.modified_base as char;
             let mod_strand = base_mod.strand;
             let mod_type = ModChar::new(base_mod.modification_type);
-            if win_size <= mod_data.len() {
-                for window_idx in (0..=mod_data.len() - win_size).step_by(slide_size) {
-                    let window_end_idx = window_idx + win_size;
-                    let win_val = match window_function(&mod_data[window_idx..window_end_idx]) {
+            if let Some(v) = mod_data.len().checked_sub(win_size) {
+                for window_idx in (0..=v).step_by(slide_size) {
+                    let win_val = match window_function(
+                        mod_data[window_idx..]
+                            .get(0..win_size)
+                            .expect("no error as we've checked data len >= win size"),
+                    ) {
                         Ok(val) => val,
                         Err(e) => {
                             eprintln!(
-                                "Warning: Skipping window at {qname}:{window_idx}-{window_end_idx} due to error: {e}"
+                                "Warning: Skipping {win_size} window starting at {qname}:{window_idx} due to error: {e}"
                             );
                             continue;
                         }
@@ -75,17 +78,26 @@ where
                     let win_start = starts[window_idx].ok_or_else(|| {
                         Error::InvalidState("Missing sequence start position".to_string())
                     })?;
-                    let win_end = ends[window_end_idx - 1].ok_or_else(|| {
-                        Error::InvalidState("Missing sequence end position".to_string())
-                    })?;
+                    let win_end = ends[window_idx..]
+                        .get(0..win_size)
+                        .expect("no error as we've checked data len >= win size")
+                        .last()
+                        .expect("no error as we've checked data len >= win size")
+                        .ok_or_else(|| {
+                            Error::InvalidState("Missing sequence end position".to_string())
+                        })?;
 
-                    let ref_win_start = ref_starts[window_idx..window_end_idx]
+                    let ref_win_start = ref_starts[window_idx..]
+                        .get(0..win_size)
+                        .expect("no error as we've checked data len >= win size")
                         .iter()
                         .flatten()
                         .min()
                         .copied()
                         .unwrap_or(INVALID_REF_POS);
-                    let ref_win_end = ref_ends[window_idx..window_end_idx]
+                    let ref_win_end = ref_ends[window_idx..]
+                        .get(0..win_size)
+                        .expect("no error as we've checked data len >= win size")
                         .iter()
                         .flatten()
                         .max()
@@ -109,7 +121,6 @@ mod tests {
     use crate::F32Bw0and1;
     use crate::analysis::{threshold_and_mean, threshold_and_mean_and_thres_win};
     use rust_htslib::bam::{self, Read};
-    use std::rc::Rc;
 
     /// Helper function to run `window_reads` tests with `threshold_and_mean_and_thres_win`
     ///

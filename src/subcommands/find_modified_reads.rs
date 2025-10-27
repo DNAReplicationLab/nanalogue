@@ -48,9 +48,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        InputMods, InputWindowing, ModChar, RequiredTag, ThresholdState, nanalogue_bam_reader,
-    };
+    use crate::{ModChar, ThresholdState, nanalogue_bam_reader};
     use rust_htslib::bam::Read as BamRead;
     use std::num::NonZeroU32;
 
@@ -113,11 +111,15 @@ mod tests {
     /// Helper function that computes the mean of modification probabilities
     fn mean_window_function(mod_data: &[u8]) -> Result<F32Bw0and1, Error> {
         if mod_data.is_empty() {
-            return F32Bw0and1::new(0.0);
+            Ok(F32Bw0and1::zero())
+        } else {
+            let sum: u64 = mod_data.iter().map(|&x| u64::from(x)).sum();
+            let mean: u8 = u8::try_from(
+                sum.checked_div(u64::try_from(mod_data.len())?)
+                    .expect("no error as we have checked len > 0"),
+            )?;
+            Ok(F32Bw0and1::from(mean))
         }
-        let sum: f32 = mod_data.iter().map(|&x| f32::from(x)).sum();
-        let mean = sum / (mod_data.len() as f32);
-        F32Bw0and1::new(mean / 255.0)
     }
 
     /// Tests the `find_modified_reads::run` function with a simple filter

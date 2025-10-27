@@ -117,7 +117,6 @@ mod tests {
     use super::*;
     use bedrs::Coordinates;
     use indoc::indoc;
-    use rust_htslib::bam;
 
     /// Tests comprehensive `GenomicRegion` parsing
     #[test]

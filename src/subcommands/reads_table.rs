@@ -12,7 +12,7 @@ use csv::ReaderBuilder;
 use itertools::join;
 use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt, fs::File, rc::Rc, str};
+use std::{collections::HashMap, fmt, fmt::Write, fs::File, rc::Rc, str};
 
 /// Write a vector as a CSV-formatted string
 macro_rules! vec_csv {
@@ -316,9 +316,10 @@ where
     // set up an output header string
     let mut output_header = String::new();
     if is_seq_summ_data {
-        output_header = output_header + "# seq summ file: " + seq_summ_path + "\n";
+        writeln!(output_header, "# seq summ file: {seq_summ_path}")?;
     }
-    output_header.push_str(&format!(
+    write!(
+        output_header,
         "{}read_id\talign_length\tsequence_length_template\talignment_type{}{}",
         match &mods {
             Some(_) => "# mod counts using probability threshold of 0.5\n",
@@ -332,7 +333,7 @@ where
             Some(_) => "\tsequence",
             None => "",
         },
-    ));
+    )?;
 
     // print the output header
     writeln!(handle, "{output_header}")?;

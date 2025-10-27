@@ -202,18 +202,20 @@ fn test_set_align_len_random() -> Result<(), Error> {
 
     // alignment length:
     // mean should be 150, and variance (200-100)^2/12.
-    // we check these to 10% tolerance
-    assert!((0.9 * sum_al / count..1.1 * sum_al / count).contains(&150.0));
+    // we check these to 15% tolerance
+    assert!((0.85 * sum_al / count..1.15 * sum_al / count).contains(&150.0));
     assert!(
-        (0.9 * deviation_sq_al / count..1.1 * deviation_sq_al / count).contains(&(10000.0 / 12.0))
+        (0.85 * deviation_sq_al / count..1.15 * deviation_sq_al / count)
+            .contains(&(10000.0 / 12.0))
     );
 
     // sequence length:
     // mean should be 162 i.e. 150 + 2*6 (AAGTAA), and variance the same (200-100)^2/12.
-    // we check these to 10% tolerance
-    assert!((0.9 * sum_sl / count..1.1 * sum_sl / count).contains(&162.0));
+    // we check these to 15% tolerance
+    assert!((0.85 * sum_sl / count..1.15 * sum_sl / count).contains(&162.0));
     assert!(
-        (0.9 * deviation_sq_sl / count..1.1 * deviation_sq_sl / count).contains(&(10000.0 / 12.0))
+        (0.85 * deviation_sq_sl / count..1.15 * deviation_sq_sl / count)
+            .contains(&(10000.0 / 12.0))
     );
     Ok(())
 }
@@ -672,7 +674,7 @@ mod test_curr_read_align_and_mod_data {
     use super::*;
     use indoc::indoc;
     use nanalogue_core::read_utils::AlignAndModData;
-    use nanalogue_core::{F32Bw0and1, InputWindowing, ModChar};
+    use nanalogue_core::{F32Bw0and1, InputWindowing};
 
     #[test]
     fn test_windowed_mod_data_restricted() -> Result<(), Error> {

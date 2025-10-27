@@ -7,7 +7,7 @@ license = "MIT"
 readme = "README.md"
 authors = ["Sathish Thiyagarajan <sathish.thiyagarajan@earlham.ac.uk>"]
 repository = "https://github.com/DNAReplicationLab/nanalogue.git"
-categories = ["Command line utilities", "Parsing tools", "Science"]
+categories = ["command-line-utilities", "science::bioinformatics::sequence-analysis", "science::bioinformatics::genomics"]
 keywords = ["modbam", "bam", "dna", "rna", "dna_methylation", "dna_mods", "rna_mods", "rna_methylation" ]
 
 [dependencies]
@@ -20,14 +20,15 @@ serde_json = "1.0"
 bio = "1.5.0"
 lazy_static = "1.4.0"
 regex = "1.11.1"
-log = "0.4.22"
 bio-types = "1.0.4"
 bedrs = { version = "0.2.26", features = [ "serde" ] }
 thiserror = "2.0.12"
 rand = "0.9.2"
 itertools = "0.14.0"
-indoc = "2.0.6"
 uuid = { version = "1.18.1", features = [ "v4" ] }
+
+[dev-dependencies]
+indoc = "2.0.6"
 
 [lib]
 name = "nanalogue_core" 
@@ -38,18 +39,29 @@ name = "nanalogue"
 path = "src/main.rs"
 
 [lints.clippy]
-pedantic = "deny"
+pedantic = { level = "deny", priority = -1 }
 cast_possible_truncation = "deny"
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
+arithmetic_side_effects = "deny"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+assertions_on_result_states = "deny"
 
 [lints.rust]
 missing_copy_implementations = "deny"
 missing_debug_implementations = "deny"
 missing_docs = "deny"
+redundant_imports = "deny"
+redundant_lifetimes = "deny"
+single_use_lifetimes = "deny"
 trivial_casts = "deny"
 trivial_numeric_casts = "deny"
+unit_bindings = "deny"
+unreachable_pub = "deny"
 unused_extern_crates = "deny"
 unused_import_braces = "deny"
+unused_lifetimes = "deny"
+unused_macro_rules = "deny"
 unused_qualifications = "deny"
 unused_results = "deny"

@@ -11,7 +11,7 @@ use fibertools_rs::utils::bamranges::Ranges;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use rust_htslib::{bam::ext::BamRecordExtensions, bam::record::Record};
 use std::collections::{HashMap, HashSet};
-use std::fmt;
+use std::fmt::{self, Write};
 use std::num::NonZeroU64;
 use std::rc::Rc;
 
@@ -324,7 +324,15 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                     let st: i64 = record.pos();
                     let en: i64 = record.reference_end();
                     if en > st && st >= 0 {
-                        Ok(Some((en - st).try_into()?))
+                        #[expect(
+                            clippy::arithmetic_side_effects,
+                            reason = "en>st && st>=0 guarantee no i64 overflows"
+                        )]
+                        Ok(Some(
+                            (en - st)
+                                .try_into()
+                                .expect("en>st && st>=0 guarantee no problems i64->u64"),
+                        ))
                     } else {
                         Err(Error::InvalidAlignLength)
                     }
@@ -632,12 +640,16 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         // We don't know how long the subset will be, we initialize with a guess
         // of 2 * interval size
         let seq = record.seq();
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "genomic coordinates far less than i64::MAX (2^63-1)"
+        )]
         let mut s: Vec<u8> =
             Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
 
         // we may have to trim the sequence if we hit a bunch of unaligned base
         // pairs right at the end e.g. a softclip.
-        let mut trim_end_bp = 0;
+        let mut trim_end_bp: u64 = 0;
 
         for w in record
             .aligned_pairs_full()
@@ -660,6 +672,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             //   as they must be combined into a 30-bp softclip i.e. 30S. So if the
             //   aligner produces such illogical states, then the sequences reported
             //   here may be erroneous.
+            #[expect(
+                clippy::arithmetic_side_effects,
+                reason = "coordinates far less than u64::MAX (2^64-1)"
+            )]
             match w {
                 [Some(x), Some(_)] => {
                     s.push(seq[usize::try_from(x)?]);
@@ -835,15 +851,20 @@ impl CurrRead<AlignAndModData> {
                     ranges: track,
                 } if *x == tag_char => {
                     let mod_data = &track.qual;
-                    if win_size > mod_data.len() {
-                        continue;
+                    if let Some(v) = mod_data.len().checked_sub(win_size) {
+                        result.extend(
+                            (0..=v)
+                                .step_by(slide_size)
+                                .map(|i| {
+                                    window_function(
+                                        mod_data[i..]
+                                            .get(0..win_size)
+                                            .expect("checked len>=win_size so no error"),
+                                    )
+                                })
+                                .collect::<Result<Vec<F32Bw0and1>, _>>()?,
+                        );
                     }
-                    result.extend(
-                        (0..=mod_data.len() - win_size)
-                            .step_by(slide_size)
-                            .map(|i| window_function(&mod_data[i..i + win_size]))
-                            .collect::<Result<Vec<F32Bw0and1>, _>>()?,
-                    );
                 }
                 _ => {}
             }
@@ -883,6 +904,10 @@ impl CurrRead<AlignAndModData> {
     pub fn base_count_per_mod(&self) -> Option<HashMap<ModChar, u32>> {
         let mut output = HashMap::<ModChar, u32>::new();
         let (BaseMods { base_mods: v }, _) = self.mod_data();
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "u32::MAX approx 4.2 Gb, v unlikely 1 molecule is this modified"
+        )]
         for k in v {
             let base_count = u32::try_from(k.ranges.qual.len()).expect("number conversion error");
             let _: &mut u32 = output
@@ -896,7 +921,7 @@ impl CurrRead<AlignAndModData> {
 
 /// To format and display modification data in a condensed manner.
 trait DisplayCondensedModData {
-    fn mod_data_section(&self) -> String;
+    fn mod_data_section(&self) -> Result<String, fmt::Error>;
 }
 
 /// No mod data means no display is produced
@@ -904,33 +929,36 @@ impl<S> DisplayCondensedModData for CurrRead<S>
 where
     S: CurrReadStateOnlyAlign + CurrReadState,
 {
-    fn mod_data_section(&self) -> String {
-        String::new()
+    fn mod_data_section(&self) -> Result<String, fmt::Error> {
+        Ok(String::new())
     }
 }
 
 /// Implements display when mod data is available
 impl DisplayCondensedModData for CurrRead<AlignAndModData> {
-    fn mod_data_section(&self) -> String {
+    fn mod_data_section(&self) -> Result<String, fmt::Error> {
         let mut mod_count_str = String::new();
         let (BaseMods { base_mods: v }, w) = &self.mods;
         for k in v {
-            mod_count_str += format!(
+            write!(
+                mod_count_str,
                 "{}{}{}:{};",
                 k.modified_base as char,
                 k.strand,
                 ModChar::new(k.modification_type),
                 k.ranges.qual.len()
-            )
-            .as_str();
+            )?;
         }
         if mod_count_str.is_empty() {
-            mod_count_str += "NA";
+            write!(mod_count_str, "NA")?;
         } else {
-            mod_count_str +=
-                format!("({}, PHRED base qual >= {})", w, self.mod_base_qual_thres).as_str();
+            write!(
+                mod_count_str,
+                "({}, PHRED base qual >= {})",
+                w, self.mod_base_qual_thres
+            )?;
         }
-        format!(",\n\t\"mod_count\": \"{mod_count_str}\"")
+        Ok(format!(",\n\t\"mod_count\": \"{mod_count_str}\""))
     }
 }
 
@@ -940,40 +968,43 @@ where
     CurrRead<S>: DisplayCondensedModData,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut output_string = String::new();
+        let mut output_string = String::from("{\n");
 
         if let Some(v) = &self.read_id {
-            output_string = output_string + "\t\"read_id\": \"" + v + "\",\n";
+            writeln!(output_string, "\t\"read_id\": \"{v}\",")?;
         }
 
         if let Some(v) = self.seq_len {
-            output_string = output_string + "\t\"sequence_length\": " + &v.to_string() + ",\n";
+            writeln!(output_string, "\t\"sequence_length\": {v},")?;
         }
 
         if let Some((v, w)) = self.contig_id_and_start {
             let num_str = &v.to_string();
-            output_string = output_string
-                + "\t\"contig\": \""
-                + if let Some(x) = &self.contig_name {
+            writeln!(
+                output_string,
+                "\t\"contig\": \"{}\",",
+                if let Some(x) = &self.contig_name {
                     x
                 } else {
                     num_str
                 }
-                + "\",\n";
-            output_string = output_string + "\t\"reference_start\": " + &w.to_string() + ",\n";
+            )?;
+            writeln!(output_string, "\t\"reference_start\": {w},")?;
             if let Some(x) = self.align_len {
-                output_string =
-                    output_string + "\t\"reference_end\": " + &(w + x).to_string() + ",\n";
-                output_string = output_string + "\t\"alignment_length\": " + &x.to_string() + ",\n";
+                writeln!(
+                    output_string,
+                    "\t\"reference_end\": {},",
+                    w.checked_add(x)
+                        .expect("numeric overflow in calculating reference_end")
+                )?;
+                writeln!(output_string, "\t\"alignment_length\": {x},")?;
             }
         }
 
-        output_string = output_string + "\t\"alignment_type\": \"" + &self.state.to_string() + "\"";
-
-        output_string += &self.mod_data_section();
-        output_string += "\n";
-
-        write!(f, "{{\n{output_string}}}")
+        write!(output_string, "\t\"alignment_type\": \"{}\"", self.state)?;
+        writeln!(output_string, "{}", &self.mod_data_section()?)?;
+        output_string.push('}');
+        output_string.fmt(f)
     }
 }
 
@@ -1008,6 +1039,10 @@ where
 impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for StrandedBed3<i32, u64> {
     type Error = Error;
 
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "u64 variables won't overflow with genomic coords (<2^64-1)"
+    )]
     fn try_from(value: &CurrRead<S>) -> Result<Self, Self::Error> {
         match (
             value.read_state(),
@@ -1177,14 +1212,13 @@ impl SerializedCurrRead {
 }
 
 impl Serialize for CurrRead<AlignAndModData> {
-    #[allow(clippy::similar_names)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let serialized: SerializedCurrRead =
+        let serialized_curr_read: SerializedCurrRead =
             self.clone().try_into().map_err(serde::ser::Error::custom)?;
-        serialized.serialize(serializer)
+        serialized_curr_read.serialize(serializer)
     }
 }
 
@@ -1194,6 +1228,10 @@ impl TryFrom<CurrRead<AlignAndModData>> for SerializedCurrRead {
     fn try_from(curr_read: CurrRead<AlignAndModData>) -> Result<Self, Self::Error> {
         let alignment_type = curr_read.read_state();
 
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "u64 variables won't overflow with genomic coords (<2^64-1)"
+        )]
         let alignment = if curr_read.read_state() == ReadState::Unmapped {
             None
         } else {
@@ -1252,7 +1290,13 @@ impl TryFrom<SerializedCurrRead> for CurrRead<AlignAndModData> {
         // Extract alignment information
         let (align_len, contig_id_and_start, contig_name) = match &serialized.alignment {
             Some(alignment) => {
-                let align_len = Some(alignment.end - alignment.start);
+                let align_len = {
+                    if let Some(v) = alignment.end.checked_sub(alignment.start) {
+                        Ok(Some(v))
+                    } else {
+                        Err(Error::InvalidAlignCoords)
+                    }
+                }?;
                 let contig_id_and_start = Some((alignment.contig_id, alignment.start));
                 let contig_name = Some(alignment.contig.clone());
                 (align_len, contig_id_and_start, contig_name)
@@ -1358,6 +1402,10 @@ fn reconstruct_base_mods(
         validate_starts_sorting(&starts)?;
 
         // Calculate ends: starts + 1 where available, None otherwise
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "overflow error impossible as genomic coords do not exceed (2^64-1)/2"
+        )]
         let ends: Vec<Option<i64>> = starts
             .iter()
             .map(|&start_opt| start_opt.map(|start| start + 1))
@@ -1428,7 +1476,6 @@ fn reconstruct_base_mods(
 #[cfg(test)]
 mod test_error_handling {
     use super::*;
-    use rust_htslib::bam::record::Record;
 
     #[test]
     fn test_set_read_state_not_implemented_error() {
@@ -1517,7 +1564,7 @@ mod test_error_handling {
 #[cfg(test)]
 mod test_serde {
     use super::*;
-    use crate::{ThresholdState, nanalogue_bam_reader};
+    use crate::nanalogue_bam_reader;
     use indoc::indoc;
     use rust_htslib::bam::Read;
 

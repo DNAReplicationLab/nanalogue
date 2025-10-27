@@ -23,9 +23,9 @@ where
         let record = k?;
 
         if is_first_record_written.next().expect("no error") {
-            writeln!(handle, ",")?
+            writeln!(handle, ",")?;
         } else {
-            writeln!(handle)?
+            writeln!(handle)?;
         }
 
         let curr_read = CurrRead::try_from(record)?;
@@ -42,9 +42,8 @@ where
 mod tests {
     use super::*;
     use crate::nanalogue_bam_reader;
-    use rust_htslib::bam::{self, Read};
+    use rust_htslib::bam::Read;
     use serde_json::Value;
-    use std::rc::Rc;
 
     #[test]
     fn test_run_with_example_2_zero_len() -> Result<(), Error> {

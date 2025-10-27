@@ -113,33 +113,33 @@ mod tests {
     #[test]
     fn test_f32_abs_val_at_most1_basic() {
         // Test boundary values
-        assert!(F32AbsValAtMost1::new(-1.0).is_ok());
-        assert!(F32AbsValAtMost1::new(1.0).is_ok());
-        assert!(F32AbsValAtMost1::new(0.0).is_ok());
+        let _ = F32AbsValAtMost1::new(-1.0).unwrap();
+        let _ = F32AbsValAtMost1::new(1.0).unwrap();
+        let _ = F32AbsValAtMost1::new(0.0).unwrap();
 
         // Test near-boundary values
-        assert!(F32AbsValAtMost1::new(-0.999_999).is_ok());
-        assert!(F32AbsValAtMost1::new(0.999_999).is_ok());
+        let _ = F32AbsValAtMost1::new(-0.999_999).unwrap();
+        let _ = F32AbsValAtMost1::new(0.999_999).unwrap();
 
         // Test outside boundaries
-        assert!(F32AbsValAtMost1::new(-1.000_001).is_err());
-        assert!(F32AbsValAtMost1::new(1.000_001).is_err());
+        let _ = F32AbsValAtMost1::new(-1.000_001).unwrap_err();
+        let _ = F32AbsValAtMost1::new(1.000_001).unwrap_err();
     }
 
     #[test]
     fn test_f32_abs_val_at_most1_from_str() {
         // Valid strings
-        assert!(F32AbsValAtMost1::from_str("-1.0").is_ok());
-        assert!(F32AbsValAtMost1::from_str("1.0").is_ok());
-        assert!(F32AbsValAtMost1::from_str("0.0").is_ok());
-        assert!(F32AbsValAtMost1::from_str("-0.5").is_ok());
-        assert!(F32AbsValAtMost1::from_str("0.5").is_ok());
+        let _ = F32AbsValAtMost1::from_str("-1.0").unwrap();
+        let _ = F32AbsValAtMost1::from_str("1.0").unwrap();
+        let _ = F32AbsValAtMost1::from_str("0.0").unwrap();
+        let _ = F32AbsValAtMost1::from_str("-0.5").unwrap();
+        let _ = F32AbsValAtMost1::from_str("0.5").unwrap();
 
         // Invalid strings
-        assert!(F32AbsValAtMost1::from_str("-1.1").is_err());
-        assert!(F32AbsValAtMost1::from_str("1.1").is_err());
-        assert!(F32AbsValAtMost1::from_str("abc").is_err());
-        assert!(F32AbsValAtMost1::from_str("").is_err());
+        let _ = F32AbsValAtMost1::from_str("-1.1").unwrap_err();
+        let _ = F32AbsValAtMost1::from_str("1.1").unwrap_err();
+        let _ = F32AbsValAtMost1::from_str("abc").unwrap_err();
+        let _ = F32AbsValAtMost1::from_str("").unwrap_err();
     }
 
     #[test]
@@ -152,6 +152,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact compare ok as (1) very few significant digits, and (2) no arithmetic"
+    )]
     fn test_f32_abs_val_at_most1_val() {
         for test_val in [0.0, 0.1, -0.7, 1.0, -1.0] {
             let val = F32AbsValAtMost1::new(test_val).expect("should create");

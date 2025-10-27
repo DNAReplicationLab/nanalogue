@@ -148,6 +148,10 @@ mod tests {
     use super::*;
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "divide-by-four unlikely to give floating point errors"
+    )]
     fn test_threshold_and_mean_no_modified() {
         // Test with no modified bases (values < 128)
         let mod_data = [0, 50, 100, 127];
@@ -156,6 +160,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "divide-by-four unlikely to give floating point errors"
+    )]
     fn test_threshold_and_mean_half_modified() {
         // Test with half modified bases
         let mod_data = [100, 128, 50, 200];
@@ -164,11 +172,15 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "divide-by-five unlikely to give floating point errors"
+    )]
     fn test_threshold_and_gradient_decreasing() {
         // Test with decreasing modification pattern
         // For [200, 128, 0, 0]: x_mean = 2.5, modified positions are 1,2
         // numerator = (1-2.5) + (2-2.5) = -1.5 + (-0.5) = -2.0
-        // denominator = same as above = 5.0
+        // denominator = (1-2.5)^2 + (2-2.5)^2 + (3-2.5)^2 + (4-2.5)^2 = 5.0
         // gradient = -2.0 / 5.0 = -0.4
         let mod_data = [200, 128, 0, 0];
         let result = threshold_and_gradient(&mod_data).unwrap();
@@ -176,10 +188,15 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "divide-by-five unlikely to give floating point errors"
+    )]
     fn test_threshold_and_gradient_alternating() {
         // Test with alternating pattern
         // For [128, 0, 128, 0]: modified positions are 1,3
         // numerator = (1-2.5) + (3-2.5) = -1.5 + 0.5 = -1.0
+        // denominator = (1-2.5)^2 + (2-2.5)^2 + (3-2.5)^2 + (4-2.5)^2 = 5.0
         // gradient = -1.0 / 5.0 = -0.2
         let mod_data = [128, 0, 128, 0];
         let result = threshold_and_gradient(&mod_data).unwrap();
@@ -187,6 +204,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "divide-by-four unlikely to give floating point errors"
+    )]
     fn test_threshold_and_mean_and_thres_win_above_threshold() {
         // Test with density above threshold
         let mod_data = [0, 128, 200, 255];
@@ -196,6 +217,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "divide-by-four unlikely to give floating point errors"
+    )]
     fn test_threshold_and_mean_and_thres_win_equal_threshold() {
         // Test with density equal to threshold
         let mod_data = [0, 0, 128, 128];

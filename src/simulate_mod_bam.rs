@@ -42,6 +42,7 @@ use rand::{Rng, random};
 use rust_htslib::bam;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
 use serde::{Deserialize, Serialize};
+use std::iter;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::RangeInclusive;
 use std::path::Path;
@@ -220,8 +221,11 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
     rng: &mut R,
 ) -> (String, Vec<u8>) {
     let seq_bytes = seq.get_dna_restrictive().get();
-    let mut total_mod_count: usize = 0;
     let mut mm_str = String::new();
+
+    // rough estimate of capacity below
+    let mut ml_vec: Vec<u8> = Vec::with_capacity(seq_bytes.len());
+
     for mod_config in mod_configs {
         let base = match mod_config.base {
             'A' => b'A',
@@ -236,13 +240,11 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
         let mut count = if base == b'N' {
             seq_bytes.len()
         } else {
-            let mut count: usize = 0;
-            for z in seq_bytes {
-                if *z == base {
-                    count += 1;
-                }
-            }
-            count
+            seq_bytes
+                .iter()
+                .zip(iter::repeat(&base))
+                .filter(|(a, b)| a == b)
+                .count()
         };
         let mut output: Vec<u8> = Vec::with_capacity(count);
         for k in mod_config
@@ -253,19 +255,28 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
         {
             let low = u8::from(k.1.get_low());
             let high = u8::from(k.1.get_high());
-            for _ in 0..k.0.get() {
-                output.push(rng.random_range(low..=high));
-                count -= 1;
-                total_mod_count += 1;
-                if count == 0 {
-                    break;
-                }
-            }
+            #[expect(
+                clippy::redundant_else,
+                reason = "so that the clippy arithmetic lint fits better with the code"
+            )]
+            #[expect(
+                clippy::arithmetic_side_effects,
+                reason = "we loop only if count > 0 and catch count == 0, thus count doesn't underflow"
+            )]
             if count == 0 {
                 break;
+            } else {
+                for _ in 0..k.0.get() {
+                    output.push(rng.random_range(low..=high));
+                    count -= 1;
+                    if count == 0 {
+                        break;
+                    }
+                }
             }
         }
         if !output.is_empty() {
+            ml_vec.append(&mut vec![0; output.len()]);
             mm_str += format!(
                 "{}{}{}?,{};",
                 base as char,
@@ -276,7 +287,8 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
             .as_str();
         }
     }
-    (mm_str, vec![0; total_mod_count])
+    ml_vec.shrink_to_fit();
+    (mm_str, ml_vec)
 }
 
 /// Generates random DNA sequence of given length
@@ -496,20 +508,22 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
         let contig = &contigs[contig_idx];
         let contig_len = contig.get_dna_restrictive().get().len() as u64;
 
-        // Skip if contig is empty
-        if contig_len == 0 {
-            return Err(Error::InvalidState(
-                "Cannot generate reads from empty contig; increase contig size".into(),
-            ));
-        }
-
         // Calculate read length as fraction of contig length
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "u64->f32 causes precision loss but we are fine with this for now"
+        )]
+        #[expect(
+            clippy::cast_sign_loss,
+            reason = "these are positive numbers so no problem"
+        )]
         let read_len = (rng.random_range(
             read_config.len_range.get_low().val()..=read_config.len_range.get_high().val(),
         ) * contig_len as f32)
-            .trunc() as u64;
+            .trunc()
+            .clamp(0.0, (contig_len as f32).trunc()) as u64;
 
-        // Ensure read length is at least 1
+        // Ensure read length is at least 1; this also checks if contig_len is non-zero
         if read_len == 0 {
             return Err(Error::InvalidState(
                 "Read length calculated as 0; increase len_range or contig size".into(),
@@ -521,7 +535,8 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 
         // Extract sequence from contig
         let random_state: ReadState = random();
-        let end_pos = usize::try_from(start_pos + read_len).expect("number conversion error");
+        let end_pos = usize::try_from(start_pos.checked_add(read_len).expect("u64 overflow"))
+            .expect("number conversion error");
         let (read_seq, cigar) = {
             let temp_seq = contig.get_dna_restrictive().get()
                 [usize::try_from(start_pos).expect("number conversion error")..end_pos]
@@ -737,7 +752,6 @@ impl Drop for TempBamSimulation {
 mod tests {
     use super::*;
     use rust_htslib::bam::Read;
-    use std::path::Path;
 
     /// Test for generation of random DNA of a given length
     #[test]

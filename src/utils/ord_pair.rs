@@ -4,7 +4,6 @@
 use super::contains::Contains;
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use std::convert::From;
 use std::fmt;
 use std::fmt::Debug;
 use std::ops::RangeInclusive;
@@ -194,9 +193,13 @@ impl<T: Clone + Copy + Debug + fmt::Display + PartialEq + PartialOrd> fmt::Displ
 mod tests {
     use super::*;
 
-    /// Tests if our Ordered Pair struct can be correctly obtained from strings
+    /// Tests if our Ordered Pair struct (of f32s) can be correctly obtained from strings
     #[test]
-    fn test_ord_pair_from_str() {
+    #[expect(
+        clippy::float_cmp,
+        reason = "we expect perfect float conversion for the two examples below"
+    )]
+    fn test_ord_pair_from_str_f32() {
         assert_eq!(
             OrdPair::<f32>::from_str("1.0,2.0")
                 .expect("no failure")
@@ -209,6 +212,11 @@ mod tests {
                 .get_high(),
             2.0
         );
+    }
+
+    /// Tests if our Ordered Pair struct (of u8s) can be correctly obtained from strings
+    #[test]
+    fn test_ord_pair_from_str_u8() {
         assert_eq!(
             OrdPair::<u8>::from_str("1, 2")
                 .expect("no failure")

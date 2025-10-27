@@ -18,7 +18,6 @@ use rand::random;
 use regex::Regex;
 use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions, bam::record::Aux, tpool};
 use std::collections::HashSet;
-use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -127,11 +126,11 @@ where
             Regex::new(r"((([ACGTUN])([-+])([A-Za-z]+|[0-9]+)([.?]?))((,[0-9]+)*;)*)").unwrap();
     }
     // Array to store all the different modifications within the MM tag
-    let mut rtn = vec![];
+    let mut rtn: Vec<BaseMod> = Vec::new();
 
-    let ml_tag = get_u8_tag(record, b"ML");
+    let ml_tag: Vec<u8> = get_u8_tag(record, b"ML");
 
-    let mut num_mods_seen = 0;
+    let mut num_mods_seen: usize = 0;
 
     // if there is an MM tag iterate over all the regex matches
     if let Ok(Aux::String(mm_text)) = record.aux(b"MM") {
@@ -191,18 +190,32 @@ where
             let mut dist_from_last_mod_base: usize = 0;
 
             // declare vectors with an approximate with_capacity
-            let mod_data_len_approx = if is_implicit {
-                // In implicit mode, there may be any number of bases
-                // after the MM data is over, which must be assumed as unmodified.
-                // So we cannot know the exact length of the data before actually
-                // parsing it, and this is just a lower bound of the length.
-                mod_dists.len() + mod_dists.iter().sum::<usize>()
-            } else {
-                mod_dists.len()
+            let (mut modified_positions, mut modified_probabilities) = {
+                #[expect(
+                    clippy::arithmetic_side_effects,
+                    reason = "in rare chance of overflow, vectors are initially missized but will be resized anyway \
+as they are populated. This will result in a small performance hit but we are ok as this will probably never happen \
+when usize is 64-bit as genomic sequences are not that long"
+                )]
+                let mod_data_len_approx = if is_implicit {
+                    // In implicit mode, there may be any number of bases
+                    // after the MM data is over, which must be assumed as unmodified.
+                    // So we cannot know the exact length of the data before actually
+                    // parsing it, and this is just a lower bound of the length.
+                    mod_dists.len() + mod_dists.iter().sum::<usize>()
+                } else {
+                    mod_dists.len()
+                };
+                (
+                    Vec::<i64>::with_capacity(mod_data_len_approx),
+                    Vec::<u8>::with_capacity(mod_data_len_approx),
+                )
             };
-            let mut modified_positions: Vec<i64> = Vec::with_capacity(mod_data_len_approx);
-            let mut modified_probabilities: Vec<u8> = Vec::with_capacity(mod_data_len_approx);
 
+            #[expect(
+                clippy::arithmetic_side_effects,
+                reason = "one counter is checked for overflow and the other is incremented only when below a ceiling"
+            )]
             for (cur_seq_idx, &_) in forward_bases
                 .iter()
                 .enumerate()
@@ -211,8 +224,8 @@ where
                 if cur_mod_idx < mod_dists.len()
                     && dist_from_last_mod_base == mod_dists[cur_mod_idx]
                 {
-                    let prob = ml_tag
-                        .get(cur_mod_idx + num_mods_seen)
+                    let prob = ml_tag[cur_mod_idx..]
+                        .get(num_mods_seen)
                         .ok_or(Error::InvalidModProbs)?;
                     if filter_mod_prob(prob)
                         && filter_mod_pos(&cur_seq_idx)
@@ -223,6 +236,10 @@ where
                     }
                     dist_from_last_mod_base = 0;
                     cur_mod_idx += 1;
+                } else if cur_mod_idx < mod_dists.len()
+                    && dist_from_last_mod_base > mod_dists[cur_mod_idx]
+                {
+                    return Err(Error::InvalidModCoords);
                 } else {
                     if is_include_zero_prob
                         && is_implicit
@@ -237,7 +254,9 @@ where
             }
 
             if cur_mod_idx == mod_dists.len() {
-                num_mods_seen += cur_mod_idx;
+                num_mods_seen = num_mods_seen
+                    .checked_add(cur_mod_idx)
+                    .ok_or(Error::Arithmetic)?;
             } else {
                 return Err(Error::InvalidModCoords);
             }
@@ -257,27 +276,27 @@ where
         }
     }
 
-    if num_mods_seen != ml_tag.len() {
-        return Err(Error::InvalidModProbs);
-    }
+    if num_mods_seen == ml_tag.len() {
+        // needed so I can compare methods
+        rtn.sort();
 
-    // needed so I can compare methods
-    rtn.sort();
-
-    // Check for duplicate strand, modification_type combinations
-    let mut seen_combinations = HashSet::new();
-    for base_mod in &rtn {
-        let combination = (base_mod.strand, base_mod.modification_type);
-        if seen_combinations.contains(&combination) {
-            return Err(Error::InvalidDuplicates(format!(
-                "Duplicate strand '{}' and modification_type '{}' combination found",
-                base_mod.strand, base_mod.modification_type
-            )));
+        // Check for duplicate strand, modification_type combinations
+        let mut seen_combinations = HashSet::new();
+        for base_mod in &rtn {
+            let combination = (base_mod.strand, base_mod.modification_type);
+            if seen_combinations.contains(&combination) {
+                return Err(Error::InvalidDuplicates(format!(
+                    "Duplicate strand '{}' and modification_type '{}' combination found",
+                    base_mod.strand, base_mod.modification_type
+                )));
+            }
+            let _ = seen_combinations.insert(combination);
         }
-        let _ = seen_combinations.insert(combination);
-    }
 
-    Ok(BaseMods { base_mods: rtn })
+        Ok(BaseMods { base_mods: rtn })
+    } else {
+        Err(Error::InvalidModProbs)
+    }
 }
 
 /// A global struct which contains BAM records for further usage.
@@ -471,7 +490,16 @@ impl BamPreFilt for bam::Record {
     }
     /// filtration by alignment length
     fn filt_by_align_len(&self, min_align_len: i64) -> bool {
-        !self.is_unmapped() && (self.reference_end() - self.pos() >= min_align_len)
+        !self.is_unmapped() && {
+            let ref_end = self.reference_end();
+            let ref_start = self.pos();
+            ref_end >= ref_start
+                && ref_start >= 0
+                && ref_end
+                    .checked_sub(ref_start)
+                    .expect("ref_end >= ref_start so overflow is impossible")
+                    >= min_align_len
+        }
     }
     /// filtration by read id
     fn filt_by_read_id(&self, read_id: &str) -> bool {
@@ -526,8 +554,6 @@ impl BamPreFilt for bam::Record {
 mod mod_parse_tests {
     use super::*;
     use fibertools_rs::utils::bamranges::Ranges;
-    use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
-    use rust_htslib::bam::Read;
 
     /// Tests if Mod BAM modification parsing is alright,
     /// some of the test cases here may be a repeat of the doctest above.
@@ -753,7 +779,6 @@ mod mod_parse_tests {
 #[cfg(test)]
 mod zero_length_filtering_tests {
     use super::*;
-    use rust_htslib::bam::Read;
 
     #[test]
     fn test_zero_length_filtering_with_example_2_zero_len_sam() -> Result<(), Error> {
@@ -802,7 +827,7 @@ mod invalid_seq_length_tests {
         let mut cnt = 0;
         for record_result in reader.records() {
             cnt += 1;
-            assert!(record_result.is_err());
+            let _ = record_result.unwrap_err();
         }
         assert_eq!(cnt, 1);
     }
@@ -811,8 +836,6 @@ mod invalid_seq_length_tests {
 #[cfg(test)]
 mod base_qual_filtering_tests {
     use super::*;
-    use fibertools_rs::utils::basemods::BaseMods;
-    use rust_htslib::bam::Read;
 
     #[test]
     fn test_base_qual_filtering_with_example_5_valid_basequal_sam() -> Result<(), Error> {
@@ -1114,7 +1137,6 @@ mod bam_rc_record_tests {
             record.set_pos(i64::try_from(start_pos).unwrap());
 
             // Verify reference_end calculation
-            use rust_htslib::bam::ext::BamRecordExtensions;
             let expected_ref_end = i64::try_from(start_pos + seq_len).unwrap();
             assert_eq!(record.reference_end(), expected_ref_end);
 

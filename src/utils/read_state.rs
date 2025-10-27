@@ -5,7 +5,6 @@ use crate::Error;
 use rand::Rng;
 use rand::distr::{Distribution, StandardUniform};
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 

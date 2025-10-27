@@ -4,7 +4,6 @@
 use super::f32_abs_val_at_most1::F32AbsValAtMost1;
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use std::convert::From;
 use std::fmt;
 use std::str::FromStr;
 
@@ -116,6 +115,7 @@ impl From<F32Bw0and1> for u8 {
         clippy::cast_possible_truncation,
         reason = "float to non-negative int involves loss, we limit this with round()"
     )]
+    #[expect(clippy::cast_sign_loss, reason = "these are positive numbers")]
     fn from(value: F32Bw0and1) -> Self {
         (value.val() * 255.0).round() as u8
     }
@@ -142,33 +142,37 @@ mod tests {
     #[test]
     fn test_f32_bw0and1_basic() {
         // Test boundary values
-        assert!(F32Bw0and1::new(0.0).is_ok());
-        assert!(F32Bw0and1::new(1.0).is_ok());
+        let _ = F32Bw0and1::new(0.0).unwrap();
+        let _ = F32Bw0and1::new(1.0).unwrap();
 
         // Test near-boundary values
-        assert!(F32Bw0and1::new(0.000_001).is_ok());
-        assert!(F32Bw0and1::new(0.999_999).is_ok());
+        let _ = F32Bw0and1::new(0.000_001).unwrap();
+        let _ = F32Bw0and1::new(0.999_999).unwrap();
 
         // Test outside boundaries
-        assert!(F32Bw0and1::new(-0.000_001).is_err());
-        assert!(F32Bw0and1::new(1.000_001).is_err());
+        let _ = F32Bw0and1::new(-0.000_001).unwrap_err();
+        let _ = F32Bw0and1::new(1.000_001).unwrap_err();
     }
 
     #[test]
     fn test_f32_bw0and1_from_str() {
         // Valid strings
-        assert!(F32Bw0and1::from_str("0.0").is_ok());
-        assert!(F32Bw0and1::from_str("1.0").is_ok());
-        assert!(F32Bw0and1::from_str("0.5").is_ok());
+        let _ = F32Bw0and1::from_str("0.0").unwrap();
+        let _ = F32Bw0and1::from_str("1.0").unwrap();
+        let _ = F32Bw0and1::from_str("0.5").unwrap();
 
         // Invalid strings
-        assert!(F32Bw0and1::from_str("-0.1").is_err());
-        assert!(F32Bw0and1::from_str("1.1").is_err());
-        assert!(F32Bw0and1::from_str("abc").is_err());
-        assert!(F32Bw0and1::from_str("").is_err());
+        let _ = F32Bw0and1::from_str("-0.1").unwrap_err();
+        let _ = F32Bw0and1::from_str("1.1").unwrap_err();
+        let _ = F32Bw0and1::from_str("abc").unwrap_err();
+        let _ = F32Bw0and1::from_str("").unwrap_err();
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "0.0, 1.0 generated without computation, so can compare"
+    )]
     fn test_f32_bw0and1_shortcuts() {
         let zero = F32Bw0and1::zero();
         assert_eq!(zero.val(), 0.0);
@@ -178,6 +182,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::float_cmp, reason = "comparing exactly is ok for 0 and 1")]
     fn test_f32_bw0and1_from_u8() {
         // Test boundary values
         let zero = F32Bw0and1::from(0u8);
@@ -188,13 +193,14 @@ mod tests {
 
         // Test some intermediate values
         let half = F32Bw0and1::from(128u8);
-        assert!(half.val() > 0.49 && half.val() < 0.51);
+        // 128/255 is approx 0.5020
+        assert_eq!(format!("{:.4}", half.val()), "0.5020");
 
         // Test exact calculation
         let test_val = 100u8;
         let converted = F32Bw0and1::from(test_val);
-        let expected = f32::from(test_val) / f32::from(u8::MAX);
-        assert_eq!(converted.val(), expected);
+        // 100/255 is approx 0.3922
+        assert_eq!(format!("{:.4}", converted.val()), "0.3922");
     }
 
     #[test]
@@ -239,6 +245,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "conversion to abs values shouldn't result in floating point problems"
+    )]
     fn test_f32_types_integration() {
         // Test conversion from F32Bw0and1 to F32AbsValAtMost1
         let pos_values = vec![0.0, 0.25, 0.5, 0.75, 1.0];

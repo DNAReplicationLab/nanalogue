@@ -7,9 +7,7 @@
 //! error handling in our package becomes easier.
 
 use crate::F32Bw0and1;
-use csv;
-use rust_htslib;
-use serde_json;
+use std::fmt;
 use std::io;
 use std::num::{ParseFloatError, ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
@@ -108,6 +106,10 @@ pub enum Error {
     /// Generic Input-Output error
     #[error("input output error: `{0}`")]
     InputOutputError(#[from] io::Error),
+
+    /// Generic formatting error
+    #[error("formatting error: `{0}`")]
+    FormattingError(#[from] fmt::Error),
 
     /// Problem reading or parsing CSV files
     #[error("error parsing csv: `{0}`")]

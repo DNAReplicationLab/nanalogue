@@ -15,7 +15,7 @@ use std::rc::Rc;
 fn get_stats_from_heap(
     mut input: BinaryHeap<u64>,
     total_length: u64,
-) -> Result<(u64, f32, u64, u64, u64, u64), Error> {
+) -> Result<(u64, u64, u64, u64, u64, u64), Error> {
     // process heaps to get statistics
     let mut counter: u64 = 0;
     let mut longest: u64 = 0;
@@ -57,10 +57,9 @@ fn get_stats_from_heap(
 
     assert_eq!(running_total_length, total_length);
 
-    let mean = match counter {
-        0 => 0.0,
-        v => (total_length as f32) / (v as f32 * 1.0),
-    };
+    // This should be a floating point number, but in any reasonable dataset
+    // we will not need a precision < 1 bp.
+    let mean = total_length.checked_div(counter).unwrap_or(0u64);
 
     Ok((counter, mean, longest, shortest, median, n50))
 }
@@ -180,8 +179,7 @@ where
 mod tests {
     use super::*;
     use indoc::indoc;
-    use rust_htslib::bam::{self, Read};
-    use std::rc::Rc;
+    use rust_htslib::bam::Read;
 
     #[test]
     fn test_read_stats_example_3() -> Result<(), Error> {
@@ -202,12 +200,12 @@ mod tests {
         n_supplementary_alignments\t2
         n_unmapped_reads\t0
         n_reversed_reads\t3
-        align_len_mean\t12.6
+        align_len_mean\t12
         align_len_max\t20
         align_len_min\t6
         align_len_median\t12
         align_len_n50\t15
-        seq_len_mean\t12.6
+        seq_len_mean\t12
         seq_len_max\t20
         seq_len_min\t6
         seq_len_median\t12

@@ -57,8 +57,8 @@ impl FilterByRefCoords for Ranges {
                 }
             }
             (
-                last_invalid_window.map_or(0, |x| x + 1),
-                last_valid_window.map_or(0, |x| x + 1),
+                last_invalid_window.map_or(0, |x| x.checked_add(1).expect("overflow error")),
+                last_valid_window.map_or(0, |x| x.checked_add(1).expect("overflow error")),
             )
         };
 
