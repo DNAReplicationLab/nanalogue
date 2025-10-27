@@ -13,13 +13,13 @@ use bio::alphabets::dna::revcomp;
 use bio_types::sequence::SequenceRead;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use fibertools_rs::utils::bio_io::{convert_seq_uppercase, get_u8_tag};
-use lazy_static::lazy_static;
 use rand::random;
 use regex::Regex;
 use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions, bam::record::Aux, tpool};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::sync::LazyLock;
 
 // Declare the modules.
 pub mod analysis;
@@ -107,6 +107,7 @@ pub use utils::{
 /// }
 /// # Ok::<(), Error>(())
 /// ```
+#[expect(clippy::too_many_lines, reason = "Complex BAM MM/ML tag parsing logic")]
 pub fn nanalogue_mm_ml_parser<F, G, H>(
     record: &bam::Record,
     filter_mod_prob: F,
@@ -119,12 +120,10 @@ where
     G: Fn(&usize) -> bool,
     H: Fn(&u8, &char, &ModChar) -> bool,
 {
-    // regex for matching the MM tag
-    lazy_static! {
-        // MM:Z:([ACGTUN][-+]([A-Za-z]+|[0-9]+)[.?]?(,[0-9]+)*;)*
-        static ref MM_RE: Regex =
-            Regex::new(r"((([ACGTUN])([-+])([A-Za-z]+|[0-9]+)([.?]?))((,[0-9]+)*;)*)").unwrap();
-    }
+    // Regular expression for matching modification data in the MM tag
+    static MM_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"((([ACGTUN])([-+])([A-Za-z]+|[0-9]+)([.?]?))((,[0-9]+)*;)*)").unwrap()
+    });
     // Array to store all the different modifications within the MM tag
     let mut rtn: Vec<BaseMod> = Vec::new();
 
@@ -558,6 +557,7 @@ mod mod_parse_tests {
     /// Tests if Mod BAM modification parsing is alright,
     /// some of the test cases here may be a repeat of the doctest above.
     #[test]
+    #[expect(clippy::too_many_lines, reason = "Comprehensive integration test")]
     fn test_mod_bam_parsing_from_example_1_bam() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
@@ -696,7 +696,7 @@ mod mod_parse_tests {
         Ok(())
     }
 
-    fn create_test_record_and_parse(mm_value: &str, ml_values: Vec<u8>) -> Result<BaseMods, Error> {
+    fn create_test_record_and_parse(mm_value: &str, ml_values: &[u8]) -> Result<BaseMods, Error> {
         let mut record = bam::Record::new();
 
         // Create a sequence - ATCG repeated
@@ -728,7 +728,7 @@ mod mod_parse_tests {
         // Two T+ modifications with same strand and modification_type
         let mm_value = "T+T,0,3;T+T,1,2;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
-        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, &ml_values).unwrap();
     }
 
     #[test]
@@ -736,7 +736,7 @@ mod mod_parse_tests {
         // T+, C+, T- (all different combinations)
         let mm_value = "T+T,0,3;C+m,0,1;T-T,1,2;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8, 120u8, 140u8]);
-        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, &ml_values).unwrap();
     }
 
     #[test]
@@ -745,7 +745,7 @@ mod mod_parse_tests {
         // Invalid coordinates: seq does not have 11 As (4 + 1 + 5 + 1)
         let mm_value = "T+T,0,3;A-T,4,5;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
-        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, &ml_values).unwrap();
     }
 
     #[test]
@@ -754,7 +754,7 @@ mod mod_parse_tests {
         // Invalid coords: there aren't 11 C in the sequence
         let mm_value = "T+T,0,3;C+m,4,5;T-T,1,2;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8, 120u8, 140u8]);
-        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, &ml_values).unwrap();
     }
 
     #[test]
@@ -763,7 +763,7 @@ mod mod_parse_tests {
         // ML tag has more values than modifications in MM tag
         let mm_value = "T+T,0,3;"; // 2 modifications
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]); // 4 values - too many!
-        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, &ml_values).unwrap();
     }
 
     #[test]
@@ -772,7 +772,7 @@ mod mod_parse_tests {
         // ML tag has fewer values than modifications in MM tag
         let mm_value = "T+T,0,3;"; // 2 modifications
         let ml_values = Vec::from([100u8]); // 1 value - too few!
-        let _: BaseMods = create_test_record_and_parse(mm_value, ml_values).unwrap();
+        let _: BaseMods = create_test_record_and_parse(mm_value, &ml_values).unwrap();
     }
 }
 

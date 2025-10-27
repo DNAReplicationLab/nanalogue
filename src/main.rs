@@ -223,6 +223,10 @@ enum FindModReadsCommands {
     },
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Main function with comprehensive CLI command routing"
+)]
 fn main() -> Result<(), Error> {
     let cli = Cli::parse();
 
@@ -247,7 +251,7 @@ fn main() -> Result<(), Error> {
         ( $b : expr, $c : expr, $d : expr) => {
             match ($b, $c) {
                 (None, false) => None,
-                (Some(v), false) => Some(v.try_to_bed3($d)?),
+                (Some(v), false) => Some(v.try_to_bed3(&$d)?),
                 (None, true) => Some(Bed3::<i32, u64>::empty()),
                 (Some(_), true) => unreachable!("clap prevents seq_region and seq_full together"),
             }
@@ -317,7 +321,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
-                mods,
+                &mods,
                 analysis::threshold_and_mean,
                 |x| {
                     x.iter()
@@ -341,7 +345,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
-                mods,
+                &mods,
                 analysis::threshold_and_mean,
                 |x| {
                     x.iter()
@@ -365,7 +369,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
-                mods,
+                &mods,
                 analysis::threshold_and_mean,
                 |x| {
                     x.iter()
@@ -391,7 +395,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
-                mods,
+                &mods,
                 analysis::threshold_and_mean,
                 |x| {
                     x.iter()
@@ -416,7 +420,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
-                mods,
+                &mods,
                 analysis::threshold_and_mean,
                 |x| {
                     x.iter()
@@ -447,7 +451,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
-                mods,
+                &mods,
                 |x| {
                     Ok(F32Bw0and1::abs_f32_abs_val_at_most_1(
                         analysis::threshold_and_gradient(x)?,
@@ -470,7 +474,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
-                mods,
+                &mods,
                 |x| analysis::threshold_and_mean(x).map(Into::into),
             )
         }
@@ -485,7 +489,7 @@ fn main() -> Result<(), Error> {
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 win,
-                mods,
+                &mods,
                 analysis::threshold_and_gradient,
             )
         }

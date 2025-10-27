@@ -62,7 +62,7 @@ impl FromStr for GenomicRegion {
 /// Converts genomic region from genomic string representation to bed3 representation
 impl GenomicRegion {
     /// converts genomic region from genomic string representation to bed3 representation
-    pub fn try_to_bed3(self, header: bam::HeaderView) -> Result<Bed3<i32, u64>, Error> {
+    pub fn try_to_bed3(self, header: &bam::HeaderView) -> Result<Bed3<i32, u64>, Error> {
         let region_bed = {
             let GenomicRegion((contig_name, coords)) = &self;
             let numeric_contig: i32 = header
@@ -233,7 +233,7 @@ mod tests {
 
         // Test region with coordinates
         let region = GenomicRegion::from_str("chr1:1000-2000").expect("should parse");
-        let bed3 = region.try_to_bed3(header).expect("should convert to bed3");
+        let bed3 = region.try_to_bed3(&header).expect("should convert to bed3");
 
         // Verify the BED3 record
         assert_eq!(*bed3.chr(), 0); // chr1 should be the first chromosome (index 0)
@@ -249,7 +249,7 @@ mod tests {
 
         // Test region without coordinates (should use full chromosome)
         let region = GenomicRegion::from_str("chr2").expect("should parse");
-        let bed3 = region.try_to_bed3(header).expect("should convert to bed3");
+        let bed3 = region.try_to_bed3(&header).expect("should convert to bed3");
 
         // Verify the BED3 record
         assert_eq!(*bed3.chr(), 1); // chr2 should be the second chromosome (index 1)
@@ -267,7 +267,7 @@ mod tests {
         let region = GenomicRegion::from_str("chr1:300000000-400000000").expect("should parse");
 
         // This should panic with InvalidRegionError
-        let _ = region.try_to_bed3(header).unwrap();
+        let _ = region.try_to_bed3(&header).unwrap();
     }
 
     /// Tests error case when contig doesn't exist in the header
@@ -280,7 +280,7 @@ mod tests {
         let region = GenomicRegion::from_str("nonexistent_contig:1000-2000").expect("should parse");
 
         // This should panic with InvalidAlignCoords error
-        let _ = region.try_to_bed3(header).unwrap();
+        let _ = region.try_to_bed3(&header).unwrap();
     }
 
     /// Tests conversion of an open-ended region to BED3 format
@@ -292,7 +292,7 @@ mod tests {
         let region = GenomicRegion::from_str("chr1:1000-").expect("should parse");
 
         // Convert to BED3
-        let bed3 = region.try_to_bed3(header).expect("should convert to bed3");
+        let bed3 = region.try_to_bed3(&header).expect("should convert to bed3");
 
         // Verify the BED3 record
         assert_eq!(*bed3.chr(), 0);

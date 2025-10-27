@@ -14,7 +14,7 @@ pub fn run<W, F, G, D>(
     handle: &mut W,
     bam_records: D,
     window_options: InputWindowing,
-    mod_options: InputMods<RequiredTag>,
+    mod_options: &InputMods<RequiredTag>,
     window_function: F,
     window_filter: G,
 ) -> Result<(), Error>
@@ -32,7 +32,7 @@ where
         let read_id = String::from(curr_read_state.read_id()?);
         // apply our windowing function and then the windowing filter
         if match curr_read_state
-            .set_mod_data_restricted_options(&record, &mod_options)?
+            .set_mod_data_restricted_options(&record, mod_options)?
             .windowed_mod_data_restricted(&window_function, window_options, mod_options.tag())?
         {
             v if !v.is_empty() => window_filter(&v),
@@ -95,7 +95,7 @@ mod tests {
             &mut output,
             records,
             window_options,
-            mod_options,
+            &mod_options,
             window_function,
             window_filter,
         )?;

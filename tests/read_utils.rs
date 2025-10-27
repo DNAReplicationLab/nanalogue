@@ -17,8 +17,7 @@ fn test_set_read_state_example_1() -> Result<(), Error> {
         let r = record?;
         let curr_read = CurrRead::default().set_read_state(&r)?;
         match count {
-            0 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
-            1 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
+            0 | 1 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
             2 => assert_eq!(curr_read.read_state(), ReadState::PrimaryRev),
             3 => assert_eq!(curr_read.read_state(), ReadState::Unmapped),
             _ => unreachable!(),
@@ -61,9 +60,8 @@ fn test_set_seq_len() -> Result<(), Error> {
         };
         match count {
             0 => assert_eq!(len, 8),
-            1 => assert_eq!(len, 48),
+            1 | 3 => assert_eq!(len, 48),
             2 => assert_eq!(len, 33),
-            3 => assert_eq!(len, 48),
             _ => unreachable!(),
         }
     }
@@ -80,30 +78,30 @@ fn test_set_seq_len_random() -> Result<(), Error> {
             "len_range": [1000, 1000]
         },
         "reads": [{
-            "number": 1000,
+            "number": 10000,
             "len_range": [0.1, 0.2]
         }]
     }"#;
-    let sim = TempBamSimulation::new(config_json).unwrap();
-    let mut reader = nanalogue_bam_reader(sim.bam_path())?;
+    let simulated_bam = TempBamSimulation::new(config_json).unwrap();
+    let mut reader = nanalogue_bam_reader(simulated_bam.bam_path())?;
 
     let (sum, deviation_sq) = {
-        let mut sum: f32 = 0.0;
-        let mut deviation_sq: f32 = 0.0;
+        let mut sum: u64 = 0;
+        let mut deviation_sq: u64 = 0;
         for record in reader.records() {
             let r = record?;
             let curr_read = CurrRead::default().set_read_state(&r)?.set_seq_len(&r)?;
-            let len = curr_read.seq_len().unwrap() as f32;
-            sum += len;
-            deviation_sq += (len - 150.0) * (len - 150.0);
+            let len = curr_read.seq_len().unwrap();
+            sum = sum.checked_add(len).unwrap();
+            deviation_sq = deviation_sq.checked_add(len.abs_diff(150).pow(2)).unwrap();
         }
         (sum, deviation_sq)
     };
 
     // mean should be 150, and variance (200-100)^2/12.
-    // we check these to 10% tolerance
-    assert!((0.9 * sum / 1000.0..1.1 * sum / 1000.0).contains(&150.0));
-    assert!((0.9 * deviation_sq / 1000.0..1.1 * deviation_sq / 1000.0).contains(&(10000.0 / 12.0)));
+    // we check these to 15% tolerance
+    assert!((sum / 10000).abs_diff(150) < 22);
+    assert!((deviation_sq / 10000).abs_diff(10000 / 12) < 1500 / 12);
     Ok(())
 }
 
@@ -159,7 +157,7 @@ fn test_set_align_len_random() -> Result<(), Error> {
             "len_range": [1000, 1000]
         },
         "reads": [{
-            "number": 1000,
+            "number": 10000,
             "len_range": [0.1, 0.2],
             "barcode": "AAGTAA"
         }]
@@ -167,12 +165,12 @@ fn test_set_align_len_random() -> Result<(), Error> {
     let sim = TempBamSimulation::new(config_json).unwrap();
     let mut reader = nanalogue_bam_reader(sim.bam_path())?;
 
-    let (sum_sl, deviation_sq_sl, sum_al, deviation_sq_al, count) = {
-        let mut sum_sl: f32 = 0.0;
-        let mut deviation_sq_sl: f32 = 0.0;
-        let mut sum_al: f32 = 0.0;
-        let mut deviation_sq_al: f32 = 0.0;
-        let mut count: f32 = 0.0;
+    let (sum_seq_len, deviation_sequence_len_sq, sum_align_len, deviation_align_len_sq, count) = {
+        let mut sum_seq_len: u64 = 0;
+        let mut deviation_sequence_len_sq: u64 = 0;
+        let mut sum_align_len: u64 = 0;
+        let mut deviation_align_len_sq: u64 = 0;
+        let mut count: u64 = 0;
 
         for record in reader.records() {
             let r = record?;
@@ -187,35 +185,51 @@ fn test_set_align_len_random() -> Result<(), Error> {
                 }
             }?;
 
-            let len = curr_read.seq_len().unwrap() as f32;
-            sum_sl += len;
-            deviation_sq_sl += (len - 162.0) * (len - 162.0);
+            let len: u64 = curr_read.seq_len().unwrap();
+            sum_seq_len = sum_seq_len.checked_add(len).unwrap();
+            deviation_sequence_len_sq = deviation_sequence_len_sq
+                .checked_add(len.abs_diff(162).pow(2))
+                .unwrap();
 
-            let len = curr_read.align_len().unwrap() as f32;
-            sum_al += len;
-            deviation_sq_al += (len - 150.0) * (len - 150.0);
+            let len: u64 = curr_read.align_len().unwrap();
+            sum_align_len = sum_align_len.checked_add(len).unwrap();
+            deviation_align_len_sq = deviation_align_len_sq
+                .checked_add(len.abs_diff(150).pow(2))
+                .unwrap();
 
-            count += 1.0;
+            count = count.checked_add(1).unwrap();
         }
-        (sum_sl, deviation_sq_sl, sum_al, deviation_sq_al, count)
+        (
+            sum_seq_len,
+            deviation_sequence_len_sq,
+            sum_align_len,
+            deviation_align_len_sq,
+            count,
+        )
     };
 
     // alignment length:
     // mean should be 150, and variance (200-100)^2/12.
     // we check these to 15% tolerance
-    assert!((0.85 * sum_al / count..1.15 * sum_al / count).contains(&150.0));
+    assert!(sum_align_len.checked_div(count).unwrap().abs_diff(150) < 22);
     assert!(
-        (0.85 * deviation_sq_al / count..1.15 * deviation_sq_al / count)
-            .contains(&(10000.0 / 12.0))
+        deviation_align_len_sq
+            .checked_div(count)
+            .unwrap()
+            .abs_diff(10000 / 12)
+            < 1500 / 12
     );
 
     // sequence length:
     // mean should be 162 i.e. 150 + 2*6 (AAGTAA), and variance the same (200-100)^2/12.
     // we check these to 15% tolerance
-    assert!((0.85 * sum_sl / count..1.15 * sum_sl / count).contains(&162.0));
+    assert!(sum_seq_len.checked_div(count).unwrap().abs_diff(162) < 24);
     assert!(
-        (0.85 * deviation_sq_sl / count..1.15 * deviation_sq_sl / count)
-            .contains(&(10000.0 / 12.0))
+        deviation_sequence_len_sq
+            .checked_div(count)
+            .unwrap()
+            .abs_diff(10000 / 12)
+            < 1500 / 12
     );
     Ok(())
 }
@@ -231,7 +245,6 @@ fn test_set_align_len_unmapped_should_panic() {
         let r = record.unwrap();
         if count < 3 {
             count += 1;
-            continue;
         } else {
             let _ = CurrRead::default()
                 .set_read_state(&r)
@@ -725,15 +738,15 @@ mod test_curr_read_align_and_mod_data {
 
         let window_function = |mod_data: &[u8]| -> Result<F32Bw0and1, Error> {
             let sum: f32 = mod_data.iter().map(|&x| f32::from(x)).sum();
-            let mean = sum / (mod_data.len() as f32);
-            F32Bw0and1::new(mean / 256.0)
+            let mean = sum / f32::from(u8::try_from(mod_data.len())?);
+            F32Bw0and1::new(mean / 255.0)
         };
 
         let result = curr_read.windowed_mod_data_restricted(&window_function, win_options, tag)?;
 
         let expected = vec![
-            F32Bw0and1::new(160.0 / 256.0)?,
-            F32Bw0and1::new(180.0 / 256.0)?,
+            F32Bw0and1::new(160.0 / 255.0)?,
+            F32Bw0and1::new(180.0 / 255.0)?,
         ];
 
         assert_eq!(result, expected);

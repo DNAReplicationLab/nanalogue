@@ -483,16 +483,20 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 /// // NOTE: barcodes are optional, and will add 2*barcode_length to length statistics.
 /// //       i.e. length stats are imposed independent of barcodes.
 /// let mut rng = rand::rng();
-/// let reads = generate_reads_denovo(&contigs, config, "RG1", &mut rng).unwrap();
+/// let reads = generate_reads_denovo(&contigs, &config, "RG1", &mut rng).unwrap();
 /// assert_eq!(reads.len(), 10);
 /// ```
 #[expect(
     clippy::cast_possible_truncation,
     reason = "read length calculated as a fraction of contig length, managed with trunc()"
 )]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Complex read generation with multiple configuration options"
+)]
 pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
     contigs: &[S],
-    read_config: ReadConfig,
+    read_config: &ReadConfig,
     read_group: &str,
     rng: &mut R,
 ) -> Result<Vec<bam::Record>, Error> {
@@ -675,7 +679,7 @@ where
     let reads = {
         let mut temp_reads = Vec::new();
         for k in config.reads.into_iter().zip(read_groups.clone()) {
-            temp_reads.append(&mut generate_reads_denovo(&contigs, k.0, &k.1, &mut rng)?);
+            temp_reads.append(&mut generate_reads_denovo(&contigs, &k.0, &k.1, &mut rng)?);
         }
         temp_reads.sort_by_key(|k| (k.is_unmapped(), k.tid(), k.pos(), k.is_reverse()));
         temp_reads
@@ -808,7 +812,7 @@ mod tests {
             mods: vec![],
         };
 
-        let reads = generate_reads_denovo(&contigs, config, "1", &mut rng).unwrap();
+        let reads = generate_reads_denovo(&contigs, &config, "1", &mut rng).unwrap();
         assert_eq!(reads.len(), 10);
 
         for read in &reads {

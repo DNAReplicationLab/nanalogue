@@ -15,7 +15,7 @@ pub fn run<W, F, D>(
     handle: &mut W,
     bam_records: D,
     window_options: InputWindowing,
-    mods: InputMods<OptionalTag>,
+    mods: &InputMods<OptionalTag>,
     window_function: F,
 ) -> Result<(), Error>
 where
@@ -38,7 +38,7 @@ where
         // set data in records
         let curr_read_state = CurrRead::default()
             .try_from_only_alignment(&record)?
-            .set_mod_data_restricted_options(&record, &mods)?;
+            .set_mod_data_restricted_options(&record, mods)?;
         let qname = curr_read_state.read_id()?;
         let strand = curr_read_state.strand();
         let contig = match curr_read_state.read_state() {
@@ -142,14 +142,14 @@ mod tests {
         match threshold {
             None => {
                 // Use threshold_and_mean when no threshold is specified
-                run(&mut output, bam_records, window_options, mods, |x| {
+                run(&mut output, bam_records, window_options, &mods, |x| {
                     threshold_and_mean(x).map(Into::into)
                 })?;
             }
             Some(thres_val) => {
                 // Use threshold_and_mean_and_thres_win with specified threshold
                 let threshold = F32Bw0and1::new(thres_val).unwrap();
-                run(&mut output, bam_records, window_options, mods, |x| {
+                run(&mut output, bam_records, window_options, &mods, |x| {
                     threshold_and_mean_and_thres_win(x, threshold).map(Into::into)
                 })?;
             }

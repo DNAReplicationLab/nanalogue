@@ -257,7 +257,7 @@ pub trait InputRegionOptions {
     fn convert_region_to_bed3(&mut self, header: bam::HeaderView) -> Result<bool, Error> {
         match self.region_filter_genomic_string() {
             None => self.set_region_filter(None),
-            Some(v) => self.set_region_filter(Some(v.try_to_bed3(header)?)),
+            Some(v) => self.set_region_filter(Some(v.try_to_bed3(&header)?)),
         }
         Ok(true)
     }
