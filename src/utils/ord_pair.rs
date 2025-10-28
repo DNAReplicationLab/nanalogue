@@ -37,6 +37,9 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     /// let x = OrdPair::<f32>::new(0.0, 1.0)?;
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
+    ///
+    /// # Errors
+    /// Returns an error if `low` is greater than `high`.
     pub fn new(low: T, high: T) -> Result<Self, Error> {
         if low <= high {
             Ok(OrdPair { low, high })
@@ -98,6 +101,10 @@ impl OrdPair<u64> {
     /// let interval = OrdPair::<u64>::from_interval("1000-1000")?;
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
+    ///
+    /// # Errors
+    /// Returns an error if the interval format is invalid, coordinates cannot be parsed,
+    /// or if start is not strictly less than end.
     pub fn from_interval(interval_str: &str) -> Result<Self, Error> {
         let parts: Vec<&str> = interval_str.split('-').collect();
 

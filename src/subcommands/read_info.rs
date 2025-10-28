@@ -9,6 +9,10 @@ use std::rc::Rc;
 
 /// Gets information on reads and prints it to standard output
 /// in a JSON format.
+///
+/// # Errors
+/// Returns an error if BAM record reading, parsing, or writing to output fails.
+#[expect(clippy::missing_panics_doc, reason = "no error expected here")]
 pub fn run<W, D>(handle: &mut W, bam_records: D) -> Result<(), Error>
 where
     W: std::io::Write,

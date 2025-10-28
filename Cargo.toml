@@ -39,11 +39,18 @@ path = "src/main.rs"
 
 [lints.clippy]
 pedantic = "deny"
-cast_possible_truncation = "deny"
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
 arithmetic_side_effects = "deny"
 assertions_on_result_states = "deny"
+cast_possible_truncation = "deny"
+clone_on_ref_ptr = "deny"
+create_dir = "deny"
+doc_include_without_cfg = "deny"
+else_if_without_else = "deny"
+empty_drop = "deny"
+empty_enum_variants_with_brackets = "deny"
+empty_structs_with_brackets = "deny"
 
 [lints.rust]
 missing_copy_implementations = "deny"

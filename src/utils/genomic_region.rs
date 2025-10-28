@@ -62,6 +62,10 @@ impl FromStr for GenomicRegion {
 /// Converts genomic region from genomic string representation to bed3 representation
 impl GenomicRegion {
     /// converts genomic region from genomic string representation to bed3 representation
+    ///
+    /// # Errors
+    /// Returns an error if the contig name is not found in the header,
+    /// or if the specified region is invalid (start/end position exceeds contig length).
     pub fn try_to_bed3(self, header: &bam::HeaderView) -> Result<Bed3<i32, u64>, Error> {
         let region_bed = {
             let GenomicRegion((contig_name, coords)) = &self;

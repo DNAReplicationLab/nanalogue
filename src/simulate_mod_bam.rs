@@ -215,6 +215,9 @@ impl Default for ModConfig {
 /// // ML string contains gap coordinates
 /// assert_eq!(ml_str, vec![0; 12]);
 /// ```
+///
+/// # Panics
+/// Panics if the `mod_config` contains a base that is not A, G, C, T, or N.
 pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
     mod_configs: &[ModConfig],
     seq: &S,
@@ -382,6 +385,11 @@ pub fn add_barcode<S: GetDNARestrictive>(
 /// assert_eq!(contigs.len(), 3);
 /// assert!(contigs.iter().all(|c| (100..=200).contains(&c.get_dna_restrictive().get().len())));
 /// ```
+///
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "no length number or DNA conversion problems expected"
+)]
 pub fn generate_contigs_denovo<R: Rng>(
     contig_number: NonZeroU32,
     len_range: OrdPair<NonZeroU64>,
@@ -430,6 +438,10 @@ pub fn generate_contigs_denovo<R: Rng>(
 ///     }
 /// }
 /// ```
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "no length number or DNA conversion problems expected"
+)]
 pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
     contig_number: NonZeroU32,
     len_range: OrdPair<NonZeroU64>,
@@ -486,6 +498,17 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 /// let reads = generate_reads_denovo(&contigs, &config, "RG1", &mut rng).unwrap();
 /// assert_eq!(reads.len(), 10);
 /// ```
+///
+/// # Errors
+/// Returns an error if the contigs input slice is empty,
+/// if parameters are such that zero read lengths are produced,
+/// or if BAM record creation fails, such as when making RG, MM, or ML tags.
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "number conversion errors or mis-generation of DNA bases are unlikely \
+    as we generate DNA sequences ourselves here, and genomic data are unlikely \
+    to exceed ~2^63 bp or have ~2^32 contigs"
+)]
 #[expect(
     clippy::cast_possible_truncation,
     reason = "read length calculated as a fraction of contig length, managed with trunc()"
@@ -521,11 +544,11 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             clippy::cast_sign_loss,
             reason = "these are positive numbers so no problem"
         )]
-        let read_len = (rng.random_range(
+        let read_len = ((rng.random_range(
             read_config.len_range.get_low().val()..=read_config.len_range.get_high().val(),
         ) * contig_len as f32)
-            .trunc()
-            .clamp(0.0, (contig_len as f32).trunc()) as u64;
+            .trunc() as u64)
+            .min(contig_len);
 
         // Ensure read length is at least 1; this also checks if contig_len is non-zero
         if read_len == 0 {
@@ -584,14 +607,15 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
                 | ReadState::PrimaryFwd
                 | ReadState::SecondaryFwd
                 | ReadState::SupplementaryFwd => {
-                    seq = DNARestrictive::from_str(str::from_utf8(&read_seq).unwrap()).unwrap();
+                    seq = DNARestrictive::from_str(str::from_utf8(&read_seq).expect("no error"))
+                        .expect("no error");
                     &seq
                 }
                 _ => {
                     seq = DNARestrictive::from_str(
-                        str::from_utf8(&bio::alphabets::dna::revcomp(&read_seq)).unwrap(),
+                        str::from_utf8(&bio::alphabets::dna::revcomp(&read_seq)).expect("no error"),
                     )
-                    .unwrap();
+                    .expect("no error");
                     &seq
                 }
             },
@@ -658,6 +682,9 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 /// //       to create contigs by repeating a sequence instead of random generation.
 /// run(config_json, "output.bam", "reference.fasta").unwrap();
 /// ```
+///
+/// # Errors
+/// Returns an error if JSON parsing fails, read generation fails, or BAM/FASTA writing fails.
 pub fn run<F>(config_json: &str, bam_output_path: &F, fasta_output_path: &F) -> Result<(), Error>
 where
     F: AsRef<Path> + ?Sized,
@@ -717,6 +744,9 @@ pub struct TempBamSimulation {
 
 impl TempBamSimulation {
     /// Creates a new temporary BAM simulation from JSON configuration
+    ///
+    /// # Errors
+    /// Returns an error if the simulation run fails
     pub fn new(config_json: &str) -> Result<Self, Error> {
         let temp_dir = std::env::temp_dir();
         let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));

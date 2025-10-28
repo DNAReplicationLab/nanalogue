@@ -11,6 +11,14 @@ use rust_htslib::bam::Record;
 use std::rc::Rc;
 
 /// Windowed modification data along molecules
+///
+/// # Errors
+/// Returns an error if BAM record reading, or output writing fails.
+///
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "window slice indexing should not fail due to bounds checking"
+)]
 pub fn run<W, F, D>(
     handle: &mut W,
     bam_records: D,
@@ -27,8 +35,8 @@ where
     const INVALID_REF_POS: i64 = -1;
 
     // Get windowing parameters
-    let win_size: usize = window_options.win.get().try_into()?;
-    let slide_size: usize = window_options.step.get().try_into()?;
+    let win_size = window_options.win.get();
+    let slide_size = window_options.step.get();
 
     // Go record by record in the BAM file,
     for r in bam_records {
@@ -105,7 +113,8 @@ where
                         .unwrap_or(INVALID_REF_POS);
                     writeln!(
                         handle,
-                        "{contig}\t{ref_win_start}\t{ref_win_end}\t{qname}\t{win_val}\t{strand}\t{base}\t{mod_strand}\t{mod_type}\t{win_start}\t{win_end}"
+                        "{contig}\t{ref_win_start}\t{ref_win_end}\t{qname}\t{win_val}\t{strand}\t\
+{base}\t{mod_strand}\t{mod_type}\t{win_start}\t{win_end}"
                     )?;
                 }
             }

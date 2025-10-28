@@ -25,6 +25,9 @@ impl F32Bw0and1 {
     /// let x = F32Bw0and1::new(0.1)?;
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
+    ///
+    /// # Errors
+    /// Returns an error if the value is not between 0.0 and 1.0 (inclusive).
     pub fn new(val: f32) -> Result<Self, Error> {
         if (0.0..=1.0).contains(&val) {
             Ok(F32Bw0and1(val))
@@ -47,16 +50,25 @@ impl F32Bw0and1 {
         self.0
     }
     /// Shortcut for 1.0
+    ///
     #[must_use]
+    #[expect(clippy::missing_panics_doc, reason = "no error possible here")]
     pub fn one() -> Self {
         F32Bw0and1::new(1.0).expect("no error")
     }
     /// Shortcut for 0.0
+    ///
+    #[expect(clippy::missing_panics_doc, reason = "no error possible here")]
     #[must_use]
     pub fn zero() -> Self {
         F32Bw0and1::new(0.0).expect("no error")
     }
     /// Converts from `F32AbsValAtMost1` using the absolute value
+    ///
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "absolute value of a number between -1 and 1 is always between 0 and 1"
+    )]
     #[must_use]
     pub fn abs_f32_abs_val_at_most_1(val: F32AbsValAtMost1) -> Self {
         F32Bw0and1::new(f32::abs(val.val())).expect("no error")

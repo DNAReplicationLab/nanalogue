@@ -66,6 +66,9 @@ fn get_stats_from_heap(
 
 /// Reads the input BAM file and prints statistics
 /// such as mean and median read lengths, N50s etc.
+///
+/// # Errors
+/// Returns an error if BAM record reading, parsing, or calculating or writing statistics fails.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "sums can overflow but only if _huge_ amounts of data i.e. total sequence bp = (2^64-1)"

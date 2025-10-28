@@ -227,6 +227,9 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, Read>, Error> {
 /// Processes a BAM file and optionally a sequencing summary file
 /// to print a table of reads with alignment length, sequence length,
 /// and optionally modification count per row.
+///
+/// # Errors
+/// Returns an error if TSV processing, BAM record reading, sequence retrieval, or output writing fails.
 #[expect(
     clippy::too_many_lines,
     reason = "Main processing loop with multiple output formatting options"

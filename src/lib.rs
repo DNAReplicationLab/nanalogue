@@ -52,6 +52,21 @@ pub use utils::{
 /// (<https://github.com/fiberseq/fibertools-rs>) which is under the MIT license
 /// (please see their Cargo.toml) to create this function.
 ///
+/// Function should cover almost all mod bam cases, but will fail in the following scenarios:
+/// - If multiple mods are present on the same base e.g. methylation and hydroxymethylation,
+///   most BAM files the author has come across use the notation MM:Z:C+m,...;C+h,...;,
+///   which this function can parse. But the notation MM:Z:C+mh,...; is also allowed.
+///   We do not parse this for now, please contribute code if you want to add this functionality!
+/// - We do not know any technology/technique which, for instance, replaces both C and T
+///   with `BrdU` i.e. two different bases have the same substitution. This also leads to failure.
+///   If you deal with this, please notify us! On the other hand, it is possible that both C
+///   and A are methylated e.g. 5-Methylcytosine and 6-Methyladenine. Our program can deal
+///   with this as the "tags" corresponding to these are 'm' and 'a' respectively i.e. the
+///   tags are different. For this failure mode, the modifications have to be identical,
+///   not just conceptually identical i.e. although 5-Methylcytosine and 6-Methyladenine
+///   fall under "methylation", they are not chemically identical and thus have different
+///   tags associated with them in the mod BAM format, and thus will not lead to failure.
+///
 /// Following is an example of reading and parsing modification data, with
 /// no filters applied.
 /// We are using an example mod BAM file which has very short reads and very few
@@ -107,7 +122,20 @@ pub use utils::{
 /// }
 /// # Ok::<(), Error>(())
 /// ```
+///
+/// # Errors
+/// If MM/ML BAM tags are malformed, you will get `InvalidModProbs` or `InvalidModCoords`.
+/// Most integer overflows are dealt with using `except`, except one which gives `ArithmeticError`.
+/// `InvalidDuplicates` occurs if the same tag, strand combination occurs many times.
+/// Please read the function documentation above as well, which explains some scenarios where
+/// even valid tags can be marked as malformed.
+///
 #[expect(clippy::too_many_lines, reason = "Complex BAM MM/ML tag parsing logic")]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "either impossible scenarios or integer overflows \
+which are also unlikely as genomic coordinates are much less than ~2^63"
+)]
 pub fn nanalogue_mm_ml_parser<F, G, H>(
     record: &bam::Record,
     filter_mod_prob: F,
@@ -122,7 +150,8 @@ where
 {
     // Regular expression for matching modification data in the MM tag
     static MM_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"((([ACGTUN])([-+])([A-Za-z]+|[0-9]+)([.?]?))((,[0-9]+)*;)*)").unwrap()
+        Regex::new(r"((([ACGTUN])([-+])([A-Za-z]+|[0-9]+)([.?]?))((,[0-9]+)*;)*)")
+            .expect("no error")
     });
     // Array to store all the different modifications within the MM tag
     let mut rtn: Vec<BaseMod> = Vec::new();
@@ -134,20 +163,23 @@ where
     // if there is an MM tag iterate over all the regex matches
     if let Ok(Aux::String(mm_text)) = record.aux(b"MM") {
         for cap in MM_RE.captures_iter(mm_text) {
-            let mod_base = cap.get(3).map(|m| m.as_str().as_bytes()[0]).unwrap();
+            let mod_base = cap
+                .get(3)
+                .map(|m| m.as_str().as_bytes()[0])
+                .expect("no error");
             let mod_strand = cap
                 .get(4)
                 .map_or("", |m| m.as_str())
                 .chars()
                 .next()
-                .unwrap();
+                .expect("no error");
 
             // get modification type
             let modification_type: ModChar = cap
                 .get(5)
                 .map_or("", |m| m.as_str())
                 .parse()
-                .expect("error");
+                .expect("no error");
 
             let is_implicit = match cap.get(6).map_or("", |m| m.as_str()).as_bytes() {
                 b"" | b"." => true,
@@ -230,7 +262,10 @@ when usize is 64-bit as genomic sequences are not that long"
                         && filter_mod_pos(&cur_seq_idx)
                         && !(min_qual > 0 && base_qual[cur_seq_idx] < min_qual)
                     {
-                        modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
+                        modified_positions.push(i64::try_from(cur_seq_idx).expect(
+                            "integer conversion errors unlikely \
+                                as genomic sizes far less than ~2^63",
+                        ));
                         modified_probabilities.push(*prob);
                     }
                     dist_from_last_mod_base = 0;
@@ -245,7 +280,10 @@ when usize is 64-bit as genomic sequences are not that long"
                         && filter_mod_pos(&cur_seq_idx)
                         && !(min_qual > 0 && base_qual[cur_seq_idx] < min_qual)
                     {
-                        modified_positions.push(i64::try_from(cur_seq_idx).unwrap());
+                        modified_positions.push(i64::try_from(cur_seq_idx).expect(
+                            "integer conversion errors unlikely \
+                                as genomic sizes far less than ~2^63",
+                        ));
                         modified_probabilities.push(0);
                     }
                     dist_from_last_mod_base += 1;
@@ -323,6 +361,10 @@ pub struct BamRcRecords<'a> {
 
 impl<'a> BamRcRecords<'a> {
     /// Extracts `RcRecords` from a BAM Reader
+    ///
+    /// # Errors
+    /// Returns an error if thread pool creation, BAM region fetching/processing,
+    /// or read ID file processing fails.
     pub fn new(
         bam_reader: &'a mut bam::Reader,
         bam_opts: &mut InputBam,

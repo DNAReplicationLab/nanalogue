@@ -34,6 +34,9 @@ impl F32AbsValAtMost1 {
     /// let x = F32AbsValAtMost1::new(-0.5)?;
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
+    ///
+    /// # Errors
+    /// Returns an error if the value is not between -1.0 and 1.0 (inclusive).
     pub fn new(val: f32) -> Result<Self, Error> {
         if (-1.0..=1.0).contains(&val) {
             Ok(F32AbsValAtMost1(val))

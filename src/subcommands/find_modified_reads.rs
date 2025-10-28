@@ -10,6 +10,9 @@ use std::rc::Rc;
 
 /// Finds read ids of molecules that fit filtration criteria on
 /// windowed modification data.
+///
+/// # Errors
+/// Returns an error if BAM record reading, alignment parsing, or modification data processing fails.
 pub fn run<W, F, G, D>(
     handle: &mut W,
     bam_records: D,
@@ -50,14 +53,14 @@ mod tests {
     use super::*;
     use crate::{ModChar, ThresholdState, nanalogue_bam_reader};
     use rust_htslib::bam::Read as BamRead;
-    use std::num::NonZeroU32;
+    use std::num::NonZeroUsize;
 
     /// Helper function that runs `find_modified_reads` with specified parameters
     /// and returns the output as a vector of read IDs
     fn run_find_modified_reads_test<F, G>(
         bam_path: &str,
-        window_size: u32,
-        step_size: u32,
+        window_size: usize,
+        step_size: usize,
         tag: char,
         window_function: F,
         window_filter: G,
@@ -72,8 +75,8 @@ mod tests {
 
         // Set up windowing options
         let window_options = InputWindowing {
-            win: NonZeroU32::new(window_size).unwrap(),
-            step: NonZeroU32::new(step_size).unwrap(),
+            win: NonZeroUsize::new(window_size).unwrap(),
+            step: NonZeroUsize::new(step_size).unwrap(),
         };
 
         // Set up mod options

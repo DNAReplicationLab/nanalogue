@@ -903,6 +903,11 @@ impl CurrRead<AlignAndModData> {
     /// window modification data with restrictions.
     /// If a read has the same modification on both the basecalled
     /// strand and its complement, then windows along both are returned.
+    ///
+    /// If `win_size` exceeds the modification data length, no windows are produced.
+    ///
+    /// # Errors
+    /// Returns an error if the window function returns an error.
     pub fn windowed_mod_data_restricted<F>(
         &self,
         window_function: &F,
@@ -912,8 +917,8 @@ impl CurrRead<AlignAndModData> {
     where
         F: Fn(&[u8]) -> Result<F32Bw0and1, Error>,
     {
-        let win_size: usize = win_options.win.get().try_into()?;
-        let slide_size: usize = win_options.step.get().try_into()?;
+        let win_size = win_options.win.get();
+        let slide_size = win_options.step.get();
         let mut result = Vec::<F32Bw0and1>::new();
         let tag_char = tag.val();
         let (BaseMods { base_mods: v }, _) = &self.mods;
@@ -927,6 +932,10 @@ impl CurrRead<AlignAndModData> {
         // during ingress. To be future-proof etc., we should check these things
         // here but we do not as there is no way right now to test error checking
         // as there is no way to make CurrRead fall into these illegal states.
+        #[expect(
+            clippy::missing_panics_doc,
+            reason = "checked_sub ensures win_size <= mod_data.len() before windowing"
+        )]
         for k in v {
             match k {
                 BaseMod {
@@ -960,6 +969,9 @@ impl CurrRead<AlignAndModData> {
     /// Performs a count of number of bases per modified type.
     /// Note that this result depends on the type of filtering done
     /// while the struct was created e.g. by modification threshold.
+    ///
+    /// # Panics
+    /// Panics if the number of modifications exceeds `u32::MAX` (approximately 4.2 billion).
     ///
     /// ```
     /// use nanalogue_core::{CurrRead, Error, ModChar, nanalogue_bam_reader, ThresholdState};
