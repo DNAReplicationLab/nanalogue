@@ -195,19 +195,19 @@ mod tests {
     #[test]
     #[should_panic(expected = "EmptyModType")]
     fn test_modchar_empty_string_panics() {
-        let _ = ModChar::from_str("").unwrap();
+        let _: ModChar = ModChar::from_str("").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "InvalidModType")]
     fn test_modchar_special_char_at_panics() {
-        let _ = ModChar::from_str("@123").unwrap();
+        let _: ModChar = ModChar::from_str("@123").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "InvalidModType")]
     fn test_modchar_special_char_hash_panics() {
-        let _ = ModChar::from_str("#abc").unwrap();
+        let _: ModChar = ModChar::from_str("#abc").unwrap();
     }
 
     /// Tests `ModChar` display format consistency

@@ -500,7 +500,7 @@ mod input_bam_tests {
                 @SQ\tSN:chr1\tLN:3000
                 @SQ\tSN:chr2\tLN:4000\n"});
 
-        let _ = input_bam.convert_region_to_bed3(header_view).unwrap();
+        let _: bool = input_bam.convert_region_to_bed3(header_view).unwrap();
     }
 
     #[test]
@@ -514,7 +514,7 @@ mod input_bam_tests {
                 @SQ\tSN:chr1\tLN:3000
                 @SQ\tSN:chr2\tLN:4000\n"});
 
-        let _ = input_bam.convert_region_to_bed3(header_view).unwrap();
+        let _: bool = input_bam.convert_region_to_bed3(header_view).unwrap();
     }
 
     #[test]
@@ -528,6 +528,6 @@ mod input_bam_tests {
                 @SQ\tSN:chr1\tLN:3000
                 @SQ\tSN:chr2\tLN:4000\n"});
 
-        let _ = input_bam.convert_region_to_bed3(header_view).unwrap();
+        let _: bool = input_bam.convert_region_to_bed3(header_view).unwrap();
     }
 }

@@ -237,27 +237,27 @@ mod tests {
         let threshold = F32Bw0and1::new(0.5).unwrap();
 
         // This should panic with a WindowDensBelowThres error
-        let _ = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
+        let _: F32Bw0and1 = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
     }
 
     #[test]
     #[should_panic(expected = "EmptyWindow")]
     fn test_threshold_and_mean_empty_array() {
         let mod_data: [u8; 0] = [];
-        let _ = threshold_and_mean(&mod_data).unwrap();
+        let _: F32Bw0and1 = threshold_and_mean(&mod_data).unwrap();
     }
 
     #[test]
     #[should_panic(expected = "EmptyWindow")]
     fn test_threshold_and_gradient_empty_array() {
         let mod_data: [u8; 0] = [];
-        let _ = threshold_and_gradient(&mod_data).unwrap();
+        let _: F32AbsValAtMost1 = threshold_and_gradient(&mod_data).unwrap();
     }
 
     #[test]
     #[should_panic(expected = "InsufficientDataSize")]
     fn test_threshold_and_gradient_single_element() {
         let mod_data = [128];
-        let _ = threshold_and_gradient(&mod_data).unwrap();
+        let _: F32AbsValAtMost1 = threshold_and_gradient(&mod_data).unwrap();
     }
 }

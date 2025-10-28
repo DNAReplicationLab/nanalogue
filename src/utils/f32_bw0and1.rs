@@ -154,30 +154,30 @@ mod tests {
     #[test]
     fn test_f32_bw0and1_basic() {
         // Test boundary values
-        let _ = F32Bw0and1::new(0.0).unwrap();
-        let _ = F32Bw0and1::new(1.0).unwrap();
+        let _: F32Bw0and1 = F32Bw0and1::new(0.0).unwrap();
+        let _: F32Bw0and1 = F32Bw0and1::new(1.0).unwrap();
 
         // Test near-boundary values
-        let _ = F32Bw0and1::new(0.000_001).unwrap();
-        let _ = F32Bw0and1::new(0.999_999).unwrap();
+        let _: F32Bw0and1 = F32Bw0and1::new(0.000_001).unwrap();
+        let _: F32Bw0and1 = F32Bw0and1::new(0.999_999).unwrap();
 
         // Test outside boundaries
-        let _ = F32Bw0and1::new(-0.000_001).unwrap_err();
-        let _ = F32Bw0and1::new(1.000_001).unwrap_err();
+        let _: Error = F32Bw0and1::new(-0.000_001).unwrap_err();
+        let _: Error = F32Bw0and1::new(1.000_001).unwrap_err();
     }
 
     #[test]
     fn test_f32_bw0and1_from_str() {
         // Valid strings
-        let _ = F32Bw0and1::from_str("0.0").unwrap();
-        let _ = F32Bw0and1::from_str("1.0").unwrap();
-        let _ = F32Bw0and1::from_str("0.5").unwrap();
+        let _: F32Bw0and1 = F32Bw0and1::from_str("0.0").unwrap();
+        let _: F32Bw0and1 = F32Bw0and1::from_str("1.0").unwrap();
+        let _: F32Bw0and1 = F32Bw0and1::from_str("0.5").unwrap();
 
         // Invalid strings
-        let _ = F32Bw0and1::from_str("-0.1").unwrap_err();
-        let _ = F32Bw0and1::from_str("1.1").unwrap_err();
-        let _ = F32Bw0and1::from_str("abc").unwrap_err();
-        let _ = F32Bw0and1::from_str("").unwrap_err();
+        let _: Error = F32Bw0and1::from_str("-0.1").unwrap_err();
+        let _: Error = F32Bw0and1::from_str("1.1").unwrap_err();
+        let _: Error = F32Bw0and1::from_str("abc").unwrap_err();
+        let _: Error = F32Bw0and1::from_str("").unwrap_err();
     }
 
     #[test]

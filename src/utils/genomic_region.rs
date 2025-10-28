@@ -168,35 +168,35 @@ mod tests {
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_wrong_order() {
-        let _ = GenomicRegion::from_str("chr1:2000-1000").unwrap();
+        let _: GenomicRegion = GenomicRegion::from_str("chr1:2000-1000").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with equal start and end (strict inequality)
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_equal_coordinates() {
-        let _ = GenomicRegion::from_str("chr1:1000-1000").unwrap();
+        let _: GenomicRegion = GenomicRegion::from_str("chr1:1000-1000").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with invalid coordinate format
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_invalid_coordinates() {
-        let _ = GenomicRegion::from_str("chr1:abc-def").unwrap();
+        let _: GenomicRegion = GenomicRegion::from_str("chr1:abc-def").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with invalid interval format (too many dashes)
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_too_many_dashes() {
-        let _ = GenomicRegion::from_str("chr1:1000-2000-3000").unwrap();
+        let _: GenomicRegion = GenomicRegion::from_str("chr1:1000-2000-3000").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with missing start coordinate
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
     fn test_genomic_region_parsing_missing_start() {
-        let _ = GenomicRegion::from_str("chr1:-2000").unwrap();
+        let _: GenomicRegion = GenomicRegion::from_str("chr1:-2000").unwrap();
     }
 
     #[test]
@@ -272,7 +272,7 @@ mod tests {
         let region = GenomicRegion::from_str("chr1:300000000-400000000").expect("should parse");
 
         // This should panic with InvalidRegionError
-        let _ = region.try_to_bed3(&header).unwrap();
+        let _: Bed3<i32, u64> = region.try_to_bed3(&header).unwrap();
     }
 
     /// Tests error case when contig doesn't exist in the header
@@ -285,7 +285,7 @@ mod tests {
         let region = GenomicRegion::from_str("nonexistent_contig:1000-2000").expect("should parse");
 
         // This should panic with InvalidAlignCoords error
-        let _ = region.try_to_bed3(&header).unwrap();
+        let _: Bed3<i32, u64> = region.try_to_bed3(&header).unwrap();
     }
 
     /// Tests conversion of an open-ended region to BED3 format

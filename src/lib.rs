@@ -870,7 +870,7 @@ mod invalid_seq_length_tests {
         let mut cnt = 0;
         for record_result in reader.records() {
             cnt += 1;
-            let _ = record_result.unwrap_err();
+            let _: rust_htslib::errors::Error = record_result.unwrap_err();
         }
         assert_eq!(cnt, 1);
     }
@@ -1058,7 +1058,12 @@ mod bam_rc_record_tests {
                 let random_state: ReadState = random();
                 match random_state {
                     ReadState::Unmapped => {}
-                    v => break u16::from(v),
+                    v @ (ReadState::PrimaryFwd
+                    | ReadState::PrimaryRev
+                    | ReadState::SecondaryFwd
+                    | ReadState::SecondaryRev
+                    | ReadState::SupplementaryFwd
+                    | ReadState::SupplementaryRev) => break u16::from(v),
                 }
             });
             if record.pre_filt(&bam_opts_min_align_len) {
@@ -1194,7 +1199,7 @@ mod bam_rc_record_tests {
         // the chance that two randomly chosen intervals on the interval [0, l]
         // intersect is 2/3, and then we have the added random element of one
         // of two contigs, so the probability is 2/3 * 1/2 = 1/3.
-        let expected_count: usize = 10000_usize.div_ceil(3); // ~3333
+        let expected_count = 10000usize.div_ceil(3); // ~3333
         let tolerance = expected_count.div_ceil(5);
         let min_count = expected_count.saturating_sub(tolerance);
         let max_count = expected_count + tolerance;
