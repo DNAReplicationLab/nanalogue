@@ -155,17 +155,17 @@ impl Read {
         match &mut self.0 {
             ReadInstance::OnlyAlign {
                 align_len: al,
-                seq_len: _,
                 mod_count: mc,
                 read_state: rs,
                 seq: sq,
+                ..
             }
             | ReadInstance::BothAlignBc {
                 align_len: al,
-                bc_len: _,
                 mod_count: mc,
                 read_state: rs,
                 seq: sq,
+                ..
             } => {
                 al.push(align_len);
                 rs.push(read_state);
@@ -230,10 +230,6 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, Read>, Error> {
 ///
 /// # Errors
 /// Returns an error if TSV processing, BAM record reading, sequence retrieval, or output writing fails.
-#[expect(
-    clippy::too_many_lines,
-    reason = "Main processing loop with multiple output formatting options"
-)]
 pub fn run<W, D>(
     handle: &mut W,
     bam_records: D,
@@ -308,7 +304,7 @@ where
 
         // add data depending on whether an entry is already present
         // in the hashmap from the sequencing summary file
-        let _ = data_map
+        let _: &mut _ = data_map
             .entry(qname)
             .and_modify(|entry| {
                 entry.add_align_len(align_len, mod_count.clone(), read_state, sequence.clone());
@@ -353,27 +349,8 @@ where
     )]
     for (key, val) in &data_map {
         match (&val, is_seq_summ_data) {
-            (Read(ReadInstance::OnlyBc(_)), _)
-            | (
-                Read(ReadInstance::OnlyAlign {
-                    align_len: _,
-                    seq_len: _,
-                    mod_count: _,
-                    read_state: _,
-                    seq: _,
-                }),
-                true,
-            ) => {}
-            (
-                Read(ReadInstance::BothAlignBc {
-                    align_len: _,
-                    bc_len: _,
-                    mod_count: _,
-                    read_state: _,
-                    seq: _,
-                }),
-                false,
-            ) => {
+            (Read(ReadInstance::OnlyBc(_)), _) | (Read(ReadInstance::OnlyAlign { .. }), true) => {}
+            (Read(ReadInstance::BothAlignBc { .. }), false) => {
                 return Err(Error::InvalidState(
                     "invalid state while writing output".to_string(),
                 ));

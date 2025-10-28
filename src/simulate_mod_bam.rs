@@ -634,7 +634,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
                         .expect("no error");
                     &seq
                 }
-                _ => {
+                ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
                     seq = DNARestrictive::from_str(
                         str::from_utf8(&bio::alphabets::dna::revcomp(&read_seq)).expect("no error"),
                     )
@@ -799,9 +799,9 @@ impl TempBamSimulation {
 impl Drop for TempBamSimulation {
     fn drop(&mut self) {
         // Ignore errors during cleanup - files may already be deleted
-        let _ = std::fs::remove_file(&self.bam_path);
-        let _ = std::fs::remove_file(&self.fasta_path);
-        let _ = std::fs::remove_file(&(self.bam_path.clone() + ".bai"));
+        drop(std::fs::remove_file(&self.bam_path));
+        drop(std::fs::remove_file(&self.fasta_path));
+        drop(std::fs::remove_file(&(self.bam_path.clone() + ".bai")));
     }
 }
 

@@ -51,7 +51,12 @@ where
         let strand = curr_read_state.strand();
         let contig = match curr_read_state.read_state() {
             ReadState::Unmapped => ".",
-            _ => curr_read_state.contig_name()?,
+            ReadState::PrimaryFwd
+            | ReadState::PrimaryRev
+            | ReadState::SecondaryFwd
+            | ReadState::SecondaryRev
+            | ReadState::SupplementaryFwd
+            | ReadState::SupplementaryRev => curr_read_state.contig_name()?,
         };
 
         // read and window modification data, then print the output

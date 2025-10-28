@@ -8,7 +8,7 @@ pub trait FilterByRefCoords {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
     fn filter_by_ref_pos(&mut self, _: i64, _: i64) {
-        todo!()
+        unimplemented!()
     }
 }
 
@@ -71,10 +71,10 @@ impl FilterByRefCoords for Ranges {
             &mut self.reference_lengths,
         ] {
             k.truncate(stop_index);
-            let _: Vec<_> = k.drain(0..start_index).collect();
+            k.drain(0..start_index).for_each(drop);
         }
         self.qual.truncate(stop_index);
-        let _: Vec<_> = self.qual.drain(0..start_index).collect();
+        self.qual.drain(0..start_index).for_each(drop);
     }
 }
 

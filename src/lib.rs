@@ -327,7 +327,7 @@ when usize is 64-bit as genomic sequences are not that long"
                     base_mod.strand, base_mod.modification_type
                 )));
             }
-            let _ = seen_combinations.insert(combination);
+            let _: bool = seen_combinations.insert(combination);
         }
 
         Ok(BaseMods { base_mods: rtn })
@@ -385,7 +385,7 @@ impl<'a> BamRcRecords<'a> {
                 let line = line.map_err(Error::InputOutputError)?;
                 let line = line.trim();
                 if !line.is_empty() && !line.starts_with('#') {
-                    let _ = read_ids.insert(line.to_string());
+                    let _: bool = read_ids.insert(line.to_string());
                 }
             }
             bam_opts.read_id_set = Some(read_ids);
@@ -406,39 +406,39 @@ impl<'a> BamRcRecords<'a> {
 pub trait BamPreFilt {
     /// apply default filtration
     fn pre_filt(&self, _bam_opts: &InputBam) -> bool {
-        todo!()
+        unimplemented!()
     }
     /// filtration by length
     fn filt_by_len(&self, _min_seq_len: u64, _include_zero_len: bool) -> bool {
-        todo!()
+        unimplemented!()
     }
     /// filtration by alignment length
     fn filt_by_align_len(&self, _min_align_len: i64) -> bool {
-        todo!()
+        unimplemented!()
     }
     /// filtration by read id
     fn filt_by_read_id(&self, _read_id: &str) -> bool {
-        todo!()
+        unimplemented!()
     }
     /// filtration by read id set
     fn filt_by_read_id_set(&self, _read_id_set: &HashSet<String>) -> bool {
-        todo!()
+        unimplemented!()
     }
     /// filtration using flags
     fn filt_by_bitwise_or_flags(&self, _states: &ReadStates) -> bool {
-        todo!()
+        unimplemented!()
     }
     /// random filtration
     fn filt_random_subset(&self, _fraction: F32Bw0and1) -> bool {
-        todo!()
+        unimplemented!()
     }
     /// filtration by mapq
     fn filt_by_mapq(&self, _min_mapq: u8, _exclude_mapq_unavail: bool) -> bool {
-        todo!()
+        unimplemented!()
     }
     /// filtration by region
     fn filt_by_region(&self, _region: &Bed3<i32, u64>, _full_region: bool) -> bool {
-        todo!()
+        unimplemented!()
     }
 }
 

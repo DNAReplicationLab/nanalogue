@@ -136,7 +136,7 @@ pub struct RequiredTag {
 pub trait TagState {
     /// Returns the modification tag of the tag state in an option
     fn tag(&self) -> Option<ModChar> {
-        todo!();
+        unimplemented!();
     }
 }
 
@@ -218,23 +218,23 @@ impl Default for InputMods<OptionalTag> {
 pub trait InputModOptions {
     /// retrieves tag
     fn tag(&self) -> Option<ModChar> {
-        todo!()
+        unimplemented!()
     }
     /// retrieves option to set basecalled strand or opposite in mod retrieval
     fn mod_strand(&self) -> Option<RestrictModCalledStrand> {
-        todo!()
+        unimplemented!()
     }
     /// returns probability filter
     fn mod_prob_filter(&self) -> ThresholdState {
-        todo!()
+        unimplemented!()
     }
     /// returns read end trimming
     fn trim_read_ends_mod(&self) -> usize {
-        todo!()
+        unimplemented!()
     }
     /// returns threshold for filtering base PHRED quality
     fn base_qual_filter_mod(&self) -> u8 {
-        todo!()
+        unimplemented!()
     }
 }
 
@@ -242,15 +242,15 @@ pub trait InputModOptions {
 pub trait InputRegionOptions {
     /// returns region requested
     fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
-        todo!()
+        unimplemented!()
     }
     /// returns region requested but region in genomic string format
     fn region_filter_genomic_string(&self) -> Option<GenomicRegion> {
-        todo!()
+        unimplemented!()
     }
     /// sets region requested
     fn set_region_filter(&mut self, _value: Option<Bed3<i32, u64>>) {
-        todo!()
+        unimplemented!()
     }
     /// returns true if full overlap with region is requested as opposed to
     /// only partial overlap. defaults to false.

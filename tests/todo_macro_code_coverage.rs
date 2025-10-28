@@ -45,63 +45,63 @@ mod tests {
     use nanalogue_core::{GenomicRegion, ModChar, RestrictModCalledStrand, ThresholdState};
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_tag_state_tag_panics() {
         let test_obj = TestTagState;
         let _: Option<ModChar> = test_obj.tag();
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_input_mod_options_tag_panics() {
         let test_obj = TestInputModOptions;
         let _: Option<ModChar> = test_obj.tag();
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_input_mod_options_mod_strand_panics() {
         let test_obj = TestInputModOptions;
         let _: Option<RestrictModCalledStrand> = test_obj.mod_strand();
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_input_mod_options_mod_prob_filter_panics() {
         let test_obj = TestInputModOptions;
         let _: ThresholdState = test_obj.mod_prob_filter();
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_input_mod_options_trim_read_ends_mod_panics() {
         let test_obj = TestInputModOptions;
         let _: usize = test_obj.trim_read_ends_mod();
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_input_mod_options_base_qual_filter_mod_panics() {
         let test_obj = TestInputModOptions;
         let _: u8 = test_obj.base_qual_filter_mod();
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_input_region_options_region_filter_panics() {
         let test_obj = TestInputRegionOptions;
         let _: &Option<Bed3<i32, u64>> = test_obj.region_filter();
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_input_region_options_region_filter_genomic_string_panics() {
         let test_obj = TestInputRegionOptions;
         let _: Option<GenomicRegion> = test_obj.region_filter_genomic_string();
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_input_region_options_set_region_filter_panics() {
         let mut test_obj = TestInputRegionOptions;
         test_obj.set_region_filter(None);
@@ -114,14 +114,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_filter_by_ref_coords_filter_by_ref_pos_panics() {
         let mut test_obj = TestFilterByRefCoords;
         test_obj.filter_by_ref_pos(0, 100);
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_bam_pre_filt_pre_filt_panics() {
         let test_obj = TestBamPreFilt;
         let mut input_bam = nanalogue_core::cli::InputBam::default();
@@ -130,28 +130,28 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_bam_pre_filt_filt_by_len_panics() {
         let test_obj = TestBamPreFilt;
         let _: bool = test_obj.filt_by_len(100, false);
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_bam_pre_filt_filt_by_align_len_panics() {
         let test_obj = TestBamPreFilt;
         let _: bool = test_obj.filt_by_align_len(100);
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_bam_pre_filt_filt_by_read_id_panics() {
         let test_obj = TestBamPreFilt;
         let _: bool = test_obj.filt_by_read_id("test_read");
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_bam_pre_filt_filt_by_read_id_set_panics() {
         let test_obj = TestBamPreFilt;
         let read_ids = HashSet::new();
@@ -159,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_bam_pre_filt_filt_by_bitwise_or_flags_panics() {
         let test_obj = TestBamPreFilt;
         let states = ReadStates::default();
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_bam_pre_filt_filt_random_subset_panics() {
         let test_obj = TestBamPreFilt;
         let fraction = F32Bw0and1::new(0.5).unwrap();
@@ -175,14 +175,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_bam_pre_filt_filt_by_mapq_panics() {
         let test_obj = TestBamPreFilt;
         let _: bool = test_obj.filt_by_mapq(30, false);
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
+    #[should_panic(expected = "not implemented")]
     fn test_bam_pre_filt_filt_by_region_panics() {
         let test_obj = TestBamPreFilt;
         let region = Bed3::new(1, 1000, 2000);

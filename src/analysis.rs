@@ -82,7 +82,7 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error
         1 => Err(Error::InsufficientDataSize),
         v => Ok(v),
     }?;
-    let x_mean: f32 = f32::midpoint(win_size as f32, 1.0);
+    let x_mean = f32::midpoint(win_size as f32, 1.0);
     let numerator: f32 = mod_list
         .iter()
         .enumerate()

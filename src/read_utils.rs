@@ -224,7 +224,12 @@ impl CurrRead<NoData> {
             .set_read_id(record)?;
         match curr_read_state.read_state() {
             ReadState::Unmapped => {}
-            _ => {
+            ReadState::PrimaryFwd
+            | ReadState::PrimaryRev
+            | ReadState::SecondaryFwd
+            | ReadState::SecondaryRev
+            | ReadState::SupplementaryFwd
+            | ReadState::SupplementaryRev => {
                 curr_read_state = curr_read_state
                     .set_align_len(record)?
                     .set_contig_id_and_start(record)?
@@ -236,11 +241,9 @@ impl CurrRead<NoData> {
             read_id,
             seq_len,
             align_len,
-            mods: _,
             contig_id_and_start,
             contig_name,
-            mod_base_qual_thres: _,
-            marker: _,
+            ..
         } = curr_read_state;
         Ok(CurrRead::<OnlyAlignDataComplete> {
             state,
@@ -349,8 +352,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                     // assert_eq!(r.pos(), 0);
                     // assert_eq!(r.reference_end(), 1);
                     // ```
-                    let st: i64 = record.pos();
-                    let en: i64 = record.reference_end();
+                    let st = record.pos();
+                    let en = record.reference_end();
                     if en > st && st >= 0 {
                         #[expect(
                             clippy::arithmetic_side_effects,
@@ -380,7 +383,12 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     pub fn align_len(&self) -> Result<u64, Error> {
         match self.read_state() {
             ReadState::Unmapped => Err(Error::Unmapped),
-            _ => self.align_len.ok_or(Error::UnavailableData),
+            ReadState::PrimaryFwd
+            | ReadState::PrimaryRev
+            | ReadState::SecondaryFwd
+            | ReadState::SecondaryRev
+            | ReadState::SupplementaryFwd
+            | ReadState::SupplementaryRev => self.align_len.ok_or(Error::UnavailableData),
         }
     }
     /// sets contig ID and start from BAM record if available
@@ -450,7 +458,12 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             )),
             None => match self.read_state() {
                 ReadState::Unmapped => Err(Error::Unmapped),
-                _ => Ok(Some((record.tid(), record.pos().try_into()?))),
+                ReadState::PrimaryFwd
+                | ReadState::PrimaryRev
+                | ReadState::SecondaryFwd
+                | ReadState::SecondaryRev
+                | ReadState::SupplementaryFwd
+                | ReadState::SupplementaryRev => Ok(Some((record.tid(), record.pos().try_into()?))),
             },
         }?;
         Ok(self)
@@ -462,7 +475,12 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     pub fn contig_id_and_start(&self) -> Result<(i32, u64), Error> {
         match self.read_state() {
             ReadState::Unmapped => Err(Error::Unmapped),
-            _ => self.contig_id_and_start.ok_or(Error::UnavailableData),
+            ReadState::PrimaryFwd
+            | ReadState::PrimaryRev
+            | ReadState::SecondaryFwd
+            | ReadState::SecondaryRev
+            | ReadState::SupplementaryFwd
+            | ReadState::SupplementaryRev => self.contig_id_and_start.ok_or(Error::UnavailableData),
         }
     }
     /// sets contig name
@@ -943,11 +961,9 @@ impl CurrRead<AlignAndModData> {
         for k in v {
             match k {
                 BaseMod {
-                    modified_base: _,
-                    strand: _,
-                    record_is_reverse: _,
                     modification_type: x,
                     ranges: track,
+                    ..
                 } if *x == tag_char => {
                     let mod_data = &track.qual;
                     if let Some(v) = mod_data.len().checked_sub(win_size) {
