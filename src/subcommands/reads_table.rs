@@ -215,7 +215,7 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, Read>, Error> {
                     )
                     .is_some()
                 {
-                    Err(Error::InvalidDuplicates(file_path.to_string()))?;
+                    return Err(Error::InvalidDuplicates(file_path.to_string()));
                 }
             }
         }
@@ -347,6 +347,10 @@ where
     // If both seq summ and BAM file are available, then the length in the seq
     // summ file takes precedence. If only the BAM file is available, then
     // we use the sequence length in the BAM file as the basecalled sequence length.
+    #[expect(
+        clippy::iter_over_hash_type,
+        reason = "sorting would add unnecessary performance overhead; random iteration order is acceptable"
+    )]
     for (key, val) in &data_map {
         match (&val, is_seq_summ_data) {
             (Read(ReadInstance::OnlyBc(_)), _)
@@ -369,9 +373,11 @@ where
                     seq: _,
                 }),
                 false,
-            ) => Err(Error::InvalidState(
-                "invalid state while writing output".to_string(),
-            ))?,
+            ) => {
+                return Err(Error::InvalidState(
+                    "invalid state while writing output".to_string(),
+                ));
+            }
             (Read(v), _) => writeln!(handle, "{key}\t{v}")?,
         }
     }

@@ -110,7 +110,7 @@ impl OrdPair<u64> {
 
         match parts.len() {
             2 => {
-                let start = parts[0].trim().parse::<u64>().map_err(|_| {
+                let start = parts[0].trim().parse::<u64>().map_err(|_err| {
                     Error::OrdPairConversionError(
                         "Invalid start coordinate in interval!".to_string(),
                     )
@@ -121,7 +121,7 @@ impl OrdPair<u64> {
                     u64::MAX
                 } else {
                     // Closed interval: "1000-2000"
-                    parts[1].trim().parse::<u64>().map_err(|_| {
+                    parts[1].trim().parse::<u64>().map_err(|_err| {
                         Error::OrdPairConversionError(
                             "Invalid end coordinate in interval!".to_string(),
                         )
@@ -163,10 +163,10 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> FromStr for Ord
         match v.len() {
             2 => {
                 let Ok(low) = T::from_str(v[0]) else {
-                    parse_error!()?
+                    return parse_error!();
                 };
                 let Ok(high) = T::from_str(v[1]) else {
-                    parse_error!()?
+                    return parse_error!();
                 };
                 OrdPair::<T>::new(low, high)
             }

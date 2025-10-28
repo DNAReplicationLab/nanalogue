@@ -314,6 +314,9 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
 
 /// Generates random DNA sequence of given length
 ///
+/// # Panics
+/// Panics if the sequence length exceeds `usize::MAX` (2^32 - 1 on 32-bit systems, 2^64 - 1 on 64-bit systems).
+///
 /// ```
 /// use std::num::NonZeroU64;
 /// use rand::Rng;
@@ -326,8 +329,8 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
 /// ```
 pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> Vec<u8> {
     const DNA_BASES: [u8; 4] = [b'A', b'C', b'G', b'T'];
-    (0..length.get())
-        .map(|_| DNA_BASES[rng.random_range(0..4)])
+    iter::repeat_with(|| DNA_BASES[rng.random_range(0..4)])
+        .take(usize::try_from(length.get()).expect("sequence length exceeds usize::MAX"))
         .collect()
 }
 
@@ -612,9 +615,11 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
         };
 
         // Generate quality scores (for final read length including any adjustments like barcodes)
-        let qual: Vec<u8> = (0..read_seq.len())
-            .map(|_| rng.random_range(RangeInclusive::from(read_config.base_qual_range)))
-            .collect();
+        let qual: Vec<u8> = iter::repeat_with(|| {
+            rng.random_range(RangeInclusive::from(read_config.base_qual_range))
+        })
+        .take(read_seq.len())
+        .collect();
 
         // Generate modification information after reverse complementing sequence if needed
         let seq: DNARestrictive;

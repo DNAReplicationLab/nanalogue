@@ -366,10 +366,10 @@ impl<'a> BamRcRecords<'a> {
     /// # Errors
     /// Returns an error if thread pool creation, BAM region fetching/processing,
     /// or read ID file processing fails.
-    pub fn new(
+    pub fn new<T: InputRegionOptions>(
         bam_reader: &'a mut bam::Reader,
         bam_opts: &mut InputBam,
-        mod_opts: &mut impl InputRegionOptions,
+        mod_opts: &mut T,
     ) -> Result<Self, Error> {
         let header = bam_reader.header().clone();
         let tp = tpool::ThreadPool::new(bam_opts.threads.get())?;

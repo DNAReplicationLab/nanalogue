@@ -25,7 +25,7 @@ fn get_stats_from_heap(
     let mut running_total_length: u64 = 0;
     let heap_size: u64 = match input.len().try_into() {
         Ok(v) => v,
-        Err(_) => Err(Error::RareHeapTooLarge)?,
+        Err(_) => return Err(Error::RareHeapTooLarge),
     };
 
     while let Some(v) = input.pop() {

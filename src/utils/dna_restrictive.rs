@@ -67,6 +67,10 @@ impl<'de> Deserialize<'de> for DNARestrictive {
 /// assert!(!is_valid_dna_restrictive(""));
 /// ```
 #[must_use]
+#[expect(
+    clippy::module_name_repetitions,
+    reason = "function is exported in public API and full name provides clarity to users"
+)]
 pub fn is_valid_dna_restrictive(seq: &str) -> bool {
     (!seq.is_empty())
         && seq.bytes().all(|b| {
