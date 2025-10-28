@@ -14,6 +14,7 @@ use std::fmt;
 /// Values are 0 to 255 below as that's how they are stored in a modBAM file and
 /// this struct is expected to be used in contexts dealing directly with this data.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ThresholdState {
     /// modification probability >= this value, values are 0 to 255
     GtEq(u8),

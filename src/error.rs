@@ -16,6 +16,7 @@ use thiserror::Error;
 
 /// Enum that covers errors in our module.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Alignment of sequence is not known
     #[error("unknown alignment state")]

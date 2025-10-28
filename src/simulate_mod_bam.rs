@@ -52,6 +52,7 @@ use uuid::Uuid;
 /// Main configuration struct for simulation
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SimulationConfig {
     /// Configuration for contig generation
     pub contigs: ContigConfig,
@@ -62,6 +63,7 @@ pub struct SimulationConfig {
 /// Configuration for contig generation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct ContigConfig {
     /// Number of contigs to generate
     pub number: NonZeroU32,
@@ -74,6 +76,7 @@ pub struct ContigConfig {
 /// Configuration for read generation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct ReadConfig {
     /// Total number of reads to generate
     pub number: NonZeroU32,
@@ -92,6 +95,7 @@ pub struct ReadConfig {
 /// Configuration for modification generation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct ModConfig {
     /// Base that is modified (A, C, G, T, etc.)
     pub base: char,
@@ -118,6 +122,7 @@ pub struct ModConfig {
 
 /// Represents a contig with name and sequence
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Contig {
     /// Contig name
     pub name: String,
@@ -129,6 +134,15 @@ impl GetDNARestrictive for Contig {
     /// Returns a reference to the contig's DNA
     fn get_dna_restrictive(&self) -> &DNARestrictive {
         &self.seq
+    }
+}
+
+impl Default for Contig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            seq: DNARestrictive::from_str("A").expect("valid default DNA"),
+        }
     }
 }
 
@@ -189,22 +203,26 @@ impl Default for ModConfig {
 /// // NOTE: we use mod ranges with an identical low and high value below
 /// // because we do not want to deal with random values in an example.
 ///
-/// let mod_config = vec![ModConfig {
-///     base: 'C',
-///     is_strand_plus: true,
-///     mod_code: ModChar::new('m'),
-///     win: vec![NonZeroU32::new(2).unwrap(), NonZeroU32::new(3).unwrap()],
-///     mod_range: vec![
-///         OrdPair::new(F32Bw0and1::new(0.8).unwrap(), F32Bw0and1::new(0.8).unwrap()).unwrap(),
-///         OrdPair::new(F32Bw0and1::new(0.4).unwrap(), F32Bw0and1::new(0.4).unwrap()).unwrap()
-///     ]}, ModConfig {
-///     base: 'A',
-///     is_strand_plus: false,
-///     mod_code: ModChar::new('a'),
-///     win: vec![NonZeroU32::new(2).unwrap()],
-///     mod_range: vec![
-///         OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.2).unwrap()).unwrap()
-///     ]}];
+/// let mut mod_config_c = ModConfig::default();
+/// mod_config_c.base = 'C';
+/// mod_config_c.is_strand_plus = true;
+/// mod_config_c.mod_code = ModChar::new('m');
+/// mod_config_c.win = vec![NonZeroU32::new(2).unwrap(), NonZeroU32::new(3).unwrap()];
+/// mod_config_c.mod_range = vec![
+///     OrdPair::new(F32Bw0and1::new(0.8).unwrap(), F32Bw0and1::new(0.8).unwrap()).unwrap(),
+///     OrdPair::new(F32Bw0and1::new(0.4).unwrap(), F32Bw0and1::new(0.4).unwrap()).unwrap()
+/// ];
+///
+/// let mut mod_config_a = ModConfig::default();
+/// mod_config_a.base = 'A';
+/// mod_config_a.is_strand_plus = false;
+/// mod_config_a.mod_code = ModChar::new('a');
+/// mod_config_a.win = vec![NonZeroU32::new(2).unwrap()];
+/// mod_config_a.mod_range = vec![
+///     OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.2).unwrap()).unwrap()
+/// ];
+///
+/// let mod_config = vec![mod_config_c, mod_config_a];
 ///
 /// let mut rng = rand::rng();
 /// let (mm_str, ml_str) = generate_random_dna_modification(&mod_config, &seq, &mut rng);
@@ -479,19 +497,19 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 /// use nanalogue_core::simulate_mod_bam::{Contig, ReadConfig, generate_reads_denovo};
 /// use rand::Rng;
 ///
-/// let contigs = vec![Contig {
-///     name: "chr1".to_string(),
-///     seq: DNARestrictive::from_str("ACGTACGTACGTACGT").unwrap(),
-/// }];
-/// let config = ReadConfig {
-///     number: NonZeroU32::new(10).unwrap(),
-///     mapq_range: OrdPair::new(10, 20).unwrap(),
-///     base_qual_range: OrdPair::new(20, 30).unwrap(),
-///     len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(),
-///         F32Bw0and1::new(0.5).unwrap()).unwrap(),
-///     barcode: None,
-///     mods: vec![],
-/// };
+/// let mut contig = Contig::default();
+/// contig.name = "chr1".to_string();
+/// contig.seq = DNARestrictive::from_str("ACGTACGTACGTACGT").unwrap();
+/// let contigs = vec![contig];
+///
+/// let mut config = ReadConfig::default();
+/// config.number = NonZeroU32::new(10).unwrap();
+/// config.mapq_range = OrdPair::new(10, 20).unwrap();
+/// config.base_qual_range = OrdPair::new(20, 30).unwrap();
+/// config.len_range = OrdPair::new(F32Bw0and1::new(0.2).unwrap(),
+///     F32Bw0and1::new(0.5).unwrap()).unwrap();
+/// config.barcode = None;
+/// config.mods = vec![];
 /// // NOTE: barcodes are optional, and will add 2*barcode_length to length statistics.
 /// //       i.e. length stats are imposed independent of barcodes.
 /// let mut rng = rand::rng();

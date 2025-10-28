@@ -10,6 +10,7 @@ use std::str::FromStr;
 
 /// Datatype holding a genomic region
 #[derive(Debug, Default, Clone, PartialOrd, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct GenomicRegion(pub (String, Option<OrdPair<u64>>));
 
 /// Obtains genomic region from a string with the standard region format of name[:begin[-end]].

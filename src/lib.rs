@@ -352,6 +352,7 @@ when usize is 64-bit as genomic sequences are not that long"
 /// # Ok::<(), Error>(())
 /// ```
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct BamRcRecords<'a> {
     /// `RcRecords` object output by rust htslib which we can iterate over
     pub rc_records: bam::RcRecords<'a, bam::Reader>,

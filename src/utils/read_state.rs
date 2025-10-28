@@ -10,6 +10,7 @@ use std::str::FromStr;
 
 /// Alignment state of a read; seven possibilities + one unknown state
 #[derive(Debug, Clone, Default, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ReadState {
     #[default]
     /// Primary alignment to the reference strand

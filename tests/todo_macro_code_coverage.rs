@@ -8,7 +8,6 @@ use nanalogue_core::{
     utils::FilterByRefCoords,
 };
 use std::collections::HashSet;
-use std::num::NonZeroU32;
 
 /// Test struct that uses `TagState` default implementation
 #[derive(Debug, Default)]
@@ -125,23 +124,8 @@ mod tests {
     #[should_panic(expected = "not yet implemented")]
     fn test_bam_pre_filt_pre_filt_panics() {
         let test_obj = TestBamPreFilt;
-        let input_bam = nanalogue_core::cli::InputBam {
-            bam_path: "test.bam".to_string(),
-            min_seq_len: 0,
-            min_align_len: None,
-            read_id: None,
-            read_id_list: None,
-            read_id_set: None,
-            threads: NonZeroU32::new(2).unwrap(),
-            include_zero_len: false,
-            read_filter: None,
-            sample_fraction: F32Bw0and1::new(1.0).unwrap(),
-            mapq_filter: 0,
-            exclude_mapq_unavail: false,
-            region: None,
-            region_bed3: None,
-            full_region: false,
-        };
+        let mut input_bam = nanalogue_core::cli::InputBam::default();
+        input_bam.bam_path = "test.bam".to_string();
         let _: bool = test_obj.pre_filt(&input_bam);
     }
 

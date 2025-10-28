@@ -16,6 +16,7 @@ use std::num::{NonZeroU32, NonZeroUsize};
 /// We have copied and edited a similar struct from the fibertools-rs repository.
 #[derive(Debug, Args, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct InputBam {
     /// Input BAM file. Set this to - to read from stdin.
     pub bam_path: String,
@@ -115,6 +116,7 @@ impl Default for InputBam {
 
 /// This struct contains an optional modification tag
 #[derive(Debug, Default, Args, Clone, Copy, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct OptionalTag {
     /// modified tag
     #[clap(long)]
@@ -123,6 +125,7 @@ pub struct OptionalTag {
 
 /// This struct contains a required modification tag
 #[derive(Debug, Default, Args, Clone, Copy, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RequiredTag {
     /// modified tag
     #[clap(long)]
@@ -153,6 +156,7 @@ impl TagState for RequiredTag {
 /// modification-data functions with restrictions on data received
 #[derive(Debug, Args, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// modified tag
     #[clap(flatten)]
@@ -324,6 +328,7 @@ impl InputRegionOptions for InputBam {
 /// modification-data-windowing functions
 #[derive(Debug, Args, Clone, Copy, Serialize, Deserialize)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct InputWindowing {
     /// size of window in units of base being queried i.e.
     /// if you are looking for cytosine modifications, then

@@ -24,18 +24,22 @@ use serde::{Deserialize, Serialize};
 
 /// Shows `CurrRead` has no data
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct NoData;
 
 /// Shows `CurrRead` has only alignment data
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct OnlyAlignData;
 
 /// Shows `CurrRead` has only alignment data but with all fields filled
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct OnlyAlignDataComplete;
 
 /// Shows `CurrRead` has alignment and modification data
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct AlignAndModData;
 
 /// Dummy trait
