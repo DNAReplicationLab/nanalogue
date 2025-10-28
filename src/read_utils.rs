@@ -132,6 +132,15 @@ impl Default for CurrRead<NoData> {
 impl CurrRead<NoData> {
     /// sets the alignment of the read using BAM record
     ///
+    /// # Errors
+    /// While we support normal BAM reads from `ONT`, `PacBio` etc. that contain modifications,
+    /// we do not support some BAM flags like paired, duplicate, quality check failed etc.
+    /// This is because of our design choices e.g. if mods are called on paired reads,
+    /// then we'll have to include both records as one read in our statistics
+    /// and we do not have functionality in place to do this.
+    /// So, we return errors if such flags or an invalid combination of flags (e.g.
+    /// secondary and supplementary bits are set) are encountered.
+    ///
     /// ```
     /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader, ReadState};
     /// use rust_htslib::bam::Read;
@@ -198,6 +207,9 @@ impl CurrRead<NoData> {
     /// Uses only alignment information and no modification information to
     /// create the struct. Use this if you want to perform operations that
     /// do not involve reading or manipulating the modification data.
+    ///
+    /// # Errors
+    /// Errors are returned if getting record information fails e.g. read id
     pub fn try_from_only_alignment(
         self,
         record: &Record,
@@ -248,6 +260,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     }
     /// set length of sequence from BAM record
     ///
+    /// # Errors
+    /// Errors are returned if sequence length is already set or
+    /// sequence length is not non-zero.
+    ///
     /// ```
     /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
     /// use rust_htslib::bam::Read;
@@ -296,10 +312,18 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         Ok(self)
     }
     /// gets length of sequence
+    ///
+    /// # Errors
+    /// Error if sequence length is not set
     pub fn seq_len(&self) -> Result<u64, Error> {
         self.seq_len.ok_or(Error::UnavailableData)
     }
     /// set alignment length from BAM record if available
+    ///
+    /// # Errors
+    /// Returns errors if alignment len is already set, instance is
+    /// unmapped, or if alignment coordinates are malformed
+    /// (e.g. end < start).
     pub fn set_align_len(mut self, record: &Record) -> Result<Self, Error> {
         self.align_len = match self.align_len {
             Some(_) => Err(Error::InvalidDuplicates(
@@ -326,7 +350,11 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                     if en > st && st >= 0 {
                         #[expect(
                             clippy::arithmetic_side_effects,
-                            reason = "en>st && st>=0 guarantee no i64 overflows"
+                            reason = "en > st && st >= 0 guarantee no i64 overflows"
+                        )]
+                        #[expect(
+                            clippy::missing_panics_doc,
+                            reason = "en > st && st >= 0 guarantee no panic"
                         )]
                         Ok(Some(
                             (en - st)
@@ -342,6 +370,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         Ok(self)
     }
     /// gets alignment length
+    ///
+    /// # Errors
+    /// if instance is unmapped or alignment length is not set
     pub fn align_len(&self) -> Result<u64, Error> {
         match self.read_state() {
             ReadState::Unmapped => Err(Error::Unmapped),
@@ -349,6 +380,11 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         }
     }
     /// sets contig ID and start from BAM record if available
+    ///
+    /// # Errors
+    /// if instance is unmapped, if these data are already set and
+    /// the user is trying to set them again, or if coordinates
+    /// are malformed (start position is negative)
     ///
     /// ```
     /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
@@ -416,6 +452,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         Ok(self)
     }
     /// gets contig ID and start
+    ///
+    /// # Errors
+    /// If instance is unmapped or if data (contig id and start) are not set
     pub fn contig_id_and_start(&self) -> Result<(i32, u64), Error> {
         match self.read_state() {
             ReadState::Unmapped => Err(Error::Unmapped),
@@ -423,6 +462,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         }
     }
     /// sets contig name
+    ///
+    /// # Errors
+    /// Returns error if instance is unmapped or contig name has already been set
     ///
     /// ```
     /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
@@ -488,6 +530,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         Ok(self)
     }
     /// gets contig name
+    ///
+    /// # Errors
+    /// If instance is unmapped or contig name has not been set
     pub fn contig_name(&self) -> Result<&str, Error> {
         match (self.read_state(), &self.contig_name) {
             (ReadState::Unmapped, _) => Err(Error::Unmapped),
@@ -496,6 +541,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         }
     }
     /// sets read ID (also called query name) from BAM record
+    ///
+    /// # Errors
+    /// If read id has already been set for the instance, or
+    /// if read id is not valid UTF-8
     ///
     /// ```
     /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
@@ -544,6 +593,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         Ok(self)
     }
     /// gets read id
+    ///
+    /// # Errors
+    /// If read id has not been set
     pub fn read_id(&self) -> Result<&str, Error> {
         match &self.read_id {
             None => Err(Error::UnavailableData),
@@ -578,6 +630,12 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         }
     }
     /// Returns subset of sequence using reference coordinates
+    ///
+    /// # Errors
+    /// If conversion to Bed3 fails, malformed coordinates,
+    /// or no intersection with given region, or conversion to usize errors.
+    /// Absence of a sequence due to most of the above reasons is reported
+    /// with `Error::UnavailableData`.
     ///
     /// ```
     /// use bedrs::Bed3;
@@ -621,11 +679,17 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         record: &Record,
         region: &Bed3<i32, u64>,
     ) -> Result<Vec<u8>, Error> {
+        #[expect(
+            clippy::missing_panics_doc,
+            reason = "genomic coordinates are far less than (2^64-1)/2 i.e. u64->i64 should be ok"
+        )]
         let interval = {
             let stranded_bed3 = StrandedBed3::<i32, u64>::try_from(self)?;
             if let Some(v) = region.intersect(&stranded_bed3) {
-                let start = i64::try_from(v.start())?;
-                let end = i64::try_from(v.end())?;
+                let start = i64::try_from(v.start())
+                    .expect("genomic coordinates are far less than (2^64 - 1)/2");
+                let end = i64::try_from(v.end())
+                    .expect("genomic coordinates are far less than (2^64 - 1)/2");
                 if start < end {
                     Ok(start..end)
                 } else {
@@ -642,7 +706,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         let seq = record.seq();
         #[expect(
             clippy::arithmetic_side_effects,
-            reason = "genomic coordinates far less than i64::MAX (2^63-1)"
+            reason = "genomic coordinates far less than i64::MAX (approx (2^64-1)/2)"
         )]
         let mut s: Vec<u8> =
             Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
@@ -674,7 +738,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             //   here may be erroneous.
             #[expect(
                 clippy::arithmetic_side_effects,
-                reason = "coordinates far less than u64::MAX (2^64-1)"
+                reason = "coordinates far less than u64::MAX (2^64-1) so no chance of counter overflow"
             )]
             match w {
                 [Some(x), Some(_)] => {
@@ -699,12 +763,16 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         }
 
         if s.is_empty() {
-            Err(Error::DeletedRegionRetrieval)
+            Err(Error::UnavailableData)
         } else {
             Ok(s)
         }
     }
     /// sets modification data using the BAM record
+    ///
+    /// # Errors
+    /// If tags in the BAM record containing the modification information (MM, ML)
+    /// contain mistakes.
     pub fn set_mod_data(
         self,
         record: &Record,
@@ -730,8 +798,11 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             marker: std::marker::PhantomData::<AlignAndModData>,
         })
     }
-    /// sets modification data using BAM record but restricted to the
-    /// specified filters
+    /// sets modification data using BAM record but restricted to the specified filters
+    ///
+    /// # Errors
+    /// If tags in the BAM record containing the modification information (MM, ML)
+    /// contain mistakes.
     pub fn set_mod_data_restricted<G, H>(
         self,
         record: &Record,
@@ -768,12 +839,22 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
 impl CurrRead<OnlyAlignDataComplete> {
     /// sets modification data using BAM record but with restrictions
     /// applied by the `InputMods` options
+    ///
+    /// # Errors
+    /// If a region filter is specified and we fail to convert current instance to Bed,
+    /// and if parsing the MM/ML BAM tags fails (presumably because they are malformed).
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "integer conversions (u64->usize, u64->i64) are expected to not fail as \
+genomic coordinates are far smaller than ~2^63"
+    )]
     pub fn set_mod_data_restricted_options<S: InputModOptions + InputRegionOptions>(
         self,
         record: &Record,
         mod_options: &S,
     ) -> Result<CurrRead<AlignAndModData>, Error> {
-        let l = usize::try_from(self.seq_len().expect("no error")).expect("bit conversion error");
+        let l = usize::try_from(self.seq_len().expect("no error"))
+            .expect("bit conversion errors unlikely");
         let w = mod_options.trim_read_ends_mod();
         let interval = if let Some(bed3) = mod_options.region_filter() {
             let stranded_bed3 = StrandedBed3::<i32, u64>::try_from(&self)?;
@@ -801,7 +882,12 @@ impl CurrRead<OnlyAlignDataComplete> {
                 mod_options.base_qual_filter_mod(),
             )?;
             if let Some(v) = interval {
-                read.filter_by_ref_pos(i64::try_from(v.start)?, i64::try_from(v.end)?);
+                read.filter_by_ref_pos(
+                    i64::try_from(v.start)
+                        .expect("no error as genomic coordinates far less than ~2^63"),
+                    i64::try_from(v.end)
+                        .expect("no error as genomic coordinates far less than ~2^63"),
+                );
             }
             read
         })

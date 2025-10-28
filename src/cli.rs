@@ -254,6 +254,9 @@ pub trait InputRegionOptions {
         false
     }
     /// converts region from genomic string representation to bed3 representation
+    ///
+    /// # Errors
+    /// Returns error if conversion fails
     fn convert_region_to_bed3(&mut self, header: bam::HeaderView) -> Result<bool, Error> {
         match self.region_filter_genomic_string() {
             None => self.set_region_filter(None),

@@ -38,13 +38,11 @@ name = "nanalogue"
 path = "src/main.rs"
 
 [lints.clippy]
-pedantic = { level = "deny", priority = -1 }
+pedantic = "deny"
 cast_possible_truncation = "deny"
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
 arithmetic_side_effects = "deny"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
 assertions_on_result_states = "deny"
 
 [lints.rust]
