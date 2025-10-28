@@ -601,7 +601,7 @@ mod mod_parse_tests {
     /// some of the test cases here may be a repeat of the doctest above.
     #[test]
     #[expect(clippy::too_many_lines, reason = "Comprehensive integration test")]
-    fn test_mod_bam_parsing_from_example_1_bam() -> Result<(), Error> {
+    fn mod_bam_parsing_from_example_1_bam() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
@@ -767,7 +767,7 @@ mod mod_parse_tests {
 
     #[test]
     #[should_panic(expected = "InvalidDuplicates")]
-    fn test_nanalogue_mm_ml_parser_detects_duplicates() {
+    fn nanalogue_mm_ml_parser_detects_duplicates() {
         // Two T+ modifications with same strand and modification_type
         let mm_value = "T+T,0,3;T+T,1,2;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
@@ -775,7 +775,7 @@ mod mod_parse_tests {
     }
 
     #[test]
-    fn test_nanalogue_mm_ml_parser_accepts_unique_combinations() {
+    fn nanalogue_mm_ml_parser_accepts_unique_combinations() {
         // T+, C+, T- (all different combinations)
         let mm_value = "T+T,0,3;C+m,0,1;T-T,1,2;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8, 120u8, 140u8]);
@@ -784,7 +784,7 @@ mod mod_parse_tests {
 
     #[test]
     #[should_panic(expected = "InvalidModCoords")]
-    fn test_nanalogue_mm_ml_parser_detects_invalid_mod_coords_1() {
+    fn nanalogue_mm_ml_parser_detects_invalid_mod_coords_1() {
         // Invalid coordinates: seq does not have 11 As (4 + 1 + 5 + 1)
         let mm_value = "T+T,0,3;A-T,4,5;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]);
@@ -793,7 +793,7 @@ mod mod_parse_tests {
 
     #[test]
     #[should_panic(expected = "InvalidModCoords")]
-    fn test_nanalogue_mm_ml_parser_detects_invalid_mod_coords_2() {
+    fn nanalogue_mm_ml_parser_detects_invalid_mod_coords_2() {
         // Invalid coords: there aren't 11 C in the sequence
         let mm_value = "T+T,0,3;C+m,4,5;T-T,1,2;";
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8, 120u8, 140u8]);
@@ -802,7 +802,7 @@ mod mod_parse_tests {
 
     #[test]
     #[should_panic(expected = "InvalidModProbs")]
-    fn test_nanalogue_mm_ml_parser_detects_ml_tag_longer_than_mm_data() {
+    fn nanalogue_mm_ml_parser_detects_ml_tag_longer_than_mm_data() {
         // ML tag has more values than modifications in MM tag
         let mm_value = "T+T,0,3;"; // 2 modifications
         let ml_values = Vec::from([100u8, 200u8, 150u8, 180u8]); // 4 values - too many!
@@ -811,7 +811,7 @@ mod mod_parse_tests {
 
     #[test]
     #[should_panic(expected = "InvalidModProbs")]
-    fn test_nanalogue_mm_ml_parser_detects_ml_tag_shorter_than_mm_data() {
+    fn nanalogue_mm_ml_parser_detects_ml_tag_shorter_than_mm_data() {
         // ML tag has fewer values than modifications in MM tag
         let mm_value = "T+T,0,3;"; // 2 modifications
         let ml_values = Vec::from([100u8]); // 1 value - too few!
@@ -824,7 +824,7 @@ mod zero_length_filtering_tests {
     use super::*;
 
     #[test]
-    fn test_zero_length_filtering_with_example_2_zero_len_sam() -> Result<(), Error> {
+    fn zero_length_filtering_with_example_2_zero_len_sam() -> Result<(), Error> {
         // Test with include_zero_len = false and min_seq_len = 1 (should get 1 read)
         let mut reader = nanalogue_bam_reader("examples/example_2_zero_len.sam")?;
         let bam_opts_exclude_zero: InputBam =
@@ -863,7 +863,7 @@ mod invalid_seq_length_tests {
     use super::*;
 
     #[test]
-    fn test_invalid_seq_length_error_with_example_4() {
+    fn invalid_seq_length_error_with_example_4() {
         let mut reader =
             nanalogue_bam_reader("examples/example_4_invalid_basequal_len.sam").unwrap();
 
@@ -881,7 +881,7 @@ mod base_qual_filtering_tests {
     use super::*;
 
     #[test]
-    fn test_base_qual_filtering_with_example_5_valid_basequal_sam() -> Result<(), Error> {
+    fn base_qual_filtering_with_example_5_valid_basequal_sam() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_5_valid_basequal.sam")?;
 
         for record_result in reader.records() {
@@ -912,7 +912,7 @@ mod bam_rc_record_tests {
     use rust_htslib::bam::record::{Cigar, CigarString};
 
     #[test]
-    fn test_bam_rc_records() {
+    fn bam_rc_records() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         let bam_rc_records = BamRcRecords::new(
             &mut reader,
@@ -926,7 +926,7 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    fn test_example_3_read_list_1() {
+    fn example_3_read_list_1() {
         // Test with example_3_subset_1 - should see 2 reads
         let mut reader = nanalogue_bam_reader("examples/example_3.bam").unwrap();
         let mut bam_opts: InputBam =
@@ -959,7 +959,7 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    fn test_example_3_read_list_2() {
+    fn example_3_read_list_2() {
         // Test with example_3_subset_w_invalid - should see 2 reads
         // even though file contains 3 read IDs
         let mut reader = nanalogue_bam_reader("examples/example_3.bam").unwrap();
@@ -993,7 +993,7 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    fn test_random_retrieval() {
+    fn random_retrieval() {
         let mut count_retained = 0;
         let bam_opts: InputBam =
             serde_json::from_str(r#"{"sample_fraction": 0.5, "include_zero_len": true}"#).unwrap();
@@ -1011,7 +1011,7 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    fn test_single_read_id_filtering() {
+    fn single_read_id_filtering() {
         let mut count_retained = 0;
 
         let bam_opts: InputBam =
@@ -1031,7 +1031,7 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    fn test_seq_and_align_len_filtering() {
+    fn seq_and_align_len_filtering() {
         let bam_opts_min_len: InputBam = serde_json::from_str(r#"{"min_seq_len": 5000}"#).unwrap();
         let bam_opts_min_align_len: InputBam =
             serde_json::from_str(r#"{"min_align_len": 2500}"#).unwrap();
@@ -1079,7 +1079,7 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    fn test_filt_by_bitwise_or_flags() {
+    fn filt_by_bitwise_or_flags() {
         // Create random subset of read states (ensure at least one)
         let selected_states = {
             let mut selected_states = Vec::new();
@@ -1124,7 +1124,7 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    fn test_filt_by_region() {
+    fn filt_by_region() {
         let mut count_retained = (0, 0);
 
         for _ in 1..=10000 {

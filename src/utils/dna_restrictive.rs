@@ -87,7 +87,7 @@ mod tests {
     /// Tests `DNARestrictive` parsing with invalid barcode
     #[test]
     #[should_panic(expected = "InvalidSeq")]
-    fn test_dna_restrictive_invalid() {
+    fn dna_restrictive_invalid() {
         let invalid_barcode = "ACGTN";
         let _: DNARestrictive = DNARestrictive::from_str(invalid_barcode).unwrap();
     }

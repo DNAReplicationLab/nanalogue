@@ -419,12 +419,12 @@ mod tests {
     }
 
     #[test]
-    fn test_read_table_hide_mods() {
+    fn read_table_hide_mods() {
         run_read_table_test(None, "./examples/example_1_read_table_hide_mods");
     }
 
     #[test]
-    fn test_read_table_show_mods() {
+    fn read_table_show_mods() {
         run_read_table_test(
             Some(InputMods::<OptionalTag>::default()),
             "./examples/example_1_read_table_show_mods",

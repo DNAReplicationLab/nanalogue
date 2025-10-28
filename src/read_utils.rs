@@ -1596,7 +1596,7 @@ mod test_error_handling {
     use super::*;
 
     #[test]
-    fn test_set_read_state_not_implemented_error() {
+    fn set_read_state_not_implemented_error() {
         for flag_value in 0..4096u16 {
             let mut record = Record::new();
             record.set_flags(flag_value);
@@ -1620,7 +1620,7 @@ mod test_error_handling {
 
     #[test]
     #[should_panic(expected = "InvalidDuplicates")]
-    fn test_reconstruct_base_mods_detects_duplicates() {
+    fn reconstruct_base_mods_detects_duplicates() {
         // Create a test case with duplicate strand and modification_type combinations
         // i.e. we have two entries for T+T below with different data
         let mod_entries = vec![
@@ -1645,7 +1645,7 @@ mod test_error_handling {
     }
 
     #[test]
-    fn test_reconstruct_base_mods_accepts_unique_combinations() {
+    fn reconstruct_base_mods_accepts_unique_combinations() {
         // Create a valid case with different combinations
         // First entry: T+ modification
         // Second entry: C+ modification (different base, same strand)
@@ -1687,7 +1687,7 @@ mod test_serde {
     use rust_htslib::bam::Read;
 
     #[test]
-    fn test_first_record_serde() -> Result<(), Error> {
+    fn first_record_serde() -> Result<(), Error> {
         // Read the first record from the example BAM file
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let first_record = reader.records().next().unwrap()?;
@@ -1740,7 +1740,7 @@ mod test_serde {
     }
 
     #[test]
-    fn test_first_record_roundtrip() -> Result<(), Error> {
+    fn first_record_roundtrip() -> Result<(), Error> {
         // Read the first record from the example BAM file (same as serialization test)
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let first_record = reader.records().next().unwrap()?;
@@ -1763,7 +1763,7 @@ mod test_serde {
     }
 
     #[test]
-    fn test_blank_json_record_roundtrip() -> Result<(), Error> {
+    fn blank_json_record_roundtrip() -> Result<(), Error> {
         let json_str = indoc! {r"
             {
             }"};
@@ -1785,7 +1785,7 @@ mod test_serde {
     }
 
     #[test]
-    fn test_example_1_unmapped() -> Result<(), Error> {
+    fn example_1_unmapped() -> Result<(), Error> {
         // Read the fourth record from the example BAM file (this is the unmapped read)
         let fourth_record = {
             let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
@@ -1849,7 +1849,7 @@ mod test_serde {
 
     #[test]
     #[should_panic(expected = "invalid alignment coordinates")]
-    fn test_invalid_align_coords_unmapped_with_reference_positions() {
+    fn invalid_align_coords_unmapped_with_reference_positions() {
         let invalid_json = r#"{
             "mod_table": [
                 {
@@ -1865,7 +1865,7 @@ mod test_serde {
 
     #[test]
     #[should_panic(expected = "invalid sequence length")]
-    fn test_invalid_sequence_length() {
+    fn invalid_sequence_length() {
         let invalid_json = r#"{
             "mod_table": [
                 {
@@ -1881,7 +1881,7 @@ mod test_serde {
 
     #[test]
     #[should_panic(expected = "cannot deserialize when implicit")]
-    fn test_invalid_implicit() {
+    fn invalid_implicit() {
         let invalid_json = r#"{
             "mod_table": [
                 {
@@ -1896,7 +1896,7 @@ mod test_serde {
 
     #[test]
     #[should_panic(expected = "invalid value")]
-    fn test_invalid_sequence_coordinate() {
+    fn invalid_sequence_coordinate() {
         let invalid_json = r#"{
             "alignment_type": "primary_forward",
             "alignment": {
@@ -1917,7 +1917,7 @@ mod test_serde {
 
     #[test]
     #[should_panic(expected = "invalid alignment coordinates")]
-    fn test_invalid_alignment_coordinates() {
+    fn invalid_alignment_coordinates() {
         let invalid_json = r#"{
             "alignment_type": "primary_forward",
             "alignment": {
@@ -1938,7 +1938,7 @@ mod test_serde {
 
     #[test]
     #[should_panic(expected = "invalid sorting")]
-    fn test_invalid_sorting_forward_alignment() {
+    fn invalid_sorting_forward_alignment() {
         let invalid_json = r#"{
             "alignment_type": "primary_forward",
             "alignment": {
@@ -1959,7 +1959,7 @@ mod test_serde {
 
     #[test]
     #[should_panic(expected = "invalid sorting")]
-    fn test_invalid_sorting_reverse_alignment() {
+    fn invalid_sorting_reverse_alignment() {
         let invalid_json = r#"{
             "alignment_type": "primary_reverse",
             "alignment": {

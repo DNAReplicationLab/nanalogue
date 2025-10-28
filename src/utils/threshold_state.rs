@@ -134,7 +134,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_threshold_state_gt_eq() {
+    fn threshold_state_gt_eq() {
         let threshold = ThresholdState::GtEq(100);
 
         // Test contains functionality
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn test_threshold_state_invert_gt_eq_lt_eq() {
+    fn threshold_state_invert_gt_eq_lt_eq() {
         let pair = OrdPair::new(200, 220).expect("should create");
         let threshold = ThresholdState::InvertGtEqLtEq(pair);
 
@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn test_threshold_state_both() {
+    fn threshold_state_both() {
         let pair = OrdPair::new(200, 220).expect("should create");
         let threshold = ThresholdState::Both((100, pair));
 
@@ -186,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn test_threshold_state_default() {
+    fn threshold_state_default() {
         let default_threshold = ThresholdState::default();
         assert!(matches!(default_threshold, ThresholdState::GtEq(0)));
 
@@ -197,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn test_threshold_state_display_consistency() {
+    fn threshold_state_display_consistency() {
         // Test that display format is consistent and meaningful
         let thresholds = vec![
             ThresholdState::GtEq(128),
@@ -213,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn test_threshold_state_edge_cases() {
+    fn threshold_state_edge_cases() {
         // Test boundary conditions
         let threshold_255 = ThresholdState::GtEq(255);
         assert!(threshold_255.contains(&255));

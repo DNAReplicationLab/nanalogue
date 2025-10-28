@@ -812,7 +812,7 @@ mod tests {
 
     /// Test for generation of random DNA of a given length
     #[test]
-    fn test_generate_random_dna_sequence() {
+    fn generate_random_dna_sequence_works() {
         let seq = generate_random_dna_sequence(NonZeroU64::new(100).unwrap(), &mut rand::rng());
         assert_eq!(seq.len(), 100);
         for base in seq {
@@ -822,7 +822,7 @@ mod tests {
 
     /// Tests contig generation
     #[test]
-    fn test_generate_contigs_denovo() {
+    fn generate_contigs_denovo_works() {
         let config = ContigConfig {
             number: NonZeroU32::new(5).unwrap(),
             len_range: OrdPair::new(NonZeroU64::new(100).unwrap(), NonZeroU64::new(200).unwrap())
@@ -842,7 +842,7 @@ mod tests {
 
     /// Tests read generation with desired properties.
     #[test]
-    fn test_generate_reads_denovo() {
+    fn generate_reads_denovo_works() {
         let mut rng = rand::rng();
         let contigs = vec![
             Contig {
@@ -880,7 +880,7 @@ mod tests {
 
     /// Tests full BAM creation
     #[test]
-    fn test_full_bam_generation() {
+    fn full_bam_generation() {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -918,7 +918,7 @@ mod tests {
 
     /// Tests `TempBamSimulation` struct functionality
     #[test]
-    fn test_temp_bam_simulation_struct() {
+    fn temp_bam_simulation_struct() {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -951,7 +951,7 @@ mod tests {
 
     /// Tests `add_barcode` function with forward and reverse reads
     #[test]
-    fn test_add_barcode() {
+    fn add_barcode_works() {
         let read_seq = b"GGGGGGGG".to_vec();
         let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
 
@@ -966,7 +966,7 @@ mod tests {
 
     /// Tests read generation with barcode
     #[test]
-    fn test_generate_reads_denovo_with_barcode() {
+    fn generate_reads_denovo_with_barcode_works() {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -1001,7 +1001,7 @@ mod tests {
 
     /// Tests contig generation with repeated sequence
     #[test]
-    fn test_generate_contigs_denovo_repeated_seq() {
+    fn generate_contigs_denovo_repeated_seq_works() {
         let seq = DNARestrictive::from_str("ACGT").unwrap();
         let contigs = generate_contigs_denovo_repeated_seq(
             NonZeroU32::new(10000).unwrap(),

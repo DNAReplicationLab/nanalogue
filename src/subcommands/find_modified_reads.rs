@@ -128,7 +128,7 @@ mod tests {
     /// Tests the `find_modified_reads::run` function with a simple filter
     /// that looks for reads with average modification probabilities above a threshold
     #[test]
-    fn test_find_modified_reads_basic() -> Result<(), Error> {
+    fn find_modified_reads_basic() -> Result<(), Error> {
         // Define window filter: keep reads with at least one window above threshold
         let window_filter =
             |windows: &Vec<F32Bw0and1>| -> bool { windows.iter().any(|&w| w.val() > 0.7) };
@@ -152,7 +152,7 @@ mod tests {
 
     /// Tests `find_modified_reads` with a filter that rejects all reads
     #[test]
-    fn test_find_modified_reads_reject_all() -> Result<(), Error> {
+    fn find_modified_reads_reject_all() -> Result<(), Error> {
         // Filter that rejects everything
         let window_filter = |_windows: &Vec<F32Bw0and1>| -> bool { false };
 
@@ -175,7 +175,7 @@ mod tests {
 
     /// Tests `find_modified_reads` with a filter that accepts all reads
     #[test]
-    fn test_find_modified_reads_accept_all() -> Result<(), Error> {
+    fn find_modified_reads_accept_all() -> Result<(), Error> {
         // Filter that accepts everything with non-empty windows
         let window_filter = |windows: &Vec<F32Bw0and1>| -> bool { !windows.is_empty() };
 

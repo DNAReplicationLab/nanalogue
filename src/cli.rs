@@ -358,14 +358,14 @@ mod tag_struct_tests {
     use super::*;
 
     #[test]
-    fn test_optional_tag_default() {
+    fn optional_tag_default() {
         let optional_tag = OptionalTag::default();
         assert!(optional_tag.tag.is_none());
         assert_eq!(optional_tag.tag(), None);
     }
 
     #[test]
-    fn test_optional_tag_with_value() {
+    fn optional_tag_with_value() {
         let mod_char = ModChar::new('m');
         let optional_tag = OptionalTag {
             tag: Some(mod_char),
@@ -374,13 +374,13 @@ mod tag_struct_tests {
     }
 
     #[test]
-    fn test_required_tag_default() {
+    fn required_tag_default() {
         let required_tag = RequiredTag::default();
         assert_eq!(required_tag.tag(), Some(ModChar::default()));
     }
 
     #[test]
-    fn test_required_tag_with_value() {
+    fn required_tag_with_value() {
         let mod_char = ModChar::new('C');
         let required_tag = RequiredTag { tag: mod_char };
         assert_eq!(required_tag.tag(), Some(mod_char));
@@ -392,14 +392,14 @@ mod input_windowing_tests {
     use super::*;
 
     #[test]
-    fn test_input_windowing_default() {
+    fn input_windowing_default() {
         let windowing = InputWindowing::default();
         assert_eq!(windowing.win, NonZeroUsize::new(1).unwrap());
         assert_eq!(windowing.step, NonZeroUsize::new(1).unwrap());
     }
 
     #[test]
-    fn test_input_windowing_custom_values() {
+    fn input_windowing_custom_values() {
         let windowing = InputWindowing {
             win: NonZeroUsize::new(300).unwrap(),
             step: NonZeroUsize::new(150).unwrap(),
@@ -414,7 +414,7 @@ mod input_mods_required_tag_tests {
     use super::*;
 
     #[test]
-    fn test_input_mods_required_tag_fn_tag() {
+    fn input_mods_required_tag_fn_tag() {
         let mod_char = ModChar::new('C');
         let input_mods = InputMods::<RequiredTag> {
             tag: RequiredTag { tag: mod_char },
@@ -438,7 +438,7 @@ mod input_bam_tests {
     use std::str::FromStr;
 
     #[test]
-    fn test_input_bam_is_full_overlap() {
+    fn input_bam_is_full_overlap() {
         // Test default (false)
         let input_bam_default = InputBam::default();
         assert!(!input_bam_default.is_full_overlap());
@@ -459,7 +459,7 @@ mod input_bam_tests {
     }
 
     #[test]
-    fn test_input_bam_convert_region_to_bed3_none() {
+    fn input_bam_convert_region_to_bed3_none() {
         let mut input_bam = InputBam::default();
 
         let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
@@ -470,7 +470,7 @@ mod input_bam_tests {
     }
 
     #[test]
-    fn test_input_bam_convert_region_to_bed3_with_region() {
+    fn input_bam_convert_region_to_bed3_with_region() {
         let mut input_bam = InputBam {
             region: Some(GenomicRegion::from_str("chr2:3400-3600").unwrap()),
             ..Default::default()
@@ -491,7 +491,7 @@ mod input_bam_tests {
 
     #[test]
     #[should_panic(expected = "InvalidRegionError")]
-    fn test_input_bam_convert_region_to_bed3_invalid_region() {
+    fn input_bam_convert_region_to_bed3_invalid_region() {
         let mut input_bam = InputBam {
             region: Some(GenomicRegion::from_str("chr2:4400-4600").expect("no error")),
             ..Default::default()
@@ -505,7 +505,7 @@ mod input_bam_tests {
 
     #[test]
     #[should_panic(expected = "InvalidRegionError")]
-    fn test_input_bam_convert_region_to_bed3_invalid_open_ended_region() {
+    fn input_bam_convert_region_to_bed3_invalid_open_ended_region() {
         let mut input_bam = InputBam {
             region: Some(GenomicRegion::from_str("chr2:4600-").expect("no error")),
             ..Default::default()
@@ -519,7 +519,7 @@ mod input_bam_tests {
 
     #[test]
     #[should_panic(expected = "InvalidAlignCoords")]
-    fn test_input_bam_convert_region_to_bed3_invalid_contig() {
+    fn input_bam_convert_region_to_bed3_invalid_contig() {
         let mut input_bam = InputBam {
             region: Some(GenomicRegion::from_str("chr3:1000-2000").expect("no error")),
             ..Default::default()

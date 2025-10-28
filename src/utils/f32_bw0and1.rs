@@ -152,7 +152,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_f32_bw0and1_basic() {
+    fn f32_bw0and1_basic() {
         // Test boundary values
         let _: F32Bw0and1 = F32Bw0and1::new(0.0).unwrap();
         let _: F32Bw0and1 = F32Bw0and1::new(1.0).unwrap();
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_bw0and1_from_str() {
+    fn f32_bw0and1_from_str() {
         // Valid strings
         let _: F32Bw0and1 = F32Bw0and1::from_str("0.0").unwrap();
         let _: F32Bw0and1 = F32Bw0and1::from_str("1.0").unwrap();
@@ -185,7 +185,7 @@ mod tests {
         clippy::float_cmp,
         reason = "0.0, 1.0 generated without computation, so can compare"
     )]
-    fn test_f32_bw0and1_shortcuts() {
+    fn f32_bw0and1_shortcuts() {
         let zero = F32Bw0and1::zero();
         assert_eq!(zero.val(), 0.0);
 
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     #[expect(clippy::float_cmp, reason = "comparing exactly is ok for 0 and 1")]
-    fn test_f32_bw0and1_from_u8() {
+    fn f32_bw0and1_from_u8() {
         // Test boundary values
         let zero = F32Bw0and1::from(0u8);
         assert_eq!(zero.val(), 0.0);
@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_bw0and1_into_u8() {
+    fn f32_bw0and1_into_u8() {
         // Test boundary values
         let zero = F32Bw0and1::new(0.0).expect("should create");
         let zero_u8: u8 = zero.into();
@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_bw0and1_u8_roundtrip() {
+    fn f32_bw0and1_u8_roundtrip() {
         // Test that converting u8 -> F32Bw0and1 -> u8 gives reasonable results
         for val in [0u8, 1, 50, 100, 128, 200, 254, 255] {
             let f32_val = F32Bw0and1::from(val);
@@ -261,7 +261,7 @@ mod tests {
         clippy::float_cmp,
         reason = "conversion to abs values shouldn't result in floating point problems"
     )]
-    fn test_f32_types_integration() {
+    fn f32_types_integration() {
         // Test conversion from F32Bw0and1 to F32AbsValAtMost1
         let pos_values = vec![0.0, 0.25, 0.5, 0.75, 1.0];
         for val in pos_values {
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_bw0and1_display() {
+    fn f32_bw0and1_display() {
         let val = F32Bw0and1::new(0.5).expect("should create");
         assert_eq!(format!("{val}"), "0.5");
 

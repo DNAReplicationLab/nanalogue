@@ -91,7 +91,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_restrict_mod_called_strand_basic() {
+    fn restrict_mod_called_strand_basic() {
         let bc = RestrictModCalledStrand::from_str("bc").expect("should parse");
         assert_eq!(format!("{bc}"), "+");
         assert_eq!(char::from(bc), '+');
@@ -102,7 +102,7 @@ mod tests {
     }
 
     #[test]
-    fn test_restrict_mod_called_strand_errors() {
+    fn restrict_mod_called_strand_errors() {
         assert!(matches!(
             RestrictModCalledStrand::from_str("invalid"),
             Err(Error::InvalidState(_))
@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn test_restrict_mod_called_strand_default() {
+    fn restrict_mod_called_strand_default() {
         let default_strand = RestrictModCalledStrand::default();
         assert_eq!(char::from(default_strand), '+');
     }

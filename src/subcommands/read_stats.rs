@@ -185,7 +185,7 @@ mod tests {
     use rust_htslib::bam::Read;
 
     #[test]
-    fn test_read_stats_example_3() -> Result<(), Error> {
+    fn read_stats_example_3() -> Result<(), Error> {
         let mut output = Vec::new();
 
         let mut bam_reader = bam::Reader::from_path("./examples/example_3.bam")

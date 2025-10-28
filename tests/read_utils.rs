@@ -15,7 +15,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_set_read_state_example_1() -> Result<(), Error> {
+    fn set_read_state_example_1() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
@@ -31,7 +31,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_read_state_example_3() -> Result<(), Error> {
+    fn set_read_state_example_3() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_3.bam")?;
         let mut count = 1; // NOTE that we start the counter from 1 here
         // as reads are called 001, 002, ..., 010 here.
@@ -54,7 +54,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_seq_len() -> Result<(), Error> {
+    fn set_seq_len() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
@@ -73,7 +73,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_seq_len_random() -> Result<(), Error> {
+    fn set_seq_len_random() -> Result<(), Error> {
         // creates 2 contigs of 1000 bp each and reads of random
         // mapping, position etc. with lengths b/w 10-20% of contig size.
         let config_json = r#"{
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "InvalidDuplicates")]
-    fn test_set_seq_len_duplicate_should_panic() {
+    fn set_seq_len_duplicate_should_panic() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
@@ -126,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_align_len() -> Result<(), Error> {
+    fn set_align_len() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let mut count = 0;
         for record in reader.records() {
@@ -150,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_align_len_random() -> Result<(), Error> {
+    fn set_align_len_random() -> Result<(), Error> {
         // creates 2 contigs of 1000 bp each and reads of random
         // mapping, position etc. with lengths b/w 10-20% of contig size.
         // then, with a barcode, the alignment length is the same but the
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Unmapped")]
-    fn test_set_align_len_unmapped_should_panic() {
+    fn set_align_len_unmapped_should_panic() {
         // Fourth read in the following file is unmapped, so we check if
         // we hit an error on that read
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "InvalidDuplicates")]
-    fn test_set_align_len_duplicate_should_panic() {
+    fn set_align_len_duplicate_should_panic() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
@@ -276,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_contig_id_and_start() -> Result<(), Error> {
+    fn set_contig_id_and_start() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let mut count = 0;
         for record in reader.records() {
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Unmapped")]
-    fn test_set_contig_id_and_start_unmapped_should_panic() {
+    fn set_contig_id_and_start_unmapped_should_panic() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         let mut count = 0;
         for record in reader.records() {
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "InvalidDuplicates")]
-    fn test_set_contig_id_and_start_duplicate_should_panic() {
+    fn set_contig_id_and_start_duplicate_should_panic() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_contig_name() -> Result<(), Error> {
+    fn set_contig_name() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let mut count = 0;
         for record in reader.records() {
@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Unmapped")]
-    fn test_set_contig_name_unmapped_should_panic() {
+    fn set_contig_name_unmapped_should_panic() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         let mut count = 0;
         for record in reader.records() {
@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Unmapped")]
-    fn test_get_contig_name_unmapped_should_panic() {
+    fn get_contig_name_unmapped_should_panic() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         let mut count = 0;
         for record in reader.records() {
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "UnavailableData")]
-    fn test_get_contig_name_without_setting_should_panic() {
+    fn get_contig_name_without_setting_should_panic() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "InvalidDuplicates")]
-    fn test_set_contig_name_duplicate_should_panic() {
+    fn set_contig_name_duplicate_should_panic() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
@@ -416,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_read_id() -> Result<(), Error> {
+    fn set_read_id() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "UnavailableData")]
-    fn test_get_read_id_without_setting_should_panic() {
+    fn get_read_id_without_setting_should_panic() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "InvalidDuplicates")]
-    fn test_set_read_id_duplicate_should_panic() {
+    fn set_read_id_duplicate_should_panic() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
@@ -462,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn test_strand() -> Result<(), Error> {
+    fn strand() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
@@ -477,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn test_seq_on_ref_coords() -> Result<(), Error> {
+    fn seq_on_ref_coords() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for record in reader.records() {
             let r = record?;
@@ -509,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn test_seq_on_ref_coords_2() -> Result<(), Error> {
+    fn seq_on_ref_coords_2() -> Result<(), Error> {
         // make a random BAM file but contigs are all just a 10 bp
         // sequence repeated to fill the required length.
         // so, we can easily check sequence retrieval.
@@ -560,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    fn test_seq_on_ref_coords_2_but_barcode() {
+    fn seq_on_ref_coords_2_but_barcode() {
         // make a random BAM file but contigs are all just a 10 bp
         // sequence repeated to fill the required length, but with a
         // barcode. Occasionally we will get a barcode in the region,
@@ -626,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn test_basecount_per_mod() -> Result<(), Error> {
+    fn basecount_per_mod() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let first_count = Some(HashMap::from([(ModChar::new('T'), 0)]));
         let second_count = Some(HashMap::from([(ModChar::new('T'), 3)]));
@@ -655,7 +655,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_stranded_bed3() -> Result<(), Error> {
+    fn try_from_stranded_bed3() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
@@ -677,7 +677,7 @@ mod tests {
     }
 
     #[test]
-    fn test_range_intersects() {
+    fn range_intersects() {
         assert!((0..3).intersects(&(0..1)));
         assert!(!(0..3).intersects(&(5..7)));
         assert!(!(0..3).intersects(&(1..1)));
@@ -695,7 +695,7 @@ mod test_curr_read_align_and_mod_data {
     use nanalogue_core::{F32Bw0and1, InputWindowing};
 
     #[test]
-    fn test_windowed_mod_data_restricted() -> Result<(), Error> {
+    fn windowed_mod_data_restricted() -> Result<(), Error> {
         let input_json = indoc! {r#"
             {
               "alignment_type": "primary_forward",

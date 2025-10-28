@@ -114,7 +114,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_f32_abs_val_at_most1_basic() {
+    fn f32_abs_val_at_most1_basic() {
         // Test boundary values
         let _: F32AbsValAtMost1 = F32AbsValAtMost1::new(-1.0).unwrap();
         let _: F32AbsValAtMost1 = F32AbsValAtMost1::new(1.0).unwrap();
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_abs_val_at_most1_from_str() {
+    fn f32_abs_val_at_most1_from_str() {
         // Valid strings
         let _: F32AbsValAtMost1 = F32AbsValAtMost1::from_str("-1.0").unwrap();
         let _: F32AbsValAtMost1 = F32AbsValAtMost1::from_str("1.0").unwrap();
@@ -146,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn test_f32_abs_val_at_most1_display() {
+    fn f32_abs_val_at_most1_display() {
         let val = F32AbsValAtMost1::new(-0.5).expect("should create");
         assert_eq!(format!("{val}"), "-0.5");
 
@@ -159,7 +159,7 @@ mod tests {
         clippy::float_cmp,
         reason = "exact compare ok as (1) very few significant digits, and (2) no arithmetic"
     )]
-    fn test_f32_abs_val_at_most1_val() {
+    fn f32_abs_val_at_most1_val() {
         for test_val in [0.0, 0.1, -0.7, 1.0, -1.0] {
             let val = F32AbsValAtMost1::new(test_val).expect("should create");
             assert_eq!(val.val(), test_val);

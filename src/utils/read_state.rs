@@ -180,7 +180,7 @@ mod tests {
 
     /// Tests `ReadState` u16 conversion round-trip
     #[test]
-    fn test_readstate_u16_conversion_roundtrip() {
+    fn readstate_u16_conversion_roundtrip() {
         let states = vec![
             ReadState::PrimaryFwd,
             ReadState::PrimaryRev,
@@ -202,7 +202,7 @@ mod tests {
 
     /// Tests specific `ReadState` u16 flag values
     #[test]
-    fn test_readstate_specific_flag_values() {
+    fn readstate_specific_flag_values() {
         assert_eq!(u16::from(ReadState::PrimaryFwd), 0);
         assert_eq!(u16::from(ReadState::Unmapped), 4);
         assert_eq!(u16::from(ReadState::PrimaryRev), 16);
@@ -214,7 +214,7 @@ mod tests {
 
     /// Tests `ReadState` from invalid u16 values
     #[test]
-    fn test_readstate_invalid_u16_values() {
+    fn readstate_invalid_u16_values() {
         // Test various invalid flag combinations
         let invalid_flags = vec![1, 2, 8, 32, 64, 128, 512, 1024, 4096, 8192];
         for flag in invalid_flags {
@@ -227,7 +227,7 @@ mod tests {
 
     /// Tests `ReadState` string parsing and display consistency
     #[test]
-    fn test_readstate_string_consistency() {
+    fn readstate_string_consistency() {
         let states = vec![
             ReadState::PrimaryFwd,
             ReadState::PrimaryRev,
@@ -248,21 +248,21 @@ mod tests {
     /// Tests `ReadState` `from_str` with invalid state string
     #[test]
     #[should_panic(expected = "UnknownAlignState")]
-    fn test_readstate_from_str_invalid_state() {
+    fn readstate_from_str_invalid_state() {
         let _result: ReadState = ReadState::from_str("invalid_state").unwrap();
     }
 
     /// Tests `ReadState` `from_str` with empty string
     #[test]
     #[should_panic(expected = "UnknownAlignState")]
-    fn test_readstate_from_str_empty_string() {
+    fn readstate_from_str_empty_string() {
         let _result: ReadState = ReadState::from_str("").unwrap();
     }
 
     /// Tests `ReadState` `from_str` with incomplete string
     #[test]
     #[should_panic(expected = "UnknownAlignState")]
-    fn test_readstate_from_str_incomplete_string() {
+    fn readstate_from_str_incomplete_string() {
         let _result: ReadState = ReadState::from_str("primary").unwrap();
     }
 }

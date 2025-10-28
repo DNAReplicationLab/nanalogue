@@ -178,17 +178,17 @@ mod tests {
     }
 
     #[test]
-    fn test_window_reads_example_1() -> Result<(), Error> {
+    fn window_reads_example_1() -> Result<(), Error> {
         run_window_reads_test_with_threshold(None, "./examples/example_1_window_reads")
     }
 
     #[test]
-    fn test_window_reads_example_1_gt_0pt4() -> Result<(), Error> {
+    fn window_reads_example_1_gt_0pt4() -> Result<(), Error> {
         run_window_reads_test_with_threshold(Some(0.4), "./examples/example_1_window_reads_gt_0pt4")
     }
 
     #[test]
-    fn test_window_reads_example_1_gt_0pt8() -> Result<(), Error> {
+    fn window_reads_example_1_gt_0pt8() -> Result<(), Error> {
         run_window_reads_test_with_threshold(Some(0.8), "./examples/example_1_window_reads_gt_0pt8")
     }
 }

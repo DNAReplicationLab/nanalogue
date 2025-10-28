@@ -9,7 +9,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ranges_filter_by_ref_coords_via_curr_read() {
+    fn ranges_filter_by_ref_coords_via_curr_read() {
         // Input JSON with modification data spanning reference positions 10-30
         let input_json = indoc! {r#"
         {
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ranges_filter_no_overlap_1() {
+    fn ranges_filter_no_overlap_1() {
         // Input JSON with modification data
         let input_json = indoc! {r#"
         {
@@ -136,7 +136,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ranges_filter_no_overlap_2() {
+    fn ranges_filter_no_overlap_2() {
         // Input JSON with modification data (same as test_1)
         let input_json = indoc! {r#"
         {
@@ -187,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ranges_filter_partial_overlap() {
+    fn ranges_filter_partial_overlap() {
         // Input JSON with modification data
         let input_json = indoc! {r#"
         {
@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ranges_filter_reverse_strand() {
+    fn ranges_filter_reverse_strand() {
         // Input JSON with reverse strand modification data
         let input_json = indoc! {r#"
         {

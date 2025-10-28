@@ -83,7 +83,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_direct_ranges_filter_by_ref_pos() {
+    fn direct_ranges_filter_by_ref_pos() {
         // Create a Ranges object with multiple ranges
         // All vectors have the same length as required
         let mut ranges = Ranges {
@@ -125,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ranges_filter_by_ref_pos_no_overlap() {
+    fn ranges_filter_by_ref_pos_no_overlap() {
         // Create a Ranges object with ranges that don't overlap the target region
         let mut ranges = Ranges {
             starts: vec![Some(10), Some(20), Some(60), Some(70)],
@@ -157,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ranges_filter_by_ref_pos_with_none_values() {
+    fn ranges_filter_by_ref_pos_with_none_values() {
         // Create a Ranges object with some None values
         let mut ranges = Ranges {
             starts: vec![Some(10), Some(20), None, Some(40)],
@@ -187,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ranges_filter_by_ref_pos_with_none_values_2() {
+    fn ranges_filter_by_ref_pos_with_none_values_2() {
         // Create a Ranges object with some None values
         let mut ranges = Ranges {
             starts: vec![Some(10), Some(20), None, Some(21), Some(40)],

@@ -65,7 +65,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_read_states() -> Result<(), Error> {
+    fn read_states() -> Result<(), Error> {
         let op = ReadStates::from_str("primary_forward")?;
         assert_eq!(op.bam_flags(), &[0]);
 
@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "UnknownAlignState")]
-    fn test_invalid_state() {
+    fn invalid_state() {
         let _op = ReadStates::from_str("random").unwrap();
     }
 }

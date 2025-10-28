@@ -50,7 +50,7 @@ mod tests {
     use serde_json::Value;
 
     #[test]
-    fn test_run_with_example_2_zero_len() -> Result<(), Error> {
+    fn run_with_example_2_zero_len() -> Result<(), Error> {
         // Collect records and filter out zero-length sequences (like the main program does)
         let mut reader = nanalogue_bam_reader("./examples/example_2_zero_len.sam")?;
         let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
@@ -88,7 +88,7 @@ mod tests {
     }
 
     #[test]
-    fn test_run_with_unmapped_filter() -> Result<(), Error> {
+    fn run_with_unmapped_filter() -> Result<(), Error> {
         // Collect records and filter to only include unmapped reads (like --read-filter unmapped)
         let mut reader = nanalogue_bam_reader("./examples/example_1.bam")?;
         let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
@@ -122,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn test_run_with_region_filter_dummy_i() -> Result<(), Error> {
+    fn run_with_region_filter_dummy_i() -> Result<(), Error> {
         // Collect records and filter to only include those in the dummyI region (like --region dummyI)
         let mut reader = nanalogue_bam_reader("./examples/example_1.bam")?;
         let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
@@ -160,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn test_run_with_example_6() -> Result<(), Error> {
+    fn run_with_example_6() -> Result<(), Error> {
         // Collect records from example_6.sam
         let mut reader = nanalogue_bam_reader("./examples/example_6.sam")?;
         let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> =

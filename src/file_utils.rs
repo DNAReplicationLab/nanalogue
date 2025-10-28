@@ -138,7 +138,7 @@ mod tests {
 
     /// Tests writing to a fasta file and check its contents
     #[test]
-    fn test_write_fasta() {
+    fn write_fasta_works() {
         let contigs = vec![
             ("test_contig_0".to_string(), b"ACGT".to_vec()),
             ("test_contig_1".to_string(), b"TGCA".to_vec()),

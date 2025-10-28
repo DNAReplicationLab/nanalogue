@@ -125,7 +125,7 @@ mod tests {
 
     /// Tests comprehensive `GenomicRegion` parsing
     #[test]
-    fn test_genomic_region_parsing() {
+    fn genomic_region_parsing() {
         // Simple contig name only
         let region = GenomicRegion::from_str("chr1").expect("should parse");
         assert_eq!(region.0.0, "chr1");
@@ -155,7 +155,7 @@ mod tests {
 
     /// Tests `GenomicRegion` parsing with open-ended support
     #[test]
-    fn test_genomic_region_open_ended() {
+    fn genomic_region_open_ended() {
         // Open-ended interval support
         let region = GenomicRegion::from_str("chr1:1000-").expect("should parse");
         assert_eq!(region.0.0, "chr1");
@@ -167,40 +167,40 @@ mod tests {
     /// Tests `GenomicRegion` parsing with wrong order coordinates
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_genomic_region_parsing_wrong_order() {
+    fn genomic_region_parsing_wrong_order() {
         let _: GenomicRegion = GenomicRegion::from_str("chr1:2000-1000").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with equal start and end (strict inequality)
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_genomic_region_parsing_equal_coordinates() {
+    fn genomic_region_parsing_equal_coordinates() {
         let _: GenomicRegion = GenomicRegion::from_str("chr1:1000-1000").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with invalid coordinate format
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_genomic_region_parsing_invalid_coordinates() {
+    fn genomic_region_parsing_invalid_coordinates() {
         let _: GenomicRegion = GenomicRegion::from_str("chr1:abc-def").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with invalid interval format (too many dashes)
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_genomic_region_parsing_too_many_dashes() {
+    fn genomic_region_parsing_too_many_dashes() {
         let _: GenomicRegion = GenomicRegion::from_str("chr1:1000-2000-3000").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with missing start coordinate
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_genomic_region_parsing_missing_start() {
+    fn genomic_region_parsing_missing_start() {
         let _: GenomicRegion = GenomicRegion::from_str("chr1:-2000").unwrap();
     }
 
     #[test]
-    fn test_genomic_region_basic_access() {
+    fn genomic_region_basic_access() {
         // Test accessing the contig name and coordinates
         let region = GenomicRegion::from_str("chr22:5000-10000").expect("should parse");
         assert_eq!(region.0.0, "chr22");
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn test_genomic_region_no_coordinates() {
+    fn genomic_region_no_coordinates() {
         let region = GenomicRegion::from_str("chrX").expect("should parse");
         assert_eq!(region.0.0, "chrX");
         assert!(region.0.1.is_none());
@@ -232,7 +232,7 @@ mod tests {
 
     /// Tests basic region conversion to BED3 format with chromosome and coordinates
     #[test]
-    fn test_try_to_bed3_basic_region() {
+    fn try_to_bed3_basic_region() {
         // Create test header
         let header = create_test_header();
 
@@ -248,7 +248,7 @@ mod tests {
 
     /// Tests conversion of a region with no coordinates to BED3 format
     #[test]
-    fn test_try_to_bed3_no_coordinates() {
+    fn try_to_bed3_no_coordinates() {
         // Create test header
         let header = create_test_header();
 
@@ -265,7 +265,7 @@ mod tests {
     /// Tests error case when start position exceeds contig length
     #[test]
     #[should_panic(expected = "InvalidRegionError")]
-    fn test_try_to_bed3_start_exceeds_contig_length() {
+    fn try_to_bed3_start_exceeds_contig_length() {
         let header = create_test_header();
 
         // Create a region with start position > contig length for chr1
@@ -278,7 +278,7 @@ mod tests {
     /// Tests error case when contig doesn't exist in the header
     #[test]
     #[should_panic(expected = "InvalidAlignCoords")]
-    fn test_try_to_bed3_nonexistent_contig() {
+    fn try_to_bed3_nonexistent_contig() {
         let header = create_test_header();
 
         // Create a region with a contig that doesn't exist in the header
@@ -290,7 +290,7 @@ mod tests {
 
     /// Tests conversion of an open-ended region to BED3 format
     #[test]
-    fn test_try_to_bed3_open_ended() {
+    fn try_to_bed3_open_ended() {
         let header = create_test_header();
 
         // Create an open-ended region

@@ -146,7 +146,7 @@ mod tests {
 
     /// Tests if `ModChar` is displayed correctly
     #[test]
-    fn test_display_mod_char() {
+    fn display_mod_char() {
         assert_eq!(
             format!("{}", ModChar::from_str("a").expect("no failure")),
             "a"
@@ -163,7 +163,7 @@ mod tests {
 
     /// Tests `ModChar` numeric conversion and edge cases
     #[test]
-    fn test_modchar_numeric_conversion() {
+    fn modchar_numeric_conversion() {
         // Test letter codes
         let mod_char = ModChar::from_str("m").expect("should parse");
         assert_eq!(mod_char.val(), 'm');
@@ -194,25 +194,25 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "EmptyModType")]
-    fn test_modchar_empty_string_panics() {
+    fn modchar_empty_string_panics() {
         let _: ModChar = ModChar::from_str("").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "InvalidModType")]
-    fn test_modchar_special_char_at_panics() {
+    fn modchar_special_char_at_panics() {
         let _: ModChar = ModChar::from_str("@123").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "InvalidModType")]
-    fn test_modchar_special_char_hash_panics() {
+    fn modchar_special_char_hash_panics() {
         let _: ModChar = ModChar::from_str("#abc").unwrap();
     }
 
     /// Tests `ModChar` display format consistency
     #[test]
-    fn test_modchar_display_consistency() {
+    fn modchar_display_consistency() {
         // Letters should display as letters
         for letter in ['a', 'b', 'z', 'A', 'B', 'Z'] {
             let mod_char = ModChar::new(letter);

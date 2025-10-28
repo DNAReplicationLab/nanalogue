@@ -206,7 +206,7 @@ mod tests {
         clippy::float_cmp,
         reason = "we expect perfect float conversion for the two examples below"
     )]
-    fn test_ord_pair_from_str_f32() {
+    fn ord_pair_from_str_f32() {
         assert_eq!(
             OrdPair::<f32>::from_str("1.0,2.0")
                 .expect("no failure")
@@ -223,7 +223,7 @@ mod tests {
 
     /// Tests if our Ordered Pair struct (of u8s) can be correctly obtained from strings
     #[test]
-    fn test_ord_pair_from_str_u8() {
+    fn ord_pair_from_str_u8() {
         assert_eq!(
             OrdPair::<u8>::from_str("1, 2")
                 .expect("no failure")
@@ -240,19 +240,19 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_str_empty_first_value_panics() {
+    fn ord_pair_from_str_empty_first_value_panics() {
         let _: OrdPair<u8> = OrdPair::<u8>::from_str(",2").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "WrongOrder")]
-    fn test_ord_pair_from_str_wrong_order_panics() {
+    fn ord_pair_from_str_wrong_order_panics() {
         let _: OrdPair<u8> = OrdPair::<u8>::from_str("2,1").unwrap();
     }
 
     /// Tests if `OrdPair` can be converted into a range
     #[test]
-    fn test_ord_pair_to_range() {
+    fn ord_pair_to_range() {
         assert_eq!(
             (3..=5),
             RangeInclusive::from(OrdPair::new(3, 5).expect("no failure"))
@@ -261,7 +261,7 @@ mod tests {
 
     /// Tests `OrdPair::from_interval` method for genomic intervals
     #[test]
-    fn test_ord_pair_from_interval() {
+    fn ord_pair_from_interval() {
         // Standard interval
         let interval = OrdPair::<u64>::from_interval("1000-2000").expect("should parse");
         assert_eq!(interval.get_low(), 1000);
@@ -275,60 +275,60 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_interval_equal_start_end_panics() {
+    fn ord_pair_from_interval_equal_start_end_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000-1000").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_interval_start_greater_than_end_panics() {
+    fn ord_pair_from_interval_start_greater_than_end_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("2000-1000").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_interval_no_dash_panics() {
+    fn ord_pair_from_interval_no_dash_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_interval_too_many_dashes_panics() {
+    fn ord_pair_from_interval_too_many_dashes_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000-2000-3000").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_interval_invalid_start_panics() {
+    fn ord_pair_from_interval_invalid_start_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("abc-2000").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_interval_invalid_end_panics() {
+    fn ord_pair_from_interval_invalid_end_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000-xyz").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_interval_empty_string_panics() {
+    fn ord_pair_from_interval_empty_string_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_interval_just_dash_panics() {
+    fn ord_pair_from_interval_just_dash_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("-").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_interval_negative_numbers_panics() {
+    fn ord_pair_from_interval_negative_numbers_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("-100-200").unwrap();
     }
 
     #[test]
-    fn test_ord_pair_contains() {
+    fn ord_pair_contains() {
         let pair = OrdPair::new(10, 20).expect("should create");
         assert!(pair.contains(&15));
         assert!(pair.contains(&10)); // inclusive lower bound
@@ -338,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ord_pair_display() {
+    fn ord_pair_display() {
         let pair = OrdPair::new(10, 20).expect("should create");
         assert_eq!(format!("{pair}"), "10, 20");
 
@@ -348,25 +348,25 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_str_empty_string_panics() {
+    fn ord_pair_from_str_empty_string_panics() {
         let _: OrdPair<i32> = OrdPair::<i32>::from_str("").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_str_single_value_panics() {
+    fn ord_pair_from_str_single_value_panics() {
         let _: OrdPair<i32> = OrdPair::<i32>::from_str("1").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_str_too_many_values_panics() {
+    fn ord_pair_from_str_too_many_values_panics() {
         let _: OrdPair<i32> = OrdPair::<i32>::from_str("1,2,3").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversionError")]
-    fn test_ord_pair_from_str_non_numeric_panics() {
+    fn ord_pair_from_str_non_numeric_panics() {
         let _: OrdPair<i32> = OrdPair::<i32>::from_str("abc,def").unwrap();
     }
 }
