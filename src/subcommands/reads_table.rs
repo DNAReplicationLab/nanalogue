@@ -82,6 +82,10 @@ enum ReadInstance {
 }
 
 impl fmt::Display for ReadInstance {
+    #[expect(
+        clippy::pattern_type_mismatch,
+        reason = "expect no confusion from this code"
+    )]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ReadInstance::OnlyBc(u64) => write!(f, "{u64}"),
@@ -145,6 +149,10 @@ impl Read {
     }
 
     /// adding alignment information to an entry
+    #[expect(
+        clippy::pattern_type_mismatch,
+        reason = "expect no confusion from this code"
+    )]
     fn add_align_len(
         &mut self,
         align_len: u64,
@@ -247,7 +255,7 @@ where
     // set up a flag to check if sequencing summary file has data
     let is_seq_summ_data: bool = !data_map.is_empty();
 
-    match &mut mods {
+    match mods.as_mut() {
         None => {}
         Some(p) => match p.mod_prob_filter {
             ref mut v @ ThresholdState::GtEq(w) => *v = ThresholdState::GtEq(u8::max(128, w)),
@@ -278,7 +286,7 @@ where
         };
 
         // get sequence
-        let sequence = match &seq_region {
+        let sequence: Option<String> = match seq_region.as_ref() {
             Some(v) if v.len() != 0 => Some(match curr_read_state.seq_on_ref_coords(&record, v) {
                 Err(Error::UnavailableData) => Ok(String::from("*")),
                 Err(e) => Err(e),
@@ -289,7 +297,7 @@ where
         };
 
         // get modification information
-        let mod_count: Option<ModCountTbl> = match &mods {
+        let mod_count: Option<ModCountTbl> = match mods.as_ref() {
             None => None,
             Some(v) => {
                 match curr_read_state
@@ -322,15 +330,15 @@ where
     write!(
         output_header,
         "{}read_id\talign_length\tsequence_length_template\talignment_type{}{}",
-        match &mods {
+        match mods.as_ref() {
             Some(_) => "# mod counts using probability threshold of 0.5\n",
             None => "",
         },
-        match &mods {
+        match mods.as_ref() {
             Some(_) => "\tmod_count",
             None => "",
         },
-        match &seq_region {
+        match seq_region.as_ref() {
             Some(_) => "\tsequence",
             None => "",
         },
@@ -347,8 +355,8 @@ where
         clippy::iter_over_hash_type,
         reason = "sorting would add unnecessary performance overhead; random iteration order is acceptable"
     )]
-    for (key, val) in &data_map {
-        match (&val, is_seq_summ_data) {
+    for (key, val) in data_map {
+        match (val, is_seq_summ_data) {
             (Read(ReadInstance::OnlyBc(_)), _) | (Read(ReadInstance::OnlyAlign { .. }), true) => {}
             (Read(ReadInstance::BothAlignBc { .. }), false) => {
                 return Err(Error::InvalidState(

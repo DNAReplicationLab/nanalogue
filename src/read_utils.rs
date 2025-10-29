@@ -556,7 +556,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Errors
     /// If instance is unmapped or contig name has not been set
     pub fn contig_name(&self) -> Result<&str, Error> {
-        match (self.read_state(), &self.contig_name) {
+        match (self.read_state(), self.contig_name.as_ref()) {
             (ReadState::Unmapped, _) => Err(Error::Unmapped),
             (_, None) => Err(Error::UnavailableData),
             (_, Some(v)) => Ok(v.as_str()),
@@ -619,7 +619,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Errors
     /// If read id has not been set
     pub fn read_id(&self) -> Result<&str, Error> {
-        match &self.read_id {
+        match self.read_id.as_ref() {
             None => Err(Error::UnavailableData),
             Some(v) => Ok(v.as_str()),
         }
@@ -645,7 +645,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// ```
     #[must_use]
     pub fn strand(&self) -> char {
-        match &self.state {
+        match self.read_state() {
             ReadState::Unmapped => '.',
             ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd => '+',
             ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => '-',
@@ -878,7 +878,7 @@ genomic coordinates are far smaller than ~2^63"
         let l = usize::try_from(self.seq_len().expect("no error"))
             .expect("bit conversion errors unlikely");
         let w = mod_options.trim_read_ends_mod();
-        let interval = if let Some(bed3) = mod_options.region_filter() {
+        let interval = if let Some(bed3) = mod_options.region_filter().as_ref() {
             let stranded_bed3 = StrandedBed3::<i32, u64>::try_from(&self)?;
             if let Some(v) = bed3.intersect(&stranded_bed3) {
                 if v.start() == stranded_bed3.start() && v.end() == stranded_bed3.end() {
@@ -930,6 +930,10 @@ impl CurrRead<AlignAndModData> {
     ///
     /// # Errors
     /// Returns an error if the window function returns an error.
+    #[expect(
+        clippy::pattern_type_mismatch,
+        reason = "suggested notation is verbose but I am not sure"
+    )]
     pub fn windowed_mod_data_restricted<F>(
         &self,
         window_function: &F,
@@ -1023,12 +1027,11 @@ impl CurrRead<AlignAndModData> {
     #[must_use]
     pub fn base_count_per_mod(&self) -> Option<HashMap<ModChar, u32>> {
         let mut output = HashMap::<ModChar, u32>::new();
-        let (BaseMods { base_mods: v }, _) = self.mod_data();
         #[expect(
             clippy::arithmetic_side_effects,
             reason = "u32::MAX approx 4.2 Gb, v unlikely 1 molecule is this modified"
         )]
-        for k in v {
+        for k in &self.mod_data().0.base_mods {
             let base_count = u32::try_from(k.ranges.qual.len()).expect("number conversion error");
             let _: &mut u32 = output
                 .entry(ModChar::new(k.modification_type))
@@ -1056,6 +1059,10 @@ where
 
 /// Implements display when mod data is available
 impl DisplayCondensedModData for CurrRead<AlignAndModData> {
+    #[expect(
+        clippy::pattern_type_mismatch,
+        reason = "suggested notation is verbose but I am not sure"
+    )]
     fn mod_data_section(&self) -> Result<String, fmt::Error> {
         let mut mod_count_str = String::new();
         let (BaseMods { base_mods: v }, w) = &self.mods;
@@ -1090,7 +1097,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut output_string = String::from("{\n");
 
-        if let Some(v) = &self.read_id {
+        if let Some(v) = self.read_id.as_ref() {
             writeln!(output_string, "\t\"read_id\": \"{v}\",")?;
         }
 
@@ -1103,7 +1110,7 @@ where
             writeln!(
                 output_string,
                 "\t\"contig\": \"{}\",",
-                if let Some(x) = &self.contig_name {
+                if let Some(x) = self.contig_name.as_ref() {
                     x
                 } else {
                     num_str
@@ -1226,8 +1233,7 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
     fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
-        let (BaseMods { base_mods: v }, _) = &mut self.mods;
-        for k in v {
+        for k in &mut self.mods.0.base_mods {
             k.ranges.filter_by_ref_pos(start, end);
         }
     }
@@ -1308,7 +1314,7 @@ impl SerializedCurrRead {
                 }
 
                 // Check reference coordinates based on alignment status
-                match &self.alignment {
+                match self.alignment.as_ref() {
                     Some(alignment) => {
                         // For aligned reads, ref_start should be in [start, end) or -1
                         let align_range =
@@ -1408,7 +1414,7 @@ impl TryFrom<SerializedCurrRead> for CurrRead<AlignAndModData> {
         )?;
 
         // Extract alignment information
-        let (align_len, contig_id_and_start, contig_name) = match &serialized.alignment {
+        let (align_len, contig_id_and_start, contig_name) = match serialized.alignment.as_ref() {
             Some(alignment) => {
                 let align_len = {
                     if let Some(v) = alignment.end.checked_sub(alignment.start) {

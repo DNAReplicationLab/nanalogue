@@ -6,7 +6,6 @@
 use crate::{
     CurrRead, Error, F32AbsValAtMost1, InputMods, InputWindowing, ModChar, OptionalTag, ReadState,
 };
-use fibertools_rs::utils::basemods::BaseMods;
 use rust_htslib::bam::Record;
 use std::rc::Rc;
 
@@ -60,8 +59,7 @@ where
         };
 
         // read and window modification data, then print the output
-        let (BaseMods { base_mods }, _) = curr_read_state.mod_data();
-        for base_mod in base_mods {
+        for base_mod in &curr_read_state.mod_data().0.base_mods {
             let mod_data = &base_mod.ranges.qual;
             let starts = &base_mod.ranges.starts;
             let ends = &base_mod.ranges.ends;

@@ -69,7 +69,7 @@ impl GenomicRegion {
     /// or if the specified region is invalid (start/end position exceeds contig length).
     pub fn try_to_bed3(self, header: &bam::HeaderView) -> Result<Bed3<i32, u64>, Error> {
         let region_bed = {
-            let GenomicRegion((contig_name, coords)) = &self;
+            let GenomicRegion((contig_name, coords)) = self;
             let numeric_contig: i32 = header
                 .tid(contig_name.as_bytes())
                 .ok_or(Error::InvalidAlignCoords)?

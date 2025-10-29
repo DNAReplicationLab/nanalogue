@@ -395,7 +395,7 @@ impl<'a> BamRcRecords<'a> {
         bam_reader.set_thread_pool(&tp)?;
 
         // Load read ID list if specified
-        if let Some(file_path) = &bam_opts.read_id_list {
+        if let Some(file_path) = bam_opts.read_id_list.as_ref() {
             let file = File::open(file_path).map_err(Error::InputOutputError)?;
             let reader = BufReader::new(file);
             let mut read_ids = HashSet::new();
@@ -510,9 +510,9 @@ impl BamPreFilt for bam::Record {
             & self.filt_random_subset(bam_opts.sample_fraction)
             & self.filt_by_mapq(bam_opts.mapq_filter, bam_opts.exclude_mapq_unavail)
             & {
-                if let Some(v) = &bam_opts.read_id {
-                    self.filt_by_read_id(v.as_str())
-                } else if let Some(read_id_set) = &bam_opts.read_id_set {
+                if let Some(v) = bam_opts.read_id.as_ref() {
+                    self.filt_by_read_id(v)
+                } else if let Some(read_id_set) = bam_opts.read_id_set.as_ref() {
                     self.filt_by_read_id_set(read_id_set)
                 } else {
                     true
@@ -526,14 +526,14 @@ impl BamPreFilt for bam::Record {
                 }
             }
             & {
-                if let Some(v) = &bam_opts.read_filter {
+                if let Some(v) = bam_opts.read_filter.as_ref() {
                     self.filt_by_bitwise_or_flags(v)
                 } else {
                     true
                 }
             }
             & {
-                if let Some(v) = bam_opts.region_filter() {
+                if let Some(v) = bam_opts.region_filter().as_ref() {
                     self.filt_by_region(v, bam_opts.is_full_overlap())
                 } else {
                     true

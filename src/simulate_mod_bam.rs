@@ -264,7 +264,7 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
             seq_bytes
                 .iter()
                 .zip(iter::repeat(&base))
-                .filter(|(a, b)| a == b)
+                .filter(|&(&a, &b)| a == b)
                 .count()
         };
         let mut output: Vec<u8> = Vec::with_capacity(count);
@@ -604,7 +604,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             )];
 
             // Add barcode if specified
-            match &read_config.barcode {
+            match read_config.barcode.as_ref() {
                 Some(barcode) => {
                     let barcode_len = u32::try_from(barcode.get_dna_restrictive().get().len())
                         .expect("number conversion error");

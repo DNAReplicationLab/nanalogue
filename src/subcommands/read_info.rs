@@ -54,15 +54,8 @@ mod tests {
         // Collect records and filter out zero-length sequences (like the main program does)
         let mut reader = nanalogue_bam_reader("./examples/example_2_zero_len.sam")?;
         let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
-            .records()
-            .map(|r| r.map(Rc::new))
-            .filter(|r| {
-                // Filter out records that would cause InvalidSeqLength (zero-length sequences)
-                match r {
-                    Ok(record) => record.seq_len() > 0,
-                    Err(_) => true, // Keep errors to let run() handle them
-                }
-            })
+            .rc_records()
+            .filter(|r| r.as_ref().map_or(true, |v| v.seq_len() > 0))
             .collect();
 
         // Gets an output from the function and compares with expected
@@ -92,15 +85,8 @@ mod tests {
         // Collect records and filter to only include unmapped reads (like --read-filter unmapped)
         let mut reader = nanalogue_bam_reader("./examples/example_1.bam")?;
         let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
-            .records()
-            .map(|r| r.map(Rc::new))
-            .filter(|r| {
-                // Filter to only unmapped reads (flag 4)
-                match r {
-                    Ok(record) => record.flags() == 4, // Unmapped flag
-                    Err(_) => true,                    // Keep errors to let run() handle them
-                }
-            })
+            .rc_records()
+            .filter(|r| r.as_ref().map_or(true, |v| v.flags() == 4))
             .collect();
 
         // Gets an output from the function and compares with expected
@@ -126,15 +112,8 @@ mod tests {
         // Collect records and filter to only include those in the dummyI region (like --region dummyI)
         let mut reader = nanalogue_bam_reader("./examples/example_1.bam")?;
         let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
-            .records()
-            .map(|r| r.map(Rc::new))
-            .filter(|r| {
-                // Filter to only records in dummyI contig (TID 0)
-                match r {
-                    Ok(record) => !record.is_unmapped() && record.tid() == 0, // dummyI is TID 0
-                    Err(_) => true, // Keep errors to let run() handle them
-                }
-            })
+            .rc_records()
+            .filter(|r| r.as_ref().map_or(true, |v| !v.is_unmapped() && v.tid() == 0))
             .collect();
 
         // Gets an output from the function and compares with expected

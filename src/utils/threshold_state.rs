@@ -61,8 +61,8 @@ impl Default for ThresholdState {
 impl fmt::Display for ThresholdState {
     /// display the u8 thresholds as a floating point number between 0 and 1
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let printable = match &self {
-            ThresholdState::GtEq(v) => format!("probabilities >= {:.4}", F32Bw0and1::from(*v)),
+        let printable = match *self {
+            ThresholdState::GtEq(v) => format!("probabilities >= {:.4}", F32Bw0and1::from(v)),
             ThresholdState::InvertGtEqLtEq(v) => {
                 format!(
                     "probabilities < {:.4} or > {:.4}",
@@ -73,8 +73,8 @@ impl fmt::Display for ThresholdState {
             ThresholdState::Both((a, b)) => {
                 format!(
                     "{:.4} and ({:.4})",
-                    ThresholdState::GtEq(*a),
-                    ThresholdState::InvertGtEqLtEq(*b)
+                    ThresholdState::GtEq(a),
+                    ThresholdState::InvertGtEqLtEq(b)
                 )
             }
         };
@@ -118,12 +118,12 @@ impl Contains<u8> for ThresholdState {
     /// see if value is contained within the interval
     /// specified by the threshold state
     fn contains(&self, val: &u8) -> bool {
-        match &self {
-            ThresholdState::GtEq(v) => val >= v,
+        match *self {
+            ThresholdState::GtEq(v) => *val >= v,
             ThresholdState::InvertGtEqLtEq(w) => !w.contains(val),
             ThresholdState::Both((a, b)) => {
-                ThresholdState::GtEq(*a).contains(val)
-                    && ThresholdState::InvertGtEqLtEq(*b).contains(val)
+                ThresholdState::GtEq(a).contains(val)
+                    && ThresholdState::InvertGtEqLtEq(b).contains(val)
             }
         }
     }

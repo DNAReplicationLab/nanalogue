@@ -237,10 +237,8 @@ fn main() -> Result<(), Error> {
     /// pre filtering the BAM file according to input options
     macro_rules! pre_filt {
         ( $b : expr, $c : expr) => {
-            $b.rc_records.filter(|r| match r {
-                Ok(v) => v.pre_filt($c),
-                Err(_) => true,
-            })
+            $b.rc_records
+                .filter(|r| r.as_ref().map_or(true, |v| v.pre_filt($c)))
         };
     }
 
