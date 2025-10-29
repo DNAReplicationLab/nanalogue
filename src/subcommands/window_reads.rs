@@ -171,9 +171,9 @@ mod tests {
             }
             Some(thres_val) => {
                 // Use threshold_and_mean_and_thres_win with specified threshold
-                let threshold = F32Bw0and1::new(thres_val).unwrap();
                 run(&mut output, bam_records, window_options, &mods, |x| {
-                    threshold_and_mean_and_thres_win(x, threshold).map(Into::into)
+                    threshold_and_mean_and_thres_win(x, F32Bw0and1::new(thres_val).unwrap())
+                        .map(Into::into)
                 })?;
             }
         }

@@ -189,16 +189,16 @@ mod tests {
                     }
                 }?;
 
-                let len: u64 = curr_read.seq_len().unwrap();
-                sum_seq_len = sum_seq_len.checked_add(len).unwrap();
+                let seq_len: u64 = curr_read.seq_len().unwrap();
+                sum_seq_len = sum_seq_len.checked_add(seq_len).unwrap();
                 deviation_sequence_len_sq = deviation_sequence_len_sq
-                    .checked_add(len.abs_diff(162).pow(2))
+                    .checked_add(seq_len.abs_diff(162).pow(2))
                     .unwrap();
 
-                let len: u64 = curr_read.align_len().unwrap();
-                sum_align_len = sum_align_len.checked_add(len).unwrap();
+                let align_len: u64 = curr_read.align_len().unwrap();
+                sum_align_len = sum_align_len.checked_add(align_len).unwrap();
                 deviation_align_len_sq = deviation_align_len_sq
-                    .checked_add(len.abs_diff(150).pow(2))
+                    .checked_add(align_len.abs_diff(150).pow(2))
                     .unwrap();
 
                 count = count.checked_add(1).unwrap();
@@ -498,8 +498,9 @@ mod tests {
                 assert_eq!(curr_read.seq_len()? - 1, u64::try_from(seq_subset.len())?);
 
                 // Create a region with no overlap at all and check we get no data
-                let region = Bed3::new(contig_id, start + align_len, start + align_len + 2);
-                match curr_read.seq_on_ref_coords(&r, &region) {
+                let region_no_overlap =
+                    Bed3::new(contig_id, start + align_len, start + align_len + 2);
+                match curr_read.seq_on_ref_coords(&r, &region_no_overlap) {
                     Err(Error::UnavailableData) => Ok(()),
                     _ => Err(Error::UnknownError),
                 }?;

@@ -272,14 +272,18 @@ mod tests {
 
         // Test conversion via absolute value function
         let neg_val = F32AbsValAtMost1::new(-0.5).expect("should create");
-        let abs_converted = F32Bw0and1::abs_f32_abs_val_at_most_1(neg_val);
-        assert_eq!(abs_converted.val(), 0.5);
+        let abs_converted_neg = F32Bw0and1::abs_f32_abs_val_at_most_1(neg_val);
+        assert_eq!(abs_converted_neg.val(), 0.5);
 
         let pos_val = F32AbsValAtMost1::new(0.7).expect("should create");
-        let abs_converted = F32Bw0and1::abs_f32_abs_val_at_most_1(pos_val);
-        assert_eq!(abs_converted.val(), 0.7);
+        let abs_converted_pos = F32Bw0and1::abs_f32_abs_val_at_most_1(pos_val);
+        assert_eq!(abs_converted_pos.val(), 0.7);
     }
 
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "repetition is fine; each block is clearly separated"
+    )]
     #[test]
     fn f32_bw0and1_display() {
         let val = F32Bw0and1::new(0.5).expect("should create");

@@ -64,6 +64,10 @@ impl ReadStates {
 mod tests {
     use super::*;
 
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "repetition is fine; each block is clearly separated"
+    )]
     #[test]
     fn read_states() -> Result<(), Error> {
         let op = ReadStates::from_str("primary_forward")?;

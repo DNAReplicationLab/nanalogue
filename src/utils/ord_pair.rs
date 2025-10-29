@@ -283,6 +283,10 @@ mod tests {
     }
 
     /// Tests `OrdPair::from_interval` method for genomic intervals
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "repetition is fine; each block is clearly separated"
+    )]
     #[test]
     fn ord_pair_from_interval() {
         // Standard interval

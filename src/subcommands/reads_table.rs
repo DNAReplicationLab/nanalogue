@@ -324,7 +324,7 @@ where
                     .base_count_per_mod()
                 {
                     None => Some(ModCountTbl::blank()),
-                    Some(v) => Some(ModCountTbl::new(v)),
+                    Some(u) => Some(ModCountTbl::new(u)),
                 }
             }
         };

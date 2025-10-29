@@ -162,6 +162,10 @@ mod tests {
     }
 
     /// Tests `ModChar` numeric conversion and edge cases
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "repetition is fine; each block is clearly separated"
+    )]
     #[test]
     fn modchar_numeric_conversion() {
         // Test letter codes

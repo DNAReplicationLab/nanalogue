@@ -145,6 +145,10 @@ mod tests {
         let _: Error = F32AbsValAtMost1::from_str("").unwrap_err();
     }
 
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "repetition is fine; each block is clearly separated"
+    )]
     #[test]
     fn f32_abs_val_at_most1_display() {
         let val = F32AbsValAtMost1::new(-0.5).expect("should create");

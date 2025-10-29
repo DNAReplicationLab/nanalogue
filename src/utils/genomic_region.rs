@@ -124,6 +124,10 @@ mod tests {
     use indoc::indoc;
 
     /// Tests comprehensive `GenomicRegion` parsing
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "repetition is fine; each block is clearly separated"
+    )]
     #[test]
     fn genomic_region_parsing() {
         // Simple contig name only

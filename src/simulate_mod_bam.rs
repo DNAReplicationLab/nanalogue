@@ -962,6 +962,10 @@ mod tests {
     }
 
     /// Tests `add_barcode` function with forward and reverse reads
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "repetition is fine; each block is clearly separated"
+    )]
     #[test]
     fn add_barcode_works() {
         let read_seq = b"GGGGGGGG".to_vec();

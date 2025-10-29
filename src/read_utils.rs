@@ -970,15 +970,15 @@ impl CurrRead<AlignAndModData> {
                     ..
                 } if *x == tag_char => {
                     let mod_data = &track.qual;
-                    if let Some(v) = mod_data.len().checked_sub(win_size) {
+                    if let Some(l) = mod_data.len().checked_sub(win_size) {
                         result.extend(
-                            (0..=v)
+                            (0..=l)
                                 .step_by(slide_size)
                                 .map(|i| {
                                     window_function(
                                         mod_data
                                             .get(i..)
-                                            .expect("i <= v where v = len - win_size")
+                                            .expect("i <= len - win_size")
                                             .get(0..win_size)
                                             .expect("checked len>=win_size so no error"),
                                     )
@@ -1463,14 +1463,13 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
                 Ok((start, ref_start, qual))
             })
             .collect();
-        let entries = entries?;
 
         mod_table.push(ModTableEntry {
             base: base_mod.modified_base as char,
             is_strand_plus: base_mod.strand == '+',
             mod_code: ModChar::new(base_mod.modification_type),
             implicit: false, // Always false to handle modBAM format requirements
-            data: entries,
+            data: entries?,
         });
     }
 

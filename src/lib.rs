@@ -400,9 +400,9 @@ impl<'a> BamRcRecords<'a> {
             let reader = BufReader::new(file);
             let mut read_ids = HashSet::new();
 
-            for line in reader.lines() {
-                let line = line.map_err(Error::InputOutputError)?;
-                let line = line.trim();
+            for raw_line in reader.lines() {
+                let temp_line = raw_line.map_err(Error::InputOutputError)?;
+                let line = temp_line.trim();
                 if !line.is_empty() && !line.starts_with('#') {
                     let _: bool = read_ids.insert(line.to_string());
                 }
@@ -858,12 +858,12 @@ mod zero_length_filtering_tests {
         }
 
         // Test with include_zero_len = true and min_seq_len = 1 (should get 2 reads)
-        let mut reader = nanalogue_bam_reader("examples/example_2_zero_len.sam")?;
+        let mut reader_same_file = nanalogue_bam_reader("examples/example_2_zero_len.sam")?;
         let bam_opts_include_zero: InputBam =
             serde_json::from_str(r#"{"min_seq_len": 1, "include_zero_len": true}"#).unwrap();
 
         let mut count_include_zero = 0;
-        for record_result in reader.records() {
+        for record_result in reader_same_file.records() {
             let record = record_result?;
             if record.pre_filt(&bam_opts_include_zero) {
                 count_include_zero += 1;
@@ -958,9 +958,9 @@ mod bam_rc_record_tests {
         let file = File::open("examples/example_3_subset_1").unwrap();
         let reader_file = BufReader::new(file);
         let mut line_count = 0;
-        for line in reader_file.lines() {
-            let line = line.unwrap();
-            let line = line.trim();
+        for raw_line in reader_file.lines() {
+            let temp_line = raw_line.unwrap();
+            let line = temp_line.trim();
             if !line.is_empty() && !line.starts_with('#') {
                 line_count += 1;
             }
@@ -992,9 +992,9 @@ mod bam_rc_record_tests {
         let file = File::open("examples/example_3_subset_w_invalid").unwrap();
         let reader_file = BufReader::new(file);
         let mut line_count = 0;
-        for line in reader_file.lines() {
-            let line = line.unwrap();
-            let line = line.trim();
+        for raw_line in reader_file.lines() {
+            let temp_line = raw_line.unwrap();
+            let line = temp_line.trim();
             if !line.is_empty() && !line.starts_with('#') {
                 line_count += 1;
             }
