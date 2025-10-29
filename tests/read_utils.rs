@@ -1,13 +1,13 @@
 //! Tests for `read_utils.rs` extracted from doctests
 
 use bedrs::prelude::StrandedBed3;
-use bedrs::{Bed3, Coordinates, Strand};
+use bedrs::{Bed3, Coordinates as _, Strand};
 use nanalogue_core::simulate_mod_bam::TempBamSimulation;
 use nanalogue_core::{
-    CurrRead, Error, Intersects, ModChar, ReadState, ThresholdState, nanalogue_bam_reader,
+    CurrRead, Error, Intersects as _, ModChar, ReadState, ThresholdState, nanalogue_bam_reader,
     read_utils::OnlyAlignData,
 };
-use rust_htslib::bam::Read;
+use rust_htslib::bam::Read as _;
 use std::collections::{HashMap, hash_map::Entry};
 
 #[cfg(test)]

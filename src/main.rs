@@ -4,10 +4,10 @@
 //! reference genomes, modification information on them, and other miscellaneous
 //! information.
 //!
-use bedrs::{Bed3, Coordinates};
+use bedrs::{Bed3, Coordinates as _};
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
-    BamPreFilt, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
+    BamPreFilt as _, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
     InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, find_modified_reads,
     nanalogue_bam_reader, read_info, read_stats, reads_table, simulate_mod_bam, window_reads,
 };
@@ -511,7 +511,7 @@ fn main() -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::CommandFactory;
+    use clap::CommandFactory as _;
 
     #[test]
     fn verify_cli() {

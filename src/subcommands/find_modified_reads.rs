@@ -36,8 +36,11 @@ where
         // apply our windowing function and then the windowing filter
         if match curr_read_state
             .set_mod_data_restricted_options(&record, mod_options)?
-            .windowed_mod_data_restricted(&window_function, window_options, mod_options.tag())?
-        {
+            .windowed_mod_data_restricted(
+                &window_function,
+                window_options,
+                mod_options.required_tag(),
+            )? {
             v if !v.is_empty() => window_filter(&v),
             _ => false,
         } {
@@ -52,7 +55,7 @@ where
 mod tests {
     use super::*;
     use crate::{ModChar, ThresholdState, nanalogue_bam_reader};
-    use rust_htslib::bam::Read as BamRead;
+    use rust_htslib::bam::Read as _;
     use std::num::NonZeroUsize;
 
     /// Helper function that runs `find_modified_reads` with specified parameters

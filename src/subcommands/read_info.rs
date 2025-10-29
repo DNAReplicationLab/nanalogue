@@ -46,7 +46,7 @@ where
 mod tests {
     use super::*;
     use crate::nanalogue_bam_reader;
-    use rust_htslib::bam::Read;
+    use rust_htslib::bam::Read as _;
     use serde_json::Value;
 
     #[test]

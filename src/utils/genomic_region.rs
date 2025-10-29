@@ -120,7 +120,7 @@ impl GenomicRegion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrs::Coordinates;
+    use bedrs::Coordinates as _;
     use indoc::indoc;
 
     /// Tests comprehensive `GenomicRegion` parsing

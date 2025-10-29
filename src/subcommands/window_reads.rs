@@ -73,7 +73,9 @@ where
             if let Some(v) = mod_data.len().checked_sub(win_size) {
                 for window_idx in (0..=v).step_by(slide_size) {
                     let win_val = match window_function(
-                        mod_data[window_idx..]
+                        mod_data
+                            .get(window_idx..)
+                            .expect("window_idx <= v where v = len - win_size")
                             .get(0..win_size)
                             .expect("no error as we've checked data len >= win size"),
                     ) {
@@ -88,10 +90,15 @@ where
                     // there is no way to trigger the errors below as we control how CurrRead is
                     // populated quite strictly. Nevertheless, I am leaving these in for
                     // future-proofing.
-                    let win_start = starts[window_idx].ok_or_else(|| {
-                        Error::InvalidState("Missing sequence start position".to_string())
-                    })?;
-                    let win_end = ends[window_idx..]
+                    let win_start = starts
+                        .get(window_idx)
+                        .expect("window_idx is valid")
+                        .ok_or_else(|| {
+                            Error::InvalidState("Missing sequence start position".to_string())
+                        })?;
+                    let win_end = ends
+                        .get(window_idx..)
+                        .expect("window_idx <= v where v = len - win_size")
                         .get(0..win_size)
                         .expect("no error as we've checked data len >= win size")
                         .last()
@@ -100,7 +107,9 @@ where
                             Error::InvalidState("Missing sequence end position".to_string())
                         })?;
 
-                    let ref_win_start = ref_starts[window_idx..]
+                    let ref_win_start = ref_starts
+                        .get(window_idx..)
+                        .expect("window_idx <= v where v = len - win_size")
                         .get(0..win_size)
                         .expect("no error as we've checked data len >= win size")
                         .iter()
@@ -108,7 +117,9 @@ where
                         .min()
                         .copied()
                         .unwrap_or(INVALID_REF_POS);
-                    let ref_win_end = ref_ends[window_idx..]
+                    let ref_win_end = ref_ends
+                        .get(window_idx..)
+                        .expect("window_idx <= v where v = len - win_size")
                         .get(0..win_size)
                         .expect("no error as we've checked data len >= win size")
                         .iter()
@@ -134,7 +145,7 @@ mod tests {
     use super::*;
     use crate::F32Bw0and1;
     use crate::analysis::{threshold_and_mean, threshold_and_mean_and_thres_win};
-    use rust_htslib::bam::{self, Read};
+    use rust_htslib::bam::{self, Read as _};
 
     /// Helper function to run `window_reads` tests with `threshold_and_mean_and_thres_win`
     ///

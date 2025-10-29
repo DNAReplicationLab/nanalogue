@@ -46,7 +46,7 @@ use std::iter;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::RangeInclusive;
 use std::path::Path;
-use std::str::FromStr;
+use std::str::FromStr as _;
 use uuid::Uuid;
 
 /// Main configuration struct for simulation
@@ -329,9 +329,13 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
 /// ```
 pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> Vec<u8> {
     const DNA_BASES: [u8; 4] = [b'A', b'C', b'G', b'T'];
-    iter::repeat_with(|| DNA_BASES[rng.random_range(0..4)])
-        .take(usize::try_from(length.get()).expect("sequence length exceeds usize::MAX"))
-        .collect()
+    iter::repeat_with(|| {
+        *DNA_BASES
+            .get(rng.random_range(0..4))
+            .expect("random_range(0..4) is always 0-3")
+    })
+    .take(usize::try_from(length.get()).expect("sequence length exceeds usize::MAX"))
+    .collect()
 }
 
 /// Adds barcodes to read sequence based on strand orientation.
@@ -553,7 +557,9 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
     for _ in 0..read_config.number.get() {
         // Select a random contig
         let contig_idx = rng.random_range(0..contigs.len());
-        let contig = &contigs[contig_idx];
+        let contig = contigs
+            .get(contig_idx)
+            .expect("contig_idx is within contigs range");
         let contig_len = contig.get_dna_restrictive().get().len() as u64;
 
         // Calculate read length as fraction of contig length
@@ -586,8 +592,12 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
         let end_pos = usize::try_from(start_pos.checked_add(read_len).expect("u64 overflow"))
             .expect("number conversion error");
         let (read_seq, cigar) = {
-            let temp_seq = contig.get_dna_restrictive().get()
-                [usize::try_from(start_pos).expect("number conversion error")..end_pos]
+            let start_idx = usize::try_from(start_pos).expect("number conversion error");
+            let temp_seq = contig
+                .get_dna_restrictive()
+                .get()
+                .get(start_idx..end_pos)
+                .expect("start_idx and end_pos are within contig bounds")
                 .to_vec();
             let cigar_ops = vec![Cigar::Match(
                 u32::try_from(read_len).expect("number conversion error"),
@@ -808,7 +818,7 @@ impl Drop for TempBamSimulation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_htslib::bam::Read;
+    use rust_htslib::bam::Read as _;
 
     /// Test for generation of random DNA of a given length
     #[test]
@@ -989,12 +999,20 @@ mod tests {
 
             if read.is_reverse() {
                 // Reverse: comp(GTACGG)=CATGCC at start, rev(GTACGG)=GGCATG at end
-                assert_eq!(&seq[..6], b"CATGCC");
-                assert_eq!(&seq[seq_len - 6..], b"GGCATG");
+                assert_eq!(seq.get(..6).expect("seq has at least 6 bases"), b"CATGCC");
+                assert_eq!(
+                    seq.get(seq_len.saturating_sub(6)..)
+                        .expect("seq has at least 6 bases"),
+                    b"GGCATG"
+                );
             } else {
                 // Forward: GTACGG at start, revcomp(GTACGG)=CCGTAC at end
-                assert_eq!(&seq[..6], b"GTACGG");
-                assert_eq!(&seq[seq_len - 6..], b"CCGTAC");
+                assert_eq!(seq.get(..6).expect("seq has at least 6 bases"), b"GTACGG");
+                assert_eq!(
+                    seq.get(seq_len.saturating_sub(6)..)
+                        .expect("seq has at least 6 bases"),
+                    b"CCGTAC"
+                );
             }
         }
     }
@@ -1021,7 +1039,9 @@ mod tests {
                 b"ACGTACGTACGT" => 2,
                 _ => panic!("Unexpected sequence"),
             };
-            counts[idx] += 1;
+            *counts
+                .get_mut(idx)
+                .expect("idx is 0, 1, or 2; counts has 3 elements") += 1;
         }
 
         // 3000/10000 is quite lax actually - we expect ~3333 each

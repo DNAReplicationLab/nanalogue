@@ -2,7 +2,7 @@
 //! Tests focus on filtering reads by reference coordinates
 
 use indoc::indoc;
-use nanalogue_core::{CurrRead, FilterByRefCoords, read_utils::AlignAndModData};
+use nanalogue_core::{CurrRead, FilterByRefCoords as _, read_utils::AlignAndModData};
 
 #[cfg(test)]
 mod tests {

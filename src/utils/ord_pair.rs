@@ -105,27 +105,48 @@ impl OrdPair<u64> {
     /// # Errors
     /// Returns an error if the interval format is invalid, coordinates cannot be parsed,
     /// or if start is not strictly less than end.
+    ///
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "This function does not panic. The internal `.expect()` \
+calls are only used after verifying the length of the parts vector, ensuring safe access."
+    )]
     pub fn from_interval(interval_str: &str) -> Result<Self, Error> {
         let parts: Vec<&str> = interval_str.split('-').collect();
 
         match parts.len() {
             2 => {
-                let start = parts[0].trim().parse::<u64>().map_err(|_err| {
-                    Error::OrdPairConversionError(
-                        "Invalid start coordinate in interval!".to_string(),
-                    )
-                })?;
+                let start = parts
+                    .first()
+                    .expect("parts has exactly 2 elements")
+                    .trim()
+                    .parse::<u64>()
+                    .map_err(|_err| {
+                        Error::OrdPairConversionError(
+                            "Invalid start coordinate in interval!".to_string(),
+                        )
+                    })?;
 
-                let end = if parts[1].trim().is_empty() {
+                let end = if parts
+                    .get(1)
+                    .expect("parts has exactly 2 elements")
+                    .trim()
+                    .is_empty()
+                {
                     // Open-ended interval: "1000-"
                     u64::MAX
                 } else {
                     // Closed interval: "1000-2000"
-                    parts[1].trim().parse::<u64>().map_err(|_err| {
-                        Error::OrdPairConversionError(
-                            "Invalid end coordinate in interval!".to_string(),
-                        )
-                    })?
+                    parts
+                        .get(1)
+                        .expect("parts has exactly 2 elements")
+                        .trim()
+                        .parse::<u64>()
+                        .map_err(|_err| {
+                            Error::OrdPairConversionError(
+                                "Invalid end coordinate in interval!".to_string(),
+                            )
+                        })?
                 };
 
                 // Enforce strict inequality (start < end)
@@ -162,10 +183,10 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> FromStr for Ord
         let v: Vec<&str> = val_str.split(',').map(str::trim).collect();
         match v.len() {
             2 => {
-                let Ok(low) = T::from_str(v[0]) else {
+                let Ok(low) = T::from_str(v.first().expect("v has exactly 2 elements")) else {
                     return parse_error!();
                 };
-                let Ok(high) = T::from_str(v[1]) else {
+                let Ok(high) = T::from_str(v.get(1).expect("v has exactly 2 elements")) else {
                     return parse_error!();
                 };
                 OrdPair::<T>::new(low, high)

@@ -7,12 +7,12 @@
 //! if provided, otherwise only reads the BAM file.
 
 use crate::{CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, ThresholdState};
-use bedrs::prelude::{Bed3, Coordinates};
+use bedrs::prelude::{Bed3, Coordinates as _};
 use csv::ReaderBuilder;
 use itertools::join;
 use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt, fmt::Write, fs::File, rc::Rc, str};
+use std::{collections::HashMap, fmt, fmt::Write as _, fs::File, rc::Rc, str};
 
 /// Write a vector as a CSV-formatted string
 macro_rules! vec_csv {
@@ -366,7 +366,7 @@ where
 mod tests {
     use super::*;
     use crate::nanalogue_bam_reader;
-    use rust_htslib::bam::Read as BamRead;
+    use rust_htslib::bam::Read as _;
 
     fn normalize_output(output: &str) -> Vec<String> {
         let lines: Vec<String> = output

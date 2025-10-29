@@ -182,7 +182,7 @@ where
 mod tests {
     use super::*;
     use indoc::indoc;
-    use rust_htslib::bam::Read;
+    use rust_htslib::bam::Read as _;
 
     #[test]
     fn read_stats_example_3() -> Result<(), Error> {

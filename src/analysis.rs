@@ -1,7 +1,7 @@
 //! # Analysis functions for modification data processing.
 //!
 //! Contains `threshold_and_mean` and `threshold_and_gradient` calculations.
-use crate::{Contains, Error, F32AbsValAtMost1, F32Bw0and1, ThresholdState};
+use crate::{Contains as _, Error, F32AbsValAtMost1, F32Bw0and1, ThresholdState};
 
 /// Threshold and calculate mean modification density per window
 ///

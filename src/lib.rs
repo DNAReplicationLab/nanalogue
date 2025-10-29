@@ -8,17 +8,19 @@
 //! and parsing modification information directly from BAM files. Other functions
 //! in the crate are distributed over other files.
 
-use bedrs::{Bed3, Coordinates};
+use bedrs::{Bed3, Coordinates as _};
 use bio::alphabets::dna::revcomp;
-use bio_types::sequence::SequenceRead;
+use bio_types::sequence::SequenceRead as _;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use fibertools_rs::utils::bio_io::{convert_seq_uppercase, get_u8_tag};
 use rand::random;
 use regex::Regex;
-use rust_htslib::{bam, bam::Read, bam::ext::BamRecordExtensions, bam::record::Aux, tpool};
+use rust_htslib::{
+    bam, bam::Read as _, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool,
+};
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead as _, BufReader};
 use std::sync::LazyLock;
 
 // Declare the modules.
@@ -165,7 +167,12 @@ where
         for cap in MM_RE.captures_iter(mm_text) {
             let mod_base = cap
                 .get(3)
-                .map(|m| m.as_str().as_bytes()[0])
+                .map(|m| {
+                    *m.as_str()
+                        .as_bytes()
+                        .first()
+                        .expect("regex match guaranteed to have at least 1 byte")
+                })
                 .expect("no error");
             let mod_strand = cap
                 .get(4)
@@ -253,14 +260,21 @@ when usize is 64-bit as genomic sequences are not that long"
                 .filter(|&(_, &k)| mod_base == b'N' || k == mod_base)
             {
                 if cur_mod_idx < mod_dists.len()
-                    && dist_from_last_mod_base == mod_dists[cur_mod_idx]
+                    && dist_from_last_mod_base
+                        == *mod_dists
+                            .get(cur_mod_idx)
+                            .expect("cur_mod_idx < mod_dists.len()")
                 {
-                    let prob = ml_tag[cur_mod_idx..]
+                    let prob = ml_tag
+                        .get(cur_mod_idx..)
+                        .expect("cur_mod_idx < mod_dists.len() and ml_tag has same length")
                         .get(num_mods_seen)
                         .ok_or(Error::InvalidModProbs)?;
                     if filter_mod_prob(prob)
                         && filter_mod_pos(&cur_seq_idx)
-                        && !(min_qual > 0 && base_qual[cur_seq_idx] < min_qual)
+                        && !(min_qual > 0
+                            && *base_qual.get(cur_seq_idx).expect("cur_seq_idx is valid")
+                                < min_qual)
                     {
                         modified_positions.push(i64::try_from(cur_seq_idx).expect(
                             "integer conversion errors unlikely \
@@ -271,14 +285,19 @@ when usize is 64-bit as genomic sequences are not that long"
                     dist_from_last_mod_base = 0;
                     cur_mod_idx += 1;
                 } else if cur_mod_idx < mod_dists.len()
-                    && dist_from_last_mod_base > mod_dists[cur_mod_idx]
+                    && dist_from_last_mod_base
+                        > *mod_dists
+                            .get(cur_mod_idx)
+                            .expect("cur_mod_idx < mod_dists.len()")
                 {
                     return Err(Error::InvalidModCoords);
                 } else {
                     if is_include_zero_prob
                         && is_implicit
                         && filter_mod_pos(&cur_seq_idx)
-                        && !(min_qual > 0 && base_qual[cur_seq_idx] < min_qual)
+                        && !(min_qual > 0
+                            && *base_qual.get(cur_seq_idx).expect("cur_seq_idx is valid")
+                                < min_qual)
                     {
                         modified_positions.push(i64::try_from(cur_seq_idx).expect(
                             "integer conversion errors unlikely \
@@ -891,7 +910,7 @@ mod base_qual_filtering_tests {
                     .unwrap();
 
             assert_eq!(v.len(), 1);
-            let base_mod = &v[0];
+            let base_mod = v.first().expect("v has exactly 1 element");
             assert_eq!(base_mod.modified_base, b'T');
             assert_eq!(base_mod.strand, '+');
             assert_eq!(base_mod.modification_type, 'T');
@@ -1090,7 +1109,12 @@ mod bam_rc_record_tests {
                 }
             }
             if selected_states.is_empty() {
-                selected_states.push(all_states[random_range(0..all_states.len())]);
+                let random_idx = random_range(0..all_states.len());
+                selected_states.push(
+                    *all_states
+                        .get(random_idx)
+                        .expect("random_idx is within all_states range"),
+                );
             }
             selected_states
         };

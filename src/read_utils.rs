@@ -4,20 +4,20 @@
 //! and the mod information in the BAM file using a parser implemented in
 //! another module.
 
-use bedrs::prelude::{Intersect, StrandedBed3};
-use bedrs::{Bed3, Coordinates, Strand};
-use bio_types::genome::AbstractInterval;
+use bedrs::prelude::{Intersect as _, StrandedBed3};
+use bedrs::{Bed3, Coordinates as _, Strand};
+use bio_types::genome::AbstractInterval as _;
 use fibertools_rs::utils::bamranges::Ranges;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
-use rust_htslib::{bam::ext::BamRecordExtensions, bam::record::Record};
+use rust_htslib::{bam::ext::BamRecordExtensions as _, bam::record::Record};
 use std::collections::{HashMap, HashSet};
-use std::fmt::{self, Write};
+use std::fmt::{self, Write as _};
 use std::num::NonZeroU64;
 use std::rc::Rc;
 
 // Import from our crate
 use crate::{
-    Contains, Error, F32Bw0and1, FilterByRefCoords, InputModOptions, InputRegionOptions,
+    Contains as _, Error, F32Bw0and1, FilterByRefCoords, InputModOptions, InputRegionOptions,
     InputWindowing, ModChar, ReadState, ThresholdState, nanalogue_mm_ml_parser,
 };
 use serde::{Deserialize, Serialize};
@@ -972,7 +972,9 @@ impl CurrRead<AlignAndModData> {
                                 .step_by(slide_size)
                                 .map(|i| {
                                     window_function(
-                                        mod_data[i..]
+                                        mod_data
+                                            .get(i..)
+                                            .expect("i <= v where v = len - win_size")
                                             .get(0..win_size)
                                             .expect("checked len>=win_size so no error"),
                                     )
@@ -1479,7 +1481,11 @@ fn validate_starts_sorting(starts: &[Option<i64>]) -> Result<(), Error> {
     }
 
     // Always check ascending order regardless of alignment type
-    let is_sorted_ascending = positions.windows(2).all(|w| w[0] <= w[1]);
+    let is_sorted_ascending = positions.windows(2).all(|w| {
+        let first = w.first().expect("windows(2) ensures at least 2 elements");
+        let second = w.get(1).expect("windows(2) ensures at least 2 elements");
+        first <= second
+    });
     if !is_sorted_ascending {
         let sample_positions: Vec<i64> = positions.iter().take(5).copied().collect();
         return Err(Error::InvalidSorting(format!(
@@ -1684,7 +1690,7 @@ mod test_serde {
     use super::*;
     use crate::nanalogue_bam_reader;
     use indoc::indoc;
-    use rust_htslib::bam::Read;
+    use rust_htslib::bam::Read as _;
 
     #[test]
     fn first_record_serde() -> Result<(), Error> {

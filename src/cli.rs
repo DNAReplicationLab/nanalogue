@@ -304,7 +304,7 @@ impl<S: TagState + Args + FromArgMatches> InputRegionOptions for InputMods<S> {
 impl InputMods<RequiredTag> {
     /// retrieves tag
     #[must_use]
-    pub fn tag(&self) -> ModChar {
+    pub fn required_tag(&self) -> ModChar {
         self.tag.tag
     }
 }
@@ -426,16 +426,16 @@ mod input_mods_required_tag_tests {
             region_bed3: None,
         };
 
-        assert_eq!(input_mods.tag(), mod_char);
+        assert_eq!(input_mods.required_tag(), mod_char);
     }
 }
 
 #[cfg(test)]
 mod input_bam_tests {
     use super::*;
-    use bedrs::Coordinates;
+    use bedrs::Coordinates as _;
     use indoc::indoc;
-    use std::str::FromStr;
+    use std::str::FromStr as _;
 
     #[test]
     fn input_bam_is_full_overlap() {

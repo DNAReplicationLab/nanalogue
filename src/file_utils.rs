@@ -5,7 +5,7 @@
 use crate::Error;
 use rust_htslib::bam;
 use std::fs::File;
-use std::io::Write;
+use std::io::Write as _;
 use std::path::Path;
 
 /// Opens BAM file, copied and edited from fibertools-rs repo.
