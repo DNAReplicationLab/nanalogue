@@ -12,10 +12,19 @@ use std::rc::Rc;
     clippy::arithmetic_side_effects,
     reason = "sums can overflow but only if _huge_ amounts of data i.e. total sequence bp = (2^64-1)"
 )]
+/// Receives a heap of numbers and calculates statistics
+/// (count, mean, longest, shortest, median, N50).
+/// We assume the heap is long enough that we use approximate
+/// formulae for e.g. the median. We assume there is enough read-to-read
+/// variation that integer precision is ok for these quantities.
+///
+/// # Panics
+/// Should not panic as heap size is not expected to exceed `u64::MAX` (~2^64),
+/// and running total will not disagree with total length.
 fn get_stats_from_heap(
     mut input: BinaryHeap<u64>,
     total_length: u64,
-) -> Result<(u64, u64, u64, u64, u64, u64), Error> {
+) -> (u64, u64, u64, u64, u64, u64) {
     // process heaps to get statistics
     let mut counter: u64 = 0;
     let mut longest: u64 = 0;
@@ -23,10 +32,7 @@ fn get_stats_from_heap(
     let mut median: u64 = 0;
     let mut n50: u64 = 0;
     let mut running_total_length: u64 = 0;
-    let heap_size: u64 = match input.len().try_into() {
-        Ok(v) => v,
-        Err(_) => return Err(Error::RareHeapTooLarge),
-    };
+    let heap_size: u64 = input.len().try_into().expect("heap cannot be this large");
 
     while let Some(v) = input.pop() {
         if counter == 0 {
@@ -55,13 +61,16 @@ fn get_stats_from_heap(
         counter += 1;
     }
 
-    assert_eq!(running_total_length, total_length);
+    assert_eq!(
+        running_total_length, total_length,
+        "running_total and pre-calculated total are expected to be equal"
+    );
 
     // This should be a floating point number, but in any reasonable dataset
     // we will not need a precision < 1 bp.
     let mean = total_length.checked_div(counter).unwrap_or(0u64);
 
-    Ok((counter, mean, longest, shortest, median, n50))
+    (counter, mean, longest, shortest, median, n50)
 }
 
 /// Reads the input BAM file and prints statistics
@@ -154,9 +163,9 @@ where
 
     // process heaps to get statistics
     let (_, seq_len_mean, seq_len_max, seq_len_min, seq_len_median, seq_len_n50) =
-        get_stats_from_heap(seq_len_heap, seq_len_total)?;
+        get_stats_from_heap(seq_len_heap, seq_len_total);
     let (_, align_len_mean, align_len_max, align_len_min, align_len_median, align_len_n50) =
-        get_stats_from_heap(align_len_heap, align_len_total)?;
+        get_stats_from_heap(align_len_heap, align_len_total);
 
     writeln!(handle, "key\tvalue")?;
     writeln!(handle, "n_primary_alignments\t{primary_count}")?;

@@ -33,11 +33,36 @@ impl FilterByRefCoords for Ranges {
                 .enumerate()
             {
                 // ensure start <= end for each interval and intervals are sorted.
-                assert!(((*k.1.0).is_none() || (*k.1.1).is_none()) || *(k.1.0) <= *(k.1.1));
-                assert!((*k.1.0).is_none() || (*k.1.0) > previous_start);
-                assert!((*k.1.1).is_none() || (*k.1.1) > previous_start);
-                assert!((*k.1.0).is_none() || (*k.1.0) >= previous_end);
-                assert!((*k.1.1).is_none() || (*k.1.1) >= previous_end);
+                assert!(
+                    ((*k.1.0).is_none() || (*k.1.1).is_none()) || *(k.1.0) <= *(k.1.1),
+                    "start {:?} <= end {:?} expected",
+                    *(k.1.0),
+                    *(k.1.1)
+                );
+                assert!(
+                    (*k.1.0).is_none() || (*k.1.0) > previous_start,
+                    "start {:?} > previous_start {:?} expected",
+                    *(k.1.0),
+                    previous_start
+                );
+                assert!(
+                    (*k.1.1).is_none() || (*k.1.1) > previous_start,
+                    "end {:?} > previous_start {:?} expected",
+                    *(k.1.1),
+                    previous_start
+                );
+                assert!(
+                    (*k.1.0).is_none() || (*k.1.0) >= previous_end,
+                    "start {:?} >= previous_end {:?} expected",
+                    *(k.1.0),
+                    previous_end
+                );
+                assert!(
+                    (*k.1.1).is_none() || (*k.1.1) >= previous_end,
+                    "end {:?} >= previous_end {:?} expected",
+                    *(k.1.1),
+                    previous_end
+                );
 
                 if let Some(v) = *(k.1.0) {
                     previous_start = Some(v);

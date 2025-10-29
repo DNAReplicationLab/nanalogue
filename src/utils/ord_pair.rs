@@ -12,7 +12,9 @@ use std::str::FromStr;
 /// Datatype holding two values low, high such that low <= high is guaranteed at creation.
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
 pub struct OrdPair<T: Clone + Copy + Debug> {
+    /// low value of the ordered pair
     low: T,
+    /// high value of the ordered pair
     high: T,
 }
 

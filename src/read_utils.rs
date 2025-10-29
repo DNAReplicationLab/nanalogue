@@ -1044,6 +1044,7 @@ impl CurrRead<AlignAndModData> {
 
 /// To format and display modification data in a condensed manner.
 trait DisplayCondensedModData {
+    /// Outputs mod data section in a condensed manner.
     fn mod_data_section(&self) -> Result<String, fmt::Error>;
 }
 

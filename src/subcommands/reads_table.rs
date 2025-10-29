@@ -64,19 +64,36 @@ impl fmt::Display for ModCountTbl {
 ///   from the BAM file, discarding the sequence length from the BAM file.
 #[derive(Debug, Clone, PartialEq)]
 enum ReadInstance {
+    /// Only information from the alignment file is available.
+    /// NOTE that these are vectors as a read can have multiple BAM records.
     OnlyAlign {
+        /// Alignment length from the BAM file
         align_len: Vec<u64>,
+        /// Sequence length from the BAM file
         seq_len: u64,
+        /// Count of various mods from the BAM file
         mod_count: Vec<ModCountTbl>,
+        /// Alignment type (primary, secondary, reverse etc.) from the BAM file.
         read_state: Vec<ReadState>,
+        /// Sequence from the BAM file.
         seq: Vec<String>,
     },
+    /// Only basecalled info i.e. from the sequencing summary file is available
     OnlyBc(u64),
+    /// Information from both sequencing summary and alignment file are available.
+    /// NOTE that these are vectors as a read can have multiple BAM records,
+    /// but the basecalled length is not a vector as a sequencing summary file
+    /// has unique information per read.
     BothAlignBc {
+        /// Alignment length from the BAM file
         align_len: Vec<u64>,
+        /// Sequence length from the sequencing summary file
         bc_len: u64,
+        /// Count of various mods from the BAM file
         mod_count: Vec<ModCountTbl>,
+        /// Alignment type (primary, secondary, reverse etc.) from the BAM file.
         read_state: Vec<ReadState>,
+        /// Sequence from the BAM file.
         seq: Vec<String>,
     },
 }
@@ -196,7 +213,9 @@ impl Read {
 /// Represents a record with the columns of interest from the TSV file.
 #[derive(Debug, Serialize, Deserialize)]
 struct TSVRecord {
+    /// Read id of the molecule in the current row
     read_id: String,
+    /// Sequence length of the molecule in the current row
     sequence_length_template: u64,
 }
 

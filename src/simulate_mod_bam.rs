@@ -771,7 +771,9 @@ where
 /// automatically removes them when dropped.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TempBamSimulation {
+    /// Path to bam file that will be created
     bam_path: String,
+    /// Path to fasta file that will be created
     fasta_path: String,
 }
 

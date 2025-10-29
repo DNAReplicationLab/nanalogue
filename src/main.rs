@@ -14,9 +14,11 @@ use nanalogue_core::{
 use std::io;
 use std::ops::RangeInclusive;
 
+/// Main command line parsing struct
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
+    /// Our subcommands
     #[command(subcommand)]
     command: Commands,
 }
@@ -70,6 +72,7 @@ enum Commands {
     },
     /// Find names of modified reads through criteria specified by sub commands
     FindModifiedReads {
+        /// Subcommands corresponding to finding modified reads
         #[command(subcommand)]
         command: FindModReadsCommands,
     },

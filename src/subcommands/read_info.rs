@@ -113,7 +113,10 @@ mod tests {
         let mut reader = nanalogue_bam_reader("./examples/example_1.bam")?;
         let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = reader
             .rc_records()
-            .filter(|r| r.as_ref().map_or(true, |v| !v.is_unmapped() && v.tid() == 0))
+            .filter(|r| {
+                r.as_ref()
+                    .map_or(true, |v| !v.is_unmapped() && v.tid() == 0)
+            })
             .collect();
 
         // Gets an output from the function and compares with expected

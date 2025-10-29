@@ -100,10 +100,6 @@ pub enum Error {
     #[error("float parsing error: `{0}`")]
     FloatParseError(#[from] ParseFloatError),
 
-    /// Rare Error, should never happen
-    #[error("heap too large")]
-    RareHeapTooLarge,
-
     /// Generic Input-Output error
     #[error("input output error: `{0}`")]
     InputOutputError(#[from] io::Error),
