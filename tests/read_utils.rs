@@ -11,6 +11,7 @@ use rust_htslib::bam::Read as _;
 use std::collections::{HashMap, hash_map::Entry};
 
 #[cfg(test)]
+#[expect(clippy::panic, reason = "panic is acceptable in test code for assertion failures")]
 mod tests {
     use super::*;
 

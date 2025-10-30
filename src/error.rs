@@ -50,6 +50,10 @@ pub enum Error {
     #[error("invalid sequence")]
     InvalidSeq,
 
+    /// Base is invalid (not A, G, C, T, or N)
+    #[error("invalid base")]
+    InvalidBase,
+
     /// Read id of molecule is invalid
     #[error("invalid read id")]
     InvalidReadID,

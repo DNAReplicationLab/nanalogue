@@ -35,7 +35,9 @@
 //! ).unwrap();
 //! ```
 
-use crate::{DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, ModChar, OrdPair, ReadState};
+use crate::{
+    AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, ModChar, OrdPair, ReadState,
+};
 use crate::{write_bam_denovo, write_fasta};
 use itertools::join;
 use rand::{Rng, random};
@@ -97,8 +99,8 @@ pub struct ReadConfig {
 #[serde(default)]
 #[non_exhaustive]
 pub struct ModConfig {
-    /// Base that is modified (A, C, G, T, etc.)
-    pub base: char,
+    /// Base that is modified (A, C, G, T, or N)
+    pub base: AllowedAGCTN,
     /// Whether this is on the plus strand
     pub is_strand_plus: bool,
     /// Modification code (character or numeric)
@@ -174,7 +176,7 @@ impl Default for ReadConfig {
 impl Default for ModConfig {
     fn default() -> Self {
         Self {
-            base: 'C',
+            base: AllowedAGCTN::C,
             is_strand_plus: true,
             mod_code: ModChar::new('m'),
             win: vec![NonZeroU32::new(1).unwrap()],
@@ -192,7 +194,7 @@ impl Default for ModConfig {
 /// ```
 /// use std::num::NonZeroU32;
 /// use std::str::FromStr;
-/// use nanalogue_core::{DNARestrictive, F32Bw0and1, ModChar, OrdPair};
+/// use nanalogue_core::{AllowedAGCTN, DNARestrictive, F32Bw0and1, ModChar, OrdPair};
 /// use nanalogue_core::simulate_mod_bam::{ModConfig, generate_random_dna_modification};
 /// use rand::Rng;
 ///
@@ -204,7 +206,7 @@ impl Default for ModConfig {
 /// // because we do not want to deal with random values in an example.
 ///
 /// let mut mod_config_c = ModConfig::default();
-/// mod_config_c.base = 'C';
+/// mod_config_c.base = AllowedAGCTN::C;
 /// mod_config_c.is_strand_plus = true;
 /// mod_config_c.mod_code = ModChar::new('m');
 /// mod_config_c.win = vec![NonZeroU32::new(2).unwrap(), NonZeroU32::new(3).unwrap()];
@@ -214,7 +216,7 @@ impl Default for ModConfig {
 /// ];
 ///
 /// let mut mod_config_a = ModConfig::default();
-/// mod_config_a.base = 'A';
+/// mod_config_a.base = AllowedAGCTN::A;
 /// mod_config_a.is_strand_plus = false;
 /// mod_config_a.mod_code = ModChar::new('a');
 /// mod_config_a.win = vec![NonZeroU32::new(2).unwrap()];
@@ -234,8 +236,6 @@ impl Default for ModConfig {
 /// assert_eq!(ml_str, vec![0; 12]);
 /// ```
 ///
-/// # Panics
-/// Panics if the `mod_config` contains a base that is not A, G, C, T, or N.
 pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
     mod_configs: &[ModConfig],
     seq: &S,
@@ -248,14 +248,7 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
     let mut ml_vec: Vec<u8> = Vec::with_capacity(seq_bytes.len());
 
     for mod_config in mod_configs {
-        let base = match mod_config.base {
-            'A' => b'A',
-            'G' => b'G',
-            'C' => b'C',
-            'T' => b'T',
-            'N' => b'N',
-            _ => panic!("wrong base"),
-        };
+        let base = u8::from(mod_config.base);
         let strand = if mod_config.is_strand_plus { '+' } else { '-' };
         let mod_code = mod_config.mod_code;
         let mut count = if base == b'N' {
@@ -1043,7 +1036,7 @@ mod tests {
                 b"ACGTACGTAC" => 0,
                 b"ACGTACGTACG" => 1,
                 b"ACGTACGTACGT" => 2,
-                _ => panic!("Unexpected sequence"),
+                _ => unreachable!(),
             };
             *counts
                 .get_mut(idx)

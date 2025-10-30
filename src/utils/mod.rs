@@ -1,6 +1,7 @@
 //! Utils module providing shared datatypes for nanalogue
 //! Includes genomic coordinates, constrained numerics, and BAM-related types
 
+pub mod allowed_agctn;
 pub mod contains;
 pub mod dna_restrictive;
 pub mod f32_abs_val_at_most1;
@@ -16,6 +17,7 @@ pub mod restrict_mod_called_strand;
 pub mod threshold_state;
 
 // Re-export public utility types and functions to expose the utils API
+pub use allowed_agctn::*;
 pub use contains::*;
 pub use dna_restrictive::*;
 pub use f32_abs_val_at_most1::*;
