@@ -845,9 +845,9 @@ mod tests {
         }
     }
 
-    /// Tests read generation with desired properties.
+    /// Tests read generation with desired properties but no modifications
     #[test]
-    fn generate_reads_denovo_works() {
+    fn generate_reads_denovo_no_mods_works() {
         let mut rng = rand::rng();
         let contigs = vec![
             Contig {
@@ -870,15 +870,87 @@ mod tests {
             mods: vec![],
         };
 
+        let reads = generate_reads_denovo(&contigs, &config, "ph", &mut rng).unwrap();
+        assert_eq!(reads.len(), 10);
+
+        for read in &reads {
+            // check mapping information
+            if !read.is_unmapped() {
+                assert!((10..=20).contains(&read.mapq()));
+                assert!((0..2).contains(&read.tid()));
+            }
+
+            // check sequence length, quality, and check that no mods are present
+            assert!((4..=16).contains(&read.seq_len()));
+            assert!(read.qual().iter().all(|x| (30..=50).contains(x)));
+            let _: rust_htslib::errors::Error = read.aux(b"MM").unwrap_err();
+            let _: rust_htslib::errors::Error = read.aux(b"ML").unwrap_err();
+
+            // check read name, must be "ph.UUID"
+            assert_eq!(read.qname().get(0..3).unwrap(), *b"ph.");
+            let _: Uuid =
+                Uuid::parse_str(str::from_utf8(read.qname().get(3..).unwrap()).unwrap()).unwrap();
+        }
+    }
+
+    /// Tests read generation with desired properties but with modifications
+    #[test]
+    fn generate_reads_denovo_with_mods_works() {
+        let mut rng = rand::rng();
+        let contigs = vec![
+            Contig {
+                name: "contig_0".to_string(),
+                seq: DNARestrictive::from_str("ACGTACGTACGTACGTACGT").unwrap(),
+            },
+            Contig {
+                name: "contig_1".to_string(),
+                seq: DNARestrictive::from_str("TGCATGCATGCATGCATGCA").unwrap(),
+            },
+        ];
+
+        let config = ReadConfig {
+            number: NonZeroU32::new(10).unwrap(),
+            mapq_range: OrdPair::new(10, 20).unwrap(),
+            base_qual_range: OrdPair::new(30, 50).unwrap(),
+            len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.8).unwrap())
+                .unwrap(),
+            barcode: None,
+            mods: vec![ModConfig {
+                base: AllowedAGCTN::C,
+                is_strand_plus: true,
+                mod_code: ModChar::new('m'),
+                win: vec![NonZeroU32::new(4).unwrap()],
+                mod_range: vec![
+                    OrdPair::<F32Bw0and1>::new(F32Bw0and1::zero(), F32Bw0and1::one()).unwrap(),
+                ],
+            }],
+        };
+
         let reads = generate_reads_denovo(&contigs, &config, "1", &mut rng).unwrap();
         assert_eq!(reads.len(), 10);
 
         for read in &reads {
+            // check mapping information
             if !read.is_unmapped() {
-                assert!((4..=16).contains(&read.seq_len()));
                 assert!((10..=20).contains(&read.mapq()));
                 assert!((0..2).contains(&read.tid()));
-                assert!(read.qual().iter().all(|x| (30..=50).contains(x)));
+            }
+
+            // check other information
+            assert!((4..=16).contains(&read.seq_len()));
+            assert!(read.qual().iter().all(|x| (30..=50).contains(x)));
+
+            // check modification information
+            let Aux::String(mod_pos_mm_tag) = read.aux(b"MM").unwrap() else {
+                unreachable!()
+            };
+            let Aux::ArrayU8(mod_prob_ml_tag) = read.aux(b"ML").unwrap() else {
+                unreachable!()
+            };
+            assert!(mod_pos_mm_tag.starts_with("C+m?,"));
+            assert!(mod_pos_mm_tag.ends_with(';'));
+            for k in 0..mod_prob_ml_tag.len() {
+                assert_eq!(mod_prob_ml_tag.get(k).unwrap(), 0u8);
             }
         }
     }
@@ -921,9 +993,9 @@ mod tests {
         std::fs::remove_file(bai_path).unwrap();
     }
 
-    /// Tests `TempBamSimulation` struct functionality
+    /// Tests `TempBamSimulation` struct functionality without mods
     #[test]
-    fn temp_bam_simulation_struct() {
+    fn temp_bam_simulation_struct_no_mods() {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -945,13 +1017,48 @@ mod tests {
         assert!(Path::new(sim.bam_path()).exists());
         assert!(Path::new(sim.fasta_path()).exists());
 
+        // Read BAM file and check contig count
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+        let header = reader.header();
+        assert_eq!(header.target_count(), 2);
+        assert_eq!(reader.records().count(), 1000);
+    }
+
+    /// Tests `TempBamSimulation` struct functionality with mods
+    #[test]
+    fn temp_bam_simulation_struct_with_mods() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 2,
+                "len_range": [100, 200]
+            },
+            "reads": [{
+                "number": 1000,
+                "mapq_range": [10, 20],
+                "base_qual_range": [10, 20],
+                "len_range": [0.1, 0.8],
+                "mods": [{
+                    "base": "T",
+                    "is_strand_plus": true,
+                    "mod_code": "T",
+                    "win": [4, 5],
+                    "mod_range": [[0.1, 0.2], [0.3, 0.4]]
+                }]
+            }]
+        }"#;
+
+        // Create temporary simulation
+        let sim = TempBamSimulation::new(config_json).unwrap();
+
+        // Verify files exist
+        assert!(Path::new(sim.bam_path()).exists());
+        assert!(Path::new(sim.fasta_path()).exists());
+
         // Read BAM file and check contig, read count
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
         let header = reader.header();
         assert_eq!(header.target_count(), 2);
         assert_eq!(reader.records().count(), 1000);
-
-        // Files will be automatically cleaned up when sim is dropped
     }
 
     /// Tests `add_barcode` function with forward and reverse reads

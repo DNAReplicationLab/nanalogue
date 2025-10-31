@@ -1,5 +1,6 @@
 //! `AllowedAGCTN` enum for DNA bases A, G, C, T, and N
 //! Provides type-safe representation of allowed DNA modification bases
+//! in the modBAM format
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
@@ -7,9 +8,10 @@ use std::fmt;
 use std::str::FromStr;
 
 /// Represents the allowed DNA bases for modification: A, G, C, T, or N
+/// in the modBAM format
 #[expect(
     clippy::exhaustive_enums,
-    reason = "A, G, C, T, and N are the only DNA bases; this set is fixed and will never change"
+    reason = "A, G, C, T, and N are the only modBAM DNA bases; this set is fixed and will never change"
 )]
 #[derive(
     Debug, Clone, Default, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
