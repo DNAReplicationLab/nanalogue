@@ -725,11 +725,14 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 ///   }]
 /// }"#;
 ///
-/// // Note: Optional "barcode" field can be added to reads (e.g., "barcode": "ACGTAA")
-/// //       Length statistics are imposed independent of barcodes; so they will add
-/// //       2x barcode length on top of these.
-/// //       Optional "repeated_seq" field can be added to contigs (e.g., "repeated_seq": "ACGT")
-/// //       to create contigs by repeating a sequence instead of random generation.
+/// // Note: * Optional "barcode" field can be added to reads (e.g., "barcode": "ACGTAA")
+/// //         Length statistics are imposed independent of barcodes; so they will add
+/// //         2x barcode length on top of these.
+/// //       * Optional "repeated_seq" field can be added to contigs (e.g., "repeated_seq": "ACGT")
+/// //         to create contigs by repeating a sequence instead of random generation.
+/// //       * Optional modifications can be added using the "mods" field
+/// // Note: The files used below should not exist because they will be created by this function.
+/// //       If they exist, they will be overwritten.
 /// run(config_json, "output.bam", "reference.fasta").unwrap();
 /// ```
 ///
@@ -1255,6 +1258,65 @@ mod read_generation_no_mods_tests {
         assert!(has_reverse, "Should have reverse reads");
         assert!(has_secondary, "Should have secondary reads");
         assert!(has_supplementary, "Should have supplementary reads");
+    }
+
+    /// Tests read length at 100% of contig length
+    #[test]
+    fn read_length_full_contig_works() {
+        let contigs = vec![Contig {
+            name: "chr1".to_string(),
+            seq: DNARestrictive::from_str("ACGTACGTACGTACGTACGTACGTACGTACGT").unwrap(),
+        }];
+
+        let config_full_length = ReadConfig {
+            number: NonZeroU32::new(20).unwrap(),
+            mapq_range: OrdPair::new(10, 20).unwrap(),
+            base_qual_range: OrdPair::new(20, 30).unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(1.0, 1.0),
+            barcode: None,
+            mods: vec![],
+        };
+
+        let mut rng = rand::rng();
+        let reads_full =
+            generate_reads_denovo(&contigs, &config_full_length, "test", &mut rng).unwrap();
+
+        // All mapped reads should be exactly contig length
+        for read in &reads_full {
+            if !read.is_unmapped() {
+                assert_eq!(read.seq_len(), 32, "Read should be full contig length");
+            }
+        }
+    }
+
+    /// Tests read length with very small fraction of contig
+    #[test]
+    fn read_length_small_fraction_works() {
+        // Use 200bp contig so 1% = 2bp (won't round to 0)
+        let contigs = vec![Contig {
+            name: "chr1".to_string(),
+            seq: DNARestrictive::from_str("ACGT".repeat(50).as_str()).unwrap(),
+        }];
+
+        let config_small = ReadConfig {
+            number: NonZeroU32::new(20).unwrap(),
+            mapq_range: OrdPair::new(10, 20).unwrap(),
+            base_qual_range: OrdPair::new(20, 30).unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(0.01, 0.05),
+            barcode: None,
+            mods: vec![],
+        };
+
+        let mut rng = rand::rng();
+        let reads_small = generate_reads_denovo(&contigs, &config_small, "test", &mut rng).unwrap();
+
+        // All mapped reads should be very small (2-10 bp given 200bp contig)
+        for read in &reads_small {
+            if !read.is_unmapped() {
+                assert!(read.seq_len() <= 10, "Read should be very small");
+                assert!(read.seq_len() >= 2, "Read should be at least 2bp");
+            }
+        }
     }
 }
 
@@ -2051,6 +2113,224 @@ mod read_generation_with_mods_tests {
         assert_eq!(config.reads[1].number.get(), 50);
         assert_eq!(config.reads[1].mods.len(), 0);
         assert!(config.reads[1].barcode.is_none());
+    }
+
+    /// Tests that modifications are applied to barcode bases
+    /// Creates a sequence with no C's, but barcode has C's, so modifications should appear
+    #[test]
+    fn barcodes_with_modifications_integration_works() {
+        // Create contig with only A's (no C's)
+        let contigs = vec![Contig {
+            name: "chr1".to_string(),
+            seq: DNARestrictive::from_str("A".repeat(50).as_str()).unwrap(),
+        }];
+
+        // Barcode contains C's: "ACGTAA" has one C
+        let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
+
+        let config = ReadConfig {
+            number: NonZeroU32::new(20).unwrap(),
+            mapq_range: OrdPair::new(10, 20).unwrap(),
+            base_qual_range: OrdPair::new(20, 30).unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(0.3, 0.7),
+            barcode: Some(barcode),
+            mods: vec![ModConfig {
+                base: AllowedAGCTN::C,
+                is_strand_plus: true,
+                mod_code: ModChar::new('m'),
+                win: vec![NonZeroU32::new(10).unwrap()],
+                mod_range: vec![f32_ord_pair_bw_0_and_1!(0.8, 0.8)],
+                ..Default::default()
+            }],
+        };
+
+        let mut rng = rand::rng();
+        let reads = generate_reads_denovo(&contigs, &config, "test", &mut rng).unwrap();
+
+        let mut has_modifications = false;
+        for read in &reads {
+            if !read.is_unmapped() {
+                // The read sequence should have barcodes added
+                // Forward: ACGTAA + AAAAA... + TTACGT (barcode has 1 C, rev comp has 0 C)
+                // Reverse: TGCATT + AAAAA... + AATGCA (complement has 1 C, reverse has 0 C)
+                // So each read should have at least 1 C from the barcode
+
+                let mm_pos_result = read.aux(b"MM");
+                let ml_prob_result = read.aux(b"ML");
+
+                // Should have MM and ML tags because barcode introduced C's
+                assert!(
+                    mm_pos_result.is_ok(),
+                    "MM tag should be present due to C in barcode"
+                );
+                assert!(
+                    ml_prob_result.is_ok(),
+                    "ML tag should be present due to C in barcode"
+                );
+
+                if let Ok(Aux::String(mm_str)) = mm_pos_result {
+                    assert!(
+                        mm_str.starts_with("C+m?,"),
+                        "MM tag should contain C+m modifications"
+                    );
+                    assert!(!mm_str.is_empty(), "MM tag should not be empty");
+                    has_modifications = true;
+                }
+            }
+        }
+
+        assert!(
+            has_modifications,
+            "Should have found C modifications from barcode bases"
+        );
+    }
+
+    /// Tests edge case: window size larger than number of target bases in sequence
+    #[test]
+    fn edge_case_window_larger_than_sequence() {
+        let seq = DNARestrictive::from_str("ACGTACGT").unwrap(); // Only 2 C's
+
+        let mod_config = ModConfig {
+            base: AllowedAGCTN::C,
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            win: vec![NonZeroU32::new(100).unwrap()], // Window of 100 C's, but only 2 C's exist
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.5, 0.5)],
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // Should only generate modifications for the 2 C's that exist
+        assert_eq!(
+            ml_vec.len(),
+            2,
+            "Should have exactly 2 modifications for 2 C's"
+        );
+        assert!(mm_str.starts_with("C+m?,"));
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 2, "Should have exactly 2 probability values");
+        assert!(
+            probs.iter().all(|&x| x == "128"),
+            "All should be 128 (0.5 * 255)"
+        );
+    }
+
+    /// Tests edge case: single-base windows with multiple cycles
+    #[test]
+    fn edge_case_single_base_windows() {
+        let seq = DNARestrictive::from_str("C".repeat(16).as_str()).unwrap(); // 16 C's
+
+        let mod_config = ModConfig {
+            base: AllowedAGCTN::C,
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            win: vec![NonZeroU32::new(1).unwrap(), NonZeroU32::new(1).unwrap()],
+            mod_range: vec![
+                f32_ord_pair_bw_0_and_1!(0.9, 0.9),
+                f32_ord_pair_bw_0_and_1!(0.1, 0.1),
+            ],
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // Should have 16 modifications, alternating pattern: 0.9, 0.1, 0.9, 0.1, ...
+        assert_eq!(ml_vec.len(), 16);
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 16);
+
+        // Verify alternating pattern (0.9*255=229.5→230, 0.1*255=25.5→26)
+        let expected_pattern = vec![
+            "230", "26", "230", "26", "230", "26", "230", "26", "230", "26", "230", "26", "230",
+            "26", "230", "26",
+        ];
+        assert_eq!(probs, expected_pattern);
+    }
+
+    /// Tests that modifications on reverse reads are correctly applied to reverse-complemented sequence
+    #[test]
+    fn reverse_reads_modification_positions_correct() {
+        // Create sequence with 3 C's: "AAAAACAAAAACAAAAAC"
+        let contigs = vec![Contig {
+            name: "chr1".to_string(),
+            seq: DNARestrictive::from_str("AAAAACAAAAACAAAAAC").unwrap(),
+        }];
+
+        let config = ReadConfig {
+            number: NonZeroU32::new(100).unwrap(),
+            mapq_range: OrdPair::new(20, 30).unwrap(),
+            base_qual_range: OrdPair::new(25, 35).unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(1.0, 1.0), // Full length reads
+            barcode: None,
+            mods: vec![ModConfig {
+                base: AllowedAGCTN::C,
+                is_strand_plus: true,
+                mod_code: ModChar::new('m'),
+                win: vec![NonZeroU32::new(10).unwrap()],
+                mod_range: vec![f32_ord_pair_bw_0_and_1!(0.8, 0.8)],
+                ..Default::default()
+            }],
+        };
+
+        let mut rng = rand::rng();
+        let reads = generate_reads_denovo(&contigs, &config, "test", &mut rng).unwrap();
+
+        let mut forward_with_mods = 0;
+
+        for read in &reads {
+            if !read.is_unmapped() {
+                let mm_result = read.aux(b"MM");
+
+                if read.is_reverse() {
+                    // Reverse complement of "AAAAACAAAAACAAAAAC"
+                    // has 3 G's but 0 C's, so no C modifications should exist
+                    assert!(
+                        mm_result.is_err(),
+                        "Reverse reads should have no MM tag (revcomp has no C's)"
+                    );
+                } else {
+                    // Forward reads should have MM tag with 3 C modifications
+                    assert!(mm_result.is_ok(), "Forward reads should have MM tag");
+                    if let Ok(Aux::String(mm_str)) = mm_result {
+                        assert!(
+                            mm_str.starts_with("C+m?,"),
+                            "MM tag should be for C modifications"
+                        );
+
+                        // Parse and count modifications
+                        let probs: Vec<&str> = mm_str
+                            .strip_prefix("C+m?,")
+                            .unwrap()
+                            .strip_suffix(';')
+                            .unwrap()
+                            .split(',')
+                            .collect();
+                        assert_eq!(probs.len(), 3, "Should have exactly 3 C modifications");
+                        forward_with_mods += 1;
+                    }
+                }
+            }
+        }
+
+        assert!(
+            forward_with_mods > 0,
+            "Should have validated some forward reads with modifications"
+        );
     }
 }
 
