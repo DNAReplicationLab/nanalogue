@@ -255,10 +255,7 @@ fn main() {
 /// # Errors
 /// Returns errors associated with the subcommands or if command line
 /// options are problematic
-#[expect(
-    clippy::too_many_lines,
-    reason = "Comprehensive CLI command routing"
-)]
+#[expect(clippy::too_many_lines, reason = "Comprehensive CLI command routing")]
 fn run<W>(cli: Cli, mut handle: W) -> Result<(), Error>
 where
     W: io::Write,

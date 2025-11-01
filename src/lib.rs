@@ -15,9 +15,7 @@ use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use fibertools_rs::utils::bio_io::{convert_seq_uppercase, get_u8_tag};
 use rand::random;
 use regex::Regex;
-use rust_htslib::{
-    bam, bam::Read as _, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool,
-};
+use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead as _, BufReader};
@@ -372,21 +370,24 @@ when usize is 64-bit as genomic sequences are not that long"
 /// ```
 #[derive(Debug)]
 #[non_exhaustive]
-pub struct BamRcRecords<'a> {
+pub struct BamRcRecords<'a, R>
+where
+    R: bam::Read,
+{
     /// `RcRecords` object output by rust htslib which we can iterate over
-    pub rc_records: bam::RcRecords<'a, bam::Reader>,
+    pub rc_records: bam::RcRecords<'a, R>,
     /// Header of the bam file
     pub header: bam::HeaderView,
 }
 
-impl<'a> BamRcRecords<'a> {
+impl<'a, R: bam::Read> BamRcRecords<'a, R> {
     /// Extracts `RcRecords` from a BAM Reader
     ///
     /// # Errors
     /// Returns an error if thread pool creation, BAM region fetching/processing,
     /// or read ID file processing fails.
     pub fn new<T: InputRegionOptions>(
-        bam_reader: &'a mut bam::Reader,
+        bam_reader: &'a mut R,
         bam_opts: &mut InputBam,
         mod_opts: &mut T,
     ) -> Result<Self, Error> {
@@ -410,14 +411,14 @@ impl<'a> BamRcRecords<'a> {
             bam_opts.read_id_set = Some(read_ids);
         }
 
-        let rc_records = bam_reader.rc_records();
         if !(bam_opts.convert_region_to_bed3(header.clone())?) {
             return Err(Error::UnknownError);
         }
         if !(mod_opts.convert_region_to_bed3(header.clone())?) {
             return Err(Error::UnknownError);
         }
-        Ok(BamRcRecords { rc_records, header })
+        let rc_records = bam_reader.rc_records();
+        Ok(BamRcRecords::<R> { rc_records, header })
     }
 }
 
@@ -615,6 +616,7 @@ impl BamPreFilt for bam::Record {
 mod mod_parse_tests {
     use super::*;
     use fibertools_rs::utils::bamranges::Ranges;
+    use rust_htslib::bam::Read as _;
 
     /// Tests if Mod BAM modification parsing is alright,
     /// some of the test cases here may be a repeat of the doctest above.
@@ -841,6 +843,7 @@ mod mod_parse_tests {
 #[cfg(test)]
 mod zero_length_filtering_tests {
     use super::*;
+    use rust_htslib::bam::Read as _;
 
     #[test]
     fn zero_length_filtering_with_example_2_zero_len_sam() -> Result<(), Error> {
@@ -880,6 +883,7 @@ mod zero_length_filtering_tests {
 #[cfg(test)]
 mod invalid_seq_length_tests {
     use super::*;
+    use rust_htslib::bam::Read as _;
 
     #[test]
     fn invalid_seq_length_error_with_example_4() {
@@ -898,6 +902,7 @@ mod invalid_seq_length_tests {
 #[cfg(test)]
 mod base_qual_filtering_tests {
     use super::*;
+    use rust_htslib::bam::Read as _;
 
     #[test]
     fn base_qual_filtering_with_example_5_valid_basequal_sam() -> Result<(), Error> {
