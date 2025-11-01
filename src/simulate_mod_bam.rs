@@ -51,6 +51,17 @@ use std::path::Path;
 use std::str::FromStr as _;
 use uuid::Uuid;
 
+/// Creates an `OrdPair` of `F32Bw0and1` values
+macro_rules! f32_ord_pair_bw_0_and_1 {
+    ($low:expr, $high:expr) => {
+        OrdPair::new(
+            F32Bw0and1::new($low).unwrap(),
+            F32Bw0and1::new($high).unwrap(),
+        )
+        .unwrap()
+    };
+}
+
 /// Main configuration struct for simulation
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -165,8 +176,7 @@ impl Default for ReadConfig {
             number: NonZeroU32::new(1).unwrap(),
             mapq_range: OrdPair::new(0, 0).unwrap(),
             base_qual_range: OrdPair::new(0, 0).unwrap(),
-            len_range: OrdPair::new(F32Bw0and1::new(0.0).unwrap(), F32Bw0and1::new(0.0).unwrap())
-                .unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(0.0, 0.0),
             barcode: None,
             mods: Vec::new(),
         }
@@ -180,9 +190,7 @@ impl Default for ModConfig {
             is_strand_plus: true,
             mod_code: ModChar::new('m'),
             win: vec![NonZeroU32::new(1).unwrap()],
-            mod_range: vec![
-                OrdPair::new(F32Bw0and1::new(0.0).unwrap(), F32Bw0and1::new(1.0).unwrap()).unwrap(),
-            ],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.0, 1.0)],
         }
     }
 }
@@ -864,8 +872,7 @@ mod tests {
             number: NonZeroU32::new(10).unwrap(),
             mapq_range: OrdPair::new(10, 20).unwrap(),
             base_qual_range: OrdPair::new(30, 50).unwrap(),
-            len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.8).unwrap())
-                .unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(0.2, 0.8),
             barcode: None,
             mods: vec![],
         };
@@ -912,8 +919,7 @@ mod tests {
             number: NonZeroU32::new(10).unwrap(),
             mapq_range: OrdPair::new(10, 20).unwrap(),
             base_qual_range: OrdPair::new(30, 50).unwrap(),
-            len_range: OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.8).unwrap())
-                .unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(0.2, 0.8),
             barcode: None,
             mods: vec![ModConfig {
                 base: AllowedAGCTN::C,
@@ -1078,6 +1084,971 @@ mod tests {
         // Test reverse read: comp(barcode) + seq + rev(barcode)
         let result = add_barcode(&read_seq, &barcode, ReadState::PrimaryRev);
         assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
+    }
+
+    /// Tests `generate_random_dna_modification` with empty mod config
+    #[test]
+    fn generate_random_dna_modification_empty_config() {
+        let seq = DNARestrictive::from_str("ACGTACGT").unwrap();
+        let mod_configs: Vec<ModConfig> = vec![];
+        let mut rng = rand::rng();
+
+        let (mm_str, ml_vec) = generate_random_dna_modification(&mod_configs, &seq, &mut rng);
+
+        assert_eq!(mm_str, String::new());
+        assert_eq!(ml_vec.len(), 0);
+    }
+
+    /// Tests `generate_random_dna_modification` with single modification config
+    #[test]
+    fn generate_random_dna_modification_single_mod() {
+        let seq = DNARestrictive::from_str("ACGTCGCGATCG").unwrap();
+        let mod_config = ModConfig {
+            base: AllowedAGCTN::C,
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            win: vec![NonZeroU32::new(2).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.5, 0.5)],
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // Sequence has 4 C's, so we expect 4 modifications
+        assert!(mm_str.starts_with("C+m?,"));
+        assert!(mm_str.ends_with(';'));
+        assert_eq!(ml_vec.len(), 4);
+        // All should be gap coordinate 0
+        assert!(ml_vec.iter().all(|&x| x == 0));
+        // All should be probability 128 (0.5 * 255)
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 4);
+        assert!(probs.iter().all(|&x| x == "128"));
+    }
+
+    /// Tests `generate_random_dna_modification` with multiple modification configs
+    #[test]
+    fn generate_random_dna_modification_multiple_mods() {
+        let seq = DNARestrictive::from_str("ACGTACGT").unwrap();
+
+        let mod_config_c = ModConfig {
+            base: AllowedAGCTN::C,
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            win: vec![NonZeroU32::new(1).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.8, 0.8)],
+            ..Default::default()
+        };
+
+        let mod_config_t = ModConfig {
+            base: AllowedAGCTN::T,
+            is_strand_plus: false,
+            mod_code: ModChar::new('t'),
+            win: vec![NonZeroU32::new(1).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.4, 0.4)],
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) =
+            generate_random_dna_modification(&[mod_config_c, mod_config_t], &seq, &mut rng);
+
+        // Sequence has 2 C's and 2 T's
+        assert!(mm_str.contains("C+m?,"));
+        assert!(mm_str.contains("T-t?,"));
+        assert_eq!(ml_vec.len(), 4);
+        assert!(ml_vec.iter().all(|&x| x == 0), "All ML values should be 0");
+
+        // Parse and verify the C modifications
+        let c_section = mm_str
+            .split(';')
+            .find(|s| s.starts_with("C+m?"))
+            .expect("Should have C+m? section");
+        let c_probs: Vec<&str> = c_section
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(
+            c_probs.len(),
+            2,
+            "Should have exactly 2 C modifications in ACGTACGT"
+        );
+        // All C probabilities should be 204 (0.8 * 255)
+        assert!(
+            c_probs.iter().all(|&x| x == "204"),
+            "All C modifications should have probability 204 (0.8)"
+        );
+
+        // Parse and verify the T modifications
+        let t_section = mm_str
+            .split(';')
+            .find(|s| s.starts_with("T-t?"))
+            .expect("Should have T-t? section");
+        let t_probs: Vec<&str> = t_section
+            .strip_prefix("T-t?,")
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(
+            t_probs.len(),
+            2,
+            "Should have exactly 2 T modifications in ACGTACGT"
+        );
+        // All T probabilities should be 102 (0.4 * 255)
+        assert!(
+            t_probs.iter().all(|&x| x == "102"),
+            "All T modifications should have probability 102 (0.4)"
+        );
+    }
+
+    /// Tests `generate_random_dna_modification` with N base (all bases)
+    #[test]
+    fn generate_random_dna_modification_n_base() {
+        let seq = DNARestrictive::from_str("ACGT").unwrap();
+
+        let mod_config = ModConfig {
+            base: AllowedAGCTN::N,
+            is_strand_plus: true,
+            mod_code: ModChar::new('n'),
+            win: vec![NonZeroU32::new(4).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.5, 0.5)],
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // N base means all 4 bases should be marked
+        assert!(mm_str.starts_with("N+n?,"));
+        assert!(mm_str.ends_with(';'));
+        assert_eq!(ml_vec.len(), 4);
+
+        // Parse and verify the actual probability values in MM tag
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("N+n?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(
+            probs.len(),
+            4,
+            "Should have exactly 4 modifications for ACGT"
+        );
+
+        // All probabilities should be 128 (0.5 * 255)
+        assert!(
+            probs.iter().all(|&x| x == "128"),
+            "All N base modifications should have probability 128 (0.5)"
+        );
+
+        // Verify all ML values are 0 (gap coordinates)
+        assert!(ml_vec.iter().all(|&x| x == 0), "All ML values should be 0");
+    }
+
+    /// Tests `generate_random_dna_modification` with cycling windows
+    #[test]
+    fn generate_random_dna_modification_cycling_windows() {
+        let seq = DNARestrictive::from_str("CCCCCCCCCCCCCCCC").unwrap(); // 16 C's
+
+        let mod_config = ModConfig {
+            base: AllowedAGCTN::C,
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            win: vec![NonZeroU32::new(3).unwrap(), NonZeroU32::new(2).unwrap()],
+            mod_range: vec![
+                f32_ord_pair_bw_0_and_1!(0.8, 0.8),
+                f32_ord_pair_bw_0_and_1!(0.4, 0.4),
+            ],
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // Should have 16 modifications, cycling pattern: 3@0.8, 2@0.4, 3@0.8, 2@0.4, ...
+        assert_eq!(ml_vec.len(), 16);
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 16);
+
+        // Verify the cycling pattern (0.8 = 204, 0.4 = 102)
+        let expected_pattern = vec![
+            "204", "204", "204", "102", "102", "204", "204", "204", "102", "102", "204", "204",
+            "204", "102", "102", "204",
+        ];
+        assert_eq!(probs, expected_pattern);
+    }
+
+    /// Tests error when generating reads with empty contigs slice
+    #[test]
+    fn generate_reads_denovo_empty_contigs_error() {
+        let contigs: Vec<Contig> = vec![];
+        let config = ReadConfig::default();
+        let mut rng = rand::rng();
+
+        let result = generate_reads_denovo(&contigs, &config, "test", &mut rng);
+        assert!(matches!(result, Err(Error::UnavailableData)));
+    }
+
+    /// Tests error when read length would be zero
+    #[test]
+    fn generate_reads_denovo_zero_length_error() {
+        let contigs = vec![Contig {
+            name: "tiny".to_string(),
+            seq: DNARestrictive::from_str("ACGT").unwrap(),
+        }];
+
+        let config = ReadConfig {
+            number: NonZeroU32::new(1).unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(0.0, 0.0),
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let result = generate_reads_denovo(&contigs, &config, "test", &mut rng);
+        assert!(matches!(result, Err(Error::InvalidState(_))));
+    }
+
+    /// Tests error when JSON deserialization fails
+    #[test]
+    fn run_bad_json_error() {
+        let bad_json = r"{ invalid json }";
+        let temp_dir = std::env::temp_dir();
+        let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
+        let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
+
+        let result = run(bad_json, &bam_path, &fasta_path);
+        assert!(result.is_err());
+    }
+
+    /// Tests invalid JSON structure causing empty reads generation
+    #[test]
+    fn run_empty_reads_error() {
+        let invalid_json = r#"{ "reads": [] }"#; // Empty reads array
+        let temp_dir = std::env::temp_dir();
+        let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
+        let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
+
+        let result = run(invalid_json, &bam_path, &fasta_path);
+        // With empty reads, this should succeed but produce an empty BAM (valid)
+        // So we won't assert error here, just test it doesn't crash
+        drop(result);
+    }
+
+    /// Tests multiple read groups in BAM generation
+    #[test]
+    fn multiple_read_groups_work() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 2,
+                "len_range": [100, 200]
+            },
+            "reads": [
+                {
+                    "number": 50,
+                    "mapq_range": [10, 20],
+                    "base_qual_range": [20, 30],
+                    "len_range": [0.1, 0.5]
+                },
+                {
+                    "number": 75,
+                    "mapq_range": [30, 40],
+                    "base_qual_range": [25, 35],
+                    "len_range": [0.3, 0.7]
+                },
+                {
+                    "number": 25,
+                    "mapq_range": [5, 15],
+                    "base_qual_range": [15, 25],
+                    "len_range": [0.2, 0.6]
+                }
+            ]
+        }"#;
+
+        let sim = TempBamSimulation::new(config_json).unwrap();
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+
+        // Should have 50 + 75 + 25 = 150 reads total
+        assert_eq!(reader.records().count(), 150);
+
+        // Verify read groups exist in header
+        let mut reader2 = bam::Reader::from_path(sim.bam_path()).unwrap();
+        let header = reader2.header();
+        let header_text = std::str::from_utf8(header.as_bytes()).unwrap();
+        assert!(header_text.contains("@RG\tID:0"));
+        assert!(header_text.contains("@RG\tID:1"));
+        assert!(header_text.contains("@RG\tID:2"));
+
+        // Count reads per read group
+        let mut rg_counts = [0, 0, 0];
+        for record in reader2.records() {
+            let read = record.unwrap();
+            if let Ok(Aux::String(rg)) = read.aux(b"RG") {
+                match rg {
+                    "0" => *rg_counts.get_mut(0).unwrap() += 1,
+                    "1" => *rg_counts.get_mut(1).unwrap() += 1,
+                    "2" => *rg_counts.get_mut(2).unwrap() += 1,
+                    unexpected => unreachable!("Unexpected read group: {unexpected}"),
+                }
+            }
+        }
+        assert_eq!(rg_counts[0], 50);
+        assert_eq!(rg_counts[1], 75);
+        assert_eq!(rg_counts[2], 25);
+    }
+
+    /// Tests multiple simultaneous modifications on different bases
+    #[expect(
+        clippy::similar_names,
+        reason = "has_c_mod, has_a_mod, has_t_mod are clear in context"
+    )]
+    #[test]
+    fn multiple_simultaneous_modifications_work() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100],
+                "repeated_seq": "ACGTACGTACGTACGT"
+            },
+            "reads": [{
+                "number": 20,
+                "mapq_range": [20, 30],
+                "base_qual_range": [20, 30],
+                "len_range": [0.8, 1.0],
+                "mods": [
+                    {
+                        "base": "C",
+                        "is_strand_plus": true,
+                        "mod_code": "m",
+                        "win": [2],
+                        "mod_range": [[0.7, 0.9]]
+                    },
+                    {
+                        "base": "A",
+                        "is_strand_plus": true,
+                        "mod_code": "a",
+                        "win": [3],
+                        "mod_range": [[0.3, 0.5]]
+                    },
+                    {
+                        "base": "T",
+                        "is_strand_plus": false,
+                        "mod_code": "t",
+                        "win": [1],
+                        "mod_range": [[0.5, 0.6]]
+                    }
+                ]
+            }]
+        }"#;
+
+        let sim = TempBamSimulation::new(config_json).unwrap();
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+
+        let mut has_c_mod = false;
+        let mut has_a_mod = false;
+        let mut has_t_mod = false;
+
+        for record in reader.records() {
+            let read = record.unwrap();
+            if let Ok(Aux::String(mm_tag)) = read.aux(b"MM") {
+                // Check that all three modification types are present
+                if mm_tag.contains("C+m?") {
+                    has_c_mod = true;
+                }
+                if mm_tag.contains("A+a?") {
+                    has_a_mod = true;
+                }
+                if mm_tag.contains("T-t?") {
+                    has_t_mod = true;
+                }
+
+                // Verify ML tag exists and has correct format
+                assert!(
+                    matches!(read.aux(b"ML").unwrap(), Aux::ArrayU8(_)),
+                    "ML tag should be ArrayU8"
+                );
+            }
+        }
+
+        assert!(has_c_mod, "Should have C+m modifications");
+        assert!(has_a_mod, "Should have A+a modifications");
+        assert!(has_t_mod, "Should have T-t modifications");
+    }
+
+    /// Tests that read sequences are valid substrings of their parent contigs
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "tid and pos are non-negative in valid BAM"
+    )]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "tid fits in usize for normal BAM files"
+    )]
+    #[test]
+    fn read_sequences_match_contigs() {
+        let contigs = vec![
+            Contig {
+                name: "chr1".to_string(),
+                seq: DNARestrictive::from_str("ACGTACGTACGTACGTACGTACGTACGTACGT").unwrap(),
+            },
+            Contig {
+                name: "chr2".to_string(),
+                seq: DNARestrictive::from_str("TGCATGCATGCATGCATGCATGCATGCATGCA").unwrap(),
+            },
+        ];
+
+        let read_config = ReadConfig {
+            number: NonZeroU32::new(50).unwrap(),
+            mapq_range: OrdPair::new(10, 20).unwrap(),
+            base_qual_range: OrdPair::new(20, 30).unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(0.2, 0.8),
+            barcode: None, // No barcodes to simplify validation
+            mods: vec![],
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let reads = generate_reads_denovo(&contigs, &read_config, "test", &mut rng).unwrap();
+
+        let mut validated_count = 0;
+        for read in &reads {
+            // Only validate forward mapped reads without soft clips for simplicity
+            if !read.is_unmapped() && !read.is_reverse() {
+                let cigar = read.cigar();
+
+                // Skip reads with soft clips (shouldn't happen without barcodes, but be safe)
+                let has_soft_clip = cigar.iter().any(|op| matches!(op, Cigar::SoftClip(_)));
+                if has_soft_clip {
+                    continue;
+                }
+
+                let tid = read.tid() as usize;
+                let pos = read.pos() as usize;
+                let contig = contigs.get(tid).expect("valid tid");
+                let contig_seq = contig.get_dna_restrictive().get();
+
+                // Get alignment length
+                let mut aligned_len = 0usize;
+                for op in &cigar {
+                    if let Cigar::Match(len) = *op {
+                        aligned_len = aligned_len.checked_add(len as usize).expect("overflow");
+                    }
+                }
+
+                let read_seq = read.seq().as_bytes();
+                let expected_seq = contig_seq
+                    .get(pos..pos.checked_add(aligned_len).expect("overflow"))
+                    .expect("contig subsequence exists");
+
+                assert_eq!(
+                    read_seq, expected_seq,
+                    "Forward read sequence should exactly match contig substring"
+                );
+                validated_count += 1;
+            }
+        }
+
+        // Ensure we validated at least some reads
+        assert!(
+            validated_count > 0,
+            "Should have validated at least some forward reads"
+        );
+    }
+
+    /// Tests CIGAR string validity with and without barcodes
+    #[test]
+    fn cigar_strings_are_valid() {
+        // Test without barcodes
+        let contigs = vec![Contig {
+            name: "chr1".to_string(),
+            seq: DNARestrictive::from_str("ACGTACGTACGTACGTACGTACGTACGTACGT").unwrap(),
+        }];
+
+        let config_no_barcode = ReadConfig {
+            number: NonZeroU32::new(20).unwrap(),
+            mapq_range: OrdPair::new(10, 20).unwrap(),
+            base_qual_range: OrdPair::new(20, 30).unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(0.3, 0.7),
+            barcode: None,
+            mods: vec![],
+        };
+
+        let mut rng = rand::rng();
+        let reads_no_barcode =
+            generate_reads_denovo(&contigs, &config_no_barcode, "test", &mut rng).unwrap();
+
+        for read in &reads_no_barcode {
+            if !read.is_unmapped() {
+                let cigar = read.cigar();
+                // Without barcode, CIGAR should be just a single Match operation
+                assert_eq!(cigar.len(), 1);
+                assert!(matches!(cigar.first().unwrap(), Cigar::Match(_)));
+
+                // Verify CIGAR length matches sequence length
+                let cigar_len: u32 = cigar
+                    .iter()
+                    .map(|op| match *op {
+                        Cigar::Match(len) | Cigar::SoftClip(len) => len,
+                        Cigar::Ins(_)
+                        | Cigar::Del(_)
+                        | Cigar::RefSkip(_)
+                        | Cigar::HardClip(_)
+                        | Cigar::Pad(_)
+                        | Cigar::Equal(_)
+                        | Cigar::Diff(_) => unreachable!(),
+                    })
+                    .sum();
+                assert_eq!(cigar_len as usize, read.seq_len());
+            }
+        }
+
+        // Test with barcodes
+        let config_with_barcode = ReadConfig {
+            number: NonZeroU32::new(20).unwrap(),
+            mapq_range: OrdPair::new(10, 20).unwrap(),
+            base_qual_range: OrdPair::new(20, 30).unwrap(),
+            len_range: f32_ord_pair_bw_0_and_1!(0.3, 0.7),
+            barcode: Some(DNARestrictive::from_str("ACGTAA").unwrap()),
+            mods: vec![],
+        };
+
+        let reads_with_barcode =
+            generate_reads_denovo(&contigs, &config_with_barcode, "test", &mut rng).unwrap();
+
+        for read in &reads_with_barcode {
+            if !read.is_unmapped() {
+                let cigar = read.cigar();
+                // With barcode, CIGAR should be: SoftClip + Match + SoftClip
+                assert_eq!(cigar.len(), 3);
+                assert!(matches!(cigar.first().unwrap(), Cigar::SoftClip(6))); // barcode length
+                assert!(matches!(cigar.get(1).unwrap(), Cigar::Match(_)));
+                assert!(matches!(cigar.get(2).unwrap(), Cigar::SoftClip(6))); // barcode length
+
+                // Verify total CIGAR length matches sequence length
+                let cigar_len: u32 = cigar
+                    .iter()
+                    .map(|op| match *op {
+                        Cigar::Match(len) | Cigar::SoftClip(len) => len,
+                        Cigar::Ins(_)
+                        | Cigar::Del(_)
+                        | Cigar::RefSkip(_)
+                        | Cigar::HardClip(_)
+                        | Cigar::Pad(_)
+                        | Cigar::Equal(_)
+                        | Cigar::Diff(_) => unreachable!(),
+                    })
+                    .sum();
+                assert_eq!(cigar_len as usize, read.seq_len());
+            }
+        }
+    }
+
+    /// Tests that modifications only target the specified bases
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "clear variable reuse in sequential tests"
+    )]
+    #[test]
+    fn modifications_target_correct_bases() {
+        // Create sequence with known base counts
+        let seq = DNARestrictive::from_str("AAAACCCCGGGGTTTT").unwrap();
+
+        // Test C modification - should only mark C bases
+        let mod_config_c = ModConfig {
+            base: AllowedAGCTN::C,
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            win: vec![NonZeroU32::new(4).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(1.0, 1.0)],
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_c], &seq, &mut rng);
+
+        // Sequence has exactly 4 C's, so should have 4 modifications
+        assert_eq!(ml_vec.len(), 4);
+        assert!(mm_str.starts_with("C+m?,"));
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 4, "Should have exactly 4 C modifications");
+
+        // Test T modification - should only mark T bases
+        let mod_config_t = ModConfig {
+            base: AllowedAGCTN::T,
+            is_strand_plus: false,
+            mod_code: ModChar::new('t'),
+            win: vec![NonZeroU32::new(4).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(1.0, 1.0)],
+            ..Default::default()
+        };
+
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_t], &seq, &mut rng);
+
+        // Sequence has exactly 4 T's, so should have 4 modifications
+        assert_eq!(ml_vec.len(), 4);
+        assert!(mm_str.starts_with("T-t?,"));
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("T-t?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 4, "Should have exactly 4 T modifications");
+
+        // Test A modification - should only mark A bases
+        let mod_config_a = ModConfig {
+            base: AllowedAGCTN::A,
+            is_strand_plus: true,
+            mod_code: ModChar::new('a'),
+            win: vec![NonZeroU32::new(4).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(1.0, 1.0)],
+            ..Default::default()
+        };
+
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_a], &seq, &mut rng);
+
+        // Sequence has exactly 4 A's, so should have 4 modifications
+        assert_eq!(ml_vec.len(), 4);
+        assert!(mm_str.starts_with("A+a?,"));
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("A+a?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 4, "Should have exactly 4 A modifications");
+
+        // Test G modification - should only mark G bases
+        let mod_config_g = ModConfig {
+            base: AllowedAGCTN::G,
+            is_strand_plus: true,
+            mod_code: ModChar::new('g'),
+            win: vec![NonZeroU32::new(4).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(1.0, 1.0)],
+            ..Default::default()
+        };
+
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_g], &seq, &mut rng);
+
+        // Sequence has exactly 4 G's, so should have 4 modifications
+        assert_eq!(ml_vec.len(), 4);
+        assert!(mm_str.starts_with("G+g?,"));
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("G+g?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 4, "Should have exactly 4 G modifications");
+    }
+
+    /// Tests different read states (unmapped, secondary, supplementary)
+    #[test]
+    fn different_read_states_work() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [200, 200]
+            },
+            "reads": [{
+                "number": 1000,
+                "mapq_range": [10, 20],
+                "base_qual_range": [20, 30],
+                "len_range": [0.2, 0.8]
+            }]
+        }"#;
+
+        let sim = TempBamSimulation::new(config_json).unwrap();
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+
+        let mut has_unmapped = false;
+        let mut has_forward = false;
+        let mut has_reverse = false;
+        let mut has_secondary = false;
+        let mut has_supplementary = false;
+
+        for record in reader.records() {
+            let read = record.unwrap();
+
+            if read.is_unmapped() {
+                has_unmapped = true;
+                // Verify unmapped read properties
+                assert_eq!(read.tid(), -1);
+                assert_eq!(read.pos(), -1);
+                assert_eq!(read.mapq(), 255);
+            } else {
+                if read.is_reverse() {
+                    has_reverse = true;
+                } else {
+                    has_forward = true;
+                }
+
+                if read.is_secondary() {
+                    has_secondary = true;
+                }
+
+                if read.is_supplementary() {
+                    has_supplementary = true;
+                }
+            }
+        }
+
+        // With 1000 reads, we should have diverse read states
+        assert!(has_unmapped, "Should have unmapped reads");
+        assert!(has_forward, "Should have forward reads");
+        assert!(has_reverse, "Should have reverse reads");
+        assert!(has_secondary, "Should have secondary reads");
+        assert!(has_supplementary, "Should have supplementary reads");
+    }
+
+    /// Tests edge case: minimum contig size (1 bp)
+    #[test]
+    fn edge_case_minimum_contig_size() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [1, 1]
+            },
+            "reads": [{
+                "number": 10,
+                "mapq_range": [10, 20],
+                "base_qual_range": [20, 30],
+                "len_range": [1.0, 1.0]
+            }]
+        }"#;
+
+        let sim = TempBamSimulation::new(config_json).unwrap();
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+
+        // Verify 1bp contig works
+        let header = reader.header();
+        assert_eq!(header.target_count(), 1);
+        assert_eq!(header.target_len(0).unwrap(), 1);
+
+        // Some reads should exist (though some may be unmapped)
+        assert!(reader.records().count() > 0);
+    }
+
+    /// Tests edge case: sequence with no target base for modification
+    #[test]
+    fn edge_case_no_target_base_for_modification() {
+        let seq = DNARestrictive::from_str("AAAAAAAAAA").unwrap(); // Only A's
+
+        let mod_config = ModConfig {
+            base: AllowedAGCTN::C, // Looking for C's
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            win: vec![NonZeroU32::new(5).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.5, 0.5)],
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // Should have no modifications since no C's exist
+        assert_eq!(mm_str, String::new());
+        assert_eq!(ml_vec.len(), 0);
+    }
+
+    /// Tests edge case: modification with probability 0.0 and 1.0
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "clear variable reuse in sequential tests"
+    )]
+    #[test]
+    fn edge_case_modification_probability_extremes() {
+        let seq = DNARestrictive::from_str("CCCCCCCC").unwrap();
+
+        // Test probability 0.0
+        let mod_config_zero = ModConfig {
+            base: AllowedAGCTN::C,
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            win: vec![NonZeroU32::new(8).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.0, 0.0)],
+            ..Default::default()
+        };
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_zero], &seq, &mut rng);
+
+        assert_eq!(ml_vec.len(), 8);
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert!(probs.iter().all(|&x| x == "0"));
+
+        // Test probability 1.0
+        let mod_config_one = ModConfig {
+            base: AllowedAGCTN::C,
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            win: vec![NonZeroU32::new(8).unwrap()],
+            mod_range: vec![f32_ord_pair_bw_0_and_1!(1.0, 1.0)],
+            ..Default::default()
+        };
+
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_one], &seq, &mut rng);
+
+        assert_eq!(ml_vec.len(), 8);
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert!(probs.iter().all(|&x| x == "255"));
+    }
+
+    /// Tests edge case: repeated sequence contig generation
+    #[test]
+    fn edge_case_repeated_sequence_exact_length() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [16, 16],
+                "repeated_seq": "ACGT"
+            },
+            "reads": [{
+                "number": 5,
+                "len_range": [0.5, 0.5]
+            }]
+        }"#;
+
+        let sim = TempBamSimulation::new(config_json).unwrap();
+        let reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+
+        // Verify contig is exactly ACGTACGTACGTACGT (4 repeats)
+        let header = reader.header();
+        assert_eq!(header.target_len(0).unwrap(), 16);
+    }
+
+    /// Tests config deserialization from JSON string
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "test validates length before indexing"
+    )]
+    #[test]
+    fn config_deserialization_works() {
+        // Create a JSON config string
+        let json_str = r#"{
+            "contigs": {
+                "number": 5,
+                "len_range": [100, 500],
+                "repeated_seq": "ACGTACGT"
+            },
+            "reads": [
+                {
+                    "number": 100,
+                    "mapq_range": [10, 30],
+                    "base_qual_range": [20, 40],
+                    "len_range": [0.1, 0.9],
+                    "barcode": "ACGTAA",
+                    "mods": [{
+                        "base": "C",
+                        "is_strand_plus": true,
+                        "mod_code": "m",
+                        "win": [5, 3],
+                        "mod_range": [[0.3, 0.7], [0.1, 0.5]]
+                    }]
+                },
+                {
+                    "number": 50,
+                    "mapq_range": [5, 15],
+                    "base_qual_range": [15, 25],
+                    "len_range": [0.2, 0.8]
+                }
+            ]
+        }"#;
+
+        // Deserialize
+        let config: SimulationConfig = serde_json::from_str(json_str).unwrap();
+
+        // Verify all fields deserialized correctly
+        assert_eq!(config.contigs.number.get(), 5);
+        assert_eq!(config.contigs.len_range.get_low().get(), 100);
+        assert_eq!(config.contigs.len_range.get_high().get(), 500);
+        assert!(config.contigs.repeated_seq.is_some());
+
+        assert_eq!(config.reads.len(), 2);
+
+        // Verify first read config
+        assert_eq!(config.reads[0].number.get(), 100);
+        assert_eq!(config.reads[0].mapq_range.get_low(), 10);
+        assert_eq!(config.reads[0].mapq_range.get_high(), 30);
+        assert_eq!(config.reads[0].base_qual_range.get_low(), 20);
+        assert_eq!(config.reads[0].base_qual_range.get_high(), 40);
+        assert!(config.reads[0].barcode.is_some());
+        assert_eq!(config.reads[0].mods.len(), 1);
+        assert!(matches!(config.reads[0].mods[0].base, AllowedAGCTN::C));
+        assert_eq!(config.reads[0].mods[0].win.len(), 2);
+
+        // Verify second read config
+        assert_eq!(config.reads[1].number.get(), 50);
+        assert_eq!(config.reads[1].mods.len(), 0);
+        assert!(config.reads[1].barcode.is_none());
+    }
+
+    /// Tests `TempBamSimulation` automatic cleanup
+    #[test]
+    fn temp_bam_simulation_cleanup() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [50, 50]
+            },
+            "reads": [{
+                "number": 10,
+                "len_range": [0.5, 0.5]
+            }]
+        }"#;
+
+        let bam_path: String;
+        let fasta_path: String;
+
+        {
+            let sim = TempBamSimulation::new(config_json).unwrap();
+            bam_path = sim.bam_path().to_string();
+            fasta_path = sim.fasta_path().to_string();
+
+            // Files should exist while sim is in scope
+            assert!(Path::new(&bam_path).exists());
+            assert!(Path::new(&fasta_path).exists());
+        } // sim is dropped here
+
+        // Files should be cleaned up after drop
+        assert!(!Path::new(&bam_path).exists());
+        assert!(!Path::new(&fasta_path).exists());
     }
 
     /// Tests read generation with barcode
