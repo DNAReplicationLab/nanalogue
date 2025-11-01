@@ -1,6 +1,9 @@
 //! # Write Simulated Mod BAM
 //! Generates simulated BAM files with base modifications for testing purposes.
 //! Accepts JSON configuration to produce both BAM and FASTA reference files.
+//! Please note that both BAM files and FASTA files are created from scratch,
+//! so please do not specify pre-existing BAM or FASTA files in the output
+//! path; if so, they will be overwritten.
 //!
 //! ## Example Usage
 //!
@@ -18,7 +21,13 @@
 //!     "base_qual_range": [10, 20],
 //!     "len_range": [0.1, 0.8],
 //!     "barcode": "ACGTAA",
-//!     "mods": []
+//!     "mods": [{
+//!         "base": "T",
+//!         "is_strand_plus": true,
+//!         "mod_code": "T",
+//!         "win": [4, 5],
+//!         "mod_range": [[0.1, 0.2], [0.3, 0.4]]
+//!     }]
 //!   }]
 //! }"#;
 //!
@@ -27,12 +36,19 @@
 //! //         a barcode will _add_ 2 times so many bp to sequence length statistics.
 //! //       * "repeated_seq" field is optional in contigs; if set, contigs are made by
 //! //         repeating this sequence instead of generating random sequences.
+//! //       * "mods" are optional as well, omitting them will create a BAM file
+//! //          with no modification information.
+//! //       * mod information is specified using windows i.e. in window of given size,
+//! //         we enforce that mod probabilities per base are in the given range.
+//! //         Multiple windows can be specified, and they repeat along the
+//! //         read until it ends.
 //!
 //! run(
 //!     config_json,
 //!     "output.bam",
 //!     "reference.fasta"
 //! ).unwrap();
+//! // Paths used here must not exist already as these are files created anew.
 //! ```
 
 use crate::{
@@ -897,8 +913,7 @@ mod read_generation_no_mods_tests {
                 "number": 1000,
                 "mapq_range": [10, 20],
                 "base_qual_range": [10, 20],
-                "len_range": [0.1, 0.8],
-                "mods": []
+                "len_range": [0.1, 0.8]
             }]
         }"#;
 
@@ -935,8 +950,7 @@ mod read_generation_no_mods_tests {
                 "number": 1000,
                 "mapq_range": [10, 20],
                 "base_qual_range": [10, 20],
-                "len_range": [0.1, 0.8],
-                "mods": []
+                "len_range": [0.1, 0.8]
             }]
         }"#;
 
