@@ -226,17 +226,43 @@ enum FindModReadsCommands {
     },
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "Main function with comprehensive CLI command routing"
-)]
-fn main() -> Result<(), Error> {
+/// Main function, run the program. All business logic handled by `run`
+///
+/// This separation of function between `main` and `run` is so that we
+/// can test the functionality of `run` easily through our code without
+/// actually running the program on the command line like an external user.
+fn main() {
+    // Parse command line options
     let cli = Cli::parse();
 
     // set up writers to stdout
     let stdout = io::stdout();
-    let mut handle = io::BufWriter::new(stdout);
+    let handle = io::BufWriter::new(stdout);
 
+    // call the run function and get the result
+    match run(cli, handle) {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!("Error during execution: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Subcommands are called through this function, which accepts
+/// command line options and a writeable handle as input.
+///
+/// # Errors
+/// Returns errors associated with the subcommands or if command line
+/// options are problematic
+#[expect(
+    clippy::too_many_lines,
+    reason = "Comprehensive CLI command routing"
+)]
+fn run<W>(cli: Cli, mut handle: W) -> Result<(), Error>
+where
+    W: io::Write,
+{
     /// pre filtering the BAM file according to input options
     macro_rules! pre_filt {
         ( $b : expr, $c : expr) => {
@@ -260,7 +286,7 @@ fn main() -> Result<(), Error> {
     }
 
     // Match on the subcommand and call the corresponding logic from the library
-    let result = match cli.command {
+    match cli.command {
         Commands::ReadTableShowMods {
             mut bam,
             mut mods,
@@ -497,14 +523,6 @@ fn main() -> Result<(), Error> {
         Commands::WriteSimulatedModBAM { json, bam, fasta } => {
             let json_str = std::fs::read_to_string(&json)?;
             simulate_mod_bam::run(&json_str, &bam, &fasta)
-        }
-    };
-
-    match result {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            eprintln!("Error during execution: {e}");
-            std::process::exit(1);
         }
     }
 }
