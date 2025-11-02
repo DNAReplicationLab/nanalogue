@@ -37,7 +37,9 @@ pub use cli::{
     RequiredTag,
 };
 pub use error::Error;
-pub use file_utils::{nanalogue_bam_reader, write_bam_denovo, write_fasta};
+pub use file_utils::{
+    nanalogue_bam_reader, nanalogue_indexed_bam_reader, write_bam_denovo, write_fasta,
+};
 pub use read_utils::CurrRead;
 pub use subcommands::{find_modified_reads, read_info, read_stats, reads_table, window_reads};
 pub use utils::{

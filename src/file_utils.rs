@@ -36,6 +36,74 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
     }
 }
 
+/// Opens indexed BAM file, fetching according to input instructions.
+///
+/// `FetchDefinition` is a struct used by `rust_htslib` to retrieve
+/// a region, a contig, all reads, unmapped reads etc. Have a look at
+/// their documentation for the different variants.
+///
+/// # Errors
+///
+/// Returns an error if the BAM file cannot be opened or read or fetching does not work
+///
+/// ```
+/// use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
+/// use rust_htslib::bam::{Read, FetchDefinition};
+/// let mut reader = nanalogue_indexed_bam_reader(&"examples/example_1.bam", FetchDefinition::All)?;
+/// // the above file should contain four reads, so we are checking
+/// // if we load four records.
+/// assert_eq!(reader.records().count(), 4);
+/// # Ok::<(), Error>(())
+/// ```
+/// ```
+/// # use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
+/// # use rust_htslib::bam::{Read, FetchDefinition};
+/// let mut reader = nanalogue_indexed_bam_reader(&"examples/example_1.bam",
+///     FetchDefinition::String(b"dummyI"))?;
+/// // the above file should contain only one read passing through this contig.
+/// assert_eq!(reader.records().count(), 1);
+/// # Ok::<(), Error>(())
+/// ```
+/// ```
+/// # use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
+/// # use rust_htslib::bam::{Read, FetchDefinition};
+/// // this file has a read passing through this contig so we're testing we
+/// // get 1 read when we use coordinates that the read passes through and
+/// // 0 when we don't.
+/// let mut reader = nanalogue_indexed_bam_reader(&"examples/example_1.bam",
+///     FetchDefinition::RegionString(b"dummyIII", 10, 20))?;
+/// assert_eq!(reader.records().count(), 0);
+/// let mut reader = nanalogue_indexed_bam_reader(&"examples/example_1.bam",
+///     FetchDefinition::RegionString(b"dummyIII", 20, 30))?;
+/// assert_eq!(reader.records().count(), 1);
+/// # Ok::<(), Error>(())
+/// ```
+/// ```should_panic
+/// # use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
+/// # use rust_htslib::bam::{Read, FetchDefinition};
+/// let mut reader = nanalogue_indexed_bam_reader(&"examples/example_1.bam",
+///     FetchDefinition::CompleteTid(10))?;
+/// // the above panics as this file has much fewer than 10 contigs.
+/// # Ok::<(), Error>(())
+/// ```
+/// ```
+/// # use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
+/// # use rust_htslib::bam::{Read, FetchDefinition};
+/// use rust_htslib::errors::Error as OtherError;
+/// let err = nanalogue_indexed_bam_reader(&"examples/example_1_copy_no_index.bam",
+///     FetchDefinition::All).unwrap_err();
+/// // we should get a missing index error.
+/// assert!(matches!(err, Error::RustHtslibError(OtherError::BamInvalidIndex{..})));
+/// ```
+pub fn nanalogue_indexed_bam_reader(
+    bam_path: &str,
+    fetch_definition: bam::FetchDefinition,
+) -> Result<bam::IndexedReader, Error> {
+    let mut bam_reader = bam::IndexedReader::from_path(bam_path)?;
+    bam_reader.fetch(fetch_definition)?;
+    Ok(bam_reader)
+}
+
 /// Writes contigs to a FASTA file
 ///
 /// # Errors

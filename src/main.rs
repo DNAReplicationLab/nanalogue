@@ -9,8 +9,10 @@ use clap::{Parser, Subcommand};
 use nanalogue_core::{
     BamPreFilt as _, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
     InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, find_modified_reads,
-    nanalogue_bam_reader, read_info, read_stats, reads_table, window_reads,
+    nanalogue_bam_reader, nanalogue_indexed_bam_reader, read_info, read_stats, reads_table,
+    window_reads,
 };
+use rust_htslib::{bam, errors::Error as RHError};
 use std::io;
 use std::ops::RangeInclusive;
 
@@ -269,16 +271,42 @@ fn main() {
     }
 }
 
-/// Subcommands are called through this function, which accepts
+/// Subcommands are handed off through this function, which accepts
 /// command line options and a writeable handle as input.
+///
+/// # Errors
+/// Returns errors associated with the subcommands or if command line
+/// options are problematic, or if BAM file opening fails.
+fn run<W>(cli: Cli, handle: W) -> Result<(), Error>
+where
+    W: io::Write,
+{
+    // Open BAM file and call on subcommands
+    let bam_cli = cli.command.clone().bam();
+    match (bam_cli.bam_path.as_str(), bam_cli.region) {
+        ("-", _) => run_commands(cli, handle, nanalogue_bam_reader("-")?),
+        (v, None) => run_commands(cli, handle, nanalogue_bam_reader(v)?),
+        (v, Some(w)) => match nanalogue_indexed_bam_reader(v, (&w).try_into()?) {
+            Err(Error::RustHtslibError(RHError::BamInvalidIndex { .. })) => {
+                run_commands(cli, handle, nanalogue_bam_reader(v)?)
+            }
+            Err(e) => Err(e),
+            Ok(x) => run_commands(cli, handle, x),
+        },
+    }
+}
+
+/// Subcommands are executed through this function, which accepts
+/// command line options, a writeable handle, and a readable BAM as input.
 ///
 /// # Errors
 /// Returns errors associated with the subcommands or if command line
 /// options are problematic
 #[expect(clippy::too_many_lines, reason = "Comprehensive CLI command routing")]
-fn run<W>(cli: Cli, mut handle: W) -> Result<(), Error>
+fn run_commands<R, W>(cli: Cli, mut handle: W, mut bam_reader: R) -> Result<(), Error>
 where
     W: io::Write,
+    R: bam::Read,
 {
     /// pre filtering the BAM file according to input options
     macro_rules! pre_filt {
@@ -301,17 +329,6 @@ where
             }
         };
     }
-
-    // Open BAM file. We are not including this in the match arms as this is a universal
-    // command required for all subcommands and we do not need to tailor this depending on the
-    // subcommand.
-    let mut bam_reader = {
-        let bam_cli = cli.command.clone().bam();
-        match (bam_cli.bam_path.as_str(), bam_cli.region) {
-            ("-", _) => nanalogue_bam_reader("-"),
-            (v, None | Some(_)) => nanalogue_bam_reader(v),
-        }
-    }?;
 
     // Match on the subcommand and call the corresponding logic from the library
     match cli.command {
