@@ -2,7 +2,7 @@
 name = "nanalogue"
 version = "0.1.0"
 edition = "2024"
-description = "Mod BAM parsing tools in rust"
+description = "Mod BAM parsing tool with a single-molecule focus"
 license = "MIT"
 readme = "README.md"
 authors = ["Sathish Thiyagarajan <sathish.thiyagarajan@earlham.ac.uk>"]
@@ -36,6 +36,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "nanalogue"
 path = "src/main.rs"
+
+[[bin]]
+name = "nanalogue_sim_bam"
+path = "src/bin/main_simulate_mod_bam.rs"
 
 [lints.clippy]
 pedantic = "deny"

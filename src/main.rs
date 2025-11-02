@@ -1,21 +1,21 @@
 //! # Nanalogue (Nucleic Acid Analogue)
 //!
-//! We process and calculate data associated with DNA molecules, their alignments to
+//! We process and calculate data associated with DNA/RNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous
-//! information.
+//! information from BAM files.
 //!
 use bedrs::{Bed3, Coordinates as _};
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
     BamPreFilt as _, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
     InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, find_modified_reads,
-    nanalogue_bam_reader, read_info, read_stats, reads_table, simulate_mod_bam, window_reads,
+    nanalogue_bam_reader, read_info, read_stats, reads_table, window_reads,
 };
 use std::io;
 use std::ops::RangeInclusive;
 
 /// Main command line parsing struct
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// Our subcommands
@@ -23,7 +23,7 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 enum Commands {
     /// Prints basecalled len, align len, mod count per molecule
     ReadTableShowMods {
@@ -100,18 +100,9 @@ enum Commands {
         #[clap(flatten)]
         mods: InputMods<OptionalTag>,
     },
-    /// Write a simulated mod BAM file according to json options
-    WriteSimulatedModBAM {
-        /// Input JSON file path
-        json: String,
-        /// Output mod BAM file path
-        bam: String,
-        /// Output fasta file path
-        fasta: String,
-    },
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 enum FindModReadsCommands {
     /// Find reads with all windowed modification densities within specified limits
     AllDensBetween {
@@ -226,6 +217,35 @@ enum FindModReadsCommands {
     },
 }
 
+impl FindModReadsCommands {
+    /// Get the BAM command line options alone
+    fn bam(self) -> InputBam {
+        match self {
+            FindModReadsCommands::AllDensBetween { bam, .. }
+            | FindModReadsCommands::AnyDensAbove { bam, .. }
+            | FindModReadsCommands::AnyDensBelow { bam, .. }
+            | FindModReadsCommands::AnyDensBelowAndAnyDensAbove { bam, .. }
+            | FindModReadsCommands::DensRangeAbove { bam, .. }
+            | FindModReadsCommands::AnyAbsGradAbove { bam, .. } => bam,
+        }
+    }
+}
+
+impl Commands {
+    /// Get the BAM command line options alone
+    fn bam(self) -> InputBam {
+        match self {
+            Commands::FindModifiedReads { command } => command.bam(),
+            Commands::ReadTableShowMods { bam, .. }
+            | Commands::ReadTableHideMods { bam, .. }
+            | Commands::ReadStats { bam, .. }
+            | Commands::ReadInfo { bam, .. }
+            | Commands::WindowDens { bam, .. }
+            | Commands::WindowGrad { bam, .. } => bam,
+        }
+    }
+}
+
 /// Main function, run the program. All business logic handled by `run`
 ///
 /// This separation of function between `main` and `run` is so that we
@@ -282,6 +302,11 @@ where
         };
     }
 
+    // Open BAM file. We are not including this in the match arms as this is a universal
+    // command required for all subcommands and we do not need to tailor this depending on the
+    // subcommand.
+    let mut bam_reader = nanalogue_bam_reader(&cli.command.clone().bam().bam_path)?;
+
     // Match on the subcommand and call the corresponding logic from the library
     match cli.command {
         Commands::ReadTableShowMods {
@@ -291,7 +316,6 @@ where
             seq_full,
             seq_summ_file,
         } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             reads_table::run(
                 &mut handle,
@@ -307,7 +331,6 @@ where
             seq_full,
             seq_summ_file,
         } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records =
                 BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
             reads_table::run(
@@ -319,13 +342,11 @@ where
             )
         }
         Commands::ReadStats { mut bam } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records =
                 BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
             read_stats::run(&mut handle, pre_filt!(bam_rc_records, &bam))
         }
         Commands::ReadInfo { mut bam } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records =
                 BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
             read_info::run(&mut handle, pre_filt!(bam_rc_records, &bam))
@@ -339,7 +360,6 @@ where
                     dens_limits,
                 },
         } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             find_modified_reads::run(
                 &mut handle,
@@ -362,7 +382,6 @@ where
                     high,
                 },
         } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
             find_modified_reads::run(
@@ -386,7 +405,6 @@ where
                     low,
                 },
         } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             find_modified_reads::run(
@@ -411,7 +429,6 @@ where
                     high,
                 },
         } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
@@ -438,7 +455,6 @@ where
                     min_range,
                 },
         } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             find_modified_reads::run(
                 &mut handle,
@@ -468,7 +484,6 @@ where
                     min_grad,
                 },
         } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_min_grad_to_1 = OrdPair::new(min_grad, F32Bw0and1::one())?;
             find_modified_reads::run(
@@ -492,7 +507,6 @@ where
             win,
             mut mods,
         } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             window_reads::run(
                 &mut handle,
@@ -507,7 +521,6 @@ where
             win,
             mut mods,
         } => {
-            let mut bam_reader = nanalogue_bam_reader(&bam.bam_path)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             window_reads::run(
                 &mut handle,
@@ -516,10 +529,6 @@ where
                 &mods,
                 analysis::threshold_and_gradient,
             )
-        }
-        Commands::WriteSimulatedModBAM { json, bam, fasta } => {
-            let json_str = std::fs::read_to_string(&json)?;
-            simulate_mod_bam::run(&json_str, &bam, &fasta)
         }
     }
 }
