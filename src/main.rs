@@ -305,7 +305,13 @@ where
     // Open BAM file. We are not including this in the match arms as this is a universal
     // command required for all subcommands and we do not need to tailor this depending on the
     // subcommand.
-    let mut bam_reader = nanalogue_bam_reader(&cli.command.clone().bam().bam_path)?;
+    let mut bam_reader = {
+        let bam_cli = cli.command.clone().bam();
+        match (bam_cli.bam_path.as_str(), bam_cli.region) {
+            ("-", _) => nanalogue_bam_reader("-"),
+            (v, None | Some(_)) => nanalogue_bam_reader(v),
+        }
+    }?;
 
     // Match on the subcommand and call the corresponding logic from the library
     match cli.command {

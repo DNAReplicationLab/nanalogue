@@ -11,7 +11,7 @@ use std::str::FromStr;
 /// Datatype holding a genomic region
 #[derive(Debug, Default, Clone, PartialOrd, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct GenomicRegion(pub (String, Option<OrdPair<u64>>));
+pub struct GenomicRegion((String, Option<OrdPair<u64>>));
 
 /// Obtains genomic region from a string with the standard region format of name[:begin[-end]].
 ///
@@ -30,6 +30,7 @@ pub struct GenomicRegion(pub (String, Option<OrdPair<u64>>));
 /// #
 /// // Contig with coordinates
 /// let region = GenomicRegion::from_str("chr1:1000-2000")?;
+/// let region = GenomicRegion::from_str("chr1:1000-")?;
 /// # Ok::<(), nanalogue_core::Error>(())
 /// ```
 ///
@@ -60,7 +61,6 @@ impl FromStr for GenomicRegion {
     }
 }
 
-/// Converts genomic region from genomic string representation to bed3 representation
 impl GenomicRegion {
     /// converts genomic region from genomic string representation to bed3 representation
     ///
@@ -114,6 +114,79 @@ impl GenomicRegion {
             Bed3::<i32, u64>::new(numeric_contig, start, end)
         };
         Ok(region_bed)
+    }
+
+    /// Gets the contig
+    /// ```
+    /// use nanalogue_core::GenomicRegion;
+    /// use std::str::FromStr;
+    ///
+    /// assert_eq!(GenomicRegion::from_str("chr1").unwrap().contig(), "chr1");
+    /// assert_eq!(GenomicRegion::from_str("chr10_4:1000-").unwrap().contig(), "chr10_4");
+    /// assert_eq!(GenomicRegion::from_str("xz_4:a:1000-2000").unwrap().contig(), "xz_4:a");
+    /// ```
+    #[must_use]
+    pub fn contig(&self) -> &str {
+        &self.0.0
+    }
+
+    /// Gets a (start, end) pair if available
+    /// ```
+    /// use nanalogue_core::GenomicRegion;
+    /// use std::str::FromStr;
+    ///
+    /// assert_eq!(GenomicRegion::from_str("chr1").unwrap().start_end(), None);
+    /// assert_eq!(GenomicRegion::from_str("chr10_4:1000-").unwrap().start_end(), Some((1000, u64::MAX)));
+    /// assert_eq!(GenomicRegion::from_str("chr10_4:a:1000-2000").unwrap().start_end(), Some((1000, 2000)));
+    /// ```
+    #[must_use]
+    pub fn start_end(&self) -> Option<(u64, u64)> {
+        self.0.1.as_ref().map(|v| (v.get_low(), v.get_high()))
+    }
+}
+
+impl<'a> TryFrom<&'a GenomicRegion> for bam::FetchDefinition<'a> {
+    type Error = Error;
+
+    /// Converts into `FetchDefinition`, a struct used by `rust_htslib` to fetch by region from
+    /// indexed BAM files.
+    /// ```
+    /// use nanalogue_core::GenomicRegion;
+    /// use rust_htslib::bam::FetchDefinition;
+    /// use std::str::FromStr;
+    ///
+    /// // To do examples below, we need to convert every character to ASCII
+    ///
+    /// let region1 = GenomicRegion::from_str("chr1")?;
+    /// let region1_fd = FetchDefinition::try_from(&region1)?;
+    /// assert_eq!(format!("{:?}", region1_fd), "String([99, 104, 114, 49])");
+    ///
+    /// let region2 = GenomicRegion::from_str("chr10_4:1000-")?;
+    /// let region2_fd = FetchDefinition::try_from(&region2)?;
+    /// assert_eq!(format!("{:?}", region2_fd), "RegionString([99, 104, 114, 49, 48, 95, 52], \
+    /// 1000, 9223372036854775807)");
+    ///
+    /// let region3 = GenomicRegion::from_str("chr10_4:a:1000-2000")?;
+    /// // change call from `try_from` to `try_into` for sake of variety.
+    /// let region3_fd :FetchDefinition = (&region3).try_into()?;
+    /// assert_eq!(format!("{:?}", region3_fd), "RegionString([99, 104, 114, 49, 48, 95, 52, 58, 97], \
+    /// 1000, 2000)");
+    ///
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    fn try_from(value: &'a GenomicRegion) -> Result<bam::FetchDefinition<'a>, Error> {
+        match (value.contig(), value.start_end()) {
+            (c, None) => Ok(bam::FetchDefinition::from(c)),
+            (c, Some((st, en))) => {
+                let st_i64 = i64::try_from(st)?;
+                let en_i64 = if en == u64::MAX {
+                    i64::MAX
+                } else {
+                    i64::try_from(en)?
+                };
+                Ok(bam::FetchDefinition::from((c, st_i64, en_i64)))
+            }
+        }
     }
 }
 

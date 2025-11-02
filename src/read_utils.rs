@@ -1,5 +1,3 @@
-//! # `ReadUtils`
-//!
 //! Implements `CurrRead` Struct for processing information retrieved from BAM files
 //! and the mod information in the BAM file using a parser implemented in
 //! another module.

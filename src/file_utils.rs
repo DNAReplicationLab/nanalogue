@@ -1,5 +1,3 @@
-//! # `FileUtils`
-//!
 //! Utility functions for file I/O operations with BAM and FASTA files.
 
 use crate::Error;

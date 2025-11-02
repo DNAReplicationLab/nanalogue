@@ -396,7 +396,7 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
         bam_reader.set_thread_pool(&tp)?;
 
         // Load read ID list if specified
-        if let Some(file_path) = bam_opts.read_id_list.as_ref() {
+        bam_opts.read_id_set = if let Some(file_path) = bam_opts.read_id_list.as_ref() {
             let file = File::open(file_path).map_err(Error::InputOutputError)?;
             let reader = BufReader::new(file);
             let mut read_ids = HashSet::new();
@@ -408,8 +408,10 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
                     let _: bool = read_ids.insert(line.to_string());
                 }
             }
-            bam_opts.read_id_set = Some(read_ids);
-        }
+            Some(read_ids)
+        } else {
+            None
+        };
 
         if !(bam_opts.convert_region_to_bed3(header.clone())?) {
             return Err(Error::UnknownError);
