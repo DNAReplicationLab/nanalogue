@@ -124,8 +124,7 @@ mod tests {
     #[should_panic(expected = "not implemented")]
     fn bam_pre_filt_pre_filt_panics() {
         let test_obj = TestBamPreFilt;
-        let mut input_bam = nanalogue_core::cli::InputBam::default();
-        input_bam.bam_path = "test.bam".to_string();
+        let input_bam = nanalogue_core::cli::InputBam::default();
         let _: bool = test_obj.pre_filt(&input_bam);
     }
 

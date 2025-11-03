@@ -8,9 +8,10 @@ use bedrs::{Bed3, Coordinates as _};
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
     BamPreFilt as _, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
-    InputWindowing, OptionalTag, OrdPair, RequiredTag, analysis, find_modified_reads,
-    nanalogue_bam_reader, nanalogue_indexed_bam_reader, read_info, read_stats, reads_table,
-    window_reads,
+    InputWindowing, OptionalTag, OrdPair, PathOrURLOrStdin, RequiredTag, analysis,
+    find_modified_reads, nanalogue_bam_reader, nanalogue_bam_reader_from_stdin,
+    nanalogue_bam_reader_from_url, nanalogue_indexed_bam_reader,
+    nanalogue_indexed_bam_reader_from_url, read_info, read_stats, reads_table, window_reads,
 };
 use rust_htslib::{bam, errors::Error as RHError};
 use std::io;
@@ -19,6 +20,7 @@ use std::ops::RangeInclusive;
 /// Main command line parsing struct
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
+#[non_exhaustive]
 struct Cli {
     /// Our subcommands
     #[command(subcommand)]
@@ -26,6 +28,7 @@ struct Cli {
 }
 
 #[derive(Subcommand, Debug, Clone)]
+#[non_exhaustive]
 enum Commands {
     /// Prints basecalled len, align len, mod count per molecule
     ReadTableShowMods {
@@ -281,18 +284,42 @@ fn run<W>(cli: Cli, handle: W) -> Result<(), Error>
 where
     W: io::Write,
 {
-    // Open BAM file and call on subcommands
+    // Open BAM file/path/data and call on subcommands.
+    // NOTE: we filter by region twice, once using the index, and
+    // once when we read the records obtained. So, even if we do not have
+    // an index, we can still filter by region, but this operation could be
+    // slower or much slower. So, we are fine ignoring the region at this step
+    // if the input is from stdin or if the index cannot be found.
     let bam_cli = cli.command.clone().bam();
-    match (bam_cli.bam_path.as_str(), bam_cli.region) {
-        ("-", _) => run_commands(cli, handle, nanalogue_bam_reader("-")?),
-        (v, None) => run_commands(cli, handle, nanalogue_bam_reader(v)?),
-        (v, Some(w)) => match nanalogue_indexed_bam_reader(v, (&w).try_into()?) {
-            Err(Error::RustHtslibError(RHError::BamInvalidIndex { .. })) => {
-                run_commands(cli, handle, nanalogue_bam_reader(v)?)
+    match (bam_cli.bam_path, bam_cli.region) {
+        (PathOrURLOrStdin::Stdin, _) => {
+            run_commands(cli, handle, nanalogue_bam_reader_from_stdin()?)
+        }
+        (PathOrURLOrStdin::Path(v), None) => run_commands(cli, handle, nanalogue_bam_reader(&v)?),
+        (PathOrURLOrStdin::URL(v), None) => {
+            run_commands(cli, handle, nanalogue_bam_reader_from_url(&v)?)
+        }
+        (PathOrURLOrStdin::Path(v), Some(w)) => {
+            match nanalogue_indexed_bam_reader(&v, (&w).try_into()?) {
+                Err(Error::RustHtslibError(RHError::BamInvalidIndex { .. })) => {
+                    run_commands(cli, handle, nanalogue_bam_reader(&v)?)
+                }
+                Err(e) => Err(e),
+                Ok(x) => run_commands(cli, handle, x),
             }
-            Err(e) => Err(e),
-            Ok(x) => run_commands(cli, handle, x),
-        },
+        }
+        (PathOrURLOrStdin::URL(v), Some(w)) => {
+            match nanalogue_indexed_bam_reader_from_url(&v, (&w).try_into()?) {
+                Err(Error::RustHtslibError(RHError::BamInvalidIndex { .. })) => {
+                    run_commands(cli, handle, nanalogue_bam_reader_from_url(&v)?)
+                }
+                Err(e) => Err(e),
+                Ok(x) => run_commands(cli, handle, x),
+            }
+        }
+        (_, _) => Err(Error::NotImplementedError(
+            "Unsupported combination of BAM input source and region specification".to_string(),
+        )),
     }
 }
 

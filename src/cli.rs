@@ -2,7 +2,8 @@
 //!
 //! This file provides some global options in the command line interface.
 use crate::{
-    Error, F32Bw0and1, GenomicRegion, ModChar, ReadStates, RestrictModCalledStrand, ThresholdState,
+    Error, F32Bw0and1, GenomicRegion, ModChar, PathOrURLOrStdin, ReadStates,
+    RestrictModCalledStrand, ThresholdState,
 };
 use bedrs::prelude::Bed3;
 use clap::{Args, FromArgMatches};
@@ -18,8 +19,9 @@ use std::num::{NonZeroU32, NonZeroUsize};
 #[serde(default)]
 #[non_exhaustive]
 pub struct InputBam {
-    /// Input BAM file. Set this to - to read from stdin.
-    pub bam_path: String,
+    /// Input BAM file. Set to a local file path, or set to - to read from stdin,
+    /// or set to a URL to read from a remote file.
+    pub bam_path: PathOrURLOrStdin,
     /// Exclude reads whose sequence length in the BAM file is
     /// below this value. Defaults to 0.
     #[clap(long, default_value_t)]
@@ -99,7 +101,7 @@ pub struct InputBam {
 impl Default for InputBam {
     fn default() -> Self {
         InputBam {
-            bam_path: String::new(),
+            bam_path: PathOrURLOrStdin::Stdin,
             min_seq_len: 0,
             min_align_len: None,
             read_id: None,

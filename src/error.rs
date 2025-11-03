@@ -35,7 +35,10 @@ pub enum Error {
     InvalidContigAndStart,
 
     /// Alignment coordinates (contig/start/end) are invalid.
-    #[error("invalid alignment coordinates (contig/start/end)")]
+    #[error(
+        "invalid alignment coordinates (contig/start/end) \n\
+ If piping in a samtools view command, please include header with -h in samtools. "
+    )]
     InvalidAlignCoords,
 
     /// Modification coordinates are invalid

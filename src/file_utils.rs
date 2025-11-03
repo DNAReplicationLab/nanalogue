@@ -5,11 +5,9 @@ use rust_htslib::bam;
 use std::fs::File;
 use std::io::Write as _;
 use std::path::Path;
+use url::Url;
 
-/// Opens BAM file, copied and edited from fibertools-rs repo.
-///
-/// The fibertools repo (<https://github.com/fiberseq/fibertools-rs>)
-/// is under the MIT license (please see their Cargo.toml).
+/// Opens BAM file.
 ///
 /// # Errors
 ///
@@ -28,12 +26,34 @@ use std::path::Path;
 /// assert_eq!(count, 4);
 /// # Ok::<(), Error>(())
 /// ```
-pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
-    if bam_path == "-" {
-        Ok(bam::Reader::from_stdin()?)
-    } else {
-        Ok(bam::Reader::from_path(bam_path)?)
-    }
+pub fn nanalogue_bam_reader<J>(bam_path: &J) -> Result<bam::Reader, Error>
+where
+    J: AsRef<Path> + ?Sized,
+{
+    Ok(bam::Reader::from_path(bam_path)?)
+}
+
+/// Receives BAM data from stdin.
+///
+/// We are not writing tests for this function.
+///
+/// # Errors
+///
+/// Returns an error if the BAM data cannot be read.
+pub fn nanalogue_bam_reader_from_stdin() -> Result<bam::Reader, Error> {
+    Ok(bam::Reader::from_stdin()?)
+}
+
+/// Receives BAM data from a url.
+///
+/// We are not writing tests for this function as we have to rely on an external URL,
+/// which may be unreliable.
+///
+/// # Errors
+///
+/// Returns an error if the BAM data cannot be read.
+pub fn nanalogue_bam_reader_from_url(url: &Url) -> Result<bam::Reader, Error> {
+    Ok(bam::Reader::from_url(url)?)
 }
 
 /// Opens indexed BAM file, fetching according to input instructions.
@@ -134,15 +154,34 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 /// // we should get an invalid index error, as the index exists here but is just a blank file.
 /// assert!(matches!(err, Error::RustHtslibError(OtherError::BamInvalidIndex{..})));
 /// ```
-pub fn nanalogue_indexed_bam_reader(
-    bam_path: &str,
+pub fn nanalogue_indexed_bam_reader<J>(
+    bam_path: &J,
     fetch_definition: bam::FetchDefinition,
-) -> Result<bam::IndexedReader, Error> {
+) -> Result<bam::IndexedReader, Error>
+where
+    J: AsRef<Path> + ?Sized,
+{
     let mut bam_reader = bam::IndexedReader::from_path(bam_path)?;
     bam_reader.fetch(fetch_definition)?;
     Ok(bam_reader)
 }
 
+/// Receives indexed BAM data from a url.
+///
+/// We are not writing tests for this function as we have to rely on an external URL,
+/// which may be unreliable.
+///
+/// # Errors
+///
+/// Returns an error if the BAM data cannot be read.
+pub fn nanalogue_indexed_bam_reader_from_url(
+    url: &Url,
+    fetch_definition: bam::FetchDefinition,
+) -> Result<bam::IndexedReader, Error> {
+    let mut bam_reader = bam::IndexedReader::from_url(url)?;
+    bam_reader.fetch(fetch_definition)?;
+    Ok(bam_reader)
+}
 /// Writes contigs to a FASTA file
 ///
 /// # Errors
