@@ -148,6 +148,31 @@ pub fn nanalogue_indexed_bam_reader(
 /// # Errors
 ///
 /// Returns an error if the file cannot be created or written to.
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::{Error, file_utils::write_fasta};
+/// use std::fs;
+/// use uuid::Uuid;
+///
+/// let contigs = vec![
+///     ("seq1".to_string(), b"ACGTACGT".to_vec()),
+///     ("seq2".to_string(), b"TGCATGCA".to_vec()),
+/// ];
+///
+/// let temp_path = std::env::temp_dir().join(format!("{}.fa", Uuid::new_v4()));
+/// write_fasta(contigs, &temp_path)?;
+///
+/// let content = fs::read_to_string(&temp_path)?;
+/// assert!(content.contains(">seq1"));
+/// assert!(content.contains("ACGTACGT"));
+/// assert!(content.contains(">seq2"));
+/// assert!(content.contains("TGCATGCA"));
+///
+/// fs::remove_file(&temp_path)?;
+/// # Ok::<(), Error>(())
+/// ```
 pub fn write_fasta<I, J>(contigs: I, output_path: &J) -> Result<(), Error>
 where
     I: IntoIterator<Item = (String, Vec<u8>)>,
@@ -171,6 +196,31 @@ where
 ///
 /// Returns an error if the BAM file cannot be created or written to,
 /// if index creation fails, or if input reads are not sorted.
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::{Error, file_utils::{write_bam_denovo, nanalogue_bam_reader}};
+/// use rust_htslib::bam;
+/// use rust_htslib::bam::Read;
+/// use uuid::Uuid;
+///
+/// let contigs = vec![("chr1".to_string(), 1000)];
+/// let read_groups = vec!["rg1".to_string()];
+/// let comments = vec!["test comment".to_string()];
+/// let reads: Vec<bam::Record> = vec![];
+///
+/// let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+/// write_bam_denovo(reads, contigs, read_groups, comments, &temp_path)?;
+///
+/// // Verify the file was created and can be read
+/// let reader = nanalogue_bam_reader(temp_path.to_str().unwrap())?;
+/// assert_eq!(reader.header().target_count(), 1);
+///
+/// std::fs::remove_file(&temp_path)?;
+/// std::fs::remove_file(format!("{}.bai", temp_path.display()))?;
+/// # Ok::<(), Error>(())
+/// ```
 pub fn write_bam_denovo<I, J, K, L, M>(
     reads: I,
     contigs: J,
@@ -236,9 +286,11 @@ where
     Ok(())
 }
 
+#[expect(clippy::panic, reason = "panic on error is standard practice in tests")]
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_htslib::bam::Read as _;
     use uuid::Uuid;
 
     /// Tests writing to a fasta file and check its contents
@@ -256,5 +308,239 @@ mod tests {
         assert_eq!(content, ">test_contig_0\nACGT\n>test_contig_1\nTGCA\n");
 
         std::fs::remove_file(&temp_path).expect("no error");
+    }
+
+    /// Tests reading BAM file with valid path
+    #[test]
+    fn nanalogue_bam_reader_valid_path() {
+        let mut reader = match nanalogue_bam_reader("examples/example_1.bam") {
+            Ok(r) => r,
+            Err(e) => panic!("Failed to read BAM file: {e:?}"),
+        };
+        assert_eq!(reader.records().count(), 4);
+    }
+
+    /// Tests reading BAM file with invalid path
+    #[test]
+    fn nanalogue_bam_reader_invalid_path() {
+        let result = nanalogue_bam_reader("nonexistent_file.bam");
+        let _err = result.unwrap_err();
+    }
+
+    /// Tests indexed BAM reader with `FetchDefinition::All`
+    #[test]
+    fn nanalogue_indexed_bam_reader_fetch_all() {
+        let mut reader = match nanalogue_indexed_bam_reader(
+            "examples/example_1.bam",
+            bam::FetchDefinition::All,
+        ) {
+            Ok(r) => r,
+            Err(e) => panic!("Failed to read indexed BAM file: {e:?}"),
+        };
+        assert_eq!(reader.records().count(), 4);
+    }
+
+    /// Tests indexed BAM reader with specific contig
+    #[test]
+    fn nanalogue_indexed_bam_reader_fetch_contig() {
+        let mut reader = match nanalogue_indexed_bam_reader(
+            "examples/example_1.bam",
+            bam::FetchDefinition::String(b"dummyI"),
+        ) {
+            Ok(r) => r,
+            Err(e) => panic!("Failed to read indexed BAM file: {e:?}"),
+        };
+        assert_eq!(reader.records().count(), 1);
+    }
+
+    /// Tests indexed BAM reader with nonexistent contig
+    #[test]
+    fn nanalogue_indexed_bam_reader_fetch_nonexistent_contig() {
+        let result = nanalogue_indexed_bam_reader(
+            "examples/example_1.bam",
+            bam::FetchDefinition::String(b"nonexistent_contig"),
+        );
+        let _err = result.unwrap_err();
+    }
+
+    /// Tests indexed BAM reader with region that has reads
+    #[test]
+    fn nanalogue_indexed_bam_reader_fetch_region_with_reads() {
+        let mut reader = match nanalogue_indexed_bam_reader(
+            "examples/example_1.bam",
+            bam::FetchDefinition::RegionString(b"dummyIII", 20, 30),
+        ) {
+            Ok(r) => r,
+            Err(e) => panic!("Failed to read indexed BAM file: {e:?}"),
+        };
+        assert_eq!(reader.records().count(), 1);
+    }
+
+    /// Tests indexed BAM reader with region that has no reads
+    #[test]
+    fn nanalogue_indexed_bam_reader_fetch_region_without_reads() {
+        let mut reader = match nanalogue_indexed_bam_reader(
+            "examples/example_1.bam",
+            bam::FetchDefinition::RegionString(b"dummyIII", 10, 20),
+        ) {
+            Ok(r) => r,
+            Err(e) => panic!("Failed to read indexed BAM file: {e:?}"),
+        };
+        assert_eq!(reader.records().count(), 0);
+    }
+
+    /// Tests `write_bam_denovo` with empty reads
+    #[test]
+    fn write_bam_denovo_empty_reads() {
+        let contigs = vec![("chr1".to_string(), 1000)];
+        let read_groups = vec!["rg1".to_string()];
+        let comments = vec!["test comment".to_string()];
+        let reads: Vec<bam::Record> = vec![];
+
+        let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+        match write_bam_denovo(reads, contigs, read_groups, comments, &temp_path) {
+            Ok(()) => (),
+            Err(e) => panic!("Failed to write BAM file: {e:?}"),
+        }
+
+        // Verify the file was created
+        let reader = nanalogue_bam_reader(temp_path.to_str().unwrap()).expect("no error");
+        assert_eq!(reader.header().target_count(), 1);
+
+        std::fs::remove_file(&temp_path).expect("no error");
+        std::fs::remove_file(format!("{}.bai", temp_path.display())).expect("no error");
+    }
+
+    /// Tests `write_bam_denovo` with unsorted reads returns error
+    #[test]
+    #[expect(
+        clippy::similar_names,
+        reason = "read1, read2, and reads are clear in this test context"
+    )]
+    fn write_bam_denovo_unsorted_reads_error() {
+        let contigs = vec![("chr1".to_string(), 1000), ("chr2".to_string(), 1000)];
+        let read_groups = vec!["rg1".to_string()];
+        let comments = vec![];
+
+        // Create two unsorted reads
+        let mut read1 = bam::Record::new();
+        read1.set_tid(1);
+        read1.set_pos(100);
+
+        let mut read2 = bam::Record::new();
+        read2.set_tid(0);
+        read2.set_pos(50);
+
+        let reads = vec![read1, read2]; // Unsorted: tid 1 before tid 0
+
+        let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+        let result = write_bam_denovo(reads, contigs, read_groups, comments, &temp_path);
+
+        let err = result.unwrap_err();
+        assert!(matches!(err, Error::InvalidSorting(_)));
+    }
+
+    /// Tests `write_bam_denovo` with sorted reads on same contig
+    #[test]
+    #[expect(
+        clippy::similar_names,
+        reason = "read1, read2, and reads are clear in this test context"
+    )]
+    fn write_bam_denovo_sorted_reads_same_contig() {
+        let contigs = vec![("chr1".to_string(), 1000)];
+        let read_groups = vec!["rg1".to_string()];
+        let comments = vec![];
+
+        // Create sorted reads on same contig
+        let mut read1 = bam::Record::new();
+        read1.set_tid(0);
+        read1.set_pos(50);
+        read1.set(b"read1", None, b"ACGT", &[30, 30, 30, 30]);
+
+        let mut read2 = bam::Record::new();
+        read2.set_tid(0);
+        read2.set_pos(100);
+        read2.set(b"read2", None, b"TGCA", &[30, 30, 30, 30]);
+
+        let reads = vec![read1, read2];
+
+        let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+        match write_bam_denovo(reads, contigs, read_groups, comments, &temp_path) {
+            Ok(()) => (),
+            Err(e) => panic!("Failed to write BAM file: {e:?}"),
+        }
+
+        // Verify reads were written
+        let mut reader = nanalogue_bam_reader(temp_path.to_str().unwrap()).expect("no error");
+        assert_eq!(reader.records().count(), 2);
+
+        std::fs::remove_file(&temp_path).expect("no error");
+        std::fs::remove_file(format!("{}.bai", temp_path.display())).expect("no error");
+    }
+
+    /// Tests `write_bam_denovo` with multiple contigs and read groups
+    #[test]
+    fn write_bam_denovo_multiple_contigs_and_read_groups() {
+        let contigs = vec![
+            ("chr1".to_string(), 1000),
+            ("chr2".to_string(), 2000),
+            ("chr3".to_string(), 1500),
+        ];
+        let read_groups = vec!["rg1".to_string(), "rg2".to_string()];
+        let comments = vec![
+            "comment1".to_string(),
+            "comment2".to_string(),
+            "comment3".to_string(),
+        ];
+        let reads: Vec<bam::Record> = vec![];
+
+        let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+        match write_bam_denovo(reads, contigs, read_groups, comments, &temp_path) {
+            Ok(()) => (),
+            Err(e) => panic!("Failed to write BAM file: {e:?}"),
+        }
+
+        let reader = nanalogue_bam_reader(temp_path.to_str().unwrap()).expect("no error");
+        assert_eq!(reader.header().target_count(), 3);
+
+        // Verify read groups exist in header
+        let header = reader.header();
+        let header_text = std::str::from_utf8(header.as_bytes()).expect("no error");
+        assert!(header_text.contains("@RG\tID:rg1"));
+        assert!(header_text.contains("@RG\tID:rg2"));
+
+        std::fs::remove_file(&temp_path).expect("no error");
+        std::fs::remove_file(format!("{}.bai", temp_path.display())).expect("no error");
+    }
+
+    /// Tests `write_bam_denovo` with unmapped reads
+    #[test]
+    fn write_bam_denovo_with_unmapped_reads() {
+        let contigs = vec![("chr1".to_string(), 1000)];
+        let read_groups = vec!["rg1".to_string()];
+        let comments = vec![];
+
+        let mut read = bam::Record::new();
+        read.set(b"unmapped_read", None, b"ACGT", &[30, 30, 30, 30]);
+        read.set_unmapped();
+
+        let reads = vec![read];
+
+        let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+        match write_bam_denovo(reads, contigs, read_groups, comments, &temp_path) {
+            Ok(()) => (),
+            Err(e) => panic!("Failed to write BAM file: {e:?}"),
+        }
+
+        let mut reader = nanalogue_bam_reader(temp_path.to_str().unwrap()).expect("no error");
+        let records: Vec<_> = reader
+            .records()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("no error");
+        assert_eq!(records.len(), 1);
+        assert!(records.first().expect("record exists").is_unmapped());
+
+        std::fs::remove_file(&temp_path).expect("no error");
+        std::fs::remove_file(format!("{}.bai", temp_path.display())).expect("no error");
     }
 }
