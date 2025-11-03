@@ -7,7 +7,7 @@ use nanalogue_core::{Error, simulate_mod_bam};
 
 /// Main command line parsing struct that gets paths to files to be created.
 #[derive(Parser, Debug)]
-#[command(author, version, 
+#[command(author, version,
     about = "Simulate BAM with or without modifications. Aimed at developers who wish to test their BAM parsers",
     long_about = None)]
 struct Cli {

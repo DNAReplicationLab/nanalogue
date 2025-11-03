@@ -77,7 +77,11 @@ pub struct InputBam {
     /// These reads are allowed by default, set this flag to exclude.
     #[clap(long, default_value_t)]
     pub exclude_mapq_unavail: bool,
-    /// Only keep reads passing through this region.
+    /// Only keep reads passing through this region. If a BAM index is available
+    /// with a name same as the BAM file but with the .bai suffix, the operation
+    /// of selecting such reads will be faster. If you are using standard input
+    /// as your input e.g. you are piping in the output from samtools, then
+    /// you cannot use an index as a BAM filename is not available.
     #[clap(long)]
     pub region: Option<GenomicRegion>,
     /// Only keep read data from this region.

@@ -46,6 +46,10 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 ///
 /// Returns an error if the BAM file cannot be opened or read or fetching does not work
 ///
+/// # Examples
+///
+/// Retrieve all reads
+///
 /// ```
 /// use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
 /// use rust_htslib::bam::{Read, FetchDefinition};
@@ -55,6 +59,9 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 /// assert_eq!(reader.records().count(), 4);
 /// # Ok::<(), Error>(())
 /// ```
+///
+/// Retrieve all reads from a contig.
+///
 /// ```
 /// # use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
 /// # use rust_htslib::bam::{Read, FetchDefinition};
@@ -64,6 +71,9 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 /// assert_eq!(reader.records().count(), 1);
 /// # Ok::<(), Error>(())
 /// ```
+///
+/// Retrieve all reads overlapping with a given region.
+///
 /// ```
 /// # use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
 /// # use rust_htslib::bam::{Read, FetchDefinition};
@@ -76,8 +86,16 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 /// let mut reader = nanalogue_indexed_bam_reader(&"examples/example_1.bam",
 ///     FetchDefinition::RegionString(b"dummyIII", 20, 30))?;
 /// assert_eq!(reader.records().count(), 1);
+/// // this contig doesn't have 30000bp, so we are testing if using
+/// // a coordinate beyond the bounds of the contig is o.k.
+/// let mut reader = nanalogue_indexed_bam_reader(&"examples/example_1.bam",
+///     FetchDefinition::RegionString(b"dummyIII", 20, 30000))?;
+/// assert_eq!(reader.records().count(), 1);
 /// # Ok::<(), Error>(())
 /// ```
+///
+/// Error when accessing a contig with numeric index larger than number of contigs.
+///
 /// ```should_panic
 /// # use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
 /// # use rust_htslib::bam::{Read, FetchDefinition};
@@ -86,13 +104,34 @@ pub fn nanalogue_bam_reader(bam_path: &str) -> Result<bam::Reader, Error> {
 /// // the above panics as this file has much fewer than 10 contigs.
 /// # Ok::<(), Error>(())
 /// ```
+///
+/// Check we get an error when the index is missing.
+///
 /// ```
 /// # use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
 /// # use rust_htslib::bam::{Read, FetchDefinition};
 /// use rust_htslib::errors::Error as OtherError;
+/// use std::fs;
+/// assert!(!(fs::exists("examples/example_1_copy_no_index.bam.bai").unwrap()));
+/// // above tells us index does not exist.
 /// let err = nanalogue_indexed_bam_reader(&"examples/example_1_copy_no_index.bam",
 ///     FetchDefinition::All).unwrap_err();
-/// // we should get a missing index error.
+/// // we should get a missing index error, which is same as an invalid index in `rust_htslib`.
+/// assert!(matches!(err, Error::RustHtslibError(OtherError::BamInvalidIndex{..})));
+/// ```
+///
+/// Check we get an error when the index is malformed.
+///
+/// ```
+/// # use nanalogue_core::{Error, file_utils::nanalogue_indexed_bam_reader};
+/// # use rust_htslib::bam::{Read, FetchDefinition};
+/// use rust_htslib::errors::Error as OtherError;
+/// use std::fs;
+/// assert!(fs::exists("examples/example_1_copy_invalid_index.bam.bai").unwrap());
+/// // above tells us index exists.
+/// let err = nanalogue_indexed_bam_reader(&"examples/example_1_copy_invalid_index.bam",
+///     FetchDefinition::All).unwrap_err();
+/// // we should get an invalid index error, as the index exists here but is just a blank file.
 /// assert!(matches!(err, Error::RustHtslibError(OtherError::BamInvalidIndex{..})));
 /// ```
 pub fn nanalogue_indexed_bam_reader(

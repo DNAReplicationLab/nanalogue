@@ -381,4 +381,81 @@ mod tests {
         assert_eq!(bed3.start(), 1000);
         assert_eq!(bed3.end(), u64::MAX);
     }
+
+    /// Tests `contig()` method with simple contig name
+    #[test]
+    fn contig_simple_name() {
+        let region = GenomicRegion::from_str("chr1").expect("should parse");
+        assert_eq!(region.contig(), "chr1");
+    }
+
+    /// Tests `contig()` method with contig name and coordinates
+    #[test]
+    fn contig_with_coordinates() {
+        let region = GenomicRegion::from_str("chr10_4:1000-").expect("should parse");
+        assert_eq!(region.contig(), "chr10_4");
+    }
+
+    /// Tests `contig()` method with complex contig name containing colons
+    #[test]
+    fn contig_with_colons() {
+        let region = GenomicRegion::from_str("xz_4:a:1000-2000").expect("should parse");
+        assert_eq!(region.contig(), "xz_4:a");
+    }
+
+    /// Tests `start_end()` method with no coordinates
+    #[test]
+    fn start_end_no_coordinates() {
+        let region = GenomicRegion::from_str("chr1").expect("should parse");
+        assert_eq!(region.start_end(), None);
+    }
+
+    /// Tests `start_end()` method with open-ended interval
+    #[test]
+    fn start_end_open_ended() {
+        let region = GenomicRegion::from_str("chr10_4:1000-").expect("should parse");
+        assert_eq!(region.start_end(), Some((1000, u64::MAX)));
+    }
+
+    /// Tests `start_end()` method with closed interval
+    #[test]
+    fn start_end_closed_interval() {
+        let region = GenomicRegion::from_str("chr10_4:a:1000-2000").expect("should parse");
+        assert_eq!(region.start_end(), Some((1000, 2000)));
+    }
+
+    /// Tests conversion to `FetchDefinition` for simple contig name
+    #[test]
+    fn try_from_fetch_definition_simple_contig() {
+        let region = GenomicRegion::from_str("chr1").expect("should parse");
+        let fetch_def = bam::FetchDefinition::try_from(&region).expect("should convert");
+        // chr1 as ASCII: c=99, h=104, r=114, 1=49
+        assert_eq!(format!("{fetch_def:?}"), "String([99, 104, 114, 49])");
+    }
+
+    /// Tests conversion to `FetchDefinition` for open-ended interval
+    #[test]
+    fn try_from_fetch_definition_open_ended() {
+        let region = GenomicRegion::from_str("chr10_4:1000-").expect("should parse");
+        let fetch_def = bam::FetchDefinition::try_from(&region).expect("should convert");
+        // chr10_4 as ASCII: c=99, h=104, r=114, 1=49, 0=48, _=95, 4=52
+        // i64::MAX = 9223372036854775807
+        assert_eq!(
+            format!("{fetch_def:?}"),
+            "RegionString([99, 104, 114, 49, 48, 95, 52], 1000, 9223372036854775807)"
+        );
+    }
+
+    /// Tests conversion to `FetchDefinition` for closed interval with complex contig name
+    #[test]
+    fn try_from_fetch_definition_closed_interval() {
+        let region = GenomicRegion::from_str("chr10_4:a:1000-2000").expect("should parse");
+        // Test both try_from and try_into for variety
+        let fetch_def: bam::FetchDefinition = (&region).try_into().expect("should convert");
+        // chr10_4:a as ASCII: c=99, h=104, r=114, 1=49, 0=48, _=95, 4=52, :=58, a=97
+        assert_eq!(
+            format!("{fetch_def:?}"),
+            "RegionString([99, 104, 114, 49, 48, 95, 52, 58, 97], 1000, 2000)"
+        );
+    }
 }
