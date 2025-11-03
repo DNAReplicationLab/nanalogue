@@ -330,13 +330,12 @@ mod tests {
     /// Tests indexed BAM reader with `FetchDefinition::All`
     #[test]
     fn nanalogue_indexed_bam_reader_fetch_all() {
-        let mut reader = match nanalogue_indexed_bam_reader(
-            "examples/example_1.bam",
-            bam::FetchDefinition::All,
-        ) {
-            Ok(r) => r,
-            Err(e) => panic!("Failed to read indexed BAM file: {e:?}"),
-        };
+        let mut reader =
+            match nanalogue_indexed_bam_reader("examples/example_1.bam", bam::FetchDefinition::All)
+            {
+                Ok(r) => r,
+                Err(e) => panic!("Failed to read indexed BAM file: {e:?}"),
+            };
         assert_eq!(reader.records().count(), 4);
     }
 
