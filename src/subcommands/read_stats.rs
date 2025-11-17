@@ -107,57 +107,42 @@ where
         // read records
         let record = r?;
 
-        let mut curr_read = CurrRead::default()
+        let curr_read = CurrRead::default()
             .set_read_state(&record)?
             .set_seq_len(&record)?;
 
-        macro_rules! assign_align_len {
-            () => {
-                curr_read = curr_read.set_align_len(&record)?;
-            };
+        if curr_read.read_state().strand() == '-' {
+            reversed_count += 1;
         }
 
         match curr_read.read_state() {
-            ReadState::PrimaryFwd => {
+            ReadState::PrimaryFwd | ReadState::PrimaryRev => {
                 primary_count += 1;
-                assign_align_len!();
             }
-            ReadState::SecondaryFwd => {
+            ReadState::SecondaryFwd | ReadState::SecondaryRev => {
                 secondary_count += 1;
-                assign_align_len!();
             }
-            ReadState::SupplementaryFwd => {
+            ReadState::SupplementaryFwd | ReadState::SupplementaryRev => {
                 supplementary_count += 1;
-                assign_align_len!();
             }
             ReadState::Unmapped => unmapped_count += 1,
-            ReadState::PrimaryRev => {
-                primary_count += 1;
-                reversed_count += 1;
-                assign_align_len!();
-            }
-            ReadState::SecondaryRev => {
-                secondary_count += 1;
-                reversed_count += 1;
-                assign_align_len!();
-            }
-            ReadState::SupplementaryRev => {
-                supplementary_count += 1;
-                reversed_count += 1;
-                assign_align_len!();
-            }
-        }
-
-        // get length of alignment
-        if let Ok(v) = curr_read.align_len() {
-            align_len_total += v;
-            align_len_heap.push(v);
         }
 
         // get length of sequence.
         if let Ok(v) = curr_read.seq_len() {
             seq_len_total += v;
             seq_len_heap.push(v);
+        }
+
+        // get length of alignment
+        match curr_read.set_align_len(&record) {
+            Ok(cr) => {
+                let v = cr.align_len()?;
+                align_len_total += v;
+                align_len_heap.push(v);
+            }
+            Err(Error::Unmapped) => {}
+            Err(e) => return Err(e),
         }
     }
 

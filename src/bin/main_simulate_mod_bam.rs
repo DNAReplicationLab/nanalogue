@@ -3,7 +3,7 @@
 //! Companion tool to nanalogue which creates artificial BAM or mod BAM files
 //! for developers wishing to test BAM parsing or BAM modification data parsing.
 use clap::Parser;
-use nanalogue_core::{Error, simulate_mod_bam};
+use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam};
 
 /// Main command line parsing struct that gets paths to files to be created.
 #[derive(Parser, Debug)]
@@ -44,7 +44,8 @@ fn main() {
 /// Returns errors from simulating BAM files
 fn run(cli: &Cli) -> Result<(), Error> {
     let json_str = std::fs::read_to_string(&cli.json)?;
-    simulate_mod_bam::run(&json_str, &cli.bam, &cli.fasta)
+    let config: SimulationConfig = serde_json::from_str(&json_str)?;
+    simulate_mod_bam::run(config, &cli.bam, &cli.fasta)
 }
 
 #[cfg(test)]

@@ -17,6 +17,8 @@ impl FromStr for ReadStates {
 
     /// converts a comma-separated list of read states to `ReadStates`
     ///
+    /// # Examples
+    ///
     /// ```
     /// use nanalogue_core::{Error, ReadStates};
     /// use std::str::FromStr;
@@ -33,10 +35,21 @@ impl FromStr for ReadStates {
     /// # Ok::<(), Error>(())
     /// ```
     ///
+    /// Bad strings cause an error
+    ///
     /// ```should_panic
     /// use nanalogue_core::{Error, ReadStates};
     /// use std::str::FromStr;
     /// let mut op = ReadStates::from_str("random")?;
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// Empty strings cause an error
+    ///
+    /// ```should_panic
+    /// use nanalogue_core::{Error, ReadStates};
+    /// use std::str::FromStr;
+    /// let mut op = ReadStates::from_str("")?;
     /// # Ok::<(), Error>(())
     /// ```
     fn from_str(s: &str) -> Result<ReadStates, Self::Err> {
@@ -47,8 +60,38 @@ impl FromStr for ReadStates {
             }
             temp_states.into_iter().collect::<Vec<u16>>()
         };
-        states.sort_unstable();
-        Ok(ReadStates(states))
+        if states.is_empty() {
+            Err(Error::UnknownAlignState("Set of allowed read states cannot be empty!".to_owned()))
+        } else {
+            states.sort_unstable();
+            Ok(ReadStates(states))
+        }
+    }
+}
+
+impl TryFrom<Vec<u16>> for ReadStates {
+    type Error = Error;
+
+    /// Converts from a vector of `u16`, only numbers corresponding to valid [`crate::ReadState`]
+    /// are permitted
+    ///
+    /// # Example
+    /// ```
+    /// use nanalogue_core::{Error, ReadStates};
+    /// let val_1 = ReadStates::try_from(vec![0, 16, 256]).unwrap();
+    /// let val_2: Error = ReadStates::try_from(vec![700]).unwrap_err();
+    /// let val_3: Error = ReadStates::try_from(vec![16, 400]).unwrap_err();
+    /// let val_4: Error = ReadStates::try_from(vec![]).unwrap_err();
+    /// ```
+    fn try_from(s: Vec<u16>) -> Result<Self, Self::Error> {
+        if s.is_empty(){
+            Err(Error::UnknownAlignState("Set of allowed read states cannot be empty!".to_owned()))
+        } else {
+            Ok(ReadStates(s.into_iter().map(|x| match x{
+                v @ (0 | 4 | 16 | 256 | 272 | 2048 | 2064) => Ok(v),
+                v => Err(Error::UnknownAlignState(format!("{v} is disallowed either by the BAM format or by us"))),
+            }).collect::<Result<Vec<u16>, _>>()?))
+        }
     }
 }
 

@@ -72,7 +72,9 @@ impl GenomicRegion {
             let GenomicRegion((contig_name, coords)) = self;
             let numeric_contig: i32 = header
                 .tid(contig_name.as_bytes())
-                .ok_or(Error::InvalidAlignCoords)?
+                .ok_or(Error::InvalidAlignCoords(format!(
+                    "does {contig_name} exist? failure in `GenomicRegion` -> `Bed3`"
+                )))?
                 .try_into()?;
 
             let (start, end) = if let Some(c) = coords {
@@ -187,6 +189,39 @@ impl<'a> TryFrom<&'a GenomicRegion> for bam::FetchDefinition<'a> {
                 Ok(bam::FetchDefinition::from((c, st_i64, en_i64)))
             }
         }
+    }
+}
+
+impl TryFrom<(String, (u64, u64))> for GenomicRegion {
+    type Error = Error;
+
+    /// Conversion from tuple if possible
+    ///
+    /// # Errors
+    /// if conversion fails
+    ///
+    /// # Examples
+    /// ```
+    /// use nanalogue_core::{Error, GenomicRegion};
+    ///
+    /// let val1 :GenomicRegion = ("sample_contig".to_owned(), (1, 200)).try_into().unwrap();
+    /// let val2 :GenomicRegion = ("sample_contig_2".to_owned(), (12000, 14000)).try_into()
+    ///     .unwrap();
+    /// let val3 :Error = GenomicRegion::try_from(("sample_contig_2".to_owned(), (14000, 12000)))
+    ///     .unwrap_err();
+    /// let val4 :Error = GenomicRegion::try_from((String::new(), (12000, 14000))).unwrap_err();
+    /// ```
+    fn try_from(value: (String, (u64, u64))) -> Result<Self, Self::Error> {
+        if value.0.is_empty() {
+            return Err(Error::InvalidContigAndStart(format!(
+                "{}:{}-{} is an invalid region; contig is empty",
+                value.0, value.1.0, value.1.1
+            )));
+        }
+        Ok(GenomicRegion((
+            value.0,
+            Some(OrdPair::<u64>::try_from(value.1)?),
+        )))
     }
 }
 

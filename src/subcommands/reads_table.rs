@@ -43,15 +43,11 @@ impl fmt::Display for ModCountTbl {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut v: Vec<(ModChar, u32)> = self.0.clone().into_iter().collect();
         v.sort_by_key(|k| k.0);
-        write!(
-            f,
-            "{}",
-            if v.is_empty() {
-                "NA".to_string()
-            } else {
-                join(v.into_iter().map(|k| format!("{}:{}", k.0, k.1)), ";")
-            }
-        )
+        (if v.is_empty() {
+            "NA".to_owned()
+        } else {
+            join(v.into_iter().map(|k| format!("{}:{}", k.0, k.1)), ";")
+        }).fmt(f)
     }
 }
 
@@ -105,7 +101,7 @@ impl fmt::Display for ReadInstance {
     )]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ReadInstance::OnlyBc(u64) => write!(f, "{u64}"),
+            ReadInstance::OnlyBc(u64) => format!("{u64}"),
             ReadInstance::OnlyAlign {
                 align_len: al,
                 seq_len: sl,
@@ -119,8 +115,7 @@ impl fmt::Display for ReadInstance {
                 mod_count: mc,
                 read_state: rs,
                 seq: sq,
-            } => write!(
-                f,
+            } => format!(
                 "{}\t{sl}\t{}{}{}",
                 vec_csv!(al),
                 vec_csv!(rs),
@@ -134,6 +129,7 @@ impl fmt::Display for ReadInstance {
                 },
             ),
         }
+        .fmt(f)
     }
 }
 
@@ -237,12 +233,15 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, Read>, Error> {
                 let record: TSVRecord = result?;
                 if data_map
                     .insert(
-                        record.read_id,
+                        record.read_id.clone(),
                         Read::new_bc_len(record.sequence_length_template),
                     )
                     .is_some()
                 {
-                    return Err(Error::InvalidDuplicates(file_path.to_string()));
+                    return Err(Error::InvalidDuplicates(format!(
+                        "file: {file_path}, read: {0}",
+                        record.read_id
+                    )));
                 }
             }
         }
@@ -378,9 +377,7 @@ where
         match (val, is_seq_summ_data) {
             (Read(ReadInstance::OnlyBc(_)), _) | (Read(ReadInstance::OnlyAlign { .. }), true) => {}
             (Read(ReadInstance::BothAlignBc { .. }), false) => {
-                return Err(Error::InvalidState(
-                    "invalid state while writing output".to_string(),
-                ));
+                unreachable!("invalid state while writing output");
             }
             (Read(v), _) => writeln!(handle, "{key}\t{v}")?,
         }

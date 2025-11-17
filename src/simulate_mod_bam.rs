@@ -7,8 +7,13 @@
 //!
 //! ## Example Usage
 //!
-//! ```no_run
-//! use nanalogue_core::simulate_mod_bam::run;
+//! We've shown how to construct `SimulationConfig` which contains input options
+//! and then use it to create a BAM file below. You can also use [`SimulationConfigBuilder`]
+//! to achieve this without using a `json` structure.
+//!
+//! ```
+//! use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam::run};
+//! use uuid::Uuid;
 //!
 //! let config_json = r#"{
 //!   "contigs": {
@@ -41,20 +46,31 @@
 //! //       * mod information is specified using windows i.e. in window of given size,
 //! //         we enforce that mod probabilities per base are in the given range.
 //! //         Multiple windows can be specified, and they repeat along the
-//! //         read until it ends.
+//! //         read until it ends i.e. we cycle windows so we go 4Ts, 5Ts, 4Ts, 5Ts, ...
+//! //         and probabilities are cycled as (0.1, 0.2), (0.3, 0.4), (0.1, 0.2), ...
+//! //       * if windows and mod_range lists are of different sizes, the cycles may not line up.
+//! //         e.g. if there are three window values and two mod ranges, then
+//! //         windows repeat in cycles of 3 whereas mod ranges will repeat in cycles of 2.
+//! //         You can use such inputs if this is what you want.
 //!
-//! run(
-//!     config_json,
-//!     "output.bam",
-//!     "reference.fasta"
-//! ).unwrap();
 //! // Paths used here must not exist already as these are files created anew.
+//! let config: SimulationConfig = serde_json::from_str(&config_json)?;
+//! let temp_dir = std::env::temp_dir();
+//! let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
+//! let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
+//! let bai_path = bam_path.with_extension("bam.bai");
+//! run(config, &bam_path, &fasta_path)?;
+//! std::fs::remove_file(&bam_path)?;
+//! std::fs::remove_file(&fasta_path)?;
+//! std::fs::remove_file(&bai_path)?;
+//! # Ok::<(), Error>(())
 //! ```
 
 use crate::{
     AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, ModChar, OrdPair, ReadState,
 };
 use crate::{write_bam_denovo, write_fasta};
+use derive_builder::Builder;
 use itertools::join;
 use rand::{Rng, random};
 use rust_htslib::bam;
@@ -67,8 +83,15 @@ use std::path::Path;
 use std::str::FromStr as _;
 use uuid::Uuid;
 
+/// We need a shorthand for this for a one-liner we use
+/// in a macro provided by `derive_builder`.
+type OF = OrdPair<F32Bw0and1>;
+
 /// Creates an `OrdPair` of `F32Bw0and1` values
-macro_rules! f32_ord_pair_bw_0_and_1 {
+///
+/// We do not export this macro as it involves `unwrap`,
+/// so we only use it locally.
+macro_rules! ord_pair_f32_bw0and1 {
     ($low:expr, $high:expr) => {
         OrdPair::new(
             F32Bw0and1::new($low).unwrap(),
@@ -78,9 +101,55 @@ macro_rules! f32_ord_pair_bw_0_and_1 {
     };
 }
 
-/// Main configuration struct for simulation
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+/// Main configuration struct for simulation.
+///
+/// After construction, you can pass it to [`crate::simulate_mod_bam::run`]
+/// to create a mod BAM file.
+///
+/// # Example
+///
+/// Below struct can be used in appropriate routines to
+/// create a BAM file.
+///
+/// ```
+/// use nanalogue_core::Error;
+/// use nanalogue_core::simulate_mod_bam::{ContigConfigBuilder, SimulationConfigBuilder,
+///     ReadConfigBuilder, ModConfigBuilder};
+///
+/// // Request two contigs with lengths randomly chosen from 1000 - 2000 bp.
+/// let contig_config = ContigConfigBuilder::default()
+///     .number(2)
+///     .len_range((1000,2000)).build()?;
+///
+/// // First set of reads
+/// let read_config1 = ReadConfigBuilder::default()
+///     .number(100)
+///     .mapq_range((10, 20))
+///     .base_qual_range((30, 40))
+///     .len_range((0.5, 0.6));
+///
+/// // second set of reads, now 200 requested with a modification and a barcode
+/// let mod_config = ModConfigBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .win(vec![2, 3])
+///     .mod_range(vec![(0.1, 0.8), (0.3, 0.4)]).build()?;
+///
+/// let read_config2 = read_config1.clone()
+///     .number(200)
+///     .barcode("AATTG".into())
+///     .mods(vec![mod_config]);
+///
+/// // set simulation config, ready to be fed into an appropriate function
+/// let sim_config = SimulationConfigBuilder::default()
+///     .contigs(contig_config)
+///     .reads(vec![read_config1.build()?, read_config2.build()?]).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+#[derive(Builder, Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[builder(default, build_fn(error = "Error"), pattern = "owned", derive(Clone))]
 #[non_exhaustive]
 pub struct SimulationConfig {
     /// Configuration for contig generation
@@ -90,47 +159,182 @@ pub struct SimulationConfig {
 }
 
 /// Configuration for contig generation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// The struct contains parameters which can then be passed to other
+/// functions to construct the actual contig. Also refer to [`SimulationConfig`]
+/// to see how this `struct` can be used.
+///
+/// # Examples
+///
+/// Request two contigs with lengths randomly chosen from 1000 - 2000 bp.
+/// The DNA of the contigs are randomly-generated.
+///
+/// ```
+/// use nanalogue_core::Error;
+/// use nanalogue_core::simulate_mod_bam::ContigConfigBuilder;
+///
+/// let contig_config = ContigConfigBuilder::default()
+///     .number(2)
+///     .len_range((1000,2000)).build()?;
+///
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// Request similar contigs as above but with the DNA of the contigs
+/// consisting of the same sequence repeated over and over.
+///
+/// ```
+/// # use nanalogue_core::Error;
+/// # use nanalogue_core::simulate_mod_bam::ContigConfigBuilder;
+/// let contig_config = ContigConfigBuilder::default()
+///     .number(2)
+///     .len_range((1000,2000))
+///     .repeated_seq("AAGCTTGA".into()).build()?;
+///
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// Request a contig with a fixed length and sequence.
+/// As the repeated sequence's length is equal to the
+/// contig length, and the contig length is precisely fixed,
+/// you get a non-randomly generated contig.
+///
+/// ```
+/// # use nanalogue_core::Error;
+/// # use nanalogue_core::simulate_mod_bam::ContigConfigBuilder;
+/// let contig_config = ContigConfigBuilder::default()
+///     .number(1)
+///     .len_range((20,20))
+///     .repeated_seq("ACGTACGTACGTACGTACGT".into()).build()?;
+///
+/// # Ok::<(), Error>(())
+/// ```
+#[derive(Builder, Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[builder(default, build_fn(error = "Error"), pattern = "owned", derive(Clone))]
 #[non_exhaustive]
 pub struct ContigConfig {
     /// Number of contigs to generate
+    #[builder(field(ty = "u32", build = "self.number.try_into()?"))]
     pub number: NonZeroU32,
     /// Contig length range in bp [min, max]
+    #[builder(field(ty = "(u64, u64)", build = "self.len_range.try_into()?"))]
     pub len_range: OrdPair<NonZeroU64>,
     /// Optional repeated sequence to use for contigs instead of random generation
+    #[builder(field(
+        ty = "String",
+        build = "(!self.repeated_seq.is_empty()).then(|| DNARestrictive::from_str(&self.repeated_seq)).transpose()?"
+    ))]
     pub repeated_seq: Option<DNARestrictive>,
 }
 
-/// Configuration for read generation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Configuration for read generation. Also refer to [`SimulationConfig`]
+/// to see how this `struct` can be used.
+///
+/// # Example 1
+///
+///  Request reads without modifications
+/// ```
+/// use nanalogue_core::Error;
+/// use nanalogue_core::simulate_mod_bam::ReadConfigBuilder;
+///
+/// // First set of reads
+/// let read_config1 = ReadConfigBuilder::default()
+///     .number(100)
+///     .mapq_range((10, 20))
+///     .base_qual_range((30, 40))
+///     .len_range((0.5, 0.6)).build()?;
+///
+/// # Ok::<(), Error>(())
+/// ```
+/// # Example 2
+///
+///  Request reads with modifications
+/// ```
+/// use nanalogue_core::Error;
+/// use nanalogue_core::simulate_mod_bam::{ReadConfigBuilder, ModConfigBuilder};
+///
+/// let mod_config = ModConfigBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .win(vec![2, 3])
+///     .mod_range(vec![(0.1, 0.8), (0.3, 0.4)]).build()?;
+///
+/// let read_config2 = ReadConfigBuilder::default()
+///     .number(200)
+///     .mapq_range((30, 40))
+///     .base_qual_range((50, 60))
+///     .barcode("AATTG".into())
+///     .len_range((0.7, 0.8))
+///     .mods(vec![mod_config]).build()?;
+///
+/// # Ok::<(), Error>(())
+/// ```
+#[derive(Builder, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[builder(default, build_fn(error = "Error"), pattern = "owned", derive(Clone))]
 #[non_exhaustive]
 pub struct ReadConfig {
     /// Total number of reads to generate
+    #[builder(field(ty = "u32", build = "self.number.try_into()?"))]
     pub number: NonZeroU32,
     /// Mapping quality range [min, max]
+    #[builder(field(ty = "(u8, u8)", build = "self.mapq_range.try_into()?"))]
     pub mapq_range: OrdPair<u8>,
     /// Base quality score range [min, max]
+    #[builder(field(ty = "(u8, u8)", build = "self.base_qual_range.try_into()?"))]
     pub base_qual_range: OrdPair<u8>,
     /// Read length range as fraction of contig [min, max] (e.g.: [0.1, 0.8] = 10% to 80%)
+    #[builder(field(ty = "(f32, f32)", build = "self.len_range.try_into()?"))]
     pub len_range: OrdPair<F32Bw0and1>,
     /// Optional barcode DNA sequence to add to read ends
+    #[builder(field(
+        ty = "String",
+        build = "(!self.barcode.is_empty()).then(|| DNARestrictive::from_str(&self.barcode)).transpose()?"
+    ))]
     pub barcode: Option<DNARestrictive>,
     /// Modification configurations
     pub mods: Vec<ModConfig>,
 }
 
-/// Configuration for modification generation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Configuration for modification generation in simulated BAM files.
+/// Also refer to [`SimulationConfig`] to see how this `struct` can be used.
+///
+/// # Example
+///
+/// Configure modification for cytosines on plus strand.
+/// Here, 2Cs have probabilities randomly chosen b/w 0.4-0.8,
+///       3Cs have probabilities b/w 0.5-0.7,
+///       2Cs have ...,
+///       3Cs have ...,
+///       ...
+///  repeated forever. This can be passed as an input to a routine
+///  sometime later and applied on a given sequence.
+/// ```
+/// use nanalogue_core::Error;
+/// use nanalogue_core::simulate_mod_bam::ModConfigBuilder;
+///
+/// let mod_config_c = ModConfigBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .win(vec![2, 3])
+///     .mod_range(vec![(0.4, 0.8), (0.5, 0.7)]).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+#[derive(Builder, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[builder(default, build_fn(error = "Error"), pattern = "owned", derive(Clone))]
 #[non_exhaustive]
 pub struct ModConfig {
     /// Base that is modified (A, C, G, T, or N)
+    #[builder(field(ty = "char", build = "self.base.try_into()?"))]
     pub base: AllowedAGCTN,
     /// Whether this is on the plus strand
     pub is_strand_plus: bool,
     /// Modification code (character or numeric)
+    #[builder(field(ty = "String", build = "self.mod_code.parse()?"))]
     pub mod_code: ModChar,
     /// Vector of window sizes for modification density variation.
     /// e.g. if you want reads with a window of 100 bases with each
@@ -143,19 +347,45 @@ pub struct ModConfig {
     /// NOTE: "bases" in the above description refer to bases of interest
     /// set in the base field i.e. 100 bases with base set to "T" mean
     /// 100 thymidines specifically.
+    #[builder(field(
+        ty = "Vec<u32>",
+        build = "self.win.iter().map(|&x| NonZeroU32::new(x).ok_or(Error::Zero(\"cannot use zero-\
+sized windows in builder\".to_owned()))).collect::<Result<Vec<NonZeroU32>,_>>()?"
+    ))]
     pub win: Vec<NonZeroU32>,
     /// Vector of modification density range e.g. [[0.4, 0.6], [0.1, 0.2]].
-    /// Also see description of win above.
+    /// Also see description of `win` above.
+    #[builder(field(
+        ty = "Vec<(f32, f32)>",
+        build = "self.mod_range.iter().map(|&x| OF::try_from(x)).collect::<Result<Vec<OF>, _>>()?"
+    ))]
     pub mod_range: Vec<OrdPair<F32Bw0and1>>,
 }
 
 /// Represents a contig with name and sequence
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// # Example
+///
+/// Example contig with a simple sequence and name, to be passed
+/// somewhere else to be constructed.
+///
+/// ```
+/// use nanalogue_core::{Error, simulate_mod_bam::ContigBuilder};
+///
+/// let contig = ContigBuilder::default()
+///     .name("chr1")
+///     .seq("ACGTACGTACGTACGT".into()).build()?;
+/// # Ok::<(), Error>(())
+#[derive(Builder, Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+#[builder(default, build_fn(error = "Error"))]
 #[non_exhaustive]
 pub struct Contig {
     /// Contig name
+    #[builder(setter(into))]
     pub name: String,
     /// Contig sequence (A, C, G, T)
+    #[builder(field(ty = "String", build = "self.seq.parse()?"))]
     pub seq: DNARestrictive,
 }
 
@@ -192,7 +422,7 @@ impl Default for ReadConfig {
             number: NonZeroU32::new(1).unwrap(),
             mapq_range: OrdPair::new(0, 0).unwrap(),
             base_qual_range: OrdPair::new(0, 0).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(0.0, 0.0),
+            len_range: ord_pair_f32_bw0and1!(0.0, 0.0),
             barcode: None,
             mods: Vec::new(),
         }
@@ -206,20 +436,19 @@ impl Default for ModConfig {
             is_strand_plus: true,
             mod_code: ModChar::new('m'),
             win: vec![NonZeroU32::new(1).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.0, 1.0)],
+            mod_range: vec![ord_pair_f32_bw0and1!(0.0, 1.0)],
         }
     }
 }
 
-/// Generates iterator with DNA modification probabilities
+/// Generates BAM MM and ML tags with DNA modification probabilities
 ///
 /// # Examples
 ///
 /// ```
-/// use std::num::NonZeroU32;
 /// use std::str::FromStr;
-/// use nanalogue_core::{AllowedAGCTN, DNARestrictive, F32Bw0and1, ModChar, OrdPair};
-/// use nanalogue_core::simulate_mod_bam::{ModConfig, generate_random_dna_modification};
+/// use nanalogue_core::{DNARestrictive, Error};
+/// use nanalogue_core::simulate_mod_bam::{ModConfigBuilder, generate_random_dna_modification};
 /// use rand::Rng;
 ///
 /// // Create a DNA sequence with multiple cytosines
@@ -229,35 +458,35 @@ impl Default for ModConfig {
 /// // NOTE: we use mod ranges with an identical low and high value below
 /// // because we do not want to deal with random values in an example.
 ///
-/// let mut mod_config_c = ModConfig::default();
-/// mod_config_c.base = AllowedAGCTN::C;
-/// mod_config_c.is_strand_plus = true;
-/// mod_config_c.mod_code = ModChar::new('m');
-/// mod_config_c.win = vec![NonZeroU32::new(2).unwrap(), NonZeroU32::new(3).unwrap()];
-/// mod_config_c.mod_range = vec![
-///     OrdPair::new(F32Bw0and1::new(0.8).unwrap(), F32Bw0and1::new(0.8).unwrap()).unwrap(),
-///     OrdPair::new(F32Bw0and1::new(0.4).unwrap(), F32Bw0and1::new(0.4).unwrap()).unwrap()
-/// ];
+/// let mod_config_c = ModConfigBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .win(vec![2, 3])
+///     .mod_range(vec![(0.8, 0.8), (0.4, 0.4)]).build()?;
 ///
-/// let mut mod_config_a = ModConfig::default();
-/// mod_config_a.base = AllowedAGCTN::A;
-/// mod_config_a.is_strand_plus = false;
-/// mod_config_a.mod_code = ModChar::new('a');
-/// mod_config_a.win = vec![NonZeroU32::new(2).unwrap()];
-/// mod_config_a.mod_range = vec![
-///     OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.2).unwrap()).unwrap()
-/// ];
+/// // Put modifications for A on the minus strand.
+/// // Again, we use equal low and high value of 0.2 as we do not
+/// // want to deal with values drawn randomly from a range.
+///
+/// let mod_config_a = ModConfigBuilder::default()
+///     .base('A')
+///     .is_strand_plus(false)
+///     .mod_code("20000".into())
+///     .win([2].into())
+///     .mod_range(vec![(0.2, 0.2)]).build()?;
 ///
 /// let mod_config = vec![mod_config_c, mod_config_a];
 ///
 /// let mut rng = rand::rng();
 /// let (mm_str, ml_str) = generate_random_dna_modification(&mod_config, &seq, &mut rng);
 ///
-/// // MM string format: C+m?prob1,prob2,prob3,prob4,...;A-a?,...;
-/// assert_eq!(mm_str, String::from("C+m?,204,204,102,102,102,204,204,102;A-a?,51,51,51,51;"));
+/// // MM string format: C+m?prob1,prob2,prob3,prob4,...;A-20000?,...;
+/// assert_eq!(mm_str, String::from("C+m?,204,204,102,102,102,204,204,102;A-20000?,51,51,51,51;"));
 ///
 /// // ML string contains gap coordinates
 /// assert_eq!(ml_str, vec![0; 12]);
+/// # Ok::<(), Error>(())
 /// ```
 ///
 pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
@@ -340,7 +569,7 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
 /// use nanalogue_core::simulate_mod_bam::generate_random_dna_sequence;
 ///
 /// let mut rng = rand::rng();
-/// let seq = generate_random_dna_sequence(NonZeroU64::new(100).unwrap(), &mut rng);
+/// let seq = generate_random_dna_sequence(100.try_into().expect("no error"), &mut rng);
 /// assert_eq!(seq.len(), 100);
 /// assert!(seq.iter().all(|&base| [b'A', b'C', b'G', b'T'].contains(&base)));
 /// ```
@@ -371,23 +600,22 @@ pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> 
 /// use nanalogue_core::{ReadState, DNARestrictive};
 /// use std::str::FromStr;
 ///
-/// let read_seq = b"GGGGGGGG".to_vec();
-/// let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
-///
 /// // Forward read: barcode + seq + revcomp(barcode)
-/// let result = add_barcode(&read_seq, &barcode, ReadState::PrimaryFwd);
+/// let result = add_barcode("GGGGGGGG".as_bytes(), "ACGTAA".parse().unwrap(), ReadState::PrimaryFwd);
 /// assert_eq!(result, b"ACGTAAGGGGGGGGTTACGT".to_vec());
 ///
 /// // Reverse read: comp(barcode) + seq + rev(barcode)
-/// let result = add_barcode(&read_seq, &barcode, ReadState::PrimaryRev);
+/// let result = add_barcode("GGGGGGGG".as_bytes(), "ACGTAA".parse().unwrap(), ReadState::PrimaryRev);
 /// assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
 /// ```
-pub fn add_barcode<S: GetDNARestrictive>(
-    read_seq: &[u8],
-    barcode: &S,
-    read_state: ReadState,
-) -> Vec<u8> {
-    let bc_bytes = barcode.get_dna_restrictive().get();
+#[must_use]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "barcode by value allows passing `&'static str` easily (I think, may fix in future). \
+If you don't know what this means, ignore this; this is _not_ a bug."
+)]
+pub fn add_barcode(read_seq: &[u8], barcode: DNARestrictive, read_state: ReadState) -> Vec<u8> {
+    let bc_bytes = barcode.get();
 
     match read_state {
         ReadState::PrimaryFwd
@@ -420,8 +648,8 @@ pub fn add_barcode<S: GetDNARestrictive>(
 ///
 /// let mut rng = rand::rng();
 /// let contigs = generate_contigs_denovo(
-///     NonZeroU32::new(3).unwrap(),
-///     OrdPair::new(NonZeroU64::new(100).unwrap(), NonZeroU64::new(200).unwrap()).unwrap(),
+///     3.try_into().unwrap(),
+///     (100, 200).try_into().unwrap(),
 ///     &mut rng
 /// );
 /// assert_eq!(contigs.len(), 3);
@@ -442,11 +670,12 @@ pub fn generate_contigs_denovo<R: Rng>(
             let length = rng.random_range(len_range.get_low().get()..=len_range.get_high().get());
             let seq_bytes =
                 generate_random_dna_sequence(NonZeroU64::try_from(length).expect("no error"), rng);
-            let seq_str = std::str::from_utf8(&seq_bytes).expect("valid DNA sequence");
-            Contig {
-                name: format!("contig_{i:05}"),
-                seq: DNARestrictive::from_str(seq_str).expect("valid DNA sequence"),
-            }
+            let seq_str = String::from_utf8(seq_bytes).expect("valid DNA sequence");
+            ContigBuilder::default()
+                .name(format!("contig_{i:05}"))
+                .seq(seq_str)
+                .build()
+                .expect("no error")
         })
         .collect()
 }
@@ -466,8 +695,8 @@ pub fn generate_contigs_denovo<R: Rng>(
 /// let mut rng = rand::rng();
 /// let seq = DNARestrictive::from_str("ACGT").unwrap();
 /// let contigs = generate_contigs_denovo_repeated_seq(
-///     NonZeroU32::new(2).unwrap(),
-///     OrdPair::new(NonZeroU64::new(10).unwrap(), NonZeroU64::new(12).unwrap()).unwrap(),
+///     2.try_into().unwrap(),
+///     (10, 12).try_into().unwrap(),
 ///     &seq,
 ///     &mut rng
 /// );
@@ -490,55 +719,58 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
     seq: &S,
     rng: &mut R,
 ) -> Vec<Contig> {
-    let seq_bytes = seq.get_dna_restrictive().get();
-
     (0..contig_number.get())
         .map(|i| {
             let length = rng.random_range(len_range.get_low().get()..=len_range.get_high().get());
-            let contig_seq: Vec<u8> = seq_bytes
+            let contig_seq: Vec<u8> = seq
+                .get_dna_restrictive()
+                .get()
                 .iter()
                 .cycle()
                 .take(usize::try_from(length).expect("number conversion error"))
                 .copied()
                 .collect();
             let seq_str =
-                std::str::from_utf8(&contig_seq).expect("valid UTF-8 from repeated DNA sequence");
-            Contig {
-                name: format!("contig_{i:05}"),
-                seq: DNARestrictive::from_str(seq_str)
-                    .expect("valid DNA sequence from repeated pattern"),
-            }
+                String::from_utf8(contig_seq).expect("valid UTF-8 from repeated DNA sequence");
+            ContigBuilder::default()
+                .name(format!("contig_{i:05}"))
+                .seq(seq_str)
+                .build()
+                .expect("valid DNA sequence from repeated pattern")
         })
         .collect()
 }
 
 /// Generates reads that align to contigs
 ///
+/// # Example
+///
+/// Here we generate a contig, specify read properties, and ask for them to be generated.
+/// Although we have used `ContigBuilder` here, you can also use `DNARestrictive` to pass
+/// DNA sequences directly in the first argument i.e. you can use any `struct` that implements
+/// `GetDNARestrictive`.
+///
 /// ```
-/// use std::num::NonZeroU32;
-/// use std::str::FromStr;
-/// use nanalogue_core::{DNARestrictive, OrdPair, F32Bw0and1};
-/// use nanalogue_core::simulate_mod_bam::{Contig, ReadConfig, generate_reads_denovo};
+/// use nanalogue_core::Error;
+/// use nanalogue_core::simulate_mod_bam::{ContigBuilder, ReadConfigBuilder, generate_reads_denovo};
 /// use rand::Rng;
 ///
-/// let mut contig = Contig::default();
-/// contig.name = "chr1".to_string();
-/// contig.seq = DNARestrictive::from_str("ACGTACGTACGTACGT").unwrap();
+/// let mut contig = ContigBuilder::default()
+///     .name("chr1")
+///     .seq("ACGTACGTACGTACGT".into()).build()?;
 /// let contigs = vec![contig];
 ///
-/// let mut config = ReadConfig::default();
-/// config.number = NonZeroU32::new(10).unwrap();
-/// config.mapq_range = OrdPair::new(10, 20).unwrap();
-/// config.base_qual_range = OrdPair::new(20, 30).unwrap();
-/// config.len_range = OrdPair::new(F32Bw0and1::new(0.2).unwrap(),
-///     F32Bw0and1::new(0.5).unwrap()).unwrap();
-/// config.barcode = None;
-/// config.mods = vec![];
+/// let mut config = ReadConfigBuilder::default()
+///     .number(10)
+///     .mapq_range((10, 20))
+///     .base_qual_range((20, 30))
+///     .len_range((0.2, 0.5)).build()?;
 /// // NOTE: barcodes are optional, and will add 2*barcode_length to length statistics.
 /// //       i.e. length stats are imposed independent of barcodes.
 /// let mut rng = rand::rng();
 /// let reads = generate_reads_denovo(&contigs, &config, "RG1", &mut rng).unwrap();
 /// assert_eq!(reads.len(), 10);
+/// # Ok::<(), Error>(())
 /// ```
 ///
 /// # Errors
@@ -616,28 +848,23 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
                 .get(start_idx..end_pos)
                 .expect("start_idx and end_pos are within contig bounds")
                 .to_vec();
-            let cigar_ops = vec![Cigar::Match(
-                u32::try_from(read_len).expect("number conversion error"),
-            )];
+            let mut cigar_string = CigarString(
+                [Cigar::Match(
+                    u32::try_from(read_len).expect("number conversion error"),
+                )]
+                .into(),
+            );
 
             // Add barcode if specified
-            match read_config.barcode.as_ref() {
+            match read_config.barcode.clone() {
                 Some(barcode) => {
                     let barcode_len = u32::try_from(barcode.get_dna_restrictive().get().len())
                         .expect("number conversion error");
-                    (
-                        add_barcode(&temp_seq, barcode, random_state),
-                        CigarString(
-                            [
-                                &[Cigar::SoftClip(barcode_len)],
-                                &cigar_ops[..],
-                                &[Cigar::SoftClip(barcode_len)],
-                            ]
-                            .concat(),
-                        ),
-                    )
+                    cigar_string.0.push(Cigar::SoftClip(barcode_len));
+                    cigar_string.0.insert(0, Cigar::SoftClip(barcode_len));
+                    (add_barcode(&temp_seq, barcode, random_state), cigar_string)
                 }
-                None => (temp_seq, CigarString(cigar_ops)),
+                None => (temp_seq, cigar_string),
             }
         };
 
@@ -709,8 +936,9 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 ///
 /// # Example
 ///
-/// ```no_run
-/// use nanalogue_core::simulate_mod_bam::run;
+/// ```
+/// use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam::run};
+/// use uuid::Uuid;
 ///
 /// let config_json = r#"{
 ///   "contigs": {
@@ -721,7 +949,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 ///     "number": 1000,
 ///     "mapq_range": [10, 20],
 ///     "base_qual_range": [10, 20],
-///     "len_range": [0.1, 0.8],
+///     "len_range": [0.1, 0.8]
 ///   }]
 /// }"#;
 ///
@@ -733,17 +961,29 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 /// //       * Optional modifications can be added using the "mods" field
 /// // Note: The files used below should not exist because they will be created by this function.
 /// //       If they exist, they will be overwritten.
-/// run(config_json, "output.bam", "reference.fasta").unwrap();
+///
+/// let config: SimulationConfig = serde_json::from_str(&config_json)?;
+/// let temp_dir = std::env::temp_dir();
+/// let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
+/// let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
+/// let bai_path = bam_path.with_extension("bam.bai");
+/// run(config, &bam_path, &fasta_path)?;
+/// std::fs::remove_file(&bam_path)?;
+/// std::fs::remove_file(&fasta_path)?;
+/// std::fs::remove_file(&bai_path)?;
+/// # Ok::<(), Error>(())
 /// ```
 ///
 /// # Errors
 /// Returns an error if JSON parsing fails, read generation fails, or BAM/FASTA writing fails.
-pub fn run<F>(config_json: &str, bam_output_path: &F, fasta_output_path: &F) -> Result<(), Error>
+pub fn run<F>(
+    config: SimulationConfig,
+    bam_output_path: &F,
+    fasta_output_path: &F,
+) -> Result<(), Error>
 where
     F: AsRef<Path> + ?Sized,
 {
-    let config: SimulationConfig = serde_json::from_str(config_json)?;
-
     let mut rng = rand::rng();
 
     let contigs = match config.contigs.repeated_seq {
@@ -775,10 +1015,7 @@ where
         bam_output_path,
     )?;
     write_fasta(
-        contigs.into_iter().map(|k| {
-            let seq_vec = k.get_dna_restrictive().get().to_vec();
-            (k.name, seq_vec)
-        }),
+        contigs.into_iter().map(|k| (k.name.clone(), k)),
         fasta_output_path,
     )?;
 
@@ -802,12 +1039,12 @@ impl TempBamSimulation {
     ///
     /// # Errors
     /// Returns an error if the simulation run fails
-    pub fn new(config_json: &str) -> Result<Self, Error> {
+    pub fn new(config: SimulationConfig) -> Result<Self, Error> {
         let temp_dir = std::env::temp_dir();
         let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
         let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
 
-        run(config_json, &bam_path, &fasta_path)?;
+        run(config, &bam_path, &fasta_path)?;
 
         Ok(Self {
             bam_path: bam_path.to_string_lossy().to_string(),
@@ -862,24 +1099,25 @@ mod read_generation_no_mods_tests {
     fn generate_reads_denovo_no_mods_works() {
         let mut rng = rand::rng();
         let contigs = vec![
-            Contig {
-                name: "contig_0".to_string(),
-                seq: DNARestrictive::from_str("ACGTACGTACGTACGTACGT").unwrap(),
-            },
-            Contig {
-                name: "contig_1".to_string(),
-                seq: DNARestrictive::from_str("TGCATGCATGCATGCATGCA").unwrap(),
-            },
+            ContigBuilder::default()
+                .name("contig_0")
+                .seq("ACGTACGTACGTACGTACGT".into())
+                .build()
+                .unwrap(),
+            ContigBuilder::default()
+                .name("contig_1")
+                .seq("TGCATGCATGCATGCATGCA".into())
+                .build()
+                .unwrap(),
         ];
 
-        let config = ReadConfig {
-            number: NonZeroU32::new(10).unwrap(),
-            mapq_range: OrdPair::new(10, 20).unwrap(),
-            base_qual_range: OrdPair::new(30, 50).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(0.2, 0.8),
-            barcode: None,
-            mods: vec![],
-        };
+        let config = ReadConfigBuilder::default()
+            .number(10)
+            .mapq_range((10, 20))
+            .base_qual_range((30, 50))
+            .len_range((0.2, 0.8))
+            .build()
+            .unwrap();
 
         let reads = generate_reads_denovo(&contigs, &config, "ph", &mut rng).unwrap();
         assert_eq!(reads.len(), 10);
@@ -924,7 +1162,10 @@ mod read_generation_no_mods_tests {
         let temp_dir = std::env::temp_dir();
         let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
         let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
-        run(config_json, &bam_path, &fasta_path).unwrap();
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        run(config, &bam_path, &fasta_path).unwrap();
+
         assert!(bam_path.exists());
         assert!(fasta_path.exists());
 
@@ -958,7 +1199,8 @@ mod read_generation_no_mods_tests {
         }"#;
 
         // Create temporary simulation
-        let sim = TempBamSimulation::new(config_json).unwrap();
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
 
         // Verify files exist
         assert!(Path::new(sim.bam_path()).exists());
@@ -989,7 +1231,8 @@ mod read_generation_no_mods_tests {
         let fasta_path: String;
 
         {
-            let sim = TempBamSimulation::new(config_json).unwrap();
+            let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+            let sim = TempBamSimulation::new(config).unwrap();
             bam_path = sim.bam_path().to_string();
             fasta_path = sim.fasta_path().to_string();
 
@@ -1017,32 +1260,21 @@ mod read_generation_no_mods_tests {
     /// Tests error when read length would be zero
     #[test]
     fn generate_reads_denovo_zero_length_error() {
-        let contigs = vec![Contig {
-            name: "tiny".to_string(),
-            seq: DNARestrictive::from_str("ACGT").unwrap(),
-        }];
+        let contigs = [ContigBuilder::default()
+            .name("tiny")
+            .seq("ACGT".into())
+            .build()
+            .unwrap()];
 
-        let config = ReadConfig {
-            number: NonZeroU32::new(1).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(0.0, 0.0),
-            ..Default::default()
-        };
+        let config = ReadConfigBuilder::default()
+            .number(1)
+            .len_range((0.0, 0.0))
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let result = generate_reads_denovo(&contigs, &config, "test", &mut rng);
         assert!(matches!(result, Err(Error::InvalidState(_))));
-    }
-
-    /// Tests error when JSON deserialization fails
-    #[test]
-    fn run_bad_json_error() {
-        let bad_json = r"{ invalid json }";
-        let temp_dir = std::env::temp_dir();
-        let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
-        let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
-
-        let result = run(bad_json, &bam_path, &fasta_path);
-        assert!(result.is_err());
     }
 
     /// Tests invalid JSON structure causing empty reads generation
@@ -1053,10 +1285,15 @@ mod read_generation_no_mods_tests {
         let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
         let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
 
-        let result = run(invalid_json, &bam_path, &fasta_path);
+        let config: SimulationConfig = serde_json::from_str(invalid_json).unwrap();
+        let result = run(config, &bam_path, &fasta_path);
         // With empty reads, this should succeed but produce an empty BAM (valid)
         // So we won't assert error here, just test it doesn't crash
         drop(result);
+        let bai_path = bam_path.with_extension("bam.bai");
+        drop(std::fs::remove_file(&bam_path));
+        drop(std::fs::remove_file(&fasta_path));
+        drop(std::fs::remove_file(&bai_path));
     }
 
     /// Tests multiple read groups in BAM generation
@@ -1089,7 +1326,8 @@ mod read_generation_no_mods_tests {
             ]
         }"#;
 
-        let sim = TempBamSimulation::new(config_json).unwrap();
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Should have 50 + 75 + 25 = 150 reads total
@@ -1133,25 +1371,23 @@ mod read_generation_no_mods_tests {
     #[test]
     fn read_sequences_match_contigs() {
         let contigs = vec![
-            Contig {
-                name: "chr1".to_string(),
-                seq: DNARestrictive::from_str("ACGTACGTACGTACGTACGTACGTACGTACGT").unwrap(),
-            },
-            Contig {
-                name: "chr2".to_string(),
-                seq: DNARestrictive::from_str("TGCATGCATGCATGCATGCATGCATGCATGCA").unwrap(),
-            },
+            ContigBuilder::default()
+                .name("chr1")
+                .seq("ACGTACGTACGTACGTACGTACGTACGTACGT".into())
+                .build()
+                .unwrap(),
+            ContigBuilder::default()
+                .name("chr2")
+                .seq("TGCATGCATGCATGCATGCATGCATGCATGCA".into())
+                .build()
+                .unwrap(),
         ];
 
-        let read_config = ReadConfig {
-            number: NonZeroU32::new(50).unwrap(),
-            mapq_range: OrdPair::new(10, 20).unwrap(),
-            base_qual_range: OrdPair::new(20, 30).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(0.2, 0.8),
-            barcode: None, // No barcodes to simplify validation
-            mods: vec![],
-            ..Default::default()
-        };
+        let read_config = ReadConfigBuilder::default()
+            .number(50)
+            .len_range((0.2, 0.8))
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let reads = generate_reads_denovo(&contigs, &read_config, "test", &mut rng).unwrap();
@@ -1217,7 +1453,8 @@ mod read_generation_no_mods_tests {
             }]
         }"#;
 
-        let sim = TempBamSimulation::new(config_json).unwrap();
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut has_unmapped = false;
@@ -1263,19 +1500,19 @@ mod read_generation_no_mods_tests {
     /// Tests read length at 100% of contig length
     #[test]
     fn read_length_full_contig_works() {
-        let contigs = vec![Contig {
-            name: "chr1".to_string(),
-            seq: DNARestrictive::from_str("ACGTACGTACGTACGTACGTACGTACGTACGT").unwrap(),
-        }];
+        let contigs = vec![
+            ContigBuilder::default()
+                .name("chr1")
+                .seq("ACGTACGTACGTACGTACGTACGTACGTACGT".into())
+                .build()
+                .unwrap(),
+        ];
 
-        let config_full_length = ReadConfig {
-            number: NonZeroU32::new(20).unwrap(),
-            mapq_range: OrdPair::new(10, 20).unwrap(),
-            base_qual_range: OrdPair::new(20, 30).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(1.0, 1.0),
-            barcode: None,
-            mods: vec![],
-        };
+        let config_full_length = ReadConfigBuilder::default()
+            .number(20)
+            .len_range((1.0, 1.0))
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let reads_full =
@@ -1293,19 +1530,17 @@ mod read_generation_no_mods_tests {
     #[test]
     fn read_length_small_fraction_works() {
         // Use 200bp contig so 1% = 2bp (won't round to 0)
-        let contigs = vec![Contig {
-            name: "chr1".to_string(),
-            seq: DNARestrictive::from_str("ACGT".repeat(50).as_str()).unwrap(),
-        }];
+        let contigs = [ContigBuilder::default()
+            .name("chr1")
+            .seq("ACGT".repeat(50))
+            .build()
+            .unwrap()];
 
-        let config_small = ReadConfig {
-            number: NonZeroU32::new(20).unwrap(),
-            mapq_range: OrdPair::new(10, 20).unwrap(),
-            base_qual_range: OrdPair::new(20, 30).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(0.01, 0.05),
-            barcode: None,
-            mods: vec![],
-        };
+        let config_small = ReadConfigBuilder::default()
+            .number(20)
+            .len_range((0.01, 0.05))
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let reads_small = generate_reads_denovo(&contigs, &config_small, "test", &mut rng).unwrap();
@@ -1336,11 +1571,11 @@ mod read_generation_barcodes {
         let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
 
         // Test forward read: barcode + seq + revcomp(barcode)
-        let result = add_barcode(&read_seq, &barcode, ReadState::PrimaryFwd);
+        let result = add_barcode(&read_seq, barcode.clone(), ReadState::PrimaryFwd);
         assert_eq!(result, b"ACGTAAGGGGGGGGTTACGT".to_vec());
 
         // Test reverse read: comp(barcode) + seq + rev(barcode)
-        let result = add_barcode(&read_seq, &barcode, ReadState::PrimaryRev);
+        let result = add_barcode(&read_seq, barcode, ReadState::PrimaryRev);
         assert_eq!(result, b"TGCATTGGGGGGGGAATGCA".to_vec());
     }
 
@@ -1348,19 +1583,17 @@ mod read_generation_barcodes {
     #[test]
     fn cigar_strings_valid_with_or_without_barcodes() {
         // Test without barcodes
-        let contigs = vec![Contig {
-            name: "chr1".to_string(),
-            seq: DNARestrictive::from_str("ACGTACGTACGTACGTACGTACGTACGTACGT").unwrap(),
-        }];
+        let contigs = [ContigBuilder::default()
+            .name("chr1")
+            .seq("ACGTACGTACGTACGTACGTACGTACGTACGT".into())
+            .build()
+            .unwrap()];
 
-        let config_no_barcode = ReadConfig {
-            number: NonZeroU32::new(20).unwrap(),
-            mapq_range: OrdPair::new(10, 20).unwrap(),
-            base_qual_range: OrdPair::new(20, 30).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(0.3, 0.7),
-            barcode: None,
-            mods: vec![],
-        };
+        let config_no_barcode = ReadConfigBuilder::default()
+            .number(20)
+            .len_range((0.3, 0.7))
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let reads_no_barcode =
@@ -1392,14 +1625,12 @@ mod read_generation_barcodes {
         }
 
         // Test with barcodes
-        let config_with_barcode = ReadConfig {
-            number: NonZeroU32::new(20).unwrap(),
-            mapq_range: OrdPair::new(10, 20).unwrap(),
-            base_qual_range: OrdPair::new(20, 30).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(0.3, 0.7),
-            barcode: Some(DNARestrictive::from_str("ACGTAA").unwrap()),
-            mods: vec![],
-        };
+        let config_with_barcode = ReadConfigBuilder::default()
+            .number(20)
+            .len_range((0.3, 0.7))
+            .barcode("ACGTAA".into())
+            .build()
+            .unwrap();
 
         let reads_with_barcode =
             generate_reads_denovo(&contigs, &config_with_barcode, "test", &mut rng).unwrap();
@@ -1447,7 +1678,8 @@ mod read_generation_barcodes {
             }]
         }"#;
 
-        let sim = TempBamSimulation::new(config_json).unwrap();
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         for record in reader.records() {
@@ -1486,32 +1718,35 @@ mod read_generation_with_mods_tests {
     fn generate_reads_denovo_with_mods_works() {
         let mut rng = rand::rng();
         let contigs = vec![
-            Contig {
-                name: "contig_0".to_string(),
-                seq: DNARestrictive::from_str("ACGTACGTACGTACGTACGT").unwrap(),
-            },
-            Contig {
-                name: "contig_1".to_string(),
-                seq: DNARestrictive::from_str("TGCATGCATGCATGCATGCA").unwrap(),
-            },
+            ContigBuilder::default()
+                .name("contig_0")
+                .seq("ACGTACGTACGTACGTACGT".into())
+                .build()
+                .unwrap(),
+            ContigBuilder::default()
+                .name("contig_1")
+                .seq("TGCATGCATGCATGCATGCA".into())
+                .build()
+                .unwrap(),
         ];
 
-        let config = ReadConfig {
-            number: NonZeroU32::new(10).unwrap(),
-            mapq_range: OrdPair::new(10, 20).unwrap(),
-            base_qual_range: OrdPair::new(30, 50).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(0.2, 0.8),
-            barcode: None,
-            mods: vec![ModConfig {
-                base: AllowedAGCTN::C,
-                is_strand_plus: true,
-                mod_code: ModChar::new('m'),
-                win: vec![NonZeroU32::new(4).unwrap()],
-                mod_range: vec![
-                    OrdPair::<F32Bw0and1>::new(F32Bw0and1::zero(), F32Bw0and1::one()).unwrap(),
-                ],
-            }],
-        };
+        let config = ReadConfigBuilder::default()
+            .number(10)
+            .mapq_range((10, 20))
+            .base_qual_range((30, 50))
+            .len_range((0.2, 0.8))
+            .mods(
+                [ModConfigBuilder::default()
+                    .base('C')
+                    .mod_code("m".into())
+                    .win([4].into())
+                    .mod_range([(0f32, 1f32)].into())
+                    .build()
+                    .unwrap()]
+                .into(),
+            )
+            .build()
+            .unwrap();
 
         let reads = generate_reads_denovo(&contigs, &config, "1", &mut rng).unwrap();
         assert_eq!(reads.len(), 10);
@@ -1566,7 +1801,8 @@ mod read_generation_with_mods_tests {
         }"#;
 
         // Create temporary simulation
-        let sim = TempBamSimulation::new(config_json).unwrap();
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
 
         // Verify files exist
         assert!(Path::new(sim.bam_path()).exists());
@@ -1596,14 +1832,13 @@ mod read_generation_with_mods_tests {
     #[test]
     fn generate_random_dna_modification_single_mod() {
         let seq = DNARestrictive::from_str("ACGTCGCGATCG").unwrap();
-        let mod_config = ModConfig {
-            base: AllowedAGCTN::C,
-            is_strand_plus: true,
-            mod_code: ModChar::new('m'),
-            win: vec![NonZeroU32::new(2).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.5, 0.5)],
-            ..Default::default()
-        };
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win(vec![2])
+            .mod_range(vec![(0.5, 0.5)])
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
@@ -1631,23 +1866,22 @@ mod read_generation_with_mods_tests {
     fn generate_random_dna_modification_multiple_mods() {
         let seq = DNARestrictive::from_str("ACGTACGT").unwrap();
 
-        let mod_config_c = ModConfig {
-            base: AllowedAGCTN::C,
-            is_strand_plus: true,
-            mod_code: ModChar::new('m'),
-            win: vec![NonZeroU32::new(1).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.8, 0.8)],
-            ..Default::default()
-        };
+        let mod_config_c = ModConfigBuilder::default()
+            .base('C')
+            .mod_code('m'.into())
+            .win(vec![1])
+            .mod_range(vec![(0.8, 0.8)])
+            .build()
+            .unwrap();
 
-        let mod_config_t = ModConfig {
-            base: AllowedAGCTN::T,
-            is_strand_plus: false,
-            mod_code: ModChar::new('t'),
-            win: vec![NonZeroU32::new(1).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.4, 0.4)],
-            ..Default::default()
-        };
+        let mod_config_t = ModConfigBuilder::default()
+            .base('T')
+            .is_strand_plus(false)
+            .mod_code('t'.into())
+            .win(vec![1])
+            .mod_range(vec![(0.4, 0.4)])
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let (mm_str, ml_vec) =
@@ -1707,15 +1941,14 @@ mod read_generation_with_mods_tests {
     fn generate_random_dna_modification_n_base() {
         let seq = DNARestrictive::from_str("ACGT").unwrap();
 
-        let mod_config = ModConfig {
-            base: AllowedAGCTN::N,
-            is_strand_plus: true,
-            mod_code: ModChar::new('n'),
-            win: vec![NonZeroU32::new(4).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.5, 0.5)],
-            ..Default::default()
-        };
-
+        let mod_config = ModConfigBuilder::default()
+            .base('N')
+            .is_strand_plus(true)
+            .mod_code("n".into())
+            .win([4].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
 
@@ -1753,17 +1986,13 @@ mod read_generation_with_mods_tests {
     fn generate_random_dna_modification_cycling_windows() {
         let seq = DNARestrictive::from_str("CCCCCCCCCCCCCCCC").unwrap(); // 16 C's
 
-        let mod_config = ModConfig {
-            base: AllowedAGCTN::C,
-            is_strand_plus: true,
-            mod_code: ModChar::new('m'),
-            win: vec![NonZeroU32::new(3).unwrap(), NonZeroU32::new(2).unwrap()],
-            mod_range: vec![
-                f32_ord_pair_bw_0_and_1!(0.8, 0.8),
-                f32_ord_pair_bw_0_and_1!(0.4, 0.4),
-            ],
-            ..Default::default()
-        };
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([3, 2].into())
+            .mod_range([(0.8, 0.8), (0.4, 0.4)].into())
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
@@ -1830,7 +2059,8 @@ mod read_generation_with_mods_tests {
             }]
         }"#;
 
-        let sim = TempBamSimulation::new(config_json).unwrap();
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut has_c_mod = false;
@@ -1874,15 +2104,15 @@ mod read_generation_with_mods_tests {
         // Create sequence with known base counts
         let seq = DNARestrictive::from_str("AAAACCCCGGGGTTTT").unwrap();
 
+        // template we will reuse for various mods
+        let mod_config_template = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([4].into())
+            .mod_range([(1.0, 1.0)].into());
+
         // Test C modification - should only mark C bases
-        let mod_config_c = ModConfig {
-            base: AllowedAGCTN::C,
-            is_strand_plus: true,
-            mod_code: ModChar::new('m'),
-            win: vec![NonZeroU32::new(4).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(1.0, 1.0)],
-            ..Default::default()
-        };
+        let mod_config_c = mod_config_template.clone().build().unwrap();
 
         let mut rng = rand::rng();
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_c], &seq, &mut rng);
@@ -1900,14 +2130,13 @@ mod read_generation_with_mods_tests {
         assert_eq!(probs.len(), 4, "Should have exactly 4 C modifications");
 
         // Test T modification - should only mark T bases
-        let mod_config_t = ModConfig {
-            base: AllowedAGCTN::T,
-            is_strand_plus: false,
-            mod_code: ModChar::new('t'),
-            win: vec![NonZeroU32::new(4).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(1.0, 1.0)],
-            ..Default::default()
-        };
+        let mod_config_t = mod_config_template
+            .clone()
+            .base('T')
+            .is_strand_plus(false)
+            .mod_code("t".into())
+            .build()
+            .unwrap();
 
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_t], &seq, &mut rng);
 
@@ -1924,14 +2153,12 @@ mod read_generation_with_mods_tests {
         assert_eq!(probs.len(), 4, "Should have exactly 4 T modifications");
 
         // Test A modification - should only mark A bases
-        let mod_config_a = ModConfig {
-            base: AllowedAGCTN::A,
-            is_strand_plus: true,
-            mod_code: ModChar::new('a'),
-            win: vec![NonZeroU32::new(4).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(1.0, 1.0)],
-            ..Default::default()
-        };
+        let mod_config_a = mod_config_template
+            .clone()
+            .base('A')
+            .mod_code("a".into())
+            .build()
+            .unwrap();
 
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_a], &seq, &mut rng);
 
@@ -1948,14 +2175,12 @@ mod read_generation_with_mods_tests {
         assert_eq!(probs.len(), 4, "Should have exactly 4 A modifications");
 
         // Test G modification - should only mark G bases
-        let mod_config_g = ModConfig {
-            base: AllowedAGCTN::G,
-            is_strand_plus: true,
-            mod_code: ModChar::new('g'),
-            win: vec![NonZeroU32::new(4).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(1.0, 1.0)],
-            ..Default::default()
-        };
+        let mod_config_g = mod_config_template
+            .clone()
+            .base('G')
+            .mod_code("g".into())
+            .build()
+            .unwrap();
 
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_g], &seq, &mut rng);
 
@@ -1977,14 +2202,13 @@ mod read_generation_with_mods_tests {
     fn edge_case_no_target_base_for_modification() {
         let seq = DNARestrictive::from_str("AAAAAAAAAA").unwrap(); // Only A's
 
-        let mod_config = ModConfig {
-            base: AllowedAGCTN::C, // Looking for C's
-            is_strand_plus: true,
-            mod_code: ModChar::new('m'),
-            win: vec![NonZeroU32::new(5).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.5, 0.5)],
-            ..Default::default()
-        };
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([5].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
@@ -2003,15 +2227,17 @@ mod read_generation_with_mods_tests {
     fn edge_case_modification_probability_extremes() {
         let seq = DNARestrictive::from_str("CCCCCCCC").unwrap();
 
-        // Test probability 0.0
-        let mod_config_zero = ModConfig {
-            base: AllowedAGCTN::C,
-            is_strand_plus: true,
-            mod_code: ModChar::new('m'),
-            win: vec![NonZeroU32::new(8).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.0, 0.0)],
-            ..Default::default()
-        };
+        // template to build modification configurations
+        let mod_config_template = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([8].into());
+
+        let mod_config_zero = mod_config_template
+            .clone()
+            .mod_range([(0.0, 0.0)].into())
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_zero], &seq, &mut rng);
@@ -2027,14 +2253,11 @@ mod read_generation_with_mods_tests {
         assert!(probs.iter().all(|&x| x == "0"));
 
         // Test probability 1.0
-        let mod_config_one = ModConfig {
-            base: AllowedAGCTN::C,
-            is_strand_plus: true,
-            mod_code: ModChar::new('m'),
-            win: vec![NonZeroU32::new(8).unwrap()],
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(1.0, 1.0)],
-            ..Default::default()
-        };
+        let mod_config_one = mod_config_template
+            .clone()
+            .mod_range([(1.0, 1.0)].into())
+            .build()
+            .unwrap();
 
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_one], &seq, &mut rng);
 
@@ -2120,29 +2343,28 @@ mod read_generation_with_mods_tests {
     #[test]
     fn barcodes_with_modifications_integration_works() {
         // Create contig with only A's (no C's)
-        let contigs = vec![Contig {
-            name: "chr1".to_string(),
-            seq: DNARestrictive::from_str("A".repeat(50).as_str()).unwrap(),
-        }];
+        let contigs = [ContigBuilder::default()
+            .name("chr1")
+            .seq("A".repeat(50))
+            .build()
+            .unwrap()];
 
-        // Barcode contains C's: "ACGTAA" has one C
-        let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
-
-        let config = ReadConfig {
-            number: NonZeroU32::new(20).unwrap(),
-            mapq_range: OrdPair::new(10, 20).unwrap(),
-            base_qual_range: OrdPair::new(20, 30).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(0.3, 0.7),
-            barcode: Some(barcode),
-            mods: vec![ModConfig {
-                base: AllowedAGCTN::C,
-                is_strand_plus: true,
-                mod_code: ModChar::new('m'),
-                win: vec![NonZeroU32::new(10).unwrap()],
-                mod_range: vec![f32_ord_pair_bw_0_and_1!(0.8, 0.8)],
-                ..Default::default()
-            }],
-        };
+        let config = ReadConfigBuilder::default()
+            .number(20)
+            .len_range((0.3, 0.7))
+            .barcode("ACGTAA".into()) // barcode contains Cs i.e. barcode sequence has one C
+            .mods(
+                [ModConfigBuilder::default()
+                    .base('C')
+                    .mod_code("m".into())
+                    .win([10].into())
+                    .mod_range([(0.8, 0.8)].into())
+                    .build()
+                    .unwrap()]
+                .into(),
+            )
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let reads = generate_reads_denovo(&contigs, &config, "test", &mut rng).unwrap();
@@ -2190,14 +2412,13 @@ mod read_generation_with_mods_tests {
     fn edge_case_window_larger_than_sequence() {
         let seq = DNARestrictive::from_str("ACGTACGT").unwrap(); // Only 2 C's
 
-        let mod_config = ModConfig {
-            base: AllowedAGCTN::C,
-            is_strand_plus: true,
-            mod_code: ModChar::new('m'),
-            win: vec![NonZeroU32::new(100).unwrap()], // Window of 100 C's, but only 2 C's exist
-            mod_range: vec![f32_ord_pair_bw_0_and_1!(0.5, 0.5)],
-            ..Default::default()
-        };
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([100].into()) // window of 100 Cs but only 2Cs exist in the sequence.
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
@@ -2228,17 +2449,14 @@ mod read_generation_with_mods_tests {
     fn edge_case_single_base_windows() {
         let seq = DNARestrictive::from_str("C".repeat(16).as_str()).unwrap(); // 16 C's
 
-        let mod_config = ModConfig {
-            base: AllowedAGCTN::C,
-            is_strand_plus: true,
-            mod_code: ModChar::new('m'),
-            win: vec![NonZeroU32::new(1).unwrap(), NonZeroU32::new(1).unwrap()],
-            mod_range: vec![
-                f32_ord_pair_bw_0_and_1!(0.9, 0.9),
-                f32_ord_pair_bw_0_and_1!(0.1, 0.1),
-            ],
-            ..Default::default()
-        };
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .is_strand_plus(true)
+            .mod_code("m".into())
+            .win([1].into())
+            .mod_range([(0.9, 0.9), (0.1, 0.1)].into())
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
@@ -2266,26 +2484,27 @@ mod read_generation_with_mods_tests {
     #[test]
     fn reverse_reads_modification_positions_correct() {
         // Create sequence with 3 C's: "AAAAACAAAAACAAAAAC"
-        let contigs = vec![Contig {
-            name: "chr1".to_string(),
-            seq: DNARestrictive::from_str("AAAAACAAAAACAAAAAC").unwrap(),
-        }];
+        let contigs = [ContigBuilder::default()
+            .name("chr1")
+            .seq("AAAAACAAAAACAAAAAC".into())
+            .build()
+            .unwrap()];
 
-        let config = ReadConfig {
-            number: NonZeroU32::new(100).unwrap(),
-            mapq_range: OrdPair::new(20, 30).unwrap(),
-            base_qual_range: OrdPair::new(25, 35).unwrap(),
-            len_range: f32_ord_pair_bw_0_and_1!(1.0, 1.0), // Full length reads
-            barcode: None,
-            mods: vec![ModConfig {
-                base: AllowedAGCTN::C,
-                is_strand_plus: true,
-                mod_code: ModChar::new('m'),
-                win: vec![NonZeroU32::new(10).unwrap()],
-                mod_range: vec![f32_ord_pair_bw_0_and_1!(0.8, 0.8)],
-                ..Default::default()
-            }],
-        };
+        let config = ReadConfigBuilder::default()
+            .number(100)
+            .len_range((1.0, 1.0))
+            .mods(
+                [ModConfigBuilder::default()
+                    .base('C')
+                    .mod_code("m".into())
+                    .win([10].into())
+                    .mod_range([(0.8, 0.8)].into())
+                    .build()
+                    .unwrap()]
+                .into(),
+            )
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
         let reads = generate_reads_denovo(&contigs, &config, "test", &mut rng).unwrap();
@@ -2354,7 +2573,8 @@ mod contig_generation_tests {
             }]
         }"#;
 
-        let sim = TempBamSimulation::new(config_json).unwrap();
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
         let reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Verify contig is exactly ACGTACGTACGTACGT (4 repeats)
@@ -2378,7 +2598,8 @@ mod contig_generation_tests {
             }]
         }"#;
 
-        let sim = TempBamSimulation::new(config_json).unwrap();
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Verify 1bp contig works
@@ -2393,12 +2614,11 @@ mod contig_generation_tests {
     /// Tests contig generation
     #[test]
     fn generate_contigs_denovo_works() {
-        let config = ContigConfig {
-            number: NonZeroU32::new(5).unwrap(),
-            len_range: OrdPair::new(NonZeroU64::new(100).unwrap(), NonZeroU64::new(200).unwrap())
-                .unwrap(),
-            repeated_seq: None,
-        };
+        let config = ContigConfigBuilder::default()
+            .number(5)
+            .len_range((100, 200))
+            .build()
+            .unwrap();
         let contigs = generate_contigs_denovo(config.number, config.len_range, &mut rand::rng());
         assert_eq!(contigs.len(), 5);
         for (i, contig) in contigs.iter().enumerate() {

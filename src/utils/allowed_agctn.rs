@@ -87,7 +87,7 @@ impl FromStr for AllowedAGCTN {
             "C" => Ok(AllowedAGCTN::C),
             "T" => Ok(AllowedAGCTN::T),
             "N" => Ok(AllowedAGCTN::N),
-            _ => Err(Error::InvalidBase),
+            v => Err(Error::InvalidBase(v.to_owned())),
         }
     }
 }
@@ -121,7 +121,41 @@ impl TryFrom<char> for AllowedAGCTN {
             'C' => Ok(AllowedAGCTN::C),
             'T' => Ok(AllowedAGCTN::T),
             'N' => Ok(AllowedAGCTN::N),
-            _ => Err(Error::InvalidBase),
+            v => Err(Error::InvalidBase(v.to_string())),
+        }
+    }
+}
+
+/// Implements conversion from `u8`
+///
+/// ```
+/// use nanalogue_core::AllowedAGCTN;
+///
+/// assert_eq!(AllowedAGCTN::try_from(b'A')?, AllowedAGCTN::A);
+/// assert_eq!(AllowedAGCTN::try_from(b'G')?, AllowedAGCTN::G);
+/// assert_eq!(AllowedAGCTN::try_from(b'C')?, AllowedAGCTN::C);
+/// assert_eq!(AllowedAGCTN::try_from(b'T')?, AllowedAGCTN::T);
+/// assert_eq!(AllowedAGCTN::try_from(b'N')?, AllowedAGCTN::N);
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+///
+/// ```should_panic
+/// # use nanalogue_core::AllowedAGCTN;
+/// // Invalid base should error
+/// let base = AllowedAGCTN::try_from(b'X')?;
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+impl TryFrom<u8> for AllowedAGCTN {
+    type Error = Error;
+
+    fn try_from(c: u8) -> Result<Self, Self::Error> {
+        match c {
+            b'A' => Ok(AllowedAGCTN::A),
+            b'G' => Ok(AllowedAGCTN::G),
+            b'C' => Ok(AllowedAGCTN::C),
+            b'T' => Ok(AllowedAGCTN::T),
+            b'N' => Ok(AllowedAGCTN::N),
+            v => Err(Error::InvalidBase(v.to_string())),
         }
     }
 }

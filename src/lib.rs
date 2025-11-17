@@ -3,10 +3,6 @@
 //! We process and calculate data associated with DNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous
 //! information.
-//!
-//! This file directly contains the functions associated with opening BAM files
-//! and parsing modification information directly from BAM files. Other functions
-//! in the crate are distributed over other files.
 
 use bedrs::{Bed3, Coordinates as _};
 use bio::alphabets::dna::revcomp;
@@ -42,15 +38,16 @@ pub use file_utils::{
     nanalogue_indexed_bam_reader, nanalogue_indexed_bam_reader_from_url, write_bam_denovo,
     write_fasta,
 };
-pub use read_utils::CurrRead;
+pub use read_utils::{AlignmentInfoBuilder, CurrRead, CurrReadBuilder, ModTableEntryBuilder};
+pub use simulate_mod_bam::SimulationConfig;
 pub use subcommands::{find_modified_reads, read_info, read_stats, reads_table, window_reads};
 pub use utils::{
     AllowedAGCTN, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1, FilterByRefCoords,
     GenomicRegion, GetDNARestrictive, Intersects, ModChar, OrdPair, PathOrURLOrStdin, ReadState,
-    ReadStates, RestrictModCalledStrand, ThresholdState, is_valid_dna_restrictive,
+    ReadStates, RestrictModCalledStrand, ThresholdState, 
 };
 
-/// Extracts mod information from BAM record to the Fibertools-rs `BaseMods` Struct.
+/// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods` Struct.
 ///
 /// We are copying and modifying code from the fibertools-rs repository
 /// (<https://github.com/fiberseq/fibertools-rs>) which is under the MIT license
@@ -84,7 +81,8 @@ pub use utils::{
 /// let mut count = 0;
 /// for record in reader.records(){
 ///     let r = record?;
-///     let Ok(BaseMods{base_mods: v}) = nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0) else { unreachable!() };
+///     let Ok(BaseMods{base_mods: v}) = nanalogue_mm_ml_parser(&r, |&_| true, |&_| true,
+///         |&_, &_, &_| true, 0) else { unreachable!() };
 ///     match count {
 ///     0 => assert_eq!(v, vec![BaseMod{
 ///             modified_base: b'T',
@@ -193,7 +191,7 @@ where
             let is_implicit = match cap.get(6).map_or("", |m| m.as_str()).as_bytes() {
                 b"" | b"." => true,
                 b"?" => false,
-                _ => unreachable!(),
+                _ => unreachable!("our regex expression must have prevented other possibilities"),
             };
             let mod_dists_str = cap.get(7).map_or("", |m| m.as_str());
             // parse the string containing distances between modifications into a vector of i64
@@ -271,7 +269,9 @@ when usize is 64-bit as genomic sequences are not that long"
                         .get(cur_mod_idx..)
                         .expect("cur_mod_idx < mod_dists.len() and ml_tag has same length")
                         .get(num_mods_seen)
-                        .ok_or(Error::InvalidModProbs)?;
+                        .ok_or(Error::InvalidModProbs(
+                            "ML tag appears to be insufficiently long!".into(),
+                        ))?;
                     if filter_mod_prob(prob)
                         && filter_mod_pos(&cur_seq_idx)
                         && !(min_qual > 0
@@ -292,7 +292,9 @@ when usize is 64-bit as genomic sequences are not that long"
                             .get(cur_mod_idx)
                             .expect("cur_mod_idx < mod_dists.len()")
                 {
-                    return Err(Error::InvalidModCoords);
+                    return Err(Error::InvalidModCoords(String::from(
+                        "Problem with parsing distances in MM/ML data",
+                    )));
                 } else {
                     if is_include_zero_prob
                         && is_implicit
@@ -316,7 +318,9 @@ when usize is 64-bit as genomic sequences are not that long"
                     .checked_add(cur_mod_idx)
                     .ok_or(Error::Arithmetic)?;
             } else {
-                return Err(Error::InvalidModCoords);
+                return Err(Error::InvalidModCoords(String::from(
+                    "Problem with parsing MM/ML data, counts do not match",
+                )));
             }
 
             // if data matches filters, add to struct.
@@ -353,7 +357,9 @@ when usize is 64-bit as genomic sequences are not that long"
 
         Ok(BaseMods { base_mods: rtn })
     } else {
-        Err(Error::InvalidModProbs)
+        Err(Error::InvalidModProbs(
+            "MM and ML tag lengths do not match!".to_owned(),
+        ))
     }
 }
 

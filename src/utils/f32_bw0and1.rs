@@ -140,6 +140,27 @@ impl fmt::Display for F32Bw0and1 {
     }
 }
 
+impl TryFrom<f32> for F32Bw0and1 {
+    type Error = Error;
+
+    /// attempts conversion from `f32`, will succeed if 0 <= value <= 1
+    ///
+    /// # Errors
+    /// If conversion doesn't work.
+    ///
+    /// # Examples
+    /// ```
+    /// use nanalogue_core::{Error, F32Bw0and1};
+    ///
+    /// let val1: F32Bw0and1 = 0.5f32.try_into().unwrap();
+    /// let val2: F32Bw0and1 = 0.7_f32.try_into().unwrap();
+    /// let val3: Error = F32Bw0and1::try_from(1.7).unwrap_err();
+    /// ```
+    fn try_from(value: f32) -> Result<Self, Self::Error> {
+        F32Bw0and1::new(value)
+    }
+}
+
 impl From<F32Bw0and1> for F32AbsValAtMost1 {
     /// Convert between the two types of floats
     fn from(value: F32Bw0and1) -> Self {

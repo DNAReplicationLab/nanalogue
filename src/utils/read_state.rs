@@ -86,7 +86,9 @@ impl TryFrom<u16> for ReadState {
             272 => Ok(ReadState::SecondaryRev),
             2048 => Ok(ReadState::SupplementaryFwd),
             2064 => Ok(ReadState::SupplementaryRev),
-            _ => Err(Error::UnknownAlignState),
+            v => Err(Error::UnknownAlignState(format!(
+                "BAM flag {v} cannot be converted to our `ReadState` variants"
+            ))),
         }
     }
 }
@@ -153,15 +155,21 @@ impl FromStr for ReadState {
             "supplementary_forward" => Ok(ReadState::SupplementaryFwd),
             "supplementary_reverse" => Ok(ReadState::SupplementaryRev),
             "unmapped" => Ok(ReadState::Unmapped),
-            _ => Err(Error::UnknownAlignState),
+            v => Err(Error::UnknownAlignState(format!(
+                "{v} cannot be converted to `ReadState` variant"
+            ))),
         }
     }
 }
 
 /// Implements printing of read state
 impl fmt::Display for ReadState {
+    #[expect(
+        clippy::pattern_type_mismatch,
+        reason = "simple function, notation cleaner without *"
+    )]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let printable = match *self {
+        match self {
             ReadState::PrimaryFwd => "primary_forward",
             ReadState::SecondaryFwd => "secondary_forward",
             ReadState::SupplementaryFwd => "supplementary_forward",
@@ -169,8 +177,45 @@ impl fmt::Display for ReadState {
             ReadState::SecondaryRev => "secondary_reverse",
             ReadState::SupplementaryRev => "supplementary_reverse",
             ReadState::Unmapped => "unmapped",
-        };
-        write!(f, "{printable}")
+        }
+        .fmt(f)
+    }
+}
+
+impl ReadState {
+    /// Checks if the state is unmapped
+    #[expect(
+        clippy::pattern_type_mismatch,
+        reason = "simple function, notation cleaner without *"
+    )]
+    #[must_use]
+    pub fn is_unmapped(&self) -> bool {
+        match self {
+            ReadState::Unmapped => true,
+            ReadState::PrimaryFwd
+            | ReadState::PrimaryRev
+            | ReadState::SecondaryFwd
+            | ReadState::SecondaryRev
+            | ReadState::SupplementaryFwd
+            | ReadState::SupplementaryRev => false,
+        }
+    }
+    /// Gets the strand corresponding to the alignment type
+    ///
+    /// * '.' if unmapped
+    /// * '+' if forward
+    /// * '-' if reverse
+    #[expect(
+        clippy::pattern_type_mismatch,
+        reason = "simple function, notation cleaner without *"
+    )]
+    #[must_use]
+    pub fn strand(&self) -> char {
+        match self {
+            ReadState::Unmapped => '.',
+            ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd => '+',
+            ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => '-',
+        }
     }
 }
 
@@ -220,7 +265,7 @@ mod tests {
         for flag in invalid_flags {
             assert!(matches!(
                 ReadState::try_from(flag),
-                Err(Error::UnknownAlignState)
+                Err(Error::UnknownAlignState(_))
             ));
         }
     }

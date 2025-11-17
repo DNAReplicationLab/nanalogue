@@ -52,6 +52,18 @@ impl ModChar {
     }
 }
 
+impl From<char> for ModChar {
+    fn from(value: char) -> Self {
+        ModChar::new(value)
+    }
+}
+
+impl From<u8> for ModChar {
+    fn from(value: u8) -> Self {
+        ModChar::new(char::from(value))
+    }
+}
+
 impl FromStr for ModChar {
     type Err = Error;
 
@@ -96,14 +108,18 @@ impl FromStr for ModChar {
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     fn from_str(mod_type: &str) -> Result<Self, Self::Err> {
-        let first_char = mod_type.chars().next().ok_or(Error::EmptyModType)?;
+        let first_char = mod_type
+            .chars()
+            .next()
+            .ok_or(Error::EmptyModType(String::new()))?;
         match first_char {
             'A'..='Z' | 'a'..='z' if mod_type.len() == 1 => Ok(ModChar(first_char)),
             '0'..='9' => {
-                let val = char::from_u32(mod_type.parse()?).ok_or(Error::InvalidModType)?;
+                let val = char::from_u32(mod_type.parse()?)
+                    .ok_or(Error::InvalidModType(mod_type.to_owned()))?;
                 Ok(ModChar(val))
             }
-            _ => Err(Error::InvalidModType),
+            _ => Err(Error::InvalidModType(mod_type.to_owned())),
         }
     }
 }

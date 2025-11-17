@@ -1,6 +1,6 @@
 //! Utility functions for file I/O operations with BAM and FASTA files.
 
-use crate::Error;
+use crate::{Error, GetDNARestrictive};
 use rust_htslib::bam;
 use std::fs::File;
 use std::io::Write as _;
@@ -191,13 +191,14 @@ pub fn nanalogue_indexed_bam_reader_from_url(
 /// # Examples
 ///
 /// ```
-/// use nanalogue_core::{Error, file_utils::write_fasta};
+/// use nanalogue_core::{DNARestrictive, Error, file_utils::write_fasta};
 /// use std::fs;
+/// use std::str::FromStr;
 /// use uuid::Uuid;
 ///
 /// let contigs = vec![
-///     ("seq1".to_string(), b"ACGTACGT".to_vec()),
-///     ("seq2".to_string(), b"TGCATGCA".to_vec()),
+///     ("seq1".to_string(), DNARestrictive::from_str("ACGTACGT").expect("no error")),
+///     ("seq2".to_string(), DNARestrictive::from_str("TGCATGCA").expect("no error")),
 /// ];
 ///
 /// let temp_path = std::env::temp_dir().join(format!("{}.fa", Uuid::new_v4()));
@@ -212,24 +213,29 @@ pub fn nanalogue_indexed_bam_reader_from_url(
 /// fs::remove_file(&temp_path)?;
 /// # Ok::<(), Error>(())
 /// ```
-pub fn write_fasta<I, J>(contigs: I, output_path: &J) -> Result<(), Error>
+pub fn write_fasta<I, J, K>(sequences: I, output_path: &J) -> Result<(), Error>
 where
-    I: IntoIterator<Item = (String, Vec<u8>)>,
+    I: IntoIterator<Item = (String, K)>,
     J: AsRef<Path> + ?Sized,
+    K: GetDNARestrictive,
 {
     let mut file = File::create(output_path)?;
-    for contig in contigs {
-        writeln!(file, ">{}", contig.0)?;
-        file.write_all(&contig.1)?;
+    for seq in sequences {
+        writeln!(file, ">{}", seq.0)?;
+        file.write_all(seq.1.get_dna_restrictive().get())?;
         writeln!(file)?;
     }
     Ok(())
 }
 
 /// Writes a new BAM file with reads. Input reads have to be sorted.
+///
 /// Although this function can be used for other tasks like subsetting
 /// BAM files, this is not advised as the history of the BAM file
 /// stored in its header would be lost as we are generating a new header here.
+/// We don't do many checks here like checking if the number of contigs matches
+/// the number of tids in the BAM records, whether BAM records contain valid
+/// sequences etc.
 ///
 /// # Errors
 ///
@@ -329,15 +335,23 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DNARestrictive;
     use rust_htslib::bam::Read as _;
+    use std::str::FromStr as _;
     use uuid::Uuid;
 
     /// Tests writing to a fasta file and check its contents
     #[test]
     fn write_fasta_works() {
         let contigs = vec![
-            ("test_contig_0".to_string(), b"ACGT".to_vec()),
-            ("test_contig_1".to_string(), b"TGCA".to_vec()),
+            (
+                "test_contig_0".to_string(),
+                DNARestrictive::from_str("ACGT").expect("no error"),
+            ),
+            (
+                "test_contig_1".to_string(),
+                DNARestrictive::from_str("TGCA").expect("no error"),
+            ),
         ];
 
         let temp_path = std::env::temp_dir().join(format!("{}.fa", Uuid::new_v4()));

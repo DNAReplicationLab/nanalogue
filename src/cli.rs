@@ -20,7 +20,8 @@ use std::num::{NonZeroU32, NonZeroUsize};
 #[non_exhaustive]
 pub struct InputBam {
     /// Input BAM file. Set to a local file path, or set to - to read from stdin,
-    /// or set to a URL to read from a remote file.
+    /// or set to a URL to read from a remote file. If using stdin and piping in
+    /// from `samtools view`, always include the header with the `-h` option.
     pub bam_path: PathOrURLOrStdin,
     /// Exclude reads whose sequence length in the BAM file is
     /// below this value. Defaults to 0.

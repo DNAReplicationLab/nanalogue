@@ -1,46 +1,46 @@
-//! Implements `CurrRead` Struct for processing information retrieved from BAM files
+//! Implements `CurrRead` Struct for processing information
 //! and the mod information in the BAM file using a parser implemented in
 //! another module.
 
+use crate::{
+    AllowedAGCTN, Contains as _, Error, F32Bw0and1, FilterByRefCoords, InputModOptions,
+    InputRegionOptions, InputWindowing, ModChar, ReadState, ThresholdState, nanalogue_mm_ml_parser,
+};
 use bedrs::prelude::{Intersect as _, StrandedBed3};
 use bedrs::{Bed3, Coordinates as _, Strand};
 use bio_types::genome::AbstractInterval as _;
+use derive_builder::Builder;
 use fibertools_rs::utils::bamranges::Ranges;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
 use rust_htslib::{bam::ext::BamRecordExtensions as _, bam::record::Record};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Write as _};
 use std::num::NonZeroU64;
+use std::ops::Range;
 use std::rc::Rc;
 
-// Import from our crate
-use crate::{
-    Contains as _, Error, F32Bw0and1, FilterByRefCoords, InputModOptions, InputRegionOptions,
-    InputWindowing, ModChar, ReadState, ThresholdState, nanalogue_mm_ml_parser,
-};
-use serde::{Deserialize, Serialize};
-
-/// Shows `CurrRead` has no data
+/// Shows [`CurrRead`] has no data, a state-type parameter
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct NoData;
 
-/// Shows `CurrRead` has only alignment data
+/// Shows [`CurrRead`] has only alignment data, a state-type parameter
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct OnlyAlignData;
 
-/// Shows `CurrRead` has only alignment data but with all fields filled
+/// Shows [`CurrRead`] has only alignment data but with all fields filled, a state-type parameter
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct OnlyAlignDataComplete;
 
-/// Shows `CurrRead` has alignment and modification data
+/// Shows [`CurrRead`] has alignment and modification data, a state-type parameter
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct AlignAndModData;
 
-/// Dummy trait
+/// Dummy trait, associated with the state-type pattern in [`CurrRead`]
 pub trait CurrReadState {}
 
 impl CurrReadState for NoData {}
@@ -48,14 +48,14 @@ impl CurrReadState for OnlyAlignData {}
 impl CurrReadState for OnlyAlignDataComplete {}
 impl CurrReadState for AlignAndModData {}
 
-/// Another dummy trait
+/// Another dummy trait, associated with the state-type pattern in [`CurrRead`]
 pub trait CurrReadStateWithAlign {}
 
 impl CurrReadStateWithAlign for OnlyAlignData {}
 impl CurrReadStateWithAlign for OnlyAlignDataComplete {}
 impl CurrReadStateWithAlign for AlignAndModData {}
 
-/// Another dummy trait
+/// Another dummy trait, associated with the state-type pattern in [`CurrRead`]
 pub trait CurrReadStateOnlyAlign {}
 
 impl CurrReadStateOnlyAlign for OnlyAlignData {}
@@ -63,6 +63,8 @@ impl CurrReadStateOnlyAlign for OnlyAlignDataComplete {}
 
 /// Our main struct that receives and stores from one BAM record.
 /// Also has methods for processing this information.
+/// Also see [`CurrReadBuilder`] for a way to build this without BAM records.
+///
 /// The information within the struct is hard to access without
 /// the methods defined here. This is to ensure the struct
 /// doesn't fall into an invalid state, which could cause mistakes
@@ -73,9 +75,9 @@ impl CurrReadStateOnlyAlign for OnlyAlignDataComplete {}
 /// this when the modification data is parsed, but we cannot
 /// guarantee this if we allow free access to the struct.
 /// NOTE: we could have implemented these as a trait extension
-/// to the rust htslib Record struct, but we have chosen not to,
+/// to the `rust_htslib` `Record` struct, but we have chosen not to,
 /// as we may want to persist data like modifications and do
-/// multiple operations on them. And Record has inconvenient
+/// multiple operations on them. And `Record` has inconvenient
 /// return types like i64 instead of u64 for positions along the
 /// genome.
 #[derive(Debug, Clone, PartialEq)]
@@ -86,8 +88,7 @@ pub struct CurrRead<S: CurrReadState> {
     /// Read ID of molecule, also called query name in some contexts.
     read_id: Option<String>,
 
-    /// Length of the stored sequence. This is usually the basecalled
-    /// sequence but is not guaranteed to be so.
+    /// Length of the stored sequence in a BAM file. This is usually the basecalled sequence.
     seq_len: Option<u64>,
 
     /// Length of the segment on the reference genome the molecule maps to.
@@ -191,7 +192,11 @@ impl CurrRead<NoData> {
             (true, false, false, true) => ReadState::SupplementaryRev,
             (false, false, false, true) => ReadState::SupplementaryFwd,
             (false, false, false, false) => ReadState::PrimaryFwd,
-            _ => return Err(Error::UnknownAlignState),
+            _ => {
+                return Err(Error::UnknownAlignState(String::from(
+                    "invalid flag combination!",
+                )));
+            }
         };
         Ok(CurrRead::<OnlyAlignData> {
             state,
@@ -220,19 +225,11 @@ impl CurrRead<NoData> {
             .set_read_state(record)?
             .set_seq_len(record)?
             .set_read_id(record)?;
-        match curr_read_state.read_state() {
-            ReadState::Unmapped => {}
-            ReadState::PrimaryFwd
-            | ReadState::PrimaryRev
-            | ReadState::SecondaryFwd
-            | ReadState::SecondaryRev
-            | ReadState::SupplementaryFwd
-            | ReadState::SupplementaryRev => {
-                curr_read_state = curr_read_state
-                    .set_align_len(record)?
-                    .set_contig_id_and_start(record)?
-                    .set_contig_name(record)?;
-            }
+        if !curr_read_state.read_state().is_unmapped() {
+            curr_read_state = curr_read_state
+                .set_align_len(record)?
+                .set_contig_id_and_start(record)?
+                .set_contig_name(record)?;
         }
         let CurrRead::<OnlyAlignData> {
             state,
@@ -310,7 +307,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             )),
             None => Ok(Some(
                 NonZeroU64::new(record.seq_len().try_into()?)
-                    .ok_or(Error::InvalidSeqLength)?
+                    .ok_or(Error::InvalidSeqLength(String::from(
+                        "sequence length failure: 0 length or usize->u64 overflow",
+                    )))?
                     .get(),
             )),
         }?;
@@ -335,7 +334,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                 "cannot set alignment length again!".to_string(),
             )),
             None => {
-                if self.read_state() == ReadState::Unmapped {
+                if self.read_state().is_unmapped() {
                     Err(Error::Unmapped)
                 } else {
                     // NOTE: right now, I don't know of a way to test the error below
@@ -367,7 +366,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                                 .expect("en>st && st>=0 guarantee no problems i64->u64"),
                         ))
                     } else {
-                        Err(Error::InvalidAlignLength)
+                        Err(Error::InvalidAlignLength(format!(
+                            "in `set_align_len`, start: {st}, end: {en} invalid! i.e. en <= st or st < 0"
+                        )))
                     }
                 }
             }
@@ -379,14 +380,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Errors
     /// if instance is unmapped or alignment length is not set
     pub fn align_len(&self) -> Result<u64, Error> {
-        match self.read_state() {
-            ReadState::Unmapped => Err(Error::Unmapped),
-            ReadState::PrimaryFwd
-            | ReadState::PrimaryRev
-            | ReadState::SecondaryFwd
-            | ReadState::SecondaryRev
-            | ReadState::SupplementaryFwd
-            | ReadState::SupplementaryRev => self.align_len.ok_or(Error::UnavailableData),
+        if self.read_state().is_unmapped() {
+            Err(Error::Unmapped)
+        } else {
+            self.align_len.ok_or(Error::UnavailableData)
         }
     }
     /// sets contig ID and start from BAM record if available
@@ -454,15 +451,13 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             Some(_) => Err(Error::InvalidDuplicates(
                 "cannot set contig and start again!".to_string(),
             )),
-            None => match self.read_state() {
-                ReadState::Unmapped => Err(Error::Unmapped),
-                ReadState::PrimaryFwd
-                | ReadState::PrimaryRev
-                | ReadState::SecondaryFwd
-                | ReadState::SecondaryRev
-                | ReadState::SupplementaryFwd
-                | ReadState::SupplementaryRev => Ok(Some((record.tid(), record.pos().try_into()?))),
-            },
+            None => {
+                if self.read_state().is_unmapped() {
+                    Err(Error::Unmapped)
+                } else {
+                    Ok(Some((record.tid(), record.pos().try_into()?)))
+                }
+            }
         }?;
         Ok(self)
     }
@@ -471,14 +466,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Errors
     /// If instance is unmapped or if data (contig id and start) are not set
     pub fn contig_id_and_start(&self) -> Result<(i32, u64), Error> {
-        match self.read_state() {
-            ReadState::Unmapped => Err(Error::Unmapped),
-            ReadState::PrimaryFwd
-            | ReadState::PrimaryRev
-            | ReadState::SecondaryFwd
-            | ReadState::SecondaryRev
-            | ReadState::SupplementaryFwd
-            | ReadState::SupplementaryRev => self.contig_id_and_start.ok_or(Error::UnavailableData),
+        if self.read_state().is_unmapped() {
+            Err(Error::Unmapped)
+        } else {
+            self.contig_id_and_start.ok_or(Error::UnavailableData)
         }
     }
     /// sets contig name
@@ -540,8 +531,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Ok::<(), Error>(())
     /// ```
     pub fn set_contig_name(mut self, record: &Record) -> Result<Self, Error> {
-        self.contig_name = match (self.read_state(), self.contig_name) {
-            (ReadState::Unmapped, _) => Err(Error::Unmapped),
+        self.contig_name = match (self.read_state().is_unmapped(), self.contig_name) {
+            (true, _) => Err(Error::Unmapped),
             (_, Some(_)) => Err(Error::InvalidDuplicates(
                 "cannot set contig name again!".to_string(),
             )),
@@ -554,8 +545,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Errors
     /// If instance is unmapped or contig name has not been set
     pub fn contig_name(&self) -> Result<&str, Error> {
-        match (self.read_state(), self.contig_name.as_ref()) {
-            (ReadState::Unmapped, _) => Err(Error::Unmapped),
+        match (self.read_state().is_unmapped(), self.contig_name.as_ref()) {
+            (true, _) => Err(Error::Unmapped),
             (_, None) => Err(Error::UnavailableData),
             (_, Some(v)) => Ok(v.as_str()),
         }
@@ -607,7 +598,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             )),
             None => match str::from_utf8(record.qname()) {
                 Ok(v) => Ok(Some(v.to_string())),
-                Err(_) => Err(Error::InvalidReadID),
+                Err(e) => Err(Error::InvalidReadID(format!(
+                    "error in setting read id: {e}"
+                ))),
             },
         }?;
         Ok(self)
@@ -643,11 +636,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// ```
     #[must_use]
     pub fn strand(&self) -> char {
-        match self.read_state() {
-            ReadState::Unmapped => '.',
-            ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd => '+',
-            ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => '-',
-        }
+        self.read_state().strand()
     }
     /// Returns subset of sequence using reference coordinates
     ///
@@ -858,7 +847,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
 
 impl CurrRead<OnlyAlignDataComplete> {
     /// sets modification data using BAM record but with restrictions
-    /// applied by the `InputMods` options
+    /// applied by the [`crate::InputMods`] options for example.
     ///
     /// # Errors
     /// If a region filter is specified and we fail to convert current instance to Bed,
@@ -1005,7 +994,8 @@ impl CurrRead<AlignAndModData> {
     /// let mut count = 0;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let curr_read = CurrRead::default().set_read_state(&r)?.set_mod_data(&r, ThresholdState::GtEq(180), 0)?;
+    ///     let curr_read = CurrRead::default().set_read_state(&r)?
+    ///         .set_mod_data(&r, ThresholdState::GtEq(180), 0)?;
     ///     let mod_count = curr_read.base_count_per_mod();
     ///     let zero_count = Some(HashMap::from([(ModChar::new('T'), 0)]));
     ///     let a = Some(HashMap::from([(ModChar::new('T'), 3)]));
@@ -1171,23 +1161,24 @@ impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for Strand
     )]
     fn try_from(value: &CurrRead<S>) -> Result<Self, Self::Error> {
         match (
-            value.read_state(),
+            value.read_state().strand(),
             value.align_len().ok(),
             value.contig_id_and_start().ok(),
         ) {
-            (ReadState::Unmapped, _, _) => Ok(StrandedBed3::empty()),
-            (_, None, _) => Err(Error::InvalidAlignLength),
-            (_, _, None) => Err(Error::InvalidContigAndStart),
-            (
-                ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd,
-                Some(al),
-                Some((cg, st)),
-            ) => Ok(StrandedBed3::new(cg, st, st + al, Strand::Forward)),
-            (
-                ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev,
-                Some(al),
-                Some((cg, st)),
-            ) => Ok(StrandedBed3::new(cg, st, st + al, Strand::Reverse)),
+            ('.', _, _) => Ok(StrandedBed3::empty()),
+            (_, None, _) => Err(Error::InvalidAlignLength(
+                "align len not set while converting to bed3!".into(),
+            )),
+            (_, _, None) => Err(Error::InvalidContigAndStart(
+                "contig id and start not set while converting to bed3!".into(),
+            )),
+            ('+', Some(al), Some((cg, st))) => {
+                Ok(StrandedBed3::new(cg, st, st + al, Strand::Forward))
+            }
+            ('-', Some(al), Some((cg, st))) => {
+                Ok(StrandedBed3::new(cg, st, st + al, Strand::Reverse))
+            }
+            (_, _, _) => unreachable!("strand should be +/-/., so we should never reach this"),
         }
     }
 }
@@ -1238,11 +1229,313 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
     }
 }
 
-/// Serialized representation of `CurrRead` with condensed JSON format
+/// Serialized representation of [`CurrRead`]; can also be used as a builder
+/// to build [`CurrRead`]. This is useful if modification data is in formats
+/// other than mod BAM, so we can transform it into [`CurrRead`] and use it
+/// with functions from our library.
+///
+/// # Examples
+///
+/// First example, unmapped read with very little information
+///
+/// ```
+/// use nanalogue_core::{Error, CurrReadBuilder};
+/// let read = CurrReadBuilder::default().build()?;
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// Add some simple information, still unmapped.
+///
+/// ```
+/// use nanalogue_core::{Error, CurrReadBuilder};
+/// let read = CurrReadBuilder::default().read_id("some_read".into()).seq_len(40).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// If we try to build a mapped read, we hit a panic as we haven't specified alignment information.
+///
+/// ```should_panic
+/// use nanalogue_core::{Error, CurrReadBuilder,ReadState};
+/// let read = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .alignment_type(ReadState::PrimaryFwd).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// Mapped read building
+///
+/// ```
+/// use nanalogue_core::{Error, CurrReadBuilder, AlignmentInfoBuilder, ReadState};
+/// let read = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .alignment_type(ReadState::PrimaryFwd)
+///     .alignment(AlignmentInfoBuilder::default()
+///         .start(10)
+///         .end(60)
+///         .contig("chr1".into())
+///         .contig_id(1).build()?).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+/// ## Mapped read building with modification information.
+/// Mod table entries are associated with one type of modification each.
+/// The data tuples are: `sequence coordinate`, `reference coordinate`,
+/// `modification probability`. The first varies from 0 to `sequence length` - 1,
+/// the second varies within alignment coordinates and is -1 for an unmapped
+/// position or all entries are -1 if the read as a whole is unmapped, and
+/// the third entry varies from 0 - 255 where 0 means no modification with
+/// certainty, and 255 means modification with certainty.
+///
+/// ```
+/// use nanalogue_core::{Error, CurrReadBuilder, AlignmentInfoBuilder, ModTableEntryBuilder,
+///     ReadState};
+///
+/// let mod_table_entry = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(0, 15, 200), (2, 25, 100)].into()).build()?;
+///
+/// let read = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .alignment_type(ReadState::PrimaryFwd)
+///     .alignment(AlignmentInfoBuilder::default()
+///         .start(10)
+///         .end(60)
+///         .contig("chr1".into())
+///         .contig_id(1).build()?)
+///         .mod_table([mod_table_entry].into()).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// ## Mapped read building with multiple mod types.
+///
+/// ```
+/// use nanalogue_core::{Error, CurrReadBuilder, AlignmentInfoBuilder, ModTableEntryBuilder,
+///     ReadState};
+///
+/// let mod_table_entry_1 = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(0, 15, 200), (2, 25, 100)].into()).build()?;
+///
+/// let mod_table_entry_2 = ModTableEntryBuilder::default()
+///     .base('A')
+///     .is_strand_plus(true)
+///     .mod_code("a".into())
+///     .data([(1, 20, 50), (3, 30, 225)].into()).build()?;
+///
+/// let read = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .alignment_type(ReadState::PrimaryFwd)
+///     .alignment(AlignmentInfoBuilder::default()
+///         .start(10)
+///         .end(60)
+///         .contig("chr1".into())
+///         .contig_id(1).build()?)
+///         .mod_table([mod_table_entry_1, mod_table_entry_2].into()).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+/// ## Unmapped read building with multiple mod types.
+///
+/// Note that all the reference coordinates are set to -1.
+///
+/// ```
+/// use nanalogue_core::{Error, CurrReadBuilder, ModTableEntryBuilder, ReadState};
+///
+/// let mod_table_entry_1 = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(0, -1, 200), (2, -1, 100)].into()).build()?;
+///
+/// let mod_table_entry_2 = ModTableEntryBuilder::default()
+///     .base('A')
+///     .is_strand_plus(true)
+///     .mod_code("a".into())
+///     .data([(1, -1, 50), (3, -1, 225)].into()).build()?;
+///
+/// let read = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .mod_table([mod_table_entry_1, mod_table_entry_2].into()).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// ## Erroneous Usage
+///
+/// ### Coordinates are not sorted
+///
+/// Please note that even for reverse-aligned reads, coordinates must always
+/// be ascending.
+///
+/// ```should_panic
+/// use nanalogue_core::{Error, CurrReadBuilder, AlignmentInfoBuilder, ModTableEntryBuilder,
+///     ReadState};
+///
+/// let mod_table_entry = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(2, 25, 100), (0, 15, 200)].into()).build()?;
+///
+/// let read_before_build = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .alignment(AlignmentInfoBuilder::default()
+///         .start(10)
+///         .end(60)
+///         .contig("chr1".into())
+///         .contig_id(1).build()?)
+///         .mod_table([mod_table_entry].into());
+///
+/// let _ = read_before_build.alignment_type(ReadState::PrimaryFwd).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// ```should_panic
+/// # use nanalogue_core::{Error, CurrReadBuilder, AlignmentInfoBuilder, ModTableEntryBuilder,
+/// #    ReadState};
+/// #
+/// # let mod_table_entry = ModTableEntryBuilder::default()
+/// #    .base('C')
+/// #    .is_strand_plus(true)
+/// #    .mod_code("m".into())
+/// #    .data([(2, 25, 100), (0, 15, 200)].into()).build()?;
+/// #
+/// # let read_before_build = CurrReadBuilder::default()
+/// #    .read_id("some_read".into())
+/// #    .seq_len(40)
+/// #    .alignment(AlignmentInfoBuilder::default()
+/// #        .start(10)
+/// #        .end(60)
+/// #        .contig("chr1".into())
+/// #        .contig_id(1).build()?)
+/// #        .mod_table([mod_table_entry].into());
+/// #
+/// let _ = read_before_build.alignment_type(ReadState::PrimaryRev).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// ### Unmapped read but mod reference coordinates are not set to `-1`.
+///
+/// ```should_panic
+/// use nanalogue_core::{Error, CurrReadBuilder, ModTableEntryBuilder, ReadState};
+///
+/// let mod_table_entry = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(0, -1, 200), (2, 11, 100)].into()).build()?;
+///
+/// let read = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .mod_table([mod_table_entry].into()).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// ### Read with mod coordinates larger than sequence length
+///
+/// This will cause a problem irrespective of whether a read is mapped or not.
+///
+/// ```should_panic
+/// use nanalogue_core::{Error, CurrReadBuilder, ModTableEntryBuilder, ReadState};
+///
+/// let mod_table_entry = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(0, -1, 200), (42, -1, 100)].into()).build()?;
+///
+/// let read = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .mod_table([mod_table_entry].into()).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// ```should_panic
+/// use nanalogue_core::{Error, CurrReadBuilder, AlignmentInfoBuilder, ModTableEntryBuilder,
+///     ReadState};
+///
+/// let mod_table_entry = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(0, 20, 200), (42, 30, 100)].into()).build()?;
+///
+/// let read = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .alignment(AlignmentInfoBuilder::default()
+///         .start(10)
+///         .end(60)
+///         .contig("chr1".into())
+///         .contig_id(1).build()?)
+///     .mod_table([mod_table_entry].into()).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+/// ### Read with mod coordinates beyond alignment coordinates
+///
+/// ```should_panic
+/// use nanalogue_core::{Error, CurrReadBuilder, AlignmentInfoBuilder, ModTableEntryBuilder,
+///     ReadState};
+///
+/// let mod_table_entry = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(0, 1, 200), (22, 30, 100)].into()).build()?;
+///
+/// let read = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .alignment(AlignmentInfoBuilder::default()
+///         .start(10)
+///         .end(60)
+///         .contig("chr1".into())
+///         .contig_id(1).build()?)
+///     .mod_table([mod_table_entry].into()).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+/// ### Reads with multiple tracks of the same kind of modification.
+///
+/// Here we have two `C+m` tracks. Note that two cytosine tracks or two
+/// methylation tracks or two cytosine methylation tracks on opposite
+/// strands are all allowed. Only the case where there are two tracks
+/// of the same base with the same modification on the same strand
+/// are disallowed as the same kind of information is being populated twice.
+///
+/// ```should_panic
+/// use nanalogue_core::{Error, CurrReadBuilder, ModTableEntryBuilder, ReadState};
+///
+/// let mod_table_entry_1 = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(0, -1, 200), (2, -1, 100)].into()).build()?;
+///
+/// let mod_table_entry_2 = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(1, -1, 50), (3, -1, 225)].into()).build()?;
+///
+/// let read = CurrReadBuilder::default()
+///     .read_id("some_read".into())
+///     .seq_len(40)
+///     .mod_table([mod_table_entry_1, mod_table_entry_2].into()).build()?;
+/// # Ok::<(), Error>(())
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-struct SerializedCurrRead {
-    /// The type of alignment (primary, secondary, supplementary, unmapped)
+pub struct CurrReadBuilder {
+    /// The type of alignment
     alignment_type: ReadState,
     /// Alignment information, None for unmapped reads
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1255,7 +1548,7 @@ struct SerializedCurrRead {
     seq_len: u64,
 }
 
-impl Default for SerializedCurrRead {
+impl Default for CurrReadBuilder {
     fn default() -> Self {
         Self {
             alignment_type: ReadState::Unmapped, // note that default is unmapped now, not primary
@@ -1268,9 +1561,13 @@ impl Default for SerializedCurrRead {
 }
 
 /// Alignment information for mapped reads
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+///
+/// See documentation of [`CurrReadBuilder`] on how to use
+/// this struct.
+#[derive(Builder, Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-struct AlignmentInfo {
+#[builder(default, build_fn(error = "Error"), pattern = "owned")]
+pub struct AlignmentInfo {
     /// Start position on reference
     start: u64,
     /// End position on reference
@@ -1281,58 +1578,64 @@ struct AlignmentInfo {
     contig_id: i32,
 }
 
-/// Individual modification table entry
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// Data per type of modification in [`CurrReadBuilder`].
+///
+/// See documentation of [`CurrReadBuilder`] on how to use
+/// this struct.
+#[derive(Builder, Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-struct ModTableEntry {
+#[builder(default, build_fn(error = "Error"), pattern = "owned")]
+pub struct ModTableEntry {
     /// Base that is modified (A, C, G, T, etc.)
-    base: char,
+    #[builder(field(ty = "char", build = "self.base.try_into()?"))]
+    base: AllowedAGCTN,
     /// Whether this is on the plus strand
     is_strand_plus: bool,
     /// Modification code (character or numeric)
+    #[builder(field(ty = "String", build = "self.mod_code.parse()?"))]
     mod_code: ModChar,
-    /// Whether this modification data is implicit
-    implicit: bool,
     /// Modification data as [start, `ref_start`, qual] tuples
     data: Vec<(u64, i64, u8)>,
 }
 
-impl SerializedCurrRead {
-    /// Validates that coordinates in modification data are within expected ranges
-    fn check_coordinates(&self) -> Result<(), Error> {
-        for entry in &self.mod_table {
-            // Check that implicit is false
-            if entry.implicit {
-                return Err(Error::DeSerializeImplicit);
-            }
-
-            for &(start, ref_start, _qual) in &entry.data {
-                // Check that sequence coordinates are in range [0, seq_len)
-                if start >= self.seq_len {
-                    return Err(Error::InvalidSeqLength);
-                }
-
-                // Check reference coordinates based on alignment status
-                match self.alignment.as_ref() {
-                    Some(alignment) => {
-                        // For aligned reads, ref_start should be in [start, end) or -1
-                        let align_range =
-                            i64::try_from(alignment.start)?..i64::try_from(alignment.end)?;
-                        if ref_start != -1 && !align_range.contains(&ref_start) {
-                            return Err(Error::InvalidAlignCoords);
-                        }
-                    }
-                    None => {
-                        // For unmapped reads, all ref_start values must be -1
-                        if ref_start != -1 {
-                            return Err(Error::InvalidAlignCoords);
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
+impl CurrReadBuilder {
+    /// Sets alignment type
+    #[must_use]
+    pub fn alignment_type(mut self, value: ReadState) -> Self {
+        self.alignment_type = value;
+        self
+    }
+    /// Sets alignment information
+    #[must_use]
+    pub fn alignment(mut self, value: AlignmentInfo) -> Self {
+        self.alignment = Some(value);
+        self
+    }
+    /// Sets mod information
+    #[must_use]
+    pub fn mod_table(mut self, value: Vec<ModTableEntry>) -> Self {
+        self.mod_table = value;
+        self
+    }
+    /// Sets read id
+    #[must_use]
+    pub fn read_id(mut self, value: String) -> Self {
+        self.read_id = value;
+        self
+    }
+    /// Sets sequence length
+    #[must_use]
+    pub fn seq_len(mut self, value: u64) -> Self {
+        self.seq_len = value;
+        self
+    }
+    /// Build `CurrRead`
+    ///
+    /// # Errors
+    /// If the conversion fails. This could happen if invalid
+    /// data was used in the building.
+    pub fn build(self) -> Result<CurrRead<AlignAndModData>, Error> {
+        CurrRead::<AlignAndModData>::try_from(self)
     }
 }
 
@@ -1341,13 +1644,13 @@ impl Serialize for CurrRead<AlignAndModData> {
     where
         S: serde::Serializer,
     {
-        let serialized_curr_read: SerializedCurrRead =
+        let serialized_curr_read: CurrReadBuilder =
             self.clone().try_into().map_err(serde::ser::Error::custom)?;
         serialized_curr_read.serialize(serializer)
     }
 }
 
-impl TryFrom<CurrRead<AlignAndModData>> for SerializedCurrRead {
+impl TryFrom<CurrRead<AlignAndModData>> for CurrReadBuilder {
     type Error = Error;
 
     fn try_from(curr_read: CurrRead<AlignAndModData>) -> Result<Self, Self::Error> {
@@ -1357,7 +1660,7 @@ impl TryFrom<CurrRead<AlignAndModData>> for SerializedCurrRead {
             clippy::arithmetic_side_effects,
             reason = "u64 variables won't overflow with genomic coords (<2^64-1)"
         )]
-        let alignment = if curr_read.read_state() == ReadState::Unmapped {
+        let alignment = if curr_read.read_state().is_unmapped() {
             None
         } else {
             let (contig_id, start) = curr_read.contig_id_and_start()?;
@@ -1378,7 +1681,7 @@ impl TryFrom<CurrRead<AlignAndModData>> for SerializedCurrRead {
         let read_id = curr_read.read_id()?.to_string();
         let seq_len = curr_read.seq_len()?;
 
-        Ok(SerializedCurrRead {
+        Ok(CurrReadBuilder {
             alignment_type,
             alignment,
             mod_table,
@@ -1393,41 +1696,55 @@ impl<'de> Deserialize<'de> for CurrRead<AlignAndModData> {
     where
         D: serde::Deserializer<'de>,
     {
-        let serialized = SerializedCurrRead::deserialize(deserializer)?;
+        let serialized = CurrReadBuilder::deserialize(deserializer)?;
         serialized.try_into().map_err(serde::de::Error::custom)
     }
 }
 
-impl TryFrom<SerializedCurrRead> for CurrRead<AlignAndModData> {
+impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
     type Error = Error;
 
-    fn try_from(serialized: SerializedCurrRead) -> Result<Self, Self::Error> {
-        // Validate coordinates before proceeding with deserialization
-        serialized.check_coordinates()?;
-
-        // Reconstruct BaseMods from mod_table
-        let base_mods = reconstruct_base_mods(
-            &serialized.mod_table,
-            serialized.alignment_type,
-            serialized.seq_len,
-        )?;
-
+    fn try_from(serialized: CurrReadBuilder) -> Result<Self, Self::Error> {
         // Extract alignment information
-        let (align_len, contig_id_and_start, contig_name) = match serialized.alignment.as_ref() {
-            Some(alignment) => {
+        let (align_len, contig_id_and_start, contig_name, ref_range) = match (
+            serialized.alignment_type.is_unmapped(),
+            serialized.alignment.as_ref(),
+        ) {
+            (false, Some(alignment)) => {
                 let align_len = {
                     if let Some(v) = alignment.end.checked_sub(alignment.start) {
                         Ok(Some(v))
                     } else {
-                        Err(Error::InvalidAlignCoords)
+                        Err(Error::InvalidAlignCoords(format!(
+                            "is align end {0} < align start {1}? read {2} failed in `CurrRead` building!",
+                            alignment.end, alignment.start, serialized.read_id
+                        )))
                     }
                 }?;
                 let contig_id_and_start = Some((alignment.contig_id, alignment.start));
                 let contig_name = Some(alignment.contig.clone());
-                (align_len, contig_id_and_start, contig_name)
+                (
+                    align_len,
+                    contig_id_and_start,
+                    contig_name,
+                    i64::try_from(alignment.start)?..i64::try_from(alignment.end)?,
+                )
             }
-            None => (None, None, None),
+            (true, None) => (None, None, None, (-1i64)..0),
+            (_, _) => {
+                return Err(Error::UnknownAlignState(String::from(
+                    "alignment_type and alignment info not matching while building CurrRead!",
+                )));
+            }
         };
+
+        // Reconstruct BaseMods from mod_table
+        let base_mods = reconstruct_base_mods(
+            &serialized.mod_table,
+            serialized.alignment_type.strand() == '-',
+            ref_range,
+            serialized.seq_len,
+        )?;
 
         // Create CurrRead directly
         Ok(CurrRead {
@@ -1463,10 +1780,9 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
             .collect();
 
         mod_table.push(ModTableEntry {
-            base: base_mod.modified_base as char,
+            base: AllowedAGCTN::try_from(base_mod.modified_base)?,
             is_strand_plus: base_mod.strand == '+',
             mod_code: ModChar::new(base_mod.modification_type),
-            implicit: false, // Always false to handle modBAM format requirements
             data: entries?,
         });
     }
@@ -1474,60 +1790,50 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
     Ok(mod_table)
 }
 
-/// Helper function to check if starts vector is sorted in ascending order
-fn validate_starts_sorting(starts: &[Option<i64>]) -> Result<(), Error> {
-    // Extract non-None values for sorting validation
-    let positions: Vec<i64> = starts.iter().filter_map(|&x| x).collect();
-
-    // Skip validation for empty or single-element vectors
-    if positions.len() <= 1 {
-        return Ok(());
-    }
-
-    // Always check ascending order regardless of alignment type
-    let is_sorted_ascending = positions.windows(2).all(|w| {
-        let first = w.first().expect("windows(2) ensures at least 2 elements");
-        let second = w.get(1).expect("windows(2) ensures at least 2 elements");
-        first <= second
-    });
-    if !is_sorted_ascending {
-        let sample_positions: Vec<i64> = positions.iter().take(5).copied().collect();
-        return Err(Error::InvalidSorting(format!(
-            "Expected ascending order, but got first {} positions: {:?}{}",
-            sample_positions.len(),
-            sample_positions,
-            if positions.len() > 5 { "..." } else { "" }
-        )));
-    }
-
-    Ok(())
-}
-
 /// Reconstruct `BaseMods` from condensed `mod_table` format
 fn reconstruct_base_mods(
     mod_table: &[ModTableEntry],
-    alignment_type: ReadState,
+    is_reverse: bool,
+    ref_range: Range<i64>,
     seq_len: u64,
 ) -> Result<BaseMods, Error> {
     let mut base_mods = Vec::new();
 
     for entry in mod_table {
-        let mut starts = Vec::new();
-        let mut reference_starts = Vec::new();
-        let mut qual = Vec::new();
+        let (starts, reference_starts, qual) = {
+            let mut temp_starts = Vec::<Option<i64>>::with_capacity(entry.data.len());
+            let mut temp_reference_starts = Vec::<Option<i64>>::with_capacity(entry.data.len());
+            let mut temp_qual = Vec::<u8>::with_capacity(entry.data.len());
+            let mut valid_range = 0..seq_len;
 
-        for &(start, ref_start, q) in &entry.data {
-            starts.push(Some(i64::try_from(start)?));
-            reference_starts.push(if ref_start == -1 {
-                None
-            } else {
-                Some(ref_start)
-            });
-            qual.push(q);
-        }
+            #[expect(
+                clippy::arithmetic_side_effects,
+                reason = "prev_start + 1 cannot overflow as genomic coordinates << 2^64"
+            )]
+            for &(start, ref_start, q) in &entry.data {
+                // Check that sequence coordinates are in range [prev_start + 1, seq_len)
+                if !valid_range.contains(&start) {
+                    return Err(Error::InvalidModCoords(String::from(
+                        "in mod table, read coords > seq length or read coords not sorted (NOTE: \
+ascending needed even if reversed read)!",
+                    )));
+                }
+                valid_range = start + 1..seq_len;
+                temp_starts.push(Some(i64::try_from(start)?));
 
-        // Validate sorting after starts vector is populated
-        validate_starts_sorting(&starts)?;
+                match (ref_start, ref_range.contains(&ref_start)) {
+                    (-1, _) => temp_reference_starts.push(None),
+                    (v, true) if v > -1 => temp_reference_starts.push(Some(v)),
+                    (v, _) => {
+                        return Err(Error::InvalidAlignCoords(format!(
+                            "coordinate {v} invalid in mod table (exceeds alignment coords or is < -1)"
+                        )));
+                    }
+                }
+                temp_qual.push(q);
+            }
+            (temp_starts, temp_reference_starts, temp_qual)
+        };
 
         // Calculate ends: starts + 1 where available, None otherwise
         #[expect(
@@ -1554,12 +1860,6 @@ fn reconstruct_base_mods(
             .map(|&ref_start_opt| ref_start_opt.map(|_| 0))
             .collect();
 
-        // Marks if a read is reverse aligned
-        let is_reverse = matches!(
-            alignment_type,
-            ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev
-        );
-
         let ranges = Ranges {
             starts,
             ends,
@@ -1575,7 +1875,7 @@ fn reconstruct_base_mods(
         let strand = if entry.is_strand_plus { '+' } else { '-' };
 
         base_mods.push(BaseMod {
-            modified_base: entry.base as u8,
+            modified_base: u8::try_from(char::from(entry.base))?,
             strand,
             modification_type: entry.mod_code.val(),
             ranges,
@@ -1620,7 +1920,7 @@ mod test_error_handling {
                 (0 | 4 | 16 | 256 | 272 | 2048 | 2064, Ok(_))
                 | (
                     20 | 260 | 276 | 2052 | 2068 | 2304 | 2308 | 2320 | 2324,
-                    Err(Error::UnknownAlignState),
+                    Err(Error::UnknownAlignState(_)),
                 )
                 | (_, Err(Error::NotImplementedError(_))) => {}
                 (_, _) => unreachable!(),
@@ -1635,23 +1935,21 @@ mod test_error_handling {
         // i.e. we have two entries for T+T below with different data
         let mod_entries = vec![
             ModTableEntry {
-                base: 'T',
+                base: AllowedAGCTN::T,
                 is_strand_plus: true,
                 mod_code: ModChar::new('T'),
-                implicit: false,
                 data: vec![(0, 0, 10)],
             },
             ModTableEntry {
-                base: 'T',
+                base: AllowedAGCTN::T,
                 is_strand_plus: true,
                 mod_code: ModChar::new('T'),
-                implicit: false,
                 data: vec![(1, 1, 20)],
             },
         ];
 
         // Test reconstruct_base_mods with duplicate entries
-        let _: BaseMods = reconstruct_base_mods(&mod_entries, ReadState::PrimaryFwd, 10).unwrap();
+        let _: BaseMods = reconstruct_base_mods(&mod_entries, false, 0..i64::MAX, 10).unwrap();
     }
 
     #[test]
@@ -1662,30 +1960,27 @@ mod test_error_handling {
         // Third entry: T- modification (same base, different strand)
         let mod_entries = vec![
             ModTableEntry {
-                base: 'T',
+                base: AllowedAGCTN::T,
                 is_strand_plus: true,
                 mod_code: ModChar::new('T'),
-                implicit: false,
                 data: vec![(0, 0, 10)],
             },
             ModTableEntry {
-                base: 'C',
+                base: AllowedAGCTN::C,
                 is_strand_plus: true,
                 mod_code: ModChar::new('m'),
-                implicit: false,
                 data: vec![(1, 1, 20)],
             },
             ModTableEntry {
-                base: 'T',
+                base: AllowedAGCTN::T,
                 is_strand_plus: false,
                 mod_code: ModChar::new('T'),
-                implicit: false,
                 data: vec![(2, 2, 30)],
             },
         ];
 
         // This should succeed since all combinations are unique
-        let _: BaseMods = reconstruct_base_mods(&mod_entries, ReadState::PrimaryFwd, 10).unwrap();
+        let _: BaseMods = reconstruct_base_mods(&mod_entries, false, 0..i64::MAX, 10).unwrap();
     }
 }
 
@@ -1723,7 +2018,6 @@ mod test_serde {
                   "base": "T",
                   "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                     [0, 9, 4],
                     [3, 12, 7],
@@ -1821,7 +2115,6 @@ mod test_serde {
                   "base": "G",
                   "is_strand_plus": false,
                   "mod_code": "7200",
-                  "implicit": false,
                   "data": [
                     [28, -1, 0],
                     [29, -1, 0],
@@ -1835,7 +2128,6 @@ mod test_serde {
                   "base": "T",
                   "is_strand_plus": true,
                   "mod_code": "T",
-                  "implicit": false,
                   "data": [
                     [3, -1, 221],
                     [8, -1, 242],
@@ -1874,7 +2166,7 @@ mod test_serde {
     }
 
     #[test]
-    #[should_panic(expected = "invalid sequence length")]
+    #[should_panic(expected = "invalid mod coordinates")]
     fn invalid_sequence_length() {
         let invalid_json = r#"{
             "mod_table": [
@@ -1883,21 +2175,6 @@ mod test_serde {
                 }
             ],
             "seq_len": 10
-        }"#;
-
-        // Deserialize JSON to CurrRead - this should panic with InvalidSeqLength
-        let _: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
-    }
-
-    #[test]
-    #[should_panic(expected = "cannot deserialize when implicit")]
-    fn invalid_implicit() {
-        let invalid_json = r#"{
-            "mod_table": [
-                {
-                    "implicit": true
-                }
-            ]
         }"#;
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSeqLength
@@ -1947,7 +2224,7 @@ mod test_serde {
     }
 
     #[test]
-    #[should_panic(expected = "invalid sorting")]
+    #[should_panic(expected = "invalid mod coordinates")]
     fn invalid_sorting_forward_alignment() {
         let invalid_json = r#"{
             "alignment_type": "primary_forward",
@@ -1968,7 +2245,7 @@ mod test_serde {
     }
 
     #[test]
-    #[should_panic(expected = "invalid sorting")]
+    #[should_panic(expected = "invalid mod coordinates")]
     fn invalid_sorting_reverse_alignment() {
         let invalid_json = r#"{
             "alignment_type": "primary_reverse",

@@ -117,17 +117,14 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error
 /// use nanalogue_core::analysis::threshold_and_mean_and_thres_win;
 /// use nanalogue_core::F32Bw0and1;
 ///
-/// // Create a threshold of 0.5 (50% of bases must be modified)
-/// let threshold = F32Bw0and1::new(0.5).unwrap();
-///
 /// // Test with 75% modified bases (values >= 128)
 /// let mod_data = [0, 128, 200, 255];
-/// let result = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
+/// let result = threshold_and_mean_and_thres_win(&mod_data, 0.5f32.try_into().unwrap()).unwrap();
 /// assert_eq!(result.val(), 0.75);
 ///
 /// // Test with 25% modified bases (should return WindowDensBelowThres error)
 /// let mod_data = [0, 0, 0, 128];
-/// let result = threshold_and_mean_and_thres_win(&mod_data, threshold);
+/// let result = threshold_and_mean_and_thres_win(&mod_data, 0.5f32.try_into().unwrap());
 /// assert!(result.is_err());
 /// ```
 pub fn threshold_and_mean_and_thres_win(

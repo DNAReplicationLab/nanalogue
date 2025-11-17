@@ -6,16 +6,16 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-/// Struct to mark if we want data only from the "+"
-/// or the "-" mod-called strand.
+/// Struct to mark if we want data only from the `+`
+/// or the `-` mod-called strand.
 /// NOTE: this doesn't mean the strand from the alignment,
 /// but the strand from the modification data i.e. the strand
-/// in the MM tag e.g. T+T, T-a where the strand is "+" and "-"
+/// in the MM tag e.g. T+T, T-a where the strand is `+` and `-`
 /// respectively. This denotes if mod data is from the basecalled
 /// strand or the complementary strand. To not confuse users of the
 /// command line interface, we allow creation of this from a string
-/// "bc" or "`bc_comp`" i.e. basecalled or basecalled complement instead
-/// of "+" and "-", which may be mistaken for the alignment strand.
+/// `bc` or `bc_comp` i.e. basecalled or basecalled complement instead
+/// of `+` and `-`, which may be mistaken for the alignment strand.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RestrictModCalledStrand(bool);
 
@@ -26,7 +26,7 @@ impl Default for RestrictModCalledStrand {
     }
 }
 
-/// Set states according to if we receive "bc" or "`bc_comp`"
+/// Set states according to if we receive `bc` or `bc_comp`
 ///
 /// ```
 /// use nanalogue_core::RestrictModCalledStrand;
@@ -50,7 +50,7 @@ impl FromStr for RestrictModCalledStrand {
     }
 }
 
-/// Prints the true state as "+" and the false state as "-"
+/// Prints the true state as `+` and the false state as `-`
 ///
 /// ```
 /// use nanalogue_core::RestrictModCalledStrand;
@@ -67,7 +67,7 @@ impl fmt::Display for RestrictModCalledStrand {
     }
 }
 
-/// Converts the true state to the '+' character, and false to '-'
+/// Converts the true state to the `+` character, and false to `-`
 ///
 /// ```
 /// use nanalogue_core::RestrictModCalledStrand;

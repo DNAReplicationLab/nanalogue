@@ -2,10 +2,11 @@
 //! Provides ordered pair datatype with validation and interval operations
 
 use super::contains::Contains;
-use crate::Error;
+use crate::{Error, F32Bw0and1};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
+use std::num::NonZeroU64;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 
@@ -17,6 +18,11 @@ pub struct OrdPair<T: Clone + Copy + Debug + PartialEq + PartialOrd> {
     /// high value of the ordered pair
     high: T,
 }
+
+impl Eq for OrdPair<u8> {}
+impl Eq for OrdPair<u64> {}
+impl Eq for OrdPair<NonZeroU64> {}
+impl Eq for OrdPair<F32Bw0and1> {}
 
 impl<T: Clone + Copy + Debug + Default + Ord> Default for OrdPair<T> {
     fn default() -> Self {
@@ -216,6 +222,65 @@ impl<T: Clone + Copy + Debug + fmt::Display + PartialEq + PartialOrd> fmt::Displ
     /// converts to string for display i.e. "low, high"
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}, {}", self.get_low(), self.get_high())
+    }
+}
+
+/// Shorthand notation for an ordered pair of `NonZeroU64`.
+///
+/// # Examples
+/// ```
+/// use nanalogue_core::{Error, OrdPair};
+/// use std::num::NonZeroU64;
+/// let v = OrdPair::<NonZeroU64>::try_from((2u64, 3u64))?;
+/// assert_eq!(v, OrdPair::new(NonZeroU64::new(2).unwrap(), NonZeroU64::new(3).unwrap()).unwrap());
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+impl TryFrom<(u64, u64)> for OrdPair<NonZeroU64> {
+    type Error = Error;
+
+    fn try_from(value: (u64, u64)) -> Result<Self, Self::Error> {
+        OrdPair::new(
+            NonZeroU64::new(value.0).ok_or(Error::InvalidState(String::from(
+                "did you pass positive integers < 2^64?",
+            )))?,
+            NonZeroU64::new(value.1).ok_or(Error::InvalidState(String::from(
+                "did you pass positive integers < 2^64?",
+            )))?,
+        )
+    }
+}
+
+/// Shorthand notation for an ordered pair of `F32Bw0and1`.
+///
+/// # Examples
+/// ```
+/// use nanalogue_core::{Error, F32Bw0and1, OrdPair};
+/// let v = OrdPair::<F32Bw0and1>::try_from((0.2, 0.3))?;
+/// assert_eq!(v, OrdPair::new(F32Bw0and1::new(0.2).unwrap(), F32Bw0and1::new(0.3).unwrap()).unwrap());
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+impl TryFrom<(f32, f32)> for OrdPair<F32Bw0and1> {
+    type Error = Error;
+
+    fn try_from(value: (f32, f32)) -> Result<Self, Self::Error> {
+        OrdPair::new(F32Bw0and1::new(value.0)?, F32Bw0and1::new(value.1)?)
+    }
+}
+
+/// Shorthand notation for an ordered pair of a generic type.
+///
+/// # Examples
+/// ```
+/// use nanalogue_core::{Error, F32Bw0and1, OrdPair};
+/// let v = OrdPair::<u8>::try_from((10, 11))?;
+/// assert_eq!(v, OrdPair::new(10u8, 11u8).unwrap());
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> TryFrom<(T, T)> for OrdPair<T> {
+    type Error = Error;
+
+    fn try_from(value: (T, T)) -> Result<Self, Self::Error> {
+        OrdPair::new(value.0, value.1)
     }
 }
 

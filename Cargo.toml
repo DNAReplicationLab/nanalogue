@@ -26,6 +26,7 @@ rand = "0.9.2"
 itertools = "0.14.0"
 uuid = { version = "1.18.1", features = [ "v4" ] }
 url = "2.5.7"
+derive_builder = "0.20.2"
 
 [dev-dependencies]
 indoc = "2.0.6"

@@ -3,9 +3,7 @@
 //! In this module, we window data along molecules, and then output
 //! these windows
 
-use crate::{
-    CurrRead, Error, F32AbsValAtMost1, InputMods, InputWindowing, ModChar, OptionalTag, ReadState,
-};
+use crate::{CurrRead, Error, F32AbsValAtMost1, InputMods, InputWindowing, ModChar, OptionalTag};
 use rust_htslib::bam::Record;
 use std::rc::Rc;
 
@@ -48,14 +46,10 @@ where
             .set_mod_data_restricted_options(&record, mods)?;
         let qname = curr_read_state.read_id()?;
         let strand = curr_read_state.strand();
-        let contig = match curr_read_state.read_state() {
-            ReadState::Unmapped => ".",
-            ReadState::PrimaryFwd
-            | ReadState::PrimaryRev
-            | ReadState::SecondaryFwd
-            | ReadState::SecondaryRev
-            | ReadState::SupplementaryFwd
-            | ReadState::SupplementaryRev => curr_read_state.contig_name()?,
+        let contig = if curr_read_state.read_state().is_unmapped() {
+            "."
+        } else {
+            curr_read_state.contig_name()?
         };
 
         // read and window modification data, then print the output

@@ -35,12 +35,49 @@ impl GetDNARestrictive for DNARestrictive {
 impl FromStr for DNARestrictive {
     type Err = Error;
 
+    /// Convert from string with only valid bases (A, C, G, T, or lowercase).
+    /// Does not accept ambiguous bases like 'N'.
+    ///
+    /// # Examples
+    /// ```
+    /// use nanalogue_core::{DNARestrictive, Error};
+    /// use std::str::FromStr;
+    ///
+    /// let val_1 = DNARestrictive::from_str("ACGT").unwrap();
+    /// let val_2 = DNARestrictive::from_str("acgt").unwrap();
+    /// let val_3: Error = DNARestrictive::from_str("ACGTN").unwrap_err();
+    /// let val_4: Error = DNARestrictive::from_str("").unwrap_err();
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if !is_valid_dna_restrictive(s) {
-            return Err(Error::InvalidSeq);
+        DNARestrictive::try_from(s.as_bytes().to_vec())
+    }
+}
+
+impl TryFrom<Vec<u8>> for DNARestrictive{
+    type Error = Error;
+
+    /// Converts from a vector of `u8`, only `ACGT` upper or lowercases allowed.
+    ///
+    /// # Example
+    /// ```
+    /// use nanalogue_core::{DNARestrictive, Error};
+    /// let val_1 = DNARestrictive::try_from(vec![b'A', b'C', b'G', b'T', b'a', b'c', b'g', b't']).unwrap();
+    /// let val_2: Error = DNARestrictive::try_from(vec![b'h']).unwrap_err();
+    /// let val_3: Error = DNARestrictive::try_from(vec![b'N']).unwrap_err();
+    /// let val_4: Error = DNARestrictive::try_from(vec![]).unwrap_err();
+    /// ```
+    fn try_from(s: Vec<u8>) -> Result<Self, Self::Error> {
+        if s.is_empty(){
+            Err(Error::InvalidSeq("empty sequence supplied!".to_owned()))
+        } else {
+            Ok(DNARestrictive(s.into_iter().map(|x| match x{
+                b'A' | b'a' => Ok(b'A'),
+                b'C' | b'c' => Ok(b'C'),
+                b'G' | b'g' => Ok(b'G'),
+                b'T' | b't' => Ok(b'T'),
+                v => Err(Error::InvalidBase(char::from(v).to_string())),
+            }).collect::<Result<Vec<u8>, _>>()?))
         }
-        let bytes: Vec<u8> = s.bytes().map(|b| b.to_ascii_uppercase()).collect();
-        Ok(DNARestrictive(bytes))
     }
 }
 
@@ -54,39 +91,13 @@ impl<'de> Deserialize<'de> for DNARestrictive {
     }
 }
 
-/// Validates that a DNA sequence contains only valid bases (A, C, G, T).
-/// Does not accept ambiguous bases like 'N'.
-///
-/// # Examples
-/// ```
-/// use nanalogue_core::utils::is_valid_dna_restrictive;
-///
-/// assert!(is_valid_dna_restrictive("ACGT"));
-/// assert!(is_valid_dna_restrictive("acgt"));
-/// assert!(!is_valid_dna_restrictive("ACGTN"));
-/// assert!(!is_valid_dna_restrictive(""));
-/// ```
-#[must_use]
-#[expect(
-    clippy::module_name_repetitions,
-    reason = "function is exported in public API and full name provides clarity to users"
-)]
-pub fn is_valid_dna_restrictive(seq: &str) -> bool {
-    (!seq.is_empty())
-        && seq.bytes().all(|b| {
-            [b'A', b'a', b'T', b't', b'G', b'g', b'C', b'c']
-                .into_iter()
-                .any(|c| c == b)
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// Tests `DNARestrictive` parsing with invalid barcode
     #[test]
-    #[should_panic(expected = "InvalidSeq")]
+    #[should_panic(expected = "InvalidBase")]
     fn dna_restrictive_invalid() {
         let invalid_barcode = "ACGTN";
         let _: DNARestrictive = DNARestrictive::from_str(invalid_barcode).unwrap();

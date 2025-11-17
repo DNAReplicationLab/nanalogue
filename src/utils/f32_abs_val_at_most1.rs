@@ -105,7 +105,28 @@ impl FromStr for F32AbsValAtMost1 {
 impl fmt::Display for F32AbsValAtMost1 {
     /// converts to string for display.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.val())
+        self.val().fmt(f)
+    }
+}
+
+impl TryFrom<f32> for F32AbsValAtMost1 {
+    type Error = Error;
+
+    /// attempts conversion from `f32`, will succeed if -1 <= value <= 1
+    ///
+    /// # Errors
+    /// If conversion doesn't work.
+    ///
+    /// # Examples
+    /// ```
+    /// use nanalogue_core::{Error, F32AbsValAtMost1};
+    ///
+    /// let val1: F32AbsValAtMost1 = 0.5f32.try_into().unwrap();
+    /// let val2: F32AbsValAtMost1 = (-0.7_f32).try_into().unwrap();
+    /// let val3: Error = F32AbsValAtMost1::try_from(1.7).unwrap_err();
+    /// ```
+    fn try_from(value: f32) -> Result<Self, Self::Error> {
+        F32AbsValAtMost1::new(value)
     }
 }
 

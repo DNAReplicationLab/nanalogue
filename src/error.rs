@@ -7,6 +7,8 @@
 //! error handling in our package becomes easier.
 
 use crate::F32Bw0and1;
+use derive_builder::UninitializedFieldError;
+use std::char::TryFromCharError;
 use std::fmt;
 use std::io;
 use std::num::{ParseFloatError, ParseIntError, TryFromIntError};
@@ -19,61 +21,62 @@ use thiserror::Error;
 #[non_exhaustive]
 pub enum Error {
     /// Alignment of sequence is not known
-    #[error("unknown alignment state")]
-    UnknownAlignState,
+    #[error("unknown alignment state: `{0}`")]
+    UnknownAlignState(String),
 
     /// Failure upon extracting sequence length
-    #[error("invalid sequence length")]
-    InvalidSeqLength,
+    #[error("invalid sequence length: `{0}`")]
+    InvalidSeqLength(String),
 
     /// Failure upon extracting or calculating alignment length of molecule
-    #[error("invalid alignment length")]
-    InvalidAlignLength,
+    #[error("invalid alignment length: `{0}`")]
+    InvalidAlignLength(String),
 
     /// Contig and start of alignment of molecule are invalid
-    #[error("invalid contig and start")]
-    InvalidContigAndStart,
+    #[error("invalid contig and/or start: `{0}`")]
+    InvalidContigAndStart(String),
 
     /// Alignment coordinates (contig/start/end) are invalid.
     #[error(
-        "invalid alignment coordinates (contig/start/end) \n\
+        "invalid alignment coordinates (contig/start/end): `{0}` \n\
  If piping in a samtools view command, please include header with -h in samtools. "
     )]
-    InvalidAlignCoords,
+    InvalidAlignCoords(String),
 
     /// Modification coordinates are invalid
-    #[error("invalid mod coordinates")]
-    InvalidModCoords,
+    #[error("invalid mod coordinates: `{0}`")]
+    InvalidModCoords(String),
 
     /// Modification probabilities are invalid
-    #[error("invalid mod probabilities")]
-    InvalidModProbs,
+    #[error("invalid mod probabilities: `{0}`")]
+    InvalidModProbs(String),
 
     /// Sequence is invalid
-    #[error("invalid sequence")]
-    InvalidSeq,
+    #[error("invalid sequence: `{0}`")]
+    InvalidSeq(String),
 
     /// Base is invalid (not A, G, C, T, or N)
-    #[error("invalid base")]
-    InvalidBase,
+    #[error("invalid base: `{0}`")]
+    InvalidBase(String),
 
     /// Read id of molecule is invalid
-    #[error("invalid read id")]
-    InvalidReadID,
+    #[error("invalid read id: `{0}`")]
+    InvalidReadID(String),
 
     /// Modification type is invalid. Mod types are indicated in
     /// mod BAM files like so: ...C+m... where C is the base and
     /// m is the modification type, in this case methylation.
-    #[error("invalid mod type")]
-    InvalidModType,
+    #[error("invalid mod type: `{0}`")]
+    InvalidModType(String),
 
     /// Modification type is empty
-    #[error("empty mod type")]
-    EmptyModType,
+    #[error("empty mod type: `{0}`")]
+    EmptyModType(String),
 
     /// Some error from the rust htslib library we use to read BAM files
     #[error(
-        "rust_htslib error: `{0}` \nIf piping in a samtools view command, please include header with -h in samtools. "
+        "rust_htslib error: `{0}` \nIf you are piping in `samtools view`, \
+error could possibly be due to not including header with `samtools view -h` "
     )]
     RustHtslibError(#[from] rust_htslib::errors::Error),
 
@@ -153,8 +156,8 @@ pub enum Error {
     Unmapped,
 
     /// Zero values used where they should not be
-    #[error("zero values not allowed")]
-    Zero,
+    #[error("zero values not allowed: `{0}`")]
+    Zero(String),
 
     /// Genomic region coordinates exceed contig boundaries
     #[error("invalid region '{region}': position {pos} exceeds contig length {contig_length}")]
@@ -166,10 +169,6 @@ pub enum Error {
         /// The actual length of the contig
         contig_length: u64,
     },
-
-    /// Cannot de-serialize implicit modBAM format
-    #[error("cannot deserialize when implicit is set to true")]
-    DeSerializeImplicit,
 
     /// Sorting validation failure
     #[error("invalid sorting: {0}")]
@@ -195,4 +194,12 @@ pub enum Error {
     /// Arithmetic error
     #[error("unanticipated arithmetic error e.g. overflow")]
     Arithmetic,
+
+    /// Problem parsing items while building structs with Builder methods
+    #[error("building error, are you missing inputs?: `{0}`")]
+    Builder(#[from] UninitializedFieldError),
+
+    /// Problem parsing items while converting between DNA base representations
+    #[error("error converting between DNA bases: `{0}`")]
+    FromCharError(#[from] TryFromCharError),
 }
