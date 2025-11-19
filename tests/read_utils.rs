@@ -507,9 +507,9 @@ mod tests {
                 let region_no_overlap =
                     Bed3::new(contig_id, start + align_len, start + align_len + 2);
                 match curr_read.seq_on_ref_coords(&r, &region_no_overlap) {
-                    Err(Error::UnavailableData) => Ok(()),
-                    _ => Err(Error::UnknownError),
-                }?;
+                    Err(Error::UnavailableData) => (),
+                    _ => unreachable!(),
+                }
             }
         }
         Ok(())
@@ -637,13 +637,10 @@ mod tests {
     #[test]
     fn basecount_per_mod() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-        let first_count = Some(HashMap::from([(ModChar::new('T'), 0)]));
-        let second_count = Some(HashMap::from([(ModChar::new('T'), 3)]));
-        let third_count = Some(HashMap::from([(ModChar::new('T'), 1)]));
-        let fourth_count = Some(HashMap::from([
-            (ModChar::new('T'), 3),
-            (ModChar::new('ᰠ'), 0),
-        ]));
+        let first_count = HashMap::from([(ModChar::new('T'), 0)]);
+        let second_count = HashMap::from([(ModChar::new('T'), 3)]);
+        let third_count = HashMap::from([(ModChar::new('T'), 1)]);
+        let fourth_count = HashMap::from([(ModChar::new('T'), 3), (ModChar::new('ᰠ'), 0)]);
         for (count, record) in reader.records().enumerate() {
             let r = record?;
             let curr_read = CurrRead::default().set_read_state(&r)?.set_mod_data(

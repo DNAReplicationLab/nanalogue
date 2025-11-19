@@ -4,7 +4,6 @@
 //! reference genomes, modification information on them, and other miscellaneous
 //! information from BAM files.
 //!
-use bedrs::{Bed3, Coordinates as _};
 use clap::{Parser, Subcommand};
 use nanalogue_core::{
     BamPreFilt as _, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
@@ -39,11 +38,14 @@ enum Commands {
         #[clap(flatten)]
         mods: InputMods<OptionalTag>,
         /// Genomic region from which basecalled sequences are displayed (optional)
-        #[clap(long)]
+        #[clap(long, conflicts_with = "seq_full", group = "seq")]
         seq_region: Option<GenomicRegion>,
         /// Displays entire basecalled sequence (optional)
-        #[clap(long, conflicts_with = "seq_region")]
+        #[clap(long, conflicts_with = "seq_region", group = "seq")]
         seq_full: bool,
+        /// Displays basecalling qualities (optional)
+        #[clap(long, requires = "seq")]
+        show_base_qual: bool,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -54,11 +56,14 @@ enum Commands {
         #[clap(flatten)]
         bam: InputBam,
         /// Genomic region from which basecalled sequences are displayed (optional)
-        #[clap(long)]
+        #[clap(long, conflicts_with = "seq_full", group = "seq")]
         seq_region: Option<GenomicRegion>,
         /// Displays entire basecalled sequence (optional)
-        #[clap(long, conflicts_with = "seq_region")]
+        #[clap(long, conflicts_with = "seq_region", group = "seq")]
         seq_full: bool,
+        /// Displays basecalling qualities (optional)
+        #[clap(long, requires = "seq")]
+        show_base_qual: bool,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -344,15 +349,17 @@ where
     }
 
     /// decides whether to display sequence from a region,
-    /// the full basecalled sequence, or neither
+    /// the full basecalled sequence, or neither, and optionally the basecalled qualities.
     /// Note: clap's `conflicts_with` ensures `seq_region` and `seq_full` are mutually exclusive
     macro_rules! seq_display {
-        ( $b : expr, $c : expr, $d : expr) => {
-            match ($b, $c) {
-                (None, false) => None,
-                (Some(v), false) => Some(v.try_to_bed3(&$d)?),
-                (None, true) => Some(Bed3::<i32, u64>::empty()),
-                (Some(_), true) => unreachable!("clap prevents seq_region and seq_full together"),
+        ( $b : expr, $c : expr, $d : expr, $e : expr) => {
+            match ($b, $c, $d) {
+                (None, false, _) => None,
+                (Some(v), false, flag) => Some((Some(v.try_to_bed3(&$e)?), flag)),
+                (None, true, flag) => Some((None, flag)),
+                (Some(_), true, _) => {
+                    unreachable!("clap prevents seq_region and seq_full together")
+                }
             }
         };
     }
@@ -364,6 +371,7 @@ where
             mut mods,
             seq_region,
             seq_full,
+            show_base_qual,
             seq_summ_file,
         } => {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
@@ -371,7 +379,7 @@ where
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 Some(mods),
-                seq_display!(seq_region, seq_full, bam_rc_records.header),
+                seq_display!(seq_region, seq_full, show_base_qual, bam_rc_records.header),
                 &seq_summ_file,
             )
         }
@@ -379,6 +387,7 @@ where
             mut bam,
             seq_region,
             seq_full,
+            show_base_qual,
             seq_summ_file,
         } => {
             let bam_rc_records =
@@ -387,7 +396,7 @@ where
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 None,
-                seq_display!(seq_region, seq_full, bam_rc_records.header),
+                seq_display!(seq_region, seq_full, show_base_qual, bam_rc_records.header),
                 &seq_summ_file,
             )
         }

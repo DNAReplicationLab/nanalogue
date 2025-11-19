@@ -61,7 +61,9 @@ impl FromStr for ReadStates {
             temp_states.into_iter().collect::<Vec<u16>>()
         };
         if states.is_empty() {
-            Err(Error::UnknownAlignState("Set of allowed read states cannot be empty!".to_owned()))
+            Err(Error::UnknownAlignState(
+                "Set of allowed read states cannot be empty!".to_owned(),
+            ))
         } else {
             states.sort_unstable();
             Ok(ReadStates(states))
@@ -84,13 +86,21 @@ impl TryFrom<Vec<u16>> for ReadStates {
     /// let val_4: Error = ReadStates::try_from(vec![]).unwrap_err();
     /// ```
     fn try_from(s: Vec<u16>) -> Result<Self, Self::Error> {
-        if s.is_empty(){
-            Err(Error::UnknownAlignState("Set of allowed read states cannot be empty!".to_owned()))
+        if s.is_empty() {
+            Err(Error::UnknownAlignState(
+                "Set of allowed read states cannot be empty!".to_owned(),
+            ))
         } else {
-            Ok(ReadStates(s.into_iter().map(|x| match x{
-                v @ (0 | 4 | 16 | 256 | 272 | 2048 | 2064) => Ok(v),
-                v => Err(Error::UnknownAlignState(format!("{v} is disallowed either by the BAM format or by us"))),
-            }).collect::<Result<Vec<u16>, _>>()?))
+            Ok(ReadStates(
+                s.into_iter()
+                    .map(|x| match x {
+                        v @ (0 | 4 | 16 | 256 | 272 | 2048 | 2064) => Ok(v),
+                        v => Err(Error::UnknownAlignState(format!(
+                            "{v} is disallowed either by the BAM format or by us"
+                        ))),
+                    })
+                    .collect::<Result<Vec<u16>, _>>()?,
+            ))
         }
     }
 }

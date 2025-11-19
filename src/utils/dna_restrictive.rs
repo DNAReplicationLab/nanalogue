@@ -5,7 +5,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 /// Validated DNA sequence wrapper that guarantees only valid bases (A, C, G, T).
 /// Stores sequences in uppercase.
@@ -53,7 +53,7 @@ impl FromStr for DNARestrictive {
     }
 }
 
-impl TryFrom<Vec<u8>> for DNARestrictive{
+impl TryFrom<Vec<u8>> for DNARestrictive {
     type Error = Error;
 
     /// Converts from a vector of `u8`, only `ACGT` upper or lowercases allowed.
@@ -67,17 +67,37 @@ impl TryFrom<Vec<u8>> for DNARestrictive{
     /// let val_4: Error = DNARestrictive::try_from(vec![]).unwrap_err();
     /// ```
     fn try_from(s: Vec<u8>) -> Result<Self, Self::Error> {
-        if s.is_empty(){
+        if s.is_empty() {
             Err(Error::InvalidSeq("empty sequence supplied!".to_owned()))
         } else {
-            Ok(DNARestrictive(s.into_iter().map(|x| match x{
-                b'A' | b'a' => Ok(b'A'),
-                b'C' | b'c' => Ok(b'C'),
-                b'G' | b'g' => Ok(b'G'),
-                b'T' | b't' => Ok(b'T'),
-                v => Err(Error::InvalidBase(char::from(v).to_string())),
-            }).collect::<Result<Vec<u8>, _>>()?))
+            Ok(DNARestrictive(
+                s.into_iter()
+                    .map(|x| match x {
+                        b'A' | b'a' => Ok(b'A'),
+                        b'C' | b'c' => Ok(b'C'),
+                        b'G' | b'g' => Ok(b'G'),
+                        b'T' | b't' => Ok(b'T'),
+                        v => Err(Error::InvalidBase(char::from(v).to_string())),
+                    })
+                    .collect::<Result<Vec<u8>, _>>()?,
+            ))
         }
+    }
+}
+
+impl fmt::Display for DNARestrictive {
+    /// Standard display function.
+    ///
+    /// We are fine with unsafe as we guarantee only AGCT are allowed.
+    ///
+    /// # Example
+    /// ```
+    /// use nanalogue_core::DNARestrictive;
+    /// let val_1 = DNARestrictive::try_from(vec![b'A', b'C', b'G', b'T', b'a', b'c', b'g', b't']).unwrap();
+    /// assert_eq!(val_1.to_string(), String::from("ACGTACGT"));
+    /// ```
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        unsafe { String::from_utf8_unchecked(self.0.clone()).fmt(f) }
     }
 }
 

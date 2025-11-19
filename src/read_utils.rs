@@ -638,13 +638,13 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     pub fn strand(&self) -> char {
         self.read_state().strand()
     }
-    /// Returns subset of sequence using reference coordinates
+    /// Returns read sequence overlapping with a genomic region
     ///
     /// # Errors
-    /// If conversion to Bed3 fails, malformed coordinates,
-    /// or no intersection with given region, or conversion to usize errors.
-    /// Absence of a sequence due to most of the above reasons is reported
-    /// with `Error::UnavailableData`.
+    /// If getting sequence coordinates from reference coordinates fails, see
+    /// [`CurrRead::seq_coords_from_ref_coords`]
+    ///
+    /// # Example
     ///
     /// ```
     /// use bedrs::Bed3;
@@ -658,7 +658,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///     let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
     ///
     ///     // Skip unmapped reads
-    ///     if curr_read.read_state().to_string() != "unmapped" {
+    ///     if !curr_read.read_state().is_unmapped() {
     ///         let (contig_id, start) = curr_read.contig_id_and_start()?;
     ///         let align_len = curr_read.align_len()?;
     ///
@@ -674,9 +674,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///         // Create a region with no overlap at all and check we get no data
     ///         let region = Bed3::new(contig_id, start + align_len, start + align_len + 2);
     ///         match curr_read.seq_on_ref_coords(&r, &region){
-    ///             Err(Error::UnavailableData) => Ok(()),
-    ///             _ => Err(Error::UnknownError),
-    ///         }?;
+    ///             Err(Error::UnavailableData) => (),
+    ///             _ => unreachable!(),
+    ///         };
     ///
     ///     }
     ///     count += 1;
@@ -688,36 +688,121 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         record: &Record,
         region: &Bed3<i32, u64>,
     ) -> Result<Vec<u8>, Error> {
+        Ok(self
+            .seq_and_qual_on_ref_coords(record, region)?
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<u8>>())
+    }
+    /// Returns read sequence and base-quality values overlapping with a genomic region
+    ///
+    /// Because sequences are encoded using 4-bit values into a `[u8]`, we need to use
+    /// `rust-htslib` functions to convert them into 8-bit values and then use
+    /// the `Index<usize>` trait on sequences from `rust-htslib`.
+    ///
+    /// # Errors
+    /// If the read does not intersect with the specified region.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use bedrs::Bed3;
+    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// use rust_htslib::bam::Read;
+    ///
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_5_valid_basequal.sam")?;
+    /// for record in reader.records() {
+    ///     let r = record?;
+    ///     let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
+    ///
+    ///     let region = Bed3::new(0, 0, 20);
+    ///     let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
+    ///     assert_eq!(seq_subset, [(84, 32), (67, 0), (71, 69),
+    ///         (84, 80), (84, 79), (84, 81), (67, 29), (84, 30)]);
+    ///
+    ///     // Create a region with no overlap at all and check we get no data
+    ///     let region = Bed3::new(0, 20, 22);
+    ///     match curr_read.seq_and_qual_on_ref_coords(&r, &region){
+    ///         Err(Error::UnavailableData) => (),
+    ///         _ => unreachable!(),
+    ///     };
+    ///
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "qual, seq same len and coords will not exceed these"
+    )]
+    pub fn seq_and_qual_on_ref_coords(
+        &self,
+        record: &Record,
+        region: &Bed3<i32, u64>,
+    ) -> Result<Vec<(u8, u8)>, Error> {
+        let seq = record.seq();
+        let qual = record.qual();
+        // Note that the SAM format uses 255 when qual is missing for the entire read,
+        // and we assume `rust_htslib` sticks to this convention. Additionally,
+        // we use 255 in spots where the sequence cannot be shown (e.g. deletions).
+        Ok(self
+            .seq_coords_from_ref_coords(record, region)?
+            .into_iter()
+            .map(|x| x.map_or((b'.', 255u8), |v| (seq[v], qual[v])))
+            .collect::<Vec<(u8, u8)>>())
+    }
+    /// Extract sequence coordinates corresponding to a region on the reference genome.
+    ///
+    /// The vector we return contains `Some(_)` entries where both the reference and the read
+    /// have bases, and `None` where bases from the reference are missing on the read:
+    /// * matches or mismatches, we record the coordinate.
+    ///   so SNPs for example (i.e. a 1 bp difference from the ref) will show up as `Some(_)`.
+    /// * a deletion or a ref skip ("N" in cigar) will show up as `None`.
+    /// * insertions are preserved i.e. bases in the middle of a read present
+    ///   on the read but not on the reference are `Some(_)`
+    /// * clipped bases at the end of the read are not preserved. These are bases
+    ///   on the read but not on the reference and are denoted as soft or hard
+    ///   clips on the CIGAR string e.g. barcodes from sequencing
+    /// * some CIGAR combinations are illogical and we are assuming they do not happen
+    ///   e.g. a read's CIGAR can end with, say 10D20S, this means last 10 bp
+    ///   are in a deletion and the next 20 are a softclip. This is illogical,
+    ///   as they must be combined into a 30-bp softclip i.e. 30S. So if the
+    ///   aligner produces such illogical states, then the sequence coordinates reported
+    ///   here may be erroneous.
+    ///
+    /// If the read does not intersect with the region, we return an `Error` (see below).
+    /// If the read does intersect with the region but we cannot retrieve any bases,
+    /// we return an empty vector (I am not sure if we will run into this scenario).
+    ///
+    /// # Errors
+    /// If the read does not intersect with the specified region, or if `usize` conversions fail.
+    pub fn seq_coords_from_ref_coords(
+        &self,
+        record: &Record,
+        region: &Bed3<i32, u64>,
+    ) -> Result<Vec<Option<usize>>, Error> {
         #[expect(
             clippy::missing_panics_doc,
             reason = "genomic coordinates are far less than (2^64-1)/2 i.e. u64->i64 should be ok"
         )]
         let interval = {
-            let stranded_bed3 = StrandedBed3::<i32, u64>::try_from(self)?;
-            if let Some(v) = region.intersect(&stranded_bed3) {
-                let start = i64::try_from(v.start())
-                    .expect("genomic coordinates are far less than (2^64 - 1)/2");
-                let end = i64::try_from(v.end())
-                    .expect("genomic coordinates are far less than (2^64 - 1)/2");
-                if start < end {
-                    Ok(start..end)
-                } else {
-                    Err(Error::UnavailableData)
-                }
-            } else {
-                Err(Error::UnavailableData)
-            }
+            region
+                .intersect(&StrandedBed3::<i32, u64>::try_from(self)?)
+                .and_then(|v| {
+                    let start = i64::try_from(v.start()).expect("genomic coordinates << 2^63");
+                    let end = i64::try_from(v.end()).expect("genomic coordinates << 2^63");
+                    (start < end).then_some(start..end)
+                })
+                .ok_or(Error::UnavailableData)
         }?;
 
-        // Get sequence and initialize subset.
+        // Initialize coord calculation.
         // We don't know how long the subset will be, we initialize with a guess
         // of 2 * interval size
-        let seq = record.seq();
         #[expect(
             clippy::arithmetic_side_effects,
             reason = "genomic coordinates far less than i64::MAX (approx (2^64-1)/2)"
         )]
-        let mut s: Vec<u8> =
+        let mut s: Vec<Option<usize>> =
             Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
 
         // we may have to trim the sequence if we hit a bunch of unaligned base
@@ -729,53 +814,39 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             .skip_while(|x| x[1].is_none_or(|y| !interval.contains(&y)))
             .take_while(|x| x[1].is_none_or(|y| interval.contains(&y)))
         {
-            // the logic below is as follows:
-            // * matches or mismatches, we show the base on the sequence.
-            //   so SNPs for example (i.e. a 1 bp difference from the ref) will show up
-            //   as a base different from the reference.
-            // * a deletion or a ref skip ("N" in cigar) will show up as dot(s) i.e. ".".
-            // * insertions are displayed i.e. bases in the middle of a read present
-            //   on the read but not on the reference
-            // * clipped bases at the end of the read are not displayed. these are bp
-            //   on the read but not on the reference and are denoted as soft or hard
-            //   clips on the CIGAR string e.g. barcodes from sequencing
-            // * some CIGAR combinations are illogical and we are assuming they do not happen
-            //   e.g. a read's CIGAR can end with, say 10D20S, this means last 10 bp
-            //   are in a deletion and the next 20 are a softclip. This is illogical,
-            //   as they must be combined into a 30-bp softclip i.e. 30S. So if the
-            //   aligner produces such illogical states, then the sequences reported
-            //   here may be erroneous.
             #[expect(
                 clippy::arithmetic_side_effects,
                 reason = "coordinates far less than u64::MAX (2^64-1) so no chance of counter overflow"
             )]
             match w {
                 [Some(x), Some(_)] => {
-                    s.push(seq[usize::try_from(x)?]);
+                    s.push(Some(usize::try_from(x)?));
                     trim_end_bp = 0;
                 }
                 [Some(x), None] => {
-                    s.push(seq[usize::try_from(x)?]);
+                    s.push(Some(usize::try_from(x)?));
                     trim_end_bp += 1;
                 }
                 [None, Some(_)] => {
-                    s.push(b'.');
+                    s.push(None);
                     trim_end_bp = 0;
                 }
-                _ => {}
+                [None, None] => unreachable!(
+                    "impossible to find bases that are neither on the read nor on the reference"
+                ),
             }
         }
 
         // if last few bp in sequence are all unmapped, we remove them here.
         for _ in 0..trim_end_bp {
-            let Some(_) = s.pop() else { unreachable!() };
+            let Some(_) = s.pop() else {
+                unreachable!("trim_end_bp cannot exceed length of s")
+            };
         }
 
-        if s.is_empty() {
-            Err(Error::UnavailableData)
-        } else {
-            Ok(s)
-        }
+        // Trim excess allocated capacity and return
+        s.shrink_to(0);
+        Ok(s)
     }
     /// sets modification data using the BAM record
     ///
@@ -997,10 +1068,10 @@ impl CurrRead<AlignAndModData> {
     ///     let curr_read = CurrRead::default().set_read_state(&r)?
     ///         .set_mod_data(&r, ThresholdState::GtEq(180), 0)?;
     ///     let mod_count = curr_read.base_count_per_mod();
-    ///     let zero_count = Some(HashMap::from([(ModChar::new('T'), 0)]));
-    ///     let a = Some(HashMap::from([(ModChar::new('T'), 3)]));
-    ///     let b = Some(HashMap::from([(ModChar::new('T'), 1)]));
-    ///     let c = Some(HashMap::from([(ModChar::new('T'), 3),(ModChar::new('ᰠ'), 0)]));
+    ///     let zero_count = HashMap::from([(ModChar::new('T'), 0)]);
+    ///     let a = HashMap::from([(ModChar::new('T'), 3)]);
+    ///     let b = HashMap::from([(ModChar::new('T'), 1)]);
+    ///     let c = HashMap::from([(ModChar::new('T'), 3),(ModChar::new('ᰠ'), 0)]);
     ///     match (count, mod_count) {
     ///         (0, v) => assert_eq!(v, zero_count),
     ///         (1, v) => assert_eq!(v, a),
@@ -1013,7 +1084,7 @@ impl CurrRead<AlignAndModData> {
     /// # Ok::<(), Error>(())
     /// ```
     #[must_use]
-    pub fn base_count_per_mod(&self) -> Option<HashMap<ModChar, u32>> {
+    pub fn base_count_per_mod(&self) -> HashMap<ModChar, u32> {
         let mut output = HashMap::<ModChar, u32>::new();
         #[expect(
             clippy::arithmetic_side_effects,
@@ -1026,7 +1097,7 @@ impl CurrRead<AlignAndModData> {
                 .and_modify(|e| *e += base_count)
                 .or_insert(base_count);
         }
-        Some(output)
+        output
     }
 }
 

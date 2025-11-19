@@ -7,12 +7,12 @@
 //! if provided, otherwise only reads the BAM file.
 
 use crate::{CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, ThresholdState};
-use bedrs::prelude::{Bed3, Coordinates as _};
+use bedrs::prelude::Bed3;
 use csv::ReaderBuilder;
 use itertools::join;
 use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt, fmt::Write as _, fs::File, rc::Rc, str};
+use std::{collections::HashMap, convert::identity, fmt, fs::File, rc::Rc, str};
 
 /// Write a vector as a CSV-formatted string
 macro_rules! vec_csv {
@@ -31,10 +31,6 @@ impl ModCountTbl {
     fn new(value: HashMap<ModChar, u32>) -> Self {
         Self(value)
     }
-    /// constructs using a blank hashmap
-    fn blank() -> Self {
-        Self(HashMap::<ModChar, u32>::new())
-    }
 }
 
 /// Implements a display method
@@ -47,7 +43,8 @@ impl fmt::Display for ModCountTbl {
             "NA".to_owned()
         } else {
             join(v.into_iter().map(|k| format!("{}:{}", k.0, k.1)), ";")
-        }).fmt(f)
+        })
+        .fmt(f)
     }
 }
 
@@ -55,13 +52,14 @@ impl fmt::Display for ModCountTbl {
 /// a sequencing summary file.
 /// - only BAM file alignment information is available
 /// - only sequencing summary file information is available
-/// - both are available, in which case we retain only the sequence
-///   length from the sequencing summary file and the alignment length
-///   from the BAM file, discarding the sequence length from the BAM file.
+/// - both are available
 #[derive(Debug, Clone, PartialEq)]
 enum ReadInstance {
     /// Only information from the alignment file is available.
     /// NOTE that these are vectors as a read can have multiple BAM records.
+    /// Sequencing length is not a vector as it is supposed to be unique.
+    /// If multiple BAM records of one read have different sequencing lengths,
+    /// we will have to make a choice.
     OnlyAlign {
         /// Alignment length from the BAM file
         align_len: Vec<u64>,
@@ -72,14 +70,18 @@ enum ReadInstance {
         /// Alignment type (primary, secondary, reverse etc.) from the BAM file.
         read_state: Vec<ReadState>,
         /// Sequence from the BAM file.
-        seq: Vec<String>,
+        seq: Vec<Vec<u8>>,
+        /// Basecalling qualities from the BAM file.
+        qual: Vec<Vec<u8>>,
     },
     /// Only basecalled info i.e. from the sequencing summary file is available
     OnlyBc(u64),
     /// Information from both sequencing summary and alignment file are available.
     /// NOTE that these are vectors as a read can have multiple BAM records,
     /// but the basecalled length is not a vector as a sequencing summary file
-    /// has unique information per read.
+    /// has unique information per read. If the basecalled length from the
+    /// sequencing summary file does not match that from the BAM file record(s),
+    /// then we will have to make a choice.
     BothAlignBc {
         /// Alignment length from the BAM file
         align_len: Vec<u64>,
@@ -90,7 +92,9 @@ enum ReadInstance {
         /// Alignment type (primary, secondary, reverse etc.) from the BAM file.
         read_state: Vec<ReadState>,
         /// Sequence from the BAM file.
-        seq: Vec<String>,
+        seq: Vec<Vec<u8>>,
+        /// Basecalling qualities from the BAM file.
+        qual: Vec<Vec<u8>>,
     },
 }
 
@@ -100,6 +104,8 @@ impl fmt::Display for ReadInstance {
         reason = "expect no confusion from this code"
     )]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // we are fine with `unsafe` here as `rust-htslib` guarantees
+        // that only 16 printable characters are allowed in the sequence.
         match self {
             ReadInstance::OnlyBc(u64) => format!("{u64}"),
             ReadInstance::OnlyAlign {
@@ -108,6 +114,7 @@ impl fmt::Display for ReadInstance {
                 mod_count: mc,
                 read_state: rs,
                 seq: sq,
+                qual: q,
             }
             | ReadInstance::BothAlignBc {
                 align_len: al,
@@ -115,15 +122,23 @@ impl fmt::Display for ReadInstance {
                 mod_count: mc,
                 read_state: rs,
                 seq: sq,
+                qual: q,
             } => format!(
-                "{}\t{sl}\t{}{}{}",
+                "{}\t{sl}\t{}{}{}{}",
                 vec_csv!(al),
                 vec_csv!(rs),
                 match vec_csv!(mc) {
                     v if !v.is_empty() => format!("\t{v}"),
                     _ => String::new(),
                 },
-                match vec_csv!(sq) {
+                match vec_csv!(
+                    sq.iter()
+                        .map(|v| unsafe { String::from_utf8_unchecked(v.clone()) })
+                ) {
+                    v if !v.is_empty() => format!("\t{v}"),
+                    _ => String::new(),
+                },
+                match vec_csv!(q.iter().map(|k| join(k, "."))) {
                     v if !v.is_empty() => format!("\t{v}"),
                     _ => String::new(),
                 },
@@ -150,7 +165,8 @@ impl Read {
         seq_len: u64,
         mod_count: Option<ModCountTbl>,
         read_state: ReadState,
-        seq: Option<String>,
+        seq: Option<Vec<u8>>,
+        qual: Option<Vec<u8>>,
     ) -> Self {
         Self(ReadInstance::OnlyAlign {
             align_len: vec![align_len],
@@ -158,6 +174,7 @@ impl Read {
             mod_count: mod_count.into_iter().collect(),
             read_state: vec![read_state],
             seq: seq.into_iter().collect(),
+            qual: qual.into_iter().collect(),
         })
     }
 
@@ -169,9 +186,11 @@ impl Read {
     fn add_align_len(
         &mut self,
         align_len: u64,
+        seq_len: u64,
         mod_count: Option<ModCountTbl>,
         read_state: ReadState,
-        seq: Option<String>,
+        seq: Option<Vec<u8>>,
+        qual: Option<Vec<u8>>,
     ) {
         match &mut self.0 {
             ReadInstance::OnlyAlign {
@@ -179,19 +198,33 @@ impl Read {
                 mod_count: mc,
                 read_state: rs,
                 seq: sq,
-                ..
+                qual: q,
+                seq_len: l,
             }
             | ReadInstance::BothAlignBc {
                 align_len: al,
                 mod_count: mc,
                 read_state: rs,
                 seq: sq,
-                ..
+                qual: q,
+                bc_len: l,
             } => {
                 al.push(align_len);
                 rs.push(read_state);
                 mc.extend(mod_count);
                 sq.extend(seq);
+                q.extend(qual);
+
+                // BAM files are not supposed to have different sequence lengths for
+                // the same read if there are multiple records corresponding to one read.
+                // And the sequence length in the BAM file should match that from the
+                // sequencing summary file.
+                // But, it is possible that some BAM files are in violation.
+                // To account for this, we set our sequence length to be the largest of all
+                // these records.
+                if *l < seq_len {
+                    *l = seq_len;
+                }
             }
             ReadInstance::OnlyBc(bl) => {
                 self.0 = ReadInstance::BothAlignBc {
@@ -200,6 +233,7 @@ impl Read {
                     mod_count: mod_count.into_iter().collect(),
                     read_state: vec![read_state],
                     seq: seq.into_iter().collect(),
+                    qual: qual.into_iter().collect(),
                 };
             }
         }
@@ -260,7 +294,7 @@ pub fn run<W, D>(
     handle: &mut W,
     bam_records: D,
     mut mods: Option<InputMods<OptionalTag>>,
-    seq_region: Option<Bed3<i32, u64>>,
+    seq_region: Option<(Option<Bed3<i32, u64>>, bool)>,
     seq_summ_path: &str,
 ) -> Result<(), Error>
 where
@@ -303,67 +337,63 @@ where
             continue;
         };
 
-        // get sequence
-        let sequence: Option<String> = match seq_region.as_ref() {
-            Some(v) if v.len() != 0 => Some(match curr_read_state.seq_on_ref_coords(&record, v) {
-                Err(Error::UnavailableData) => Ok(String::from("*")),
-                Err(e) => Err(e),
-                Ok(w) => Ok(String::from_utf8(w)?),
-            }?),
-            Some(_) => Some(String::from_utf8(record.seq().as_bytes())?),
-            None => None,
+        // get sequence and basecalling qualities
+        let (sequence, qualities) = match seq_region.as_ref() {
+            None => (None, None),
+            Some(&(None, show_base_qual)) => (
+                Some(record.seq().as_bytes()),
+                show_base_qual.then_some(record.qual().to_vec()),
+            ),
+            Some(&(Some(w), show_base_qual)) => {
+                let (o_1, o_2): (Vec<u8>, Vec<u8>) =
+                    match curr_read_state.seq_and_qual_on_ref_coords(&record, &w) {
+                        Err(Error::UnavailableData) => (vec![b'*'], vec![255u8]),
+                        Err(e) => return Err(e),
+                        Ok(x) => x.into_iter().unzip(),
+                    };
+                (Some(o_1), show_base_qual.then_some(o_2))
+            }
         };
 
         // get modification information
-        let mod_count: Option<ModCountTbl> = match mods.as_ref() {
-            None => None,
-            Some(v) => {
-                match curr_read_state
-                    .set_mod_data_restricted_options(&record, v)?
-                    .base_count_per_mod()
-                {
-                    None => Some(ModCountTbl::blank()),
-                    Some(u) => Some(ModCountTbl::new(u)),
-                }
-            }
-        };
+        let mod_count = mods
+            .as_ref()
+            .map(|v| curr_read_state.set_mod_data_restricted_options(&record, v))
+            .transpose()?
+            .map(|v| ModCountTbl::new(v.base_count_per_mod()));
 
         // add data depending on whether an entry is already present
         // in the hashmap from the sequencing summary file
         let _: &mut _ = data_map
             .entry(qname)
             .and_modify(|entry| {
-                entry.add_align_len(align_len, mod_count.clone(), read_state, sequence.clone());
+                entry.add_align_len(
+                    align_len,
+                    seq_len,
+                    mod_count.clone(),
+                    read_state,
+                    sequence.clone(),
+                    qualities.clone(),
+                );
             })
             .or_insert(Read::new_align_len(
-                align_len, seq_len, mod_count, read_state, sequence,
+                align_len, seq_len, mod_count, read_state, sequence, qualities,
             ));
     }
 
-    // set up an output header string
-    let mut output_header = String::new();
-    if is_seq_summ_data {
-        writeln!(output_header, "# seq summ file: {seq_summ_path}")?;
-    }
-    write!(
-        output_header,
-        "{}read_id\talign_length\tsequence_length_template\talignment_type{}{}",
-        match mods.as_ref() {
-            Some(_) => "# mod counts using probability threshold of 0.5\n",
-            None => "",
-        },
-        match mods.as_ref() {
-            Some(_) => "\tmod_count",
-            None => "",
-        },
-        match seq_region.as_ref() {
-            Some(_) => "\tsequence",
-            None => "",
-        },
-    )?;
-
     // print the output header
-    writeln!(handle, "{output_header}")?;
+    writeln!(
+        handle,
+        "{}{}read_id\talign_length\tsequence_length_template\talignment_type{}{}{}",
+        is_seq_summ_data
+            .then_some(format!("# seq summ file: {seq_summ_path}\n"))
+            .map_or(String::new(), |v| v),
+        mods.clone()
+            .map_or("", |_| "# mod-unmod threshold is 0.5\n"),
+        mods.map_or("", |_| "\tmod_count"),
+        seq_region.map_or("", |_| "\tsequence"),
+        seq_region.map_or("", |v| v.1.then_some("\tqualities").map_or("", identity))
+    )?;
 
     // print output tsv data
     // If both seq summ and BAM file are available, then the length in the seq

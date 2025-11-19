@@ -128,3 +128,10 @@ unused_lifetimes = "deny"
 unused_macro_rules = "deny"
 unused_qualifications = "deny"
 unused_results = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = "z"
+panic = "abort"
+strip = "symbols"

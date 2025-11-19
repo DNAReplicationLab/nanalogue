@@ -44,7 +44,7 @@ pub use subcommands::{find_modified_reads, read_info, read_stats, reads_table, w
 pub use utils::{
     AllowedAGCTN, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1, FilterByRefCoords,
     GenomicRegion, GetDNARestrictive, Intersects, ModChar, OrdPair, PathOrURLOrStdin, ReadState,
-    ReadStates, RestrictModCalledStrand, ThresholdState, 
+    ReadStates, RestrictModCalledStrand, ThresholdState,
 };
 
 /// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods` Struct.
@@ -324,6 +324,8 @@ when usize is 64-bit as genomic sequences are not that long"
             }
 
             // if data matches filters, add to struct.
+            modified_positions.shrink_to(0);
+            modified_probabilities.shrink_to(0);
             if filter_mod_base_strand_tag(&mod_base, &mod_strand, &modification_type) {
                 let mods = BaseMod::new(
                     record,
@@ -423,12 +425,8 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
             None
         };
 
-        if !(bam_opts.convert_region_to_bed3(header.clone())?) {
-            return Err(Error::UnknownError);
-        }
-        if !(mod_opts.convert_region_to_bed3(header.clone())?) {
-            return Err(Error::UnknownError);
-        }
+        bam_opts.convert_region_to_bed3(header.clone())?;
+        mod_opts.convert_region_to_bed3(header.clone())?;
         let rc_records = bam_reader.rc_records();
         Ok(BamRcRecords::<R> { rc_records, header })
     }

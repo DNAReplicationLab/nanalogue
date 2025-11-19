@@ -68,7 +68,7 @@ pub struct InputBam {
     /// Subsample BAM to retain only this fraction of total number of reads,
     /// defaults to 1.0.
     /// NOTE: a new subsample is drawn every time as the seed is not fixed.
-    /// If you want reproducibility, consider pipeing the output of `samtools view -s`.
+    /// If you want reproducibility, consider piping the output of `samtools view -s`.
     #[clap(short, long, default_value_t = F32Bw0and1::one())]
     pub sample_fraction: F32Bw0and1,
     /// Exclude reads whose MAPQ (Mapping quality of position) is below this value.
@@ -268,12 +268,12 @@ pub trait InputRegionOptions {
     ///
     /// # Errors
     /// Returns error if conversion fails
-    fn convert_region_to_bed3(&mut self, header: bam::HeaderView) -> Result<bool, Error> {
+    fn convert_region_to_bed3(&mut self, header: bam::HeaderView) -> Result<(), Error> {
         match self.region_filter_genomic_string() {
             None => self.set_region_filter(None),
             Some(v) => self.set_region_filter(Some(v.try_to_bed3(&header)?)),
         }
-        Ok(true)
+        Ok(())
     }
 }
 
@@ -472,7 +472,7 @@ mod input_bam_tests {
         let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
         @SQ\tSN:chr1\tLN:248956422\n"});
 
-        assert!(input_bam.convert_region_to_bed3(header_view).unwrap());
+        input_bam.convert_region_to_bed3(header_view).unwrap();
         assert!(input_bam.region_bed3.is_none());
     }
 
@@ -487,7 +487,7 @@ mod input_bam_tests {
                 @SQ\tSN:chr1\tLN:3000
                 @SQ\tSN:chr2\tLN:4000\n"});
 
-        assert!(input_bam.convert_region_to_bed3(header_view).unwrap());
+        input_bam.convert_region_to_bed3(header_view).unwrap();
         assert!(input_bam.region_bed3.is_some());
 
         let bed3 = input_bam.region_bed3.unwrap();
@@ -507,7 +507,7 @@ mod input_bam_tests {
                 @SQ\tSN:chr1\tLN:3000
                 @SQ\tSN:chr2\tLN:4000\n"});
 
-        let _: bool = input_bam.convert_region_to_bed3(header_view).unwrap();
+        input_bam.convert_region_to_bed3(header_view).unwrap();
     }
 
     #[test]
@@ -521,7 +521,7 @@ mod input_bam_tests {
                 @SQ\tSN:chr1\tLN:3000
                 @SQ\tSN:chr2\tLN:4000\n"});
 
-        let _: bool = input_bam.convert_region_to_bed3(header_view).unwrap();
+        input_bam.convert_region_to_bed3(header_view).unwrap();
     }
 
     #[test]
@@ -535,6 +535,6 @@ mod input_bam_tests {
                 @SQ\tSN:chr1\tLN:3000
                 @SQ\tSN:chr2\tLN:4000\n"});
 
-        let _: bool = input_bam.convert_region_to_bed3(header_view).unwrap();
+        input_bam.convert_region_to_bed3(header_view).unwrap();
     }
 }
