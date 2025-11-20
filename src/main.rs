@@ -12,7 +12,7 @@ use nanalogue_core::{
     nanalogue_bam_reader_from_url, nanalogue_indexed_bam_reader,
     nanalogue_indexed_bam_reader_from_url, read_info, read_stats, reads_table, window_reads,
 };
-use rust_htslib::{bam, errors::Error as RHError};
+use rust_htslib::{bam, errors::Error as RHError, htslib};
 use std::io;
 use std::ops::RangeInclusive;
 
@@ -262,6 +262,12 @@ impl Commands {
 /// can test the functionality of `run` easily through our code without
 /// actually running the program on the command line like an external user.
 fn main() {
+    // we do not want to print `htslib` errors but want to deal with
+    // them using our own error handling.
+    unsafe {
+        htslib::hts_set_log_level(0);
+    }
+
     // Parse command line options
     let cli = Cli::parse();
 
@@ -307,6 +313,7 @@ where
         (PathOrURLOrStdin::Path(v), Some(w)) => {
             match nanalogue_indexed_bam_reader(&v, (&w).try_into()?) {
                 Err(Error::RustHtslibError(RHError::BamInvalidIndex { .. })) => {
+                    println!("# cannot find index file. region retrieval could be slower.");
                     run_commands(cli, handle, nanalogue_bam_reader(&v)?)
                 }
                 Err(e) => Err(e),
@@ -316,6 +323,7 @@ where
         (PathOrURLOrStdin::URL(v), Some(w)) => {
             match nanalogue_indexed_bam_reader_from_url(&v, (&w).try_into()?) {
                 Err(Error::RustHtslibError(RHError::BamInvalidIndex { .. })) => {
+                    println!("# cannot find index file. region retrieval could be slower.");
                     run_commands(cli, handle, nanalogue_bam_reader_from_url(&v)?)
                 }
                 Err(e) => Err(e),

@@ -661,6 +661,31 @@ mod tests {
     }
 
     #[test]
+    fn try_from_record_for_curr_read() -> Result<(), Error> {
+        // Test the TryFrom<Record> implementation for CurrRead<AlignAndModData>.
+        // This implementation uses ThresholdState::GtEq(128), which may differ from
+        // other tests and can affect the base count results.
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
+        let first_count = HashMap::from([(ModChar::new('T'), 0)]);
+        let second_count = HashMap::from([(ModChar::new('T'), 3)]);
+        let third_count = HashMap::from([(ModChar::new('T'), 1)]);
+        let fourth_count = HashMap::from([(ModChar::new('T'), 3), (ModChar::new('ᰠ'), 0)]);
+        for (count, record) in reader.records().enumerate() {
+            let r = record?;
+            let curr_read = CurrRead::try_from(r)?;
+            let modcount = curr_read.base_count_per_mod();
+            match (count, modcount) {
+                (0, v) => assert_eq!(v, first_count),
+                (1, v) => assert_eq!(v, second_count),
+                (2, v) => assert_eq!(v, third_count),
+                (3, v) => assert_eq!(v, fourth_count),
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn try_from_stranded_bed3() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
@@ -690,6 +715,89 @@ mod tests {
         assert!((1..3).intersects(&(0..2)));
         assert!((1..3).intersects(&(0..4)));
         assert!((0..4).intersects(&(1..3)));
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidAlignLength")]
+    fn try_from_stranded_bed3_without_align_len_should_panic() {
+        // Create a CurrRead with contig_id_and_start set but align_len not set
+        // This should trigger the InvalidAlignLength error when converting to StrandedBed3
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
+        if let Some(record) = reader.records().next() {
+            let r = record.unwrap();
+            let curr_read = CurrRead::default()
+                .set_read_state(&r)
+                .unwrap()
+                .set_contig_id_and_start(&r)
+                .unwrap();
+            // Try to convert to StrandedBed3 without align_len set
+            let _: StrandedBed3<i32, u64> = StrandedBed3::try_from(&curr_read).unwrap();
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidContigAndStart")]
+    fn try_from_stranded_bed3_without_contig_id_and_start_should_panic() {
+        // Create a CurrRead with align_len set but contig_id_and_start not set
+        // This should trigger the InvalidContigAndStart error when converting to StrandedBed3
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
+        if let Some(record) = reader.records().next() {
+            let r = record.unwrap();
+            let curr_read = CurrRead::default()
+                .set_read_state(&r)
+                .unwrap()
+                .set_align_len(&r)
+                .unwrap();
+            // Try to convert to StrandedBed3 without contig_id_and_start set
+            let _: StrandedBed3<i32, u64> = StrandedBed3::try_from(&curr_read).unwrap();
+        }
+    }
+
+    #[test]
+    fn display_curr_read_without_mod_data() -> Result<(), Error> {
+        // Test Display implementation for CurrRead without mod data.
+        // When mod data is not present, the mod_data_section should return an empty string.
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
+        if let Some(record) = reader.records().next() {
+            let r = record?;
+            let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
+            let display_str = curr_read.to_string();
+
+            // Should contain basic alignment info
+            assert!(display_str.contains("\"read_id\""));
+            assert!(display_str.contains("\"sequence_length\""));
+            assert!(display_str.contains("\"contig\""));
+            assert!(display_str.contains("\"alignment_type\""));
+
+            // Should NOT contain mod_count since there's no mod data
+            assert!(!display_str.contains("\"mod_count\""));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn display_curr_read_without_contig_name() -> Result<(), Error> {
+        // Test Display implementation when contig_name is not set.
+        // Should display the contig_id as a string with a number instead of the contig name.
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
+        if let Some(record) = reader.records().next() {
+            let r = record?;
+            let curr_read = CurrRead::default()
+                .set_read_state(&r)?
+                .set_seq_len(&r)?
+                .set_align_len(&r)?
+                .set_contig_id_and_start(&r)?
+                .set_read_id(&r)?;
+
+            let display_str = curr_read.to_string();
+
+            // Should contain the contig_id as a string (0 for the first record)
+            assert!(display_str.contains("\"contig\": \"0\""));
+
+            // Should NOT contain the actual contig name
+            assert!(!display_str.contains("dummyI"));
+        }
+        Ok(())
     }
 }
 

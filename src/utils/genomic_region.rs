@@ -218,6 +218,12 @@ impl TryFrom<(String, (u64, u64))> for GenomicRegion {
                 value.0, value.1.0, value.1.1
             )));
         }
+        if value.1.0 == value.1.1 {
+            return Err(Error::InvalidContigAndStart(format!(
+                "{}:{}-{} is an invalid region; start and end cannot be equal",
+                value.0, value.1.0, value.1.1
+            )));
+        }
         Ok(GenomicRegion((
             value.0,
             Some(OrdPair::<u64>::try_from(value.1)?),
@@ -492,5 +498,70 @@ mod tests {
             format!("{fetch_def:?}"),
             "RegionString([99, 104, 114, 49, 48, 95, 52, 58, 97], 1000, 2000)"
         );
+    }
+
+    /// Tests `TryFrom<(String, (u64, u64))>` with valid inputs
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "repetition is fine; each block is clearly separated"
+    )]
+    #[test]
+    fn try_from_tuple_valid() {
+        // Basic valid conversion
+        let region: GenomicRegion = ("sample_contig".to_owned(), (1, 200))
+            .try_into()
+            .expect("should convert");
+        assert_eq!(region.contig(), "sample_contig");
+        assert_eq!(region.start_end(), Some((1, 200)));
+
+        // Another valid conversion
+        let region: GenomicRegion = ("sample_contig_2".to_owned(), (12000, 14000))
+            .try_into()
+            .expect("should convert");
+        assert_eq!(region.contig(), "sample_contig_2");
+        assert_eq!(region.start_end(), Some((12000, 14000)));
+
+        // Edge case: start at 0
+        let region: GenomicRegion = ("chr1".to_owned(), (0, 100))
+            .try_into()
+            .expect("should convert");
+        assert_eq!(region.contig(), "chr1");
+        assert_eq!(region.start_end(), Some((0, 100)));
+
+        // Edge case: large values
+        let region: GenomicRegion = ("chrX".to_owned(), (1_000_000, 2_000_000))
+            .try_into()
+            .expect("should convert");
+        assert_eq!(region.contig(), "chrX");
+        assert_eq!(region.start_end(), Some((1_000_000, 2_000_000)));
+
+        // Edge case: very large end value
+        let region: GenomicRegion = ("chr22".to_owned(), (0, u64::MAX - 1))
+            .try_into()
+            .expect("should convert");
+        assert_eq!(region.contig(), "chr22");
+        assert_eq!(region.start_end(), Some((0, u64::MAX - 1)));
+    }
+
+    /// Tests `TryFrom<(String, (u64, u64))>` with empty contig name
+    #[test]
+    #[should_panic(expected = "InvalidContigAndStart")]
+    fn try_from_tuple_empty_contig() {
+        let _: GenomicRegion = GenomicRegion::try_from((String::new(), (12000, 14000))).unwrap();
+    }
+
+    /// Tests `TryFrom<(String, (u64, u64))>` with wrong order coordinates
+    #[test]
+    #[should_panic(expected = "WrongOrder")]
+    fn try_from_tuple_wrong_order() {
+        let _: GenomicRegion =
+            GenomicRegion::try_from(("sample_contig_2".to_owned(), (14000, 12000))).unwrap();
+    }
+
+    /// Tests `TryFrom<(String, (u64, u64))>` with equal start and end coordinates
+    #[test]
+    #[should_panic(expected = "InvalidContigAndStart")]
+    fn try_from_tuple_equal_coordinates() {
+        let _: GenomicRegion = GenomicRegion::try_from(("chr1".to_owned(), (1000, 1000))).unwrap();
     }
 }

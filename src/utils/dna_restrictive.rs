@@ -122,4 +122,65 @@ mod tests {
         let invalid_barcode = "ACGTN";
         let _: DNARestrictive = DNARestrictive::from_str(invalid_barcode).unwrap();
     }
+
+    #[test]
+    fn dna_restrictive_display_uppercase() {
+        // Test all uppercase bases
+        let seq = DNARestrictive::try_from(vec![b'A', b'C', b'G', b'T']).expect("should create");
+        assert_eq!(seq.to_string(), "ACGT");
+        assert_eq!(format!("{seq}"), "ACGT");
+
+        // Test longer sequence
+        let long_seq =
+            DNARestrictive::try_from(vec![b'A', b'T', b'G', b'C', b'G', b'T', b'A', b'C'])
+                .expect("should create");
+        assert_eq!(long_seq.to_string(), "ATGCGTAC");
+    }
+
+    #[test]
+    fn dna_restrictive_display_lowercase() {
+        // Test that lowercase input is converted to uppercase for display
+        let seq = DNARestrictive::try_from(vec![b'a', b'c', b'g', b't']).expect("should create");
+        assert_eq!(seq.to_string(), "ACGT");
+
+        // Test lowercase via FromStr gets uppercased
+        let lower_seq = DNARestrictive::from_str("acgt").expect("should create");
+        assert_eq!(format!("{lower_seq}"), "ACGT");
+    }
+
+    #[test]
+    fn dna_restrictive_display_mixedcase() {
+        // Test mixed case
+        let mixed_seq =
+            DNARestrictive::try_from(vec![b'A', b'c', b'G', b't']).expect("should create");
+        assert_eq!(mixed_seq.to_string(), "ACGT");
+
+        // Test another mixed case pattern
+        let mixed_seq2 =
+            DNARestrictive::try_from(vec![b'a', b'C', b'g', b'T']).expect("should create");
+        assert_eq!(mixed_seq2.to_string(), "ACGT");
+    }
+
+    #[test]
+    fn dna_restrictive_display_via_from_str() {
+        // Test using FromStr
+        let seq = DNARestrictive::from_str("ACGT").expect("should create");
+        assert_eq!(format!("{seq}"), "ACGT");
+    }
+
+    #[test]
+    fn dna_restrictive_display_single_base() {
+        // Test each individual base
+        let a_seq = DNARestrictive::try_from(vec![b'A']).expect("should create");
+        assert_eq!(a_seq.to_string(), "A");
+
+        let c_seq = DNARestrictive::try_from(vec![b'C']).expect("should create");
+        assert_eq!(c_seq.to_string(), "C");
+
+        let g_seq = DNARestrictive::try_from(vec![b'G']).expect("should create");
+        assert_eq!(g_seq.to_string(), "G");
+
+        let t_seq = DNARestrictive::try_from(vec![b'T']).expect("should create");
+        assert_eq!(t_seq.to_string(), "T");
+    }
 }

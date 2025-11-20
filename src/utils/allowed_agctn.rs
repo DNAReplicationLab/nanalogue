@@ -275,4 +275,81 @@ mod tests {
     fn deserialize_lowercase_base_fails() {
         let _: AllowedAGCTN = serde_json::from_str(r#""a""#).unwrap();
     }
+
+    #[test]
+    fn try_from_u8_valid_bases() {
+        // Test all valid uppercase bases
+        assert_eq!(
+            AllowedAGCTN::try_from(b'A').expect("should convert"),
+            AllowedAGCTN::A
+        );
+        assert_eq!(
+            AllowedAGCTN::try_from(b'G').expect("should convert"),
+            AllowedAGCTN::G
+        );
+        assert_eq!(
+            AllowedAGCTN::try_from(b'C').expect("should convert"),
+            AllowedAGCTN::C
+        );
+        assert_eq!(
+            AllowedAGCTN::try_from(b'T').expect("should convert"),
+            AllowedAGCTN::T
+        );
+        assert_eq!(
+            AllowedAGCTN::try_from(b'N').expect("should convert"),
+            AllowedAGCTN::N
+        );
+    }
+
+    #[test]
+    fn try_from_u8_invalid_bases() {
+        // Test invalid bases
+        let result_x: Result<AllowedAGCTN, _> = AllowedAGCTN::try_from(b'X');
+        let _: Error = result_x.unwrap_err();
+
+        let result_lower_a: Result<AllowedAGCTN, _> = AllowedAGCTN::try_from(b'a');
+        let _: Error = result_lower_a.unwrap_err();
+
+        let result_lower_g: Result<AllowedAGCTN, _> = AllowedAGCTN::try_from(b'g');
+        let _: Error = result_lower_g.unwrap_err();
+
+        let result_digit: Result<AllowedAGCTN, _> = AllowedAGCTN::try_from(b'1');
+        let _: Error = result_digit.unwrap_err();
+
+        let result_space: Result<AllowedAGCTN, _> = AllowedAGCTN::try_from(b' ');
+        let _: Error = result_space.unwrap_err();
+    }
+
+    #[test]
+    #[expect(
+        clippy::panic,
+        reason = "panic is appropriate in tests for wrong error type"
+    )]
+    fn try_from_u8_error_type() {
+        // Verify error contains the invalid base
+        let result: Result<AllowedAGCTN, _> = AllowedAGCTN::try_from(b'Z');
+        let err = result.unwrap_err();
+        if let Error::InvalidBase(s) = err {
+            // The error contains the numeric representation of the byte
+            assert_eq!(s, (b'Z').to_string());
+        } else {
+            panic!("Expected InvalidBase error, got {err:?}");
+        }
+    }
+
+    #[test]
+    fn try_from_u8_roundtrip() {
+        // Test converting to u8 and back
+        for base in [
+            AllowedAGCTN::A,
+            AllowedAGCTN::G,
+            AllowedAGCTN::C,
+            AllowedAGCTN::T,
+            AllowedAGCTN::N,
+        ] {
+            let as_u8: u8 = base.into();
+            let converted_back = AllowedAGCTN::try_from(as_u8).expect("should convert back");
+            assert_eq!(converted_back, base);
+        }
+    }
 }

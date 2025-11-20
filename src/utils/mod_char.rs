@@ -246,4 +246,57 @@ mod tests {
             assert_eq!(format!("{mod_char}"), num.to_string());
         }
     }
+
+    /// Tests `From<char>` implementation for `ModChar`
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "repetition is fine; each block is clearly separated"
+    )]
+    #[test]
+    fn from_char() {
+        // Test lowercase letters
+        let mod_char = ModChar::from('a');
+        assert_eq!(mod_char.val(), 'a');
+
+        let mod_char = ModChar::from('z');
+        assert_eq!(mod_char.val(), 'z');
+
+        // Test uppercase letters
+        let mod_char = ModChar::from('A');
+        assert_eq!(mod_char.val(), 'A');
+
+        let mod_char = ModChar::from('Z');
+        assert_eq!(mod_char.val(), 'Z');
+
+        // Test numeric characters
+        let mod_char = ModChar::from('0');
+        assert_eq!(mod_char.val(), '0');
+
+        let mod_char = ModChar::from('9');
+        assert_eq!(mod_char.val(), '9');
+
+        // Test special characters
+        let mod_char = ModChar::from('@');
+        assert_eq!(mod_char.val(), '@');
+
+        let mod_char = ModChar::from('#');
+        assert_eq!(mod_char.val(), '#');
+
+        // Test unicode characters
+        let mod_char = ModChar::from('\u{D000}');
+        assert_eq!(mod_char.val(), '\u{D000}');
+
+        let mod_char = ModChar::from('\u{1F600}'); // emoji
+        assert_eq!(mod_char.val(), '\u{1F600}');
+    }
+
+    /// Tests `From<u8>` implementation for `ModChar`
+    #[test]
+    fn from_u8() {
+        // Test that u8 conversion is equivalent to char::from for all possible u8 values
+        for byte_val in 0u8..=255u8 {
+            let mod_char = ModChar::from(byte_val);
+            assert_eq!(mod_char.val(), char::from(byte_val));
+        }
+    }
 }

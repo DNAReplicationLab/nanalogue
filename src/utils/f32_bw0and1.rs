@@ -313,4 +313,56 @@ mod tests {
         let val = F32Bw0and1::new(0.75).expect("should create");
         assert_eq!(format!("{val}"), "0.75");
     }
+
+    #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact comparison ok for boundary values and simple fractions"
+    )]
+    fn f32_bw0and1_try_from_f32_valid() {
+        // Test boundary values
+        let zero: F32Bw0and1 = 0.0f32.try_into().expect("should convert");
+        assert_eq!(zero.val(), 0.0);
+
+        let one: F32Bw0and1 = 1.0f32.try_into().expect("should convert");
+        assert_eq!(one.val(), 1.0);
+
+        // Test intermediate values
+        let half: F32Bw0and1 = 0.5f32.try_into().expect("should convert");
+        assert_eq!(half.val(), 0.5);
+
+        let three_quarters: F32Bw0and1 = 0.75f32.try_into().expect("should convert");
+        assert_eq!(three_quarters.val(), 0.75);
+
+        // Test near-boundary values
+        let near_zero: F32Bw0and1 = 0.000_001f32.try_into().expect("should convert");
+        assert_eq!(near_zero.val(), 0.000_001);
+
+        let near_one: F32Bw0and1 = 0.999_999f32.try_into().expect("should convert");
+        assert_eq!(near_one.val(), 0.999_999);
+    }
+
+    #[test]
+    fn f32_bw0and1_try_from_f32_invalid() {
+        // Test below lower boundary
+        let below_zero: Result<F32Bw0and1, _> = (-0.000_001f32).try_into();
+        let _: Error = below_zero.unwrap_err();
+
+        let negative: Result<F32Bw0and1, _> = (-0.5f32).try_into();
+        let _: Error = negative.unwrap_err();
+
+        // Test above upper boundary
+        let above_one: Result<F32Bw0and1, _> = 1.000_001f32.try_into();
+        let _: Error = above_one.unwrap_err();
+
+        let too_large: Result<F32Bw0and1, _> = 1.5f32.try_into();
+        let _: Error = too_large.unwrap_err();
+
+        // Test special float values
+        let infinity: Result<F32Bw0and1, _> = f32::INFINITY.try_into();
+        let _: Error = infinity.unwrap_err();
+
+        let neg_infinity: Result<F32Bw0and1, _> = f32::NEG_INFINITY.try_into();
+        let _: Error = neg_infinity.unwrap_err();
+    }
 }

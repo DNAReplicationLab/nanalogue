@@ -190,4 +190,63 @@ mod tests {
             assert_eq!(val.val(), test_val);
         }
     }
+
+    #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact comparison ok for boundary values and simple fractions"
+    )]
+    fn f32_abs_val_at_most1_try_from_f32_valid() {
+        // Test boundary values
+        let neg_one: F32AbsValAtMost1 = (-1.0f32).try_into().expect("should convert");
+        assert_eq!(neg_one.val(), -1.0);
+
+        let zero: F32AbsValAtMost1 = 0.0f32.try_into().expect("should convert");
+        assert_eq!(zero.val(), 0.0);
+
+        let one: F32AbsValAtMost1 = 1.0f32.try_into().expect("should convert");
+        assert_eq!(one.val(), 1.0);
+
+        // Test intermediate positive values
+        let half: F32AbsValAtMost1 = 0.5f32.try_into().expect("should convert");
+        assert_eq!(half.val(), 0.5);
+
+        // Test intermediate negative values
+        let neg_half: F32AbsValAtMost1 = (-0.5f32).try_into().expect("should convert");
+        assert_eq!(neg_half.val(), -0.5);
+
+        let neg_three_quarters: F32AbsValAtMost1 = (-0.75f32).try_into().expect("should convert");
+        assert_eq!(neg_three_quarters.val(), -0.75);
+
+        // Test near-boundary values
+        let near_neg_one: F32AbsValAtMost1 = (-0.999_999f32).try_into().expect("should convert");
+        assert_eq!(near_neg_one.val(), -0.999_999);
+
+        let near_one: F32AbsValAtMost1 = 0.999_999f32.try_into().expect("should convert");
+        assert_eq!(near_one.val(), 0.999_999);
+    }
+
+    #[test]
+    fn f32_abs_val_at_most1_try_from_f32_invalid() {
+        // Test below lower boundary
+        let below_neg_one: Result<F32AbsValAtMost1, _> = (-1.000_001f32).try_into();
+        let _: Error = below_neg_one.unwrap_err();
+
+        let too_negative: Result<F32AbsValAtMost1, _> = (-1.5f32).try_into();
+        let _: Error = too_negative.unwrap_err();
+
+        // Test above upper boundary
+        let above_one: Result<F32AbsValAtMost1, _> = 1.000_001f32.try_into();
+        let _: Error = above_one.unwrap_err();
+
+        let too_large: Result<F32AbsValAtMost1, _> = 1.5f32.try_into();
+        let _: Error = too_large.unwrap_err();
+
+        // Test special float values
+        let infinity: Result<F32AbsValAtMost1, _> = f32::INFINITY.try_into();
+        let _: Error = infinity.unwrap_err();
+
+        let neg_infinity: Result<F32AbsValAtMost1, _> = f32::NEG_INFINITY.try_into();
+        let _: Error = neg_infinity.unwrap_err();
+    }
 }

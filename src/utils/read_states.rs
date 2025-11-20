@@ -84,6 +84,8 @@ impl TryFrom<Vec<u16>> for ReadStates {
     /// let val_2: Error = ReadStates::try_from(vec![700]).unwrap_err();
     /// let val_3: Error = ReadStates::try_from(vec![16, 400]).unwrap_err();
     /// let val_4: Error = ReadStates::try_from(vec![]).unwrap_err();
+    /// let val_5 = ReadStates::try_from(vec![16, 16]).unwrap();
+    /// assert_eq!(val_5.bam_flags(), &[16]);
     /// ```
     fn try_from(s: Vec<u16>) -> Result<Self, Self::Error> {
         if s.is_empty() {
@@ -91,16 +93,19 @@ impl TryFrom<Vec<u16>> for ReadStates {
                 "Set of allowed read states cannot be empty!".to_owned(),
             ))
         } else {
-            Ok(ReadStates(
-                s.into_iter()
-                    .map(|x| match x {
-                        v @ (0 | 4 | 16 | 256 | 272 | 2048 | 2064) => Ok(v),
-                        v => Err(Error::UnknownAlignState(format!(
-                            "{v} is disallowed either by the BAM format or by us"
-                        ))),
-                    })
-                    .collect::<Result<Vec<u16>, _>>()?,
-            ))
+            let temp_output = s
+                .into_iter()
+                .map(|x| match x {
+                    v @ (0 | 4 | 16 | 256 | 272 | 2048 | 2064) => Ok(v),
+                    v => Err(Error::UnknownAlignState(format!(
+                        "{v} is disallowed either by the BAM format or by us"
+                    ))),
+                })
+                .collect::<Result<HashSet<u16>, _>>()?;
+
+            let mut output = temp_output.into_iter().collect::<Vec<u16>>();
+            output.sort_unstable();
+            Ok(ReadStates(output))
         }
     }
 }
@@ -142,8 +147,30 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::shadow_unrelated,
+        reason = "repetition is fine; each block is clearly separated"
+    )]
+    fn read_states_from_vec() {
+        let val = ReadStates::try_from(vec![16, 256, 0]).unwrap();
+        assert_eq!(val.bam_flags(), &[0, 16, 256]);
+
+        let _: Error = ReadStates::try_from(vec![700]).unwrap_err();
+        let _: Error = ReadStates::try_from(vec![16, 400]).unwrap_err();
+        let _: Error = ReadStates::try_from(vec![]).unwrap_err();
+
+        let val = ReadStates::try_from(vec![16, 16]).unwrap();
+        assert_eq!(val.bam_flags(), &[16]);
+    }
+
+    #[test]
     #[should_panic(expected = "UnknownAlignState")]
-    fn invalid_state() {
+    fn invalid_string() {
         let _op = ReadStates::from_str("random").unwrap();
+    }
+
+    #[test]
+    fn empty_string() {
+        let _op: Error = ReadStates::from_str("").unwrap_err();
     }
 }
