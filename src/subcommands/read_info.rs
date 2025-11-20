@@ -2,7 +2,7 @@
 //!
 //! This module retrieves information about reads
 //! from a BAM file and writes it as a JSON to the standard output.
-use crate::{CurrRead, Error};
+use crate::{CurrRead, Error, ThresholdState};
 use rust_htslib::bam;
 use std::iter;
 use std::rc::Rc;
@@ -13,7 +13,7 @@ use std::rc::Rc;
 /// # Errors
 /// Returns an error if BAM record reading, parsing, or writing to output fails.
 #[expect(clippy::missing_panics_doc, reason = "no error expected here")]
-pub fn run<W, D>(handle: &mut W, bam_records: D) -> Result<(), Error>
+pub fn run<W, D>(handle: &mut W, bam_records: D, detailed: Option<bool>) -> Result<(), Error>
 where
     W: std::io::Write,
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
@@ -32,8 +32,23 @@ where
             writeln!(handle)?;
         }
 
-        let curr_read = CurrRead::try_from(record)?;
-        write!(handle, "{curr_read}")?;
+        if let Some(flag) = detailed {
+            let curr_read = CurrRead::default()
+                .try_from_only_alignment(&record)?
+                .set_mod_data(&record, ThresholdState::GtEq(0), 0)?;
+            write!(
+                handle,
+                "{}",
+                if flag {
+                    serde_json::to_string_pretty(&curr_read)?
+                } else {
+                    serde_json::to_string(&curr_read)?
+                }
+            )?;
+        } else {
+            let curr_read = CurrRead::try_from(record)?;
+            write!(handle, "{curr_read}")?;
+        }
     }
 
     writeln!(handle, "\n]")?;
@@ -60,7 +75,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter())?;
+        run(&mut output_buffer, records.into_iter(), None)?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -91,7 +106,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter())?;
+        run(&mut output_buffer, records.into_iter(), None)?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -121,7 +136,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter())?;
+        run(&mut output_buffer, records.into_iter(), None)?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -150,7 +165,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter())?;
+        run(&mut output_buffer, records.into_iter(), None)?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -176,6 +191,63 @@ mod tests {
             }
         ]);
         assert_eq!(parsed, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn run_with_detailed_pretty_print() -> Result<(), Error> {
+        // Collect records from example_1.bam to test detailed pretty-print mode
+        let mut reader = nanalogue_bam_reader("./examples/example_1.bam")?;
+        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> =
+            reader.rc_records().collect();
+
+        // Run with detailed=Some(true) for pretty-printed JSON
+        let mut output_buffer = Vec::new();
+        run(&mut output_buffer, records.into_iter(), Some(true))?;
+        let output_json = String::from_utf8(output_buffer)?;
+
+        // Load expected output from file
+        let expected_output =
+            std::fs::read_to_string("./examples/example_1_detailed_pretty_print")?;
+
+        // Parse both as JSON values to compare structure
+        let parsed_output: Value = serde_json::from_str(&output_json)?;
+        let parsed_expected: Value = serde_json::from_str(&expected_output)?;
+
+        // Verify the JSON structures are identical
+        assert_eq!(
+            parsed_output, parsed_expected,
+            "Pretty-printed detailed output should match expected file"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn run_with_detailed_compact_print() -> Result<(), Error> {
+        // Collect records from example_1.bam to test detailed compact mode
+        let mut reader = nanalogue_bam_reader("./examples/example_1.bam")?;
+        let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> =
+            reader.rc_records().collect();
+
+        // Run with detailed=Some(false) for compact JSON
+        let mut output_buffer = Vec::new();
+        run(&mut output_buffer, records.into_iter(), Some(false))?;
+        let output_json = String::from_utf8(output_buffer)?;
+
+        // Load expected output from file
+        let expected_output = std::fs::read_to_string("./examples/example_1_detailed_print")?;
+
+        // Parse both as JSON values to compare structure
+        let parsed_output: Value = serde_json::from_str(&output_json)?;
+        let parsed_expected: Value = serde_json::from_str(&expected_output)?;
+
+        // Verify the JSON structures are identical
+        assert_eq!(
+            parsed_output, parsed_expected,
+            "Compact detailed output should match expected file"
+        );
 
         Ok(())
     }

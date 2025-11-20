@@ -79,6 +79,12 @@ enum Commands {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
+        /// Print detailed modification data (JSON)
+        #[clap(long, conflicts_with = "detailed_pretty")]
+        detailed: bool,
+        /// Pretty-print detailed modification data (JSON)
+        #[clap(long, conflicts_with = "detailed")]
+        detailed_pretty: bool,
     },
     /// Find names of modified reads through criteria specified by sub commands
     FindModifiedReads {
@@ -413,10 +419,18 @@ where
                 BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
             read_stats::run(&mut handle, pre_filt!(bam_rc_records, &bam))
         }
-        Commands::ReadInfo { mut bam } => {
+        Commands::ReadInfo {
+            mut bam,
+            detailed,
+            detailed_pretty,
+        } => {
             let bam_rc_records =
                 BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
-            read_info::run(&mut handle, pre_filt!(bam_rc_records, &bam))
+            read_info::run(
+                &mut handle,
+                pre_filt!(bam_rc_records, &bam),
+                (detailed || detailed_pretty).then_some(detailed_pretty),
+            )
         }
         Commands::FindModifiedReads {
             command:
