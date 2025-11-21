@@ -198,4 +198,8 @@ error could possibly be due to not including header with `samtools view -h` "
     /// Problem parsing items while converting between DNA base representations
     #[error("error converting between DNA bases: `{0}`")]
     FromCharError(#[from] TryFromCharError),
+
+    /// Error from Polars during `DataFrame` construction or manipulation
+    #[error("Polars error: `{0}`")]
+    PolarsError(#[from] polars::error::PolarsError),
 }

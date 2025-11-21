@@ -36,8 +36,11 @@ where
     let slide_size = window_options.step.get();
 
     // print header
-    writeln!(handle, "#contig\tref_win_start\tref_win_end\tread_id\twin_val\tstrand\t\
-base\tmod_strand\tmod_type\twin_start\twin_end")?;
+    writeln!(
+        handle,
+        "#contig\tref_win_start\tref_win_end\tread_id\twin_val\tstrand\t\
+base\tmod_strand\tmod_type\twin_start\twin_end"
+    )?;
 
     // Go record by record in the BAM file,
     for r in bam_records {

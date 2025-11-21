@@ -12,6 +12,7 @@ use bio_types::genome::AbstractInterval as _;
 use derive_builder::Builder;
 use fibertools_rs::utils::bamranges::Ranges;
 use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
+use polars::{df, prelude::DataFrame};
 use rust_htslib::{bam::ext::BamRecordExtensions as _, bam::record::Record};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -1667,7 +1668,7 @@ pub struct ModTableEntry {
     /// Modification code (character or numeric)
     #[builder(field(ty = "String", build = "self.mod_code.parse()?"))]
     mod_code: ModChar,
-    /// Modification data as [start, `ref_start`, qual] tuples
+    /// Modification data as [`start`, `ref_start`, `mod_qual`] tuples
     data: Vec<(u64, i64, u8)>,
 }
 
@@ -1972,6 +1973,212 @@ ascending needed even if reversed read)!",
     }
 
     Ok(BaseMods { base_mods })
+}
+
+/// Convert a vector of `CurrRead<AlignAndModData>` to a Polars `DataFrame`
+/// with one row per modification data point
+///
+/// Each modification data point becomes a row in the `DataFrame`, with read-level
+/// and alignment-level information repeated across rows for the same read.
+///
+/// # Example
+///
+/// ```
+/// use nanalogue_core::{Error, CurrReadBuilder, AlignmentInfoBuilder, ModTableEntryBuilder,
+///     ReadState, curr_reads_to_dataframe};
+/// use polars::prelude::*;
+///
+/// // Build modification table entries with two data points
+/// let mod_table_entry = ModTableEntryBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .data([(0, 15, 200), (2, 25, 100)].into())
+///     .build()?;
+///
+/// // Build a CurrRead<AlignAndModData>
+/// let read = CurrReadBuilder::default()
+///     .read_id("test_read".into())
+///     .seq_len(40)
+///     .alignment_type(ReadState::PrimaryFwd)
+///     .alignment(AlignmentInfoBuilder::default()
+///         .start(10)
+///         .end(60)
+///         .contig("chr1".into())
+///         .contig_id(1)
+///         .build()?)
+///     .mod_table([mod_table_entry].into())
+///     .build()?;
+///
+/// // Convert to DataFrame
+/// let df = curr_reads_to_dataframe(&[read])?;
+///
+/// // Verify DataFrame structure
+/// assert_eq!(df.height(), 2); // Two modification data points
+/// assert_eq!(df.width(), 13); // 13 columns
+///
+/// // Check read-level fields (repeated across both rows)
+/// let read_id_col = df.column("read_id")?.str()?;
+/// assert_eq!(read_id_col.get(0), Some("test_read"));
+/// assert_eq!(read_id_col.get(1), Some("test_read"));
+///
+/// let seq_len_col = df.column("seq_len")?.u64()?;
+/// assert_eq!(seq_len_col.get(0), Some(40));
+/// assert_eq!(seq_len_col.get(1), Some(40));
+///
+/// let alignment_type_col = df.column("alignment_type")?.str()?;
+/// assert_eq!(alignment_type_col.get(0), Some("primary_forward"));
+/// assert_eq!(alignment_type_col.get(1), Some("primary_forward"));
+///
+/// // Check alignment fields (repeated across both rows)
+/// let align_start_col = df.column("align_start")?.u64()?;
+/// assert_eq!(align_start_col.get(0), Some(10));
+/// assert_eq!(align_start_col.get(1), Some(10));
+///
+/// let align_end_col = df.column("align_end")?.u64()?;
+/// assert_eq!(align_end_col.get(0), Some(60));
+/// assert_eq!(align_end_col.get(1), Some(60));
+///
+/// let contig_col = df.column("contig")?.str()?;
+/// assert_eq!(contig_col.get(0), Some("chr1"));
+/// assert_eq!(contig_col.get(1), Some("chr1"));
+///
+/// let contig_id_col = df.column("contig_id")?.i32()?;
+/// assert_eq!(contig_id_col.get(0), Some(1));
+/// assert_eq!(contig_id_col.get(1), Some(1));
+///
+/// // Check modification entry fields (repeated across both rows)
+/// let base_col = df.column("base")?.str()?;
+/// assert_eq!(base_col.get(0), Some("C"));
+/// assert_eq!(base_col.get(1), Some("C"));
+///
+/// let is_strand_plus_col = df.column("is_strand_plus")?.bool()?;
+/// assert_eq!(is_strand_plus_col.get(0), Some(true));
+/// assert_eq!(is_strand_plus_col.get(1), Some(true));
+///
+/// let mod_code_col = df.column("mod_code")?.str()?;
+/// assert_eq!(mod_code_col.get(0), Some("m"));
+/// assert_eq!(mod_code_col.get(1), Some("m"));
+///
+/// // Check modification data points (unique per row)
+/// let position_col = df.column("position")?.u64()?;
+/// assert_eq!(position_col.get(0), Some(0)); // First mod position
+/// assert_eq!(position_col.get(1), Some(2)); // Second mod position
+///
+/// let ref_position_col = df.column("ref_position")?.i64()?;
+/// assert_eq!(ref_position_col.get(0), Some(15)); // First ref position
+/// assert_eq!(ref_position_col.get(1), Some(25)); // Second ref position
+///
+/// let mod_quality_col = df.column("mod_quality")?.u32()?;
+/// assert_eq!(mod_quality_col.get(0), Some(200)); // First mod_quality score
+/// assert_eq!(mod_quality_col.get(1), Some(100)); // Second mod_quality score
+///
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// # Errors
+/// Returns nanalogue `Error` if `DataFrame` construction fails or if
+/// data extraction from `CurrRead` fails
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "start + alen cannot overflow as genomic coordinates are far below u64::MAX"
+)]
+pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<DataFrame, Error> {
+    // Vectors to hold column data
+    let mut read_ids: Vec<Option<String>> = Vec::new();
+    let mut seq_lens: Vec<Option<u64>> = Vec::new();
+    let mut alignment_types: Vec<String> = Vec::new();
+
+    // Alignment info columns
+    let mut align_starts: Vec<Option<u64>> = Vec::new();
+    let mut align_ends: Vec<Option<u64>> = Vec::new();
+    let mut contigs: Vec<Option<String>> = Vec::new();
+    let mut contig_ids: Vec<Option<i32>> = Vec::new();
+
+    // Modification entry columns
+    let mut bases: Vec<String> = Vec::new();
+    let mut is_strand_plus: Vec<bool> = Vec::new();
+    let mut mod_codes: Vec<String> = Vec::new();
+
+    // Modification data point columns (the unique part)
+    let mut positions: Vec<u64> = Vec::new();
+    let mut ref_positions: Vec<i64> = Vec::new();
+    let mut mod_qualities: Vec<u32> = Vec::new();
+
+    // Iterate through each CurrRead
+    for read in reads {
+        // Extract read-level information
+        let read_id = read.read_id().ok();
+        let seq_len = read.seq_len().ok();
+        let alignment_type = read.read_state();
+
+        // Extract alignment information (may be None for unmapped reads)
+        let (contig_id, align_start, align_end, contig_name) =
+            if let (Ok((cid, start)), Ok(alen), Ok(cname)) = (
+                read.contig_id_and_start(),
+                read.align_len(),
+                read.contig_name(),
+            ) {
+                (
+                    Some(cid),
+                    Some(start),
+                    Some(start + alen),
+                    Some(cname.to_string()),
+                )
+            } else {
+                (None, None, None, None)
+            };
+
+        // Get BaseMods and condense to ModTableEntry format
+        let mod_data = read.mod_data();
+        let mod_table = condense_base_mods(&mod_data.0)?;
+
+        // For each modification table entry
+        for mod_entry in &mod_table {
+            // For each data point in this mod entry
+            for &(start, ref_start, qual) in &mod_entry.data {
+                // Add read-level fields (repeated)
+                read_ids.push(read_id.map(ToString::to_string));
+                seq_lens.push(seq_len);
+                alignment_types.push(alignment_type.to_string());
+
+                // Add alignment fields (repeated, may be None)
+                align_starts.push(align_start);
+                align_ends.push(align_end);
+                contigs.push(contig_name.clone());
+                contig_ids.push(contig_id);
+
+                // Add mod entry fields (repeated)
+                bases.push(mod_entry.base.to_string());
+                is_strand_plus.push(mod_entry.is_strand_plus);
+                mod_codes.push(mod_entry.mod_code.to_string());
+
+                // Add data point fields (unique per row)
+                positions.push(start);
+                ref_positions.push(ref_start);
+                mod_qualities.push(u32::from(qual));
+            }
+        }
+    }
+
+    // Build the DataFrame
+    let df = df! {
+        "read_id" => read_ids,
+        "seq_len" => seq_lens,
+        "alignment_type" => alignment_types,
+        "align_start" => align_starts,
+        "align_end" => align_ends,
+        "contig" => contigs,
+        "contig_id" => contig_ids,
+        "base" => bases,
+        "is_strand_plus" => is_strand_plus,
+        "mod_code" => mod_codes,
+        "position" => positions,
+        "ref_position" => ref_positions,
+        "mod_quality" => mod_qualities,
+    }?;
+
+    Ok(df)
 }
 
 #[cfg(test)]
