@@ -274,9 +274,11 @@ when usize is 64-bit as genomic sequences are not that long"
                         ))?;
                     if filter_mod_prob(prob)
                         && filter_mod_pos(&cur_seq_idx)
-                        && !(min_qual > 0
-                            && *base_qual.get(cur_seq_idx).expect("cur_seq_idx is valid")
-                                < min_qual)
+                        && (min_qual > 0).then(|| {
+                            base_qual
+                                .get(cur_seq_idx)
+                                .filter(|&x| *x >= min_qual && *x != 255u8)
+                        }) != Some(None)
                     {
                         modified_positions.push(i64::try_from(cur_seq_idx).expect(
                             "integer conversion errors unlikely \
@@ -299,9 +301,11 @@ when usize is 64-bit as genomic sequences are not that long"
                     if is_include_zero_prob
                         && is_implicit
                         && filter_mod_pos(&cur_seq_idx)
-                        && !(min_qual > 0
-                            && *base_qual.get(cur_seq_idx).expect("cur_seq_idx is valid")
-                                < min_qual)
+                        && (min_qual > 0).then(|| {
+                            base_qual
+                                .get(cur_seq_idx)
+                                .filter(|&x| *x >= min_qual && *x != 255u8)
+                        }) != Some(None)
                     {
                         modified_positions.push(i64::try_from(cur_seq_idx).expect(
                             "integer conversion errors unlikely \

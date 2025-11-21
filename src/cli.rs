@@ -192,8 +192,8 @@ pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// Exclude bases whose base quality is below
     /// this threshold before any mod operation, defaults to 0 i.e. unused.
     /// NOTE: No offsets such as +33 are needed here.
-    /// NOTE: Reads with missing base quality information
-    /// are rejected if this is non-zero.
+    /// NOTE: Modifications on reads where no base quality information
+    /// is available are all rejected if this is non-zero.
     #[clap(long, default_value_t)]
     pub base_qual_filter_mod: u8,
     /// Only keep modification data from this region

@@ -373,10 +373,10 @@ mod tests {
             .values()
             .sum::<u32>();
 
-        // Higher base quality threshold should filter out more modifications
+        // These numbers should be equal, and both equal to zero.
         assert!(
-            count_high_filter == count_no_filter,
-            "Base quality threshold makes no difference; there are no base qualities in this file"
+            count_no_filter > 0 && count_high_filter == 0,
+            "Base quality threshold should reject all calls as there are no base qualities in this file"
         );
 
         Ok(())
