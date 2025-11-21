@@ -1,3 +1,4 @@
+#contig	ref_win_start	ref_win_end	read_id	win_val	strand	base	mod_strand	mod_type	win_start	win_end
 dummyI	9	12	5d10eb9a-aae1-4db8-8ec6-7ebb34d32575	0	+	T	+	T	0	4
 dummyI	12	13	5d10eb9a-aae1-4db8-8ec6-7ebb34d32575	0	+	T	+	T	3	5
 dummyI	13	16	5d10eb9a-aae1-4db8-8ec6-7ebb34d32575	0	+	T	+	T	4	8

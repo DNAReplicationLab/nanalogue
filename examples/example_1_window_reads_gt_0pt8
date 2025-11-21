@@ -1,2 +1,3 @@
+#contig	ref_win_start	ref_win_end	read_id	win_val	strand	base	mod_strand	mod_type	win_start	win_end
 dummyIII	26	31	a4f36092-b4d5-47a9-813e-c22c3b477a0c	1	+	T	+	T	3	9
 .	-1	-1	a4f36092-b4d5-47a9-813e-c22c3b477a0c	1	.	T	+	T	3	9

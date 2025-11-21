@@ -642,7 +642,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///
     /// # Errors
     /// If getting sequence coordinates from reference coordinates fails, see
-    /// [`CurrRead::seq_coords_from_ref_coords`]
+    /// [`CurrRead::seq_and_qual_on_ref_coords`]
     ///
     /// # Example
     ///
@@ -701,7 +701,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// the `Index<usize>` trait on sequences from `rust-htslib`.
     ///
     /// # Errors
-    /// If the read does not intersect with the specified region.
+    /// If the read does not intersect with the specified region, see
+    /// [`CurrRead::seq_coords_from_ref_coords`]
     ///
     /// # Example
     ///
@@ -1289,10 +1290,11 @@ impl TryFrom<Rc<Record>> for CurrRead<AlignAndModData> {
     }
 }
 
-/// Implements filter by reference coordinates for our `CurrRead`
+/// Implements filter by reference coordinates for our `CurrRead`.
+/// This only filters modification data.
 impl FilterByRefCoords for CurrRead<AlignAndModData> {
-    /// filters by reference position i.e. all pos such that start <= pos < end
-    /// are retained. does not use contig in filtering.
+    /// filters modification data by reference position i.e. all pos such that
+    /// start <= pos < end are retained. does not use contig in filtering.
     fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
         for k in &mut self.mods.0.base_mods {
             k.ranges.filter_by_ref_pos(start, end);
