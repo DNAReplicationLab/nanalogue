@@ -166,6 +166,25 @@ where
 
     // if there is an MM tag iterate over all the regex matches
     if let Ok(Aux::String(mm_text)) = record.aux(b"MM") {
+        // base qualities; must reverse if rev comp.
+        // NOTE this is always equal to number of bases in the sequence, otherwise
+        // rust_htslib will throw an error, so we don't have to check this.
+        let base_qual: Vec<u8> = match (min_qual, record.is_reverse()) {
+            (0, _) => Vec::new(),
+            (_, true) => record.qual().iter().rev().copied().collect(),
+            (_, false) => record.qual().to_vec(),
+        };
+
+        // get forward sequence bases from the bam record
+        let forward_bases = {
+            let seq = convert_seq_uppercase(record.seq().as_bytes());
+            if record.is_reverse() {
+                revcomp(seq)
+            } else {
+                seq
+            }
+        };
+
         for cap in MM_RE.captures_iter(mm_text) {
             let mod_base = cap
                 .get(3)
@@ -205,22 +224,6 @@ where
                 .filter(|s| !s.is_empty())
                 .map(|s| s.parse().unwrap())
                 .collect();
-
-            // base qualities; must reverse if rev comp.
-            // NOTE this is always equal to number of bases in the sequence, otherwise
-            // rust_htslib will throw an error, so we don't have to check this.
-            let base_qual: Vec<u8> = match (min_qual, record.is_reverse()) {
-                (0, _) => Vec::new(),
-                (_, true) => record.qual().iter().rev().copied().collect(),
-                (_, false) => record.qual().to_vec(),
-            };
-
-            // get forward sequence bases from the bam record
-            let forward_bases = if record.is_reverse() {
-                revcomp(convert_seq_uppercase(record.seq().as_bytes()))
-            } else {
-                convert_seq_uppercase(record.seq().as_bytes())
-            };
 
             // do we include bases with zero probabilities?
             let is_include_zero_prob = filter_mod_prob(&0);
@@ -280,7 +283,8 @@ when usize is 64-bit as genomic sequences are not that long"
                             base_qual
                                 .get(cur_seq_idx)
                                 .filter(|&x| *x >= min_qual && *x != 255u8)
-                        }) != Some(None)
+                                .is_some()
+                        }) != Some(false)
                     {
                         modified_positions.push(i64::try_from(cur_seq_idx).expect(
                             "integer conversion errors unlikely \
@@ -307,7 +311,8 @@ when usize is 64-bit as genomic sequences are not that long"
                             base_qual
                                 .get(cur_seq_idx)
                                 .filter(|&x| *x >= min_qual && *x != 255u8)
-                        }) != Some(None)
+                                .is_some()
+                        }) != Some(false)
                     {
                         modified_positions.push(i64::try_from(cur_seq_idx).expect(
                             "integer conversion errors unlikely \

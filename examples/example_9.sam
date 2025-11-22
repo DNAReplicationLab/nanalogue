@@ -1,0 +1,8 @@
+@HD	VN:1.6	SO:unsorted
+@SQ	SN:dummyI	LN:22
+@SQ	SN:dummyII	LN:48
+@SQ	SN:dummyIII	LN:76
+@RG	ID:1	LB:blank	PL:ULTIMA	SM:blank	PU:blank
+read.reverse.Amod	16	dummyI	10	255	8M1S	*	0	0	TCGTTTCTT	A!fqpr>?B	RG:Z:1	ML:B:C,4,7,9,6	MM:Z:A+a,0,0,0,1;
+read.no_basecall_qual.reverse.Amod	16	dummyI	10	255	8M1S	*	0	0	TCGTTTCTT	*	RG:Z:1	ML:B:C,4,7,9,6	MM:Z:A+a,0,0,0,1;
+read.explicit.reverse.Amod	16	dummyI	10	255	8M1S	*	0	0	TCGTTTCTT	A!fqpr>?B	RG:Z:1	ML:B:C,4,7,9,6	MM:Z:A+a?,0,0,0,1;
