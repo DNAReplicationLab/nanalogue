@@ -777,6 +777,33 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///
     /// # Errors
     /// If the read does not intersect with the specified region, or if `usize` conversions fail.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use bedrs::Bed3;
+    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// use rust_htslib::bam::Read;
+    ///
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_7.sam")?;
+    /// for record in reader.records() {
+    ///     let r = record?;
+    ///     let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
+    ///
+    ///     let region = Bed3::new(0, 9, 13);
+    ///     let seq_subset = curr_read.seq_coords_from_ref_coords(&r, &region)?;
+    ///     // there are deletions on the read above
+    ///     assert_eq!(seq_subset, vec![Some(0), None, None, Some(1), Some(2)]);
+    ///
+    ///     // Create a region with no overlap at all and check we get no data
+    ///     let region = Bed3::new(0, 20, 22);
+    ///     match curr_read.seq_coords_from_ref_coords(&r, &region){
+    ///         Err(Error::UnavailableData) => (),
+    ///         _ => unreachable!(),
+    ///     };
+    ///
+    /// }
+    /// # Ok::<(), Error>(())
     pub fn seq_coords_from_ref_coords(
         &self,
         record: &Record,

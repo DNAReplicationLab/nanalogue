@@ -1,0 +1,6 @@
+@HD	VN:1.6	SO:unsorted
+@SQ	SN:dummyI	LN:22
+@SQ	SN:dummyII	LN:48
+@SQ	SN:dummyIII	LN:76
+@RG	ID:1	LB:blank	PL:ULTIMA	SM:blank	PU:blank
+read1	0	dummyI	10	255	1M2D1I5M	*	0	0	TATTTCT	A!!pr>?	RG:Z:1	ML:B:C,4,7,9,6	MM:Z:T+T?,0,0,0,1;

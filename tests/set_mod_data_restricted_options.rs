@@ -401,6 +401,105 @@ mod tests {
     }
 
     #[test]
+    fn base_quality_filter_2() -> Result<(), Error> {
+        // Test: Base quality filtering
+        // NOTE that we use example_8 here that has valid basecalling qualities on one
+        // read and on an identical read on the next line has no basecalling qualities
+        let mut reader = nanalogue_bam_reader("examples/example_8.sam")?;
+        let record_1 = reader.records().next().unwrap()?;
+        let record_2 = reader.records().next().unwrap()?;
+
+        // Get count with no base quality filter
+        let curr_read_no_filter_1 = CurrRead::default().try_from_only_alignment(&record_1)?;
+        let options_no_filter = MockModOptions::new().with_base_qual_filter(0);
+        let result_no_filter_1 =
+            curr_read_no_filter_1.set_mod_data_restricted_options(&record_1, &options_no_filter)?;
+        let count_no_filter_1 = result_no_filter_1
+            .base_count_per_mod()
+            .values()
+            .sum::<u32>();
+
+        // Get count with high base quality filter
+        let curr_read_high_filter_1 = CurrRead::default().try_from_only_alignment(&record_1)?;
+        let options_high_filter = MockModOptions::new().with_base_qual_filter(40);
+        let result_high_filter_1 = curr_read_high_filter_1
+            .set_mod_data_restricted_options(&record_1, &options_high_filter)?;
+        let count_high_filter_1 = result_high_filter_1
+            .base_count_per_mod()
+            .values()
+            .sum::<u32>();
+
+        // Higher base quality threshold should filter out more modifications
+        assert!(
+            count_no_filter_1 == 6 && count_high_filter_1 == 3,
+            "Higher base quality threshold should result in fewer or equal mods"
+        );
+
+        // Get count with no base quality filter
+        let curr_read_no_filter_2 = CurrRead::default().try_from_only_alignment(&record_2)?;
+        let result_no_filter_2 =
+            curr_read_no_filter_2.set_mod_data_restricted_options(&record_2, &options_no_filter)?;
+        let count_no_filter_2 = result_no_filter_2
+            .base_count_per_mod()
+            .values()
+            .sum::<u32>();
+
+        // Get count with high base quality filter
+        let curr_read_high_filter_2 = CurrRead::default().try_from_only_alignment(&record_2)?;
+        let result_high_filter_2 = curr_read_high_filter_2
+            .set_mod_data_restricted_options(&record_2, &options_high_filter)?;
+        let count_high_filter_2 = result_high_filter_2
+            .base_count_per_mod()
+            .values()
+            .sum::<u32>();
+
+        // Higher base quality threshold should filter out more modifications
+        assert!(
+            count_no_filter_2 == 6 && count_high_filter_2 == 0,
+            "Another test of higher base quality threshold should result in fewer or equal mods"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn base_implicit_reading_test() -> Result<(), Error> {
+        // Test: Implicit base quality reading
+        // NOTE that we use example_8 here that has implicit mod quals on one
+        // read and on an identical read on the third line but mods are marked explicit here
+        let mut reader = nanalogue_bam_reader("examples/example_8.sam")?;
+        let record_1 = reader.records().next().unwrap()?;
+        let _record_2 = reader.records().next().unwrap()?;
+        let record_3 = reader.records().next().unwrap()?;
+
+        // Get count of two records
+        let curr_read_no_filter_1 = CurrRead::default().try_from_only_alignment(&record_1)?;
+        let options_no_filter = MockModOptions::new();
+        let result_no_filter_1 =
+            curr_read_no_filter_1.set_mod_data_restricted_options(&record_1, &options_no_filter)?;
+        let count_no_filter_1 = result_no_filter_1
+            .base_count_per_mod()
+            .values()
+            .sum::<u32>();
+
+        let curr_read_no_filter_3 = CurrRead::default().try_from_only_alignment(&record_3)?;
+        let result_no_filter_3 =
+            curr_read_no_filter_3.set_mod_data_restricted_options(&record_3, &options_no_filter)?;
+        let count_no_filter_3 = result_no_filter_3
+            .base_count_per_mod()
+            .values()
+            .sum::<u32>();
+
+        // Check that implicit bases are read correctly
+        assert!(
+            count_no_filter_1 == 6 && count_no_filter_3 == 4,
+            "Test of implicit base counts"
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn base_quality_filter_in_file_with_no_base_qual() -> Result<(), Error> {
         // Test: Base quality filtering
         // NOTE that we use example_1 here that has no basecalling qualities.
@@ -414,7 +513,8 @@ mod tests {
             curr_read_no_filter.set_mod_data_restricted_options(&record, &options_no_filter)?;
         let count_no_filter = result_no_filter.base_count_per_mod().values().sum::<u32>();
 
-        // Get count with high base quality filter
+        // Get count with high base quality filter, should throw out all positions
+        // as this read does not have base quality information
         let curr_read_high_filter = CurrRead::default().try_from_only_alignment(&record)?;
         let options_high_filter = MockModOptions::new().with_base_qual_filter(94);
         let result_high_filter =
@@ -424,7 +524,7 @@ mod tests {
             .values()
             .sum::<u32>();
 
-        // These numbers should be equal, and both equal to zero.
+        // These numbers should be equal, and the high filter count equal to zero.
         assert!(
             count_no_filter > 0 && count_high_filter == 0,
             "Base quality threshold should reject all calls as there are no base qualities in this file"
