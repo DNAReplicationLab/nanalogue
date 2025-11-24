@@ -1,0 +1,4 @@
+# a sample comment
+read_id	sequence_length_template	irrelevant
+read1	8	0
+read2	48	1

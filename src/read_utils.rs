@@ -17,7 +17,6 @@ use rust_htslib::{bam::ext::BamRecordExtensions as _, bam::record::Record};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Write as _};
-use std::num::NonZeroU64;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -212,25 +211,72 @@ impl CurrRead<NoData> {
         })
     }
 
-    /// Uses only alignment information and no modification information to
-    /// create the struct. Use this if you want to perform operations that
-    /// do not involve reading or manipulating the modification data.
+    /// Runs [`CurrRead<NoData>::try_from_only_alignment_seq_len_optional`], forcing sequence
+    /// length retrieval. See comments there and the comments below.
+    ///
+    /// Some BAM records have zero-length sequence fields i.e. marked by a '*'.
+    /// This may be intentional e.g. a secondary alignment has the same sequence
+    /// as a corresponding primary alignment and repeating a sequence is not space-efficient.
+    /// Or it may be intentional due to other reasons.
+    /// For modification processing, we cannot deal with these records as we have to match
+    /// sequences across different records.
+    /// So, our easy-to-use-function here forces sequence length retrieval and will fail
+    /// if zero length sequences are found.
+    ///
+    /// Another function below [`CurrRead<NoData>::try_from_only_alignment_zero_seq_len`], allows
+    /// zero length sequences through and can be used if zero length sequences are really
+    /// needed. In such a scenario, the user has to carefully watch for errors.
+    /// So we discourage its use unless really necessary.
     ///
     /// # Errors
-    /// Errors are returned if getting record information fails e.g. read id
     pub fn try_from_only_alignment(
         self,
         record: &Record,
     ) -> Result<CurrRead<OnlyAlignDataComplete>, Error> {
+        self.try_from_only_alignment_seq_len_optional(record, true)
+    }
+
+    /// Runs [`CurrRead<NoData>::try_from_only_alignment_seq_len_optional`], avoiding sequence
+    /// length retrieval and setting it to zero. See comments there and the comments below.
+    ///
+    /// See notes on [`CurrRead<NoData>::try_from_only_alignment`].
+    /// Use of this function is discouraged unless really necessary as we cannot parse
+    /// modification information from zero-length sequences without errors.
+    ///
+    /// # Errors
+    pub fn try_from_only_alignment_zero_seq_len(
+        self,
+        record: &Record,
+    ) -> Result<CurrRead<OnlyAlignDataComplete>, Error> {
+        self.try_from_only_alignment_seq_len_optional(record, false)
+    }
+
+    /// Uses only alignment information and no modification information to
+    /// create the struct. Use this if you want to perform operations that
+    /// do not involve reading or manipulating the modification data.
+    /// If `is_seq_len_non_zero` is set to false, then sequence length is
+    /// not retrieved and is set to zero.
+    ///
+    /// # Errors
+    /// Upon failure in retrieving record information.
+    pub fn try_from_only_alignment_seq_len_optional(
+        self,
+        record: &Record,
+        is_seq_len_non_zero: bool,
+    ) -> Result<CurrRead<OnlyAlignDataComplete>, Error> {
         let mut curr_read_state = CurrRead::default()
             .set_read_state(record)?
-            .set_seq_len(record)?
             .set_read_id(record)?;
         if !curr_read_state.read_state().is_unmapped() {
             curr_read_state = curr_read_state
                 .set_align_len(record)?
                 .set_contig_id_and_start(record)?
                 .set_contig_name(record)?;
+        }
+        if is_seq_len_non_zero {
+            curr_read_state = curr_read_state.set_seq_len(record)?;
+        } else {
+            curr_read_state.seq_len = Some(0u64);
         }
         let CurrRead::<OnlyAlignData> {
             state,
@@ -302,18 +348,21 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Ok::<(), Error>(())
     /// ```
     pub fn set_seq_len(mut self, record: &Record) -> Result<Self, Error> {
-        self.seq_len = match self.seq_len {
-            Some(_) => Err(Error::InvalidDuplicates(
-                "cannot set sequence length again!".to_string(),
-            )),
-            None => Ok(Some(
-                NonZeroU64::new(record.seq_len().try_into()?)
-                    .ok_or(Error::InvalidSeqLength(String::from(
-                        "sequence length failure: 0 length or usize->u64 overflow",
-                    )))?
-                    .get(),
-            )),
-        }?;
+        self.seq_len =
+            match self.seq_len {
+                Some(_) => {
+                    return Err(Error::InvalidDuplicates(
+                        "cannot set sequence length again!".to_string(),
+                    ));
+                }
+                None => match record.seq_len() {
+                    0 => return Err(Error::ZeroSeqLen(
+                        "avoid including 0-len sequences while parsing mod data in this program"
+                            .to_owned(),
+                    )),
+                    l => Some(u64::try_from(l)?),
+                },
+            };
         Ok(self)
     }
     /// gets length of sequence

@@ -155,6 +155,10 @@ error could possibly be due to not including header with `samtools view -h` "
     #[error("zero values not allowed: `{0}`")]
     Zero(String),
 
+    /// Zero sequence length
+    #[error("zero sequence length: `{0}`")]
+    ZeroSeqLen(String),
+
     /// Genomic region coordinates exceed contig boundaries
     #[error("invalid region '{region}': position {pos} exceeds contig length {contig_length}")]
     InvalidRegionError {

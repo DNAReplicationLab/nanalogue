@@ -4,5 +4,5 @@
 @SQ	SN:dummyIII	LN:76
 @RG	ID:1	LB:blank	PL:ULTIMA	SM:blank	PU:blank
 @PG	ID:samtools	PN:samtools	VN:1.13	CL:samtools view -h example_2_zero_len_o.bam
-read1	0	dummyI	10	255	8M	*	0	0	*	*	RG:Z:1
+read1	0	dummyI	10	255	8M	*	0	0	*	*	RG:Z:1	ML:B:C,4,7,9,6	MM:Z:T+T?,0,0,0,1;
 read2	0	dummyIII	24	255	48M	*	0	0	ACATCAAATCCACACCACACCACACCCTGGGAGCCACCATAACGGCCT	*	RG:Z:1

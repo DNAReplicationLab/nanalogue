@@ -1,0 +1,4 @@
+# seq summ file: ./examples/example_2_sequencing_summary
+read_id	align_length	sequence_length_template	alignment_type
+read2	48	48	primary_forward
+read1	8	8	primary_forward

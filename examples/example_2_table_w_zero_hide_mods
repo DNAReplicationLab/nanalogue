@@ -1,0 +1,3 @@
+read_id	align_length	sequence_length_template	alignment_type
+read1	8	0	primary_forward
+read2	48	48	primary_forward

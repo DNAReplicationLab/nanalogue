@@ -297,6 +297,7 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, Read>, Error> {
 ///
 /// # Errors
 /// Returns an error if TSV processing, BAM record reading, sequence retrieval, or output writing fails.
+#[expect(clippy::too_many_lines, reason = "needs to process many options")]
 pub fn run<W, D>(
     handle: &mut W,
     bam_records: D,
@@ -332,7 +333,14 @@ where
         let record = r?;
 
         // get information of current read
-        let curr_read_state = CurrRead::default().try_from_only_alignment(&record)?;
+        let curr_read_state = match CurrRead::default().try_from_only_alignment(&record) {
+            Ok(v) => v,
+            Err(Error::ZeroSeqLen(_)) => {
+                CurrRead::default().try_from_only_alignment_zero_seq_len(&record)?
+            }
+            Err(e) => return Err(e),
+        };
+
         let qname = String::from(curr_read_state.read_id()?);
         let read_state = curr_read_state.read_state();
         let align_len = match curr_read_state.align_len() {
@@ -345,13 +353,16 @@ where
         };
 
         // get sequence and basecalling qualities
-        let (sequence, qualities) = match seq_region.as_ref() {
-            None => (None, None),
-            Some(&(None, show_base_qual)) => (
+        let (sequence, qualities) = match (seq_region.as_ref(), seq_len) {
+            (None, _) => (None, None),
+            (Some(&(_, show_base_qual)), 0) => {
+                (Some(vec![b'*']), show_base_qual.then_some(vec![255u8]))
+            }
+            (Some(&(None, show_base_qual)), _) => (
                 Some(record.seq().as_bytes()),
                 show_base_qual.then_some(record.qual().to_vec()),
             ),
-            Some(&(Some(w), show_base_qual)) => {
+            (Some(&(Some(w), show_base_qual)), _) => {
                 let (o_1, o_2): (Vec<u8>, Vec<u8>) =
                     match curr_read_state.seq_and_qual_on_ref_coords(&record, &w) {
                         Err(Error::UnavailableData) => (vec![b'*'], vec![255u8]),
@@ -363,11 +374,19 @@ where
         };
 
         // get modification information
-        let mod_count = mods
-            .as_ref()
-            .map(|v| curr_read_state.set_mod_data_restricted_options(&record, v))
-            .transpose()?
-            .map(|v| ModCountTbl::new(v.base_count_per_mod()));
+        let mod_count = {
+            let record_to_be_used = if seq_len > 0 {
+                &record
+            } else {
+                // A new record contains no mod information.
+                // So if `seq_len` is zero, we get zero mod counts.
+                &bam::Record::new()
+            };
+            mods.as_ref()
+                .map(|v| curr_read_state.set_mod_data_restricted_options(record_to_be_used, v))
+                .transpose()?
+                .map(|v| ModCountTbl::new(v.base_count_per_mod()))
+        };
 
         // add data depending on whether an entry is already present
         // in the hashmap from the sequencing summary file
@@ -600,6 +619,54 @@ mod tests {
         .expect("no error");
     }
 
+    #[test]
+    fn read_table_with_zero_seq_len_hide_mods() {
+        run_read_table_test(
+            "./examples/example_2_zero_len.sam",
+            None,
+            None,
+            None,
+            "./examples/example_2_table_w_zero_hide_mods",
+        )
+        .expect("no error");
+    }
+
+    #[test]
+    fn read_table_with_zero_seq_len_show_mods() {
+        run_read_table_test(
+            "./examples/example_2_zero_len.sam",
+            Some(InputMods::<OptionalTag>::default()),
+            None,
+            None,
+            "./examples/example_2_table_w_zero_show_mods",
+        )
+        .expect("no error");
+    }
+
+    #[test]
+    fn read_table_with_zero_seq_len_hide_mods_seq_summ() {
+        run_read_table_test(
+            "./examples/example_2_zero_len.sam",
+            None,
+            None,
+            Some("./examples/example_2_sequencing_summary"),
+            "./examples/example_2_table_w_zero_hide_mods_seq_summ",
+        )
+        .expect("no error");
+    }
+
+    #[test]
+    fn read_table_with_zero_seq_len_show_mods_seq_summ() {
+        run_read_table_test(
+            "./examples/example_2_zero_len.sam",
+            Some(InputMods::<OptionalTag>::default()),
+            None,
+            Some("./examples/example_2_sequencing_summary"),
+            "./examples/example_2_table_w_zero_show_mods_seq_summ",
+        )
+        .expect("no error");
+    }
+
     /// If a read has many sequence lengths (multiple records in the BAM file
     /// having mismatched lengths), and no sequencing summary file entry,
     /// test that we choose the largest length.
@@ -673,5 +740,117 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Test that a record with zero sequence length outputs "*" for sequence
+    /// and "255" for qualities when both sequence and qualities are requested.
+    #[test]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "this is fine in tests, parsing known output"
+    )]
+    fn zero_seq_len_record_with_sequence_and_qualities() {
+        let mut reader = nanalogue_bam_reader("./examples/example_2_zero_len.sam")
+            .expect("Failed to open example file");
+        let mut bam_records = reader.rc_records();
+        let first_record = bam_records.next().expect("No records in file");
+
+        let mut output = Vec::new();
+        run(
+            &mut output,
+            vec![first_record],
+            None,
+            Some((None, true)), // show_base_qual = true
+            "",
+        )
+        .expect("no error");
+
+        let actual_output = String::from_utf8(output).expect("Invalid UTF-8");
+
+        // Parse TSV using csv crate (similar to process_tsv)
+        let mut rdr = ReaderBuilder::new()
+            .comment(Some(b'#'))
+            .delimiter(b'\t')
+            .from_reader(actual_output.as_bytes());
+
+        let headers = rdr.headers().expect("Failed to read headers");
+        let seq_col_idx = headers
+            .iter()
+            .position(|h| h == "sequence")
+            .expect("sequence column not found");
+        let qual_col_idx = headers
+            .iter()
+            .position(|h| h == "qualities")
+            .expect("qualities column not found");
+
+        let mut csv_records = rdr.records();
+        let record = csv_records
+            .next()
+            .expect("No data row found")
+            .expect("Failed to parse row");
+
+        assert_eq!(
+            &record[seq_col_idx], "*",
+            "Sequence column should contain '*'"
+        );
+        assert_eq!(
+            &record[qual_col_idx], "255",
+            "Qualities column should contain '255'"
+        );
+    }
+
+    /// Test that a record with zero sequence length outputs "*" for sequence
+    /// but no qualities column when only sequence is requested.
+    #[test]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "this is fine in tests, parsing known output"
+    )]
+    fn zero_seq_len_record_with_sequence_only() {
+        let mut reader = nanalogue_bam_reader("./examples/example_2_zero_len.sam")
+            .expect("Failed to open example file");
+        let mut bam_records = reader.rc_records();
+        let first_record = bam_records.next().expect("No records in file");
+
+        let mut output = Vec::new();
+        run(
+            &mut output,
+            vec![first_record],
+            None,
+            Some((None, false)), // show_base_qual = false
+            "",
+        )
+        .expect("no error");
+
+        let actual_output = String::from_utf8(output).expect("Invalid UTF-8");
+
+        // Parse TSV using csv crate (similar to process_tsv)
+        let mut rdr = ReaderBuilder::new()
+            .comment(Some(b'#'))
+            .delimiter(b'\t')
+            .from_reader(actual_output.as_bytes());
+
+        let headers = rdr.headers().expect("Failed to read headers");
+        let seq_col_idx = headers
+            .iter()
+            .position(|h| h == "sequence")
+            .expect("sequence column not found");
+
+        // Verify qualities column does not exist
+        assert!(
+            !headers.iter().any(|h| h == "qualities"),
+            "Qualities column should not be present when show_base_qual is false"
+        );
+
+        let mut csv_records = rdr.records();
+        let record = csv_records
+            .next()
+            .expect("No data row found")
+            .expect("Failed to parse row");
+
+        assert_eq!(
+            &record[seq_col_idx], "*",
+            "Sequence column should contain '*'"
+        );
     }
 }
