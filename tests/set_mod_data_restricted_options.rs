@@ -405,7 +405,7 @@ mod tests {
         // Test: Base quality filtering
         // NOTE that we use example_8, example_9 here that has valid basecalling qualities on one
         // read and on an identical read on the next line has no basecalling qualities
-        for file_name in vec!["examples/example_8.sam", "examples/example_9.sam"] {
+        for file_name in ["examples/example_8.sam", "examples/example_9.sam"] {
             let mut reader = nanalogue_bam_reader(file_name)?;
             let record_1 = reader.records().next().unwrap()?;
             let record_2 = reader.records().next().unwrap()?;
@@ -469,7 +469,7 @@ mod tests {
         // Test: Implicit base quality reading
         // NOTE that we use example_8, example_9 here that has implicit mod quals on one
         // read and on an identical read on the third line but mods are marked explicit here
-        for file_name in vec!["examples/example_8.sam", "examples/example_9.sam"] {
+        for file_name in ["examples/example_8.sam", "examples/example_9.sam"] {
             let mut reader = nanalogue_bam_reader(file_name)?;
             let record_1 = reader.records().next().unwrap()?;
             let _record_2 = reader.records().next().unwrap()?;

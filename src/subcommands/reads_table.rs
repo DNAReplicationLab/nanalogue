@@ -200,14 +200,6 @@ impl Read {
                 seq: sq,
                 qual: q,
                 seq_len: l,
-            }
-            | ReadInstance::BothAlignBc {
-                align_len: al,
-                mod_count: mc,
-                read_state: rs,
-                seq: sq,
-                qual: q,
-                bc_len: l,
             } => {
                 al.push(align_len);
                 rs.push(read_state);
@@ -217,14 +209,29 @@ impl Read {
 
                 // BAM files are not supposed to have different sequence lengths for
                 // the same read if there are multiple records corresponding to one read.
-                // And the sequence length in the BAM file should match that from the
-                // sequencing summary file.
-                // But, it is possible that some BAM files are in violation.
-                // To account for this, we set our sequence length to be the largest of all
-                // these records.
+                // But, it is possible that some BAM files are in violation, or the sequence
+                // is not stored in all reads. To account for this, we set our sequence length
+                // to be the largest of all these records.
                 if *l < seq_len {
                     *l = seq_len;
                 }
+            }
+            ReadInstance::BothAlignBc {
+                align_len: al,
+                mod_count: mc,
+                read_state: rs,
+                seq: sq,
+                qual: q,
+                ..
+            } => {
+                // we ignore the seq length here, as we want the seq len from the
+                // sequencing summary file to take precedence over the seq length
+                // from the BAM file.
+                al.push(align_len);
+                rs.push(read_state);
+                mc.extend(mod_count);
+                sq.extend(seq);
+                q.extend(qual);
             }
             ReadInstance::OnlyBc(bl) => {
                 self.0 = ReadInstance::BothAlignBc {
@@ -420,7 +427,13 @@ where
 mod tests {
     use super::*;
     use crate::nanalogue_bam_reader;
+    use rand::random;
     use rust_htslib::bam::Read as _;
+
+    #[test]
+    fn read_instance_only_bc_len_display() {
+        assert_eq!("1000".to_owned(), ReadInstance::OnlyBc(1000u64).to_string());
+    }
 
     fn normalize_output(output: &str) -> Vec<String> {
         let lines: Vec<String> = output
@@ -449,12 +462,24 @@ mod tests {
         headers
     }
 
-    fn run_read_table_test(mods: Option<InputMods<OptionalTag>>, expected_output_file: &str) {
-        let mut reader = nanalogue_bam_reader("./examples/example_1.bam").expect("no error");
-        let records: Vec<_> = reader.records().map(|r| r.map(Rc::new)).collect();
+    fn run_read_table_test(
+        bam_file: &str,
+        mods: Option<InputMods<OptionalTag>>,
+        seq_region: Option<(Option<Bed3<i32, u64>>, bool)>,
+        seq_summ_file: Option<&str>,
+        expected_output_file: &str,
+    ) -> Result<(), Error> {
+        let mut reader = nanalogue_bam_reader(bam_file).expect("no error");
+        let records = reader.rc_records();
 
         let mut output = Vec::new();
-        run(&mut output, records, mods, None, "").expect("no error");
+        run(
+            &mut output,
+            records,
+            mods,
+            seq_region,
+            seq_summ_file.unwrap_or(""),
+        )?;
 
         let actual_output = String::from_utf8(output).expect("Invalid UTF-8");
         let expected_output = std::fs::read_to_string(expected_output_file)
@@ -470,18 +495,183 @@ mod tests {
             actual_lines.join("\n"),
             expected_lines.join("\n")
         );
+
+        Ok(())
     }
 
     #[test]
     fn read_table_hide_mods() {
-        run_read_table_test(None, "./examples/example_1_read_table_hide_mods");
+        run_read_table_test(
+            "./examples/example_1.bam",
+            None,
+            None,
+            None,
+            "./examples/example_1_read_table_hide_mods",
+        )
+        .expect("no error");
     }
 
     #[test]
     fn read_table_show_mods() {
         run_read_table_test(
+            "./examples/example_1.bam",
             Some(InputMods::<OptionalTag>::default()),
+            None,
+            None,
             "./examples/example_1_read_table_show_mods",
-        );
+        )
+        .expect("no error");
+    }
+
+    #[test]
+    fn read_table_show_mods_but_one_record_no_mods() {
+        run_read_table_test(
+            "./examples/example_6.sam",
+            Some(InputMods::<OptionalTag>::default()),
+            None,
+            None,
+            "./examples/example_6_read_table_show_mods",
+        )
+        .expect("no error");
+    }
+
+    #[test]
+    fn read_table_show_mods_with_seq_summ() {
+        run_read_table_test(
+            "./examples/example_1.bam",
+            Some(InputMods::<OptionalTag>::default()),
+            None,
+            Some("./examples/example_1_sequencing_summary"),
+            "./examples/example_1_read_table_show_mods_seq_summ",
+        )
+        .expect("no error");
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidDuplicates")]
+    fn read_table_show_mods_with_invalid_seq_summ() {
+        // this sequencing summary file is invalid because a read id is repeated.
+        run_read_table_test(
+            "./examples/example_1.bam",
+            Some(InputMods::<OptionalTag>::default()),
+            None,
+            Some("./examples/example_1_invalid_sequencing_summary"),
+            "./examples/example_1_read_table_show_mods_seq_summ",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn read_table_show_mods_seq_qual() {
+        run_read_table_test(
+            "./examples/example_5_valid_basequal.sam",
+            Some(InputMods::<OptionalTag>::default()),
+            Some((None, true)),
+            None,
+            "./examples/example_5_valid_basequal_read_table_show_mods",
+        )
+        .expect("no error");
+    }
+
+    #[test]
+    fn read_table_show_mods_seq_qual_subset() {
+        run_read_table_test(
+            "./examples/example_5_valid_basequal.sam",
+            Some(InputMods::<OptionalTag>::default()),
+            Some((Some(Bed3::<i32, u64>::new(0, 10, 12)), true)),
+            None,
+            "./examples/example_5_valid_basequal_read_table_show_mods_subset",
+        )
+        .expect("no error");
+    }
+
+    #[test]
+    fn read_table_show_mods_seq_qual_subset_no_overlap() {
+        // the region specified below does not overlap with the read in the sam file,
+        // so we are testing read table outputs when sequence and basecalling quality
+        // are requested in this scenario.
+        run_read_table_test(
+            "./examples/example_5_valid_basequal.sam",
+            Some(InputMods::<OptionalTag>::default()),
+            Some((Some(Bed3::<i32, u64>::new(1, 0, 2000)), true)),
+            None,
+            "./examples/example_5_valid_basequal_read_table_show_mods_subset_no_overlap",
+        )
+        .expect("no error");
+    }
+
+    /// If a read has many sequence lengths (multiple records in the BAM file
+    /// having mismatched lengths), and no sequencing summary file entry,
+    /// test that we choose the largest length.
+    #[test]
+    #[expect(clippy::panic, reason = "panics are fine in tests")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "this is fine in tests, lists below are very short"
+    )]
+    fn maximum_length_replacement_test() {
+        let lengths = [10, 20, 30, 40];
+        let n = lengths.len();
+        for count in 0..n {
+            let random_state_1: ReadState = random();
+            let mut read = Read::new_align_len(1, lengths[count], None, random_state_1, None, None);
+            for l in 1..n {
+                let random_state: ReadState = random();
+                let indx = if count + l < n {
+                    count + l
+                } else {
+                    count + l - n
+                };
+                read.add_align_len(1, lengths[indx], None, random_state, None, None);
+            }
+            match read.0 {
+                ReadInstance::OnlyAlign { seq_len: 40, .. } => {}
+                ReadInstance::OnlyAlign { seq_len, .. } => {
+                    panic!("maximum length replacement test failed, we got {seq_len} instead of 40")
+                }
+                ReadInstance::BothAlignBc { .. } | ReadInstance::OnlyBc(_) => {
+                    panic!("maximum length replacement test failed, wrong state")
+                }
+            }
+        }
+    }
+
+    /// If a read has many sequence lengths (multiple records in the BAM file
+    /// having mismatched lengths), and we have sequence length from the sequencing
+    /// summary file, test that we retain the sequence length from the summary file
+    /// no matter what.
+    #[test]
+    #[expect(clippy::panic, reason = "panics are fine in tests")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "this is fine in tests, lists below are very short"
+    )]
+    fn no_length_replacement_test() {
+        let lengths = [10, 20, 30, 40];
+        let n = lengths.len();
+        for count in 0..n {
+            let mut read = Read::new_bc_len(lengths[count]);
+            for l in 1..n {
+                let random_state: ReadState = random();
+                let indx = if count + l < n {
+                    count + l
+                } else {
+                    count + l - n
+                };
+                read.add_align_len(1, lengths[indx], None, random_state, None, None);
+            }
+            match read.0 {
+                ReadInstance::BothAlignBc { bc_len, .. } if bc_len == lengths[count] => {}
+                ReadInstance::BothAlignBc { bc_len, .. } => {
+                    panic!(
+                        "maximum length replacement test failed, we got {bc_len} instead of {}",
+                        lengths[count]
+                    )
+                }
+                ReadInstance::OnlyAlign { .. } | ReadInstance::OnlyBc(_) => {
+                    panic!("maximum length replacement test failed, wrong state")
+                }
+            }
+        }
     }
 }

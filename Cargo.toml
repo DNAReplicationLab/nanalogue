@@ -135,4 +135,4 @@ codegen-units = 1
 lto = "fat"
 opt-level = "z"
 panic = "abort"
-strip = "symbols"
+strip = "debuginfo"

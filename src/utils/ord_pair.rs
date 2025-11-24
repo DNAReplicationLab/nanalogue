@@ -288,6 +288,15 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> TryFrom<(T, T)> for OrdPa
 mod tests {
     use super::*;
 
+    /// Tests default `OrdPair` construction
+    #[test]
+    fn ord_pair_default_from_u8() {
+        assert_eq!(
+            OrdPair::<u8>::default(),
+            OrdPair::<u8>::new(0u8, 0u8).unwrap()
+        );
+    }
+
     /// Tests if our Ordered Pair struct (of f32s) can be correctly obtained from strings
     #[test]
     #[expect(

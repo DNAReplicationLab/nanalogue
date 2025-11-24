@@ -179,13 +179,47 @@ mod tests {
     use rust_htslib::bam::Read as _;
 
     #[test]
+    fn read_stats_example_1() -> Result<(), Error> {
+        let mut output = Vec::new();
+
+        let mut bam_reader = bam::Reader::from_path("./examples/example_1.bam")
+            .expect("Failed to open example_1.bam");
+
+        let bam_records = bam_reader.rc_records();
+
+        run(&mut output, bam_records)?;
+
+        let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
+
+        let expected_output = indoc! {"key\tvalue
+        n_primary_alignments\t3
+        n_secondary_alignments\t0
+        n_supplementary_alignments\t0
+        n_unmapped_reads\t1
+        n_reversed_reads\t1
+        align_len_mean\t29
+        align_len_max\t48
+        align_len_min\t8
+        align_len_median\t8
+        align_len_n50\t48
+        seq_len_mean\t34
+        seq_len_max\t48
+        seq_len_min\t8
+        seq_len_median\t33
+        seq_len_n50\t48\n"};
+
+        assert_eq!(output_str, expected_output);
+        Ok(())
+    }
+
+    #[test]
     fn read_stats_example_3() -> Result<(), Error> {
         let mut output = Vec::new();
 
         let mut bam_reader = bam::Reader::from_path("./examples/example_3.bam")
             .expect("Failed to open example_3.bam");
 
-        let bam_records = bam_reader.records().map(|r| r.map(Rc::new));
+        let bam_records = bam_reader.rc_records();
 
         run(&mut output, bam_records)?;
 
