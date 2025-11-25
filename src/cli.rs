@@ -178,10 +178,16 @@ pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// aligned reads using the BAM flags.
     #[clap(long)]
     pub mod_strand: Option<RestrictModCalledStrand>,
-    /// Filter to reject mods before data operations.
-    /// We allow all mods through for now and
-    /// do not expose this to the user.
-    #[clap(skip)]
+    /// Filter to reject mods before analysis. Specify as low,high where
+    /// both are fractions to reject modifications where the probabilities (p)
+    /// are in this range e.g. "0.4,0.6" rejects 0.4 <= p <= 0.6.
+    /// You can use this to reject 'weak' modification calls before analysis
+    /// i.e. those with probabilities close to 0.5. Default: reject
+    /// nothing. NOTE: (1) Whether this filtration is applied or not, mods < 0.5
+    /// are considered unmodified and >= 0.5 are considered modified by our program.
+    /// (2) mod probabilities are stored as a number from 0-255 in the modBAM format,
+    /// so we internally convert 0.0-1.0 to 0-255.
+    #[clap(long, value_parser=ThresholdState::from_str_ordpair_fraction, default_value = "")]
     pub mod_prob_filter: ThresholdState,
     /// Filter this many bp at the start and
     /// end of a read before any mod operations.
@@ -204,6 +210,9 @@ pub struct InputMods<S: TagState + Args + FromArgMatches> {
     /// Only keep modification data from this region.
     /// We do not expose this to the user, but infer it from
     /// the other options set by the user.
+    /// We cannot populate this directly at the time of CLI parsing,
+    /// as we need to look at the BAM header to convert a contig name
+    /// into a numeric contig id.
     #[clap(skip)]
     pub region_bed3: Option<Bed3<i32, u64>>,
 }

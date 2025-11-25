@@ -2,7 +2,7 @@
 //!
 //! This module retrieves information about reads
 //! from a BAM file and writes it as a JSON to the standard output.
-use crate::{CurrRead, Error, ThresholdState};
+use crate::{CurrRead, Error, InputMods, OptionalTag};
 use rust_htslib::bam;
 use std::iter;
 use std::rc::Rc;
@@ -13,7 +13,12 @@ use std::rc::Rc;
 /// # Errors
 /// Returns an error if BAM record reading, parsing, or writing to output fails.
 #[expect(clippy::missing_panics_doc, reason = "no error expected here")]
-pub fn run<W, D>(handle: &mut W, bam_records: D, detailed: Option<bool>) -> Result<(), Error>
+pub fn run<W, D>(
+    handle: &mut W,
+    bam_records: D,
+    mods: &InputMods<OptionalTag>,
+    detailed: Option<bool>,
+) -> Result<(), Error>
 where
     W: std::io::Write,
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
@@ -35,7 +40,7 @@ where
         if let Some(flag) = detailed {
             let curr_read = CurrRead::default()
                 .try_from_only_alignment(&record)?
-                .set_mod_data(&record, ThresholdState::GtEq(0), 0)?;
+                .set_mod_data_restricted_options(&record, mods)?;
             write!(
                 handle,
                 "{}",
@@ -75,7 +80,12 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter(), None)?;
+        run(
+            &mut output_buffer,
+            records.into_iter(),
+            &InputMods::default(),
+            None,
+        )?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -106,7 +116,12 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter(), None)?;
+        run(
+            &mut output_buffer,
+            records.into_iter(),
+            &InputMods::default(),
+            None,
+        )?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -136,7 +151,12 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter(), None)?;
+        run(
+            &mut output_buffer,
+            records.into_iter(),
+            &InputMods::default(),
+            None,
+        )?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -165,7 +185,12 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter(), None)?;
+        run(
+            &mut output_buffer,
+            records.into_iter(),
+            &InputMods::default(),
+            None,
+        )?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -204,7 +229,12 @@ mod tests {
 
         // Run with detailed=Some(true) for pretty-printed JSON
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter(), Some(true))?;
+        run(
+            &mut output_buffer,
+            records.into_iter(),
+            &InputMods::default(),
+            Some(true),
+        )?;
         let output_json = String::from_utf8(output_buffer)?;
 
         // Load expected output from file
@@ -233,7 +263,12 @@ mod tests {
 
         // Run with detailed=Some(false) for compact JSON
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter(), Some(false))?;
+        run(
+            &mut output_buffer,
+            records.into_iter(),
+            &InputMods::default(),
+            Some(false),
+        )?;
         let output_json = String::from_utf8(output_buffer)?;
 
         // Load expected output from file

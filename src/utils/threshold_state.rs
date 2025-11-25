@@ -4,8 +4,9 @@
 use super::contains::Contains;
 use super::f32_bw0and1::F32Bw0and1;
 use super::ord_pair::OrdPair;
+use crate::Error;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{fmt, str::FromStr as _};
 
 /// Types of thresholds on modification level that can be applied to modification data.
 /// Two possible use cases: (1) to specify that reading mod data should be restricted
@@ -125,6 +126,68 @@ impl Contains<u8> for ThresholdState {
                 ThresholdState::GtEq(a).contains(val)
                     && ThresholdState::InvertGtEqLtEq(b).contains(val)
             }
+        }
+    }
+}
+
+/// Converts from `OrdPair<F32Bw0and1>` to `ThresholdState::InvertGtEqLtEq`
+///
+/// Example
+/// ```
+/// use nanalogue_core::{F32Bw0and1, OrdPair, ThresholdState};
+/// use std::str::FromStr;
+/// let b: ThresholdState = OrdPair::<F32Bw0and1>::from_str("0.4,0.6")?.into();
+/// assert_eq!(b, ThresholdState::InvertGtEqLtEq(OrdPair::<u8>::new(102u8, 153u8)?));
+/// # Ok::<(), nanalogue_core::Error>(())
+/// ```
+impl From<OrdPair<F32Bw0and1>> for ThresholdState {
+    fn from(value: OrdPair<F32Bw0and1>) -> Self {
+        let low: u8 = value.get_low().into();
+        let high: u8 = value.get_high().into();
+        ThresholdState::InvertGtEqLtEq(OrdPair::<u8>::new(low, high).expect("no error"))
+    }
+}
+
+impl ThresholdState {
+    /// Converts a pair of fractions e.g. "0.4,0.6" into a `ThresholdState::InvertGtEqLtEq`, and
+    /// an empty string to the all-permitted `ThresholdState::GtEq(0)`.
+    ///
+    /// Used to set up a filter to reject mod calls whose probabilities lie in a band.
+    /// This can be used to reject low-quality calls for example which lie around 0.5.
+    ///
+    /// We've elected to not write a `std::str::FromStr` implementation for `ThresholdState`
+    /// as the enum is quite complex, generating it from a string is not very user friendly.
+    ///
+    /// # Errors
+    /// String not empty and not in the format of low,high where low and high are
+    /// numbers from 0 to 1, both included
+    ///
+    /// # Examples
+    ///
+    /// Simple example
+    ///
+    /// ```
+    /// use nanalogue_core::ThresholdState;
+    /// let a = ThresholdState::from_str_ordpair_fraction("0.4,0.6")?;
+    /// assert_eq!(a, ThresholdState::InvertGtEqLtEq((102u8, 153u8).try_into()?));
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    ///
+    /// Empty string should generate no filter
+    ///
+    /// ```
+    /// use nanalogue_core::ThresholdState;
+    /// let a = ThresholdState::from_str_ordpair_fraction("")?;
+    /// assert_eq!(a, ThresholdState::GtEq(0));
+    /// # Ok::<(), nanalogue_core::Error>(())
+    /// ```
+    pub fn from_str_ordpair_fraction(value: &str) -> Result<ThresholdState, Error> {
+        if value.is_empty() {
+            // allow all mods irrespective of their probabilities
+            Ok(ThresholdState::GtEq(0))
+        } else {
+            let result: ThresholdState = OrdPair::<F32Bw0and1>::from_str(value)?.into();
+            Ok(result)
         }
     }
 }

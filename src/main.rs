@@ -79,6 +79,9 @@ enum Commands {
         /// Input BAM file
         #[clap(flatten)]
         bam: InputBam,
+        /// Input modification options
+        #[clap(flatten)]
+        mods: InputMods<OptionalTag>,
         /// Print detailed modification data (JSON)
         #[clap(long, conflicts_with = "detailed_pretty")]
         detailed: bool,
@@ -421,14 +424,15 @@ where
         }
         Commands::ReadInfo {
             mut bam,
+            mut mods,
             detailed,
             detailed_pretty,
         } => {
-            let bam_rc_records =
-                BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
+            let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             read_info::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
+                &mods,
                 (detailed || detailed_pretty).then_some(detailed_pretty),
             )
         }
