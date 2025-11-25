@@ -294,4 +294,45 @@ mod tests {
         assert!(!threshold_single.contains(&129));
         assert!(threshold_single.contains(&130));
     }
+
+    /// Converts from `OrdPair<F32Bw0and1>` to `ThresholdState::InvertGtEqLtEq`
+    #[test]
+    fn threshold_state_from_ordpair_f32bw0and1() {
+        use std::str::FromStr as _;
+        let b: ThresholdState = OrdPair::<F32Bw0and1>::from_str("0.4,0.6")
+            .expect("should parse")
+            .into();
+        assert_eq!(
+            b,
+            ThresholdState::InvertGtEqLtEq(
+                OrdPair::<u8>::new(102u8, 153u8).expect("should create")
+            )
+        );
+    }
+
+    /// Converts a pair of fractions e.g. "0.4,0.6" into a `ThresholdState::InvertGtEqLtEq`
+    #[test]
+    fn threshold_state_from_str_ordpair_fraction_simple() {
+        let a = ThresholdState::from_str_ordpair_fraction("0.4,0.6").expect("should parse");
+        assert_eq!(
+            a,
+            ThresholdState::InvertGtEqLtEq((102u8, 153u8).try_into().expect("should create"))
+        );
+    }
+
+    /// Empty string should generate no filter (all-permitted `ThresholdState::GtEq(0)`)
+    #[test]
+    fn threshold_state_from_str_ordpair_fraction_empty_string() {
+        let a = ThresholdState::from_str_ordpair_fraction("").expect("should parse");
+        assert_eq!(a, ThresholdState::GtEq(0));
+    }
+
+    #[test]
+    fn threshold_state_from_str_ordpair_fraction_error_cases() {
+        // Test invalid format - should error
+        let _: Error = ThresholdState::from_str_ordpair_fraction("invalid").unwrap_err();
+        let _: Error = ThresholdState::from_str_ordpair_fraction("0.5").unwrap_err();
+        let _: Error = ThresholdState::from_str_ordpair_fraction("0.6,0.4").unwrap_err(); // wrong order
+        let _: Error = ThresholdState::from_str_ordpair_fraction("1.5,2.0").unwrap_err(); // out of range
+    }
 }
