@@ -442,6 +442,35 @@ where
     Ok(())
 }
 
+/// Sorts string that represents tabular data by first column (removing empty lines).
+///
+///
+/// Useful in testing to compare expected and observed output.
+/// Header must either start with '#' or with "`read_id`".
+///
+/// Example
+///
+/// ```
+/// use nanalogue_core::reads_table::sort_output_lines;
+/// let output = String::from("#comment\n\nread_id value\nbb 100\naa 50\ncc 75");
+/// let expected_output = vec!["#comment","read_id value","aa 50","bb 100","cc 75"];
+/// assert_eq!(expected_output, sort_output_lines(&output));
+/// ```
+#[must_use]
+pub fn sort_output_lines(output: &str) -> Vec<String> {
+    let (mut header, mut data): (Vec<String>, Vec<String>) = output
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .partition(|x| x.starts_with('#') | x.starts_with("read_id"));
+
+    // our output table can return reads in any order, so we need to sort it
+    // so that we can compare an expected and an observed output
+    data.sort();
+    header.append(&mut data);
+    header
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,33 +481,6 @@ mod tests {
     #[test]
     fn read_instance_only_bc_len_display() {
         assert_eq!("1000".to_owned(), ReadInstance::OnlyBc(1000u64).to_string());
-    }
-
-    fn normalize_output(output: &str) -> Vec<String> {
-        let lines: Vec<String> = output
-            .lines()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-
-        // Separate header and data lines
-        let mut headers = Vec::new();
-        let mut data = Vec::new();
-
-        for line in lines {
-            if line.starts_with('#') || line.starts_with("read_id") {
-                headers.push(line);
-            } else {
-                data.push(line);
-            }
-        }
-
-        // Sort data lines to handle non-deterministic ordering
-        data.sort();
-
-        // Combine headers and sorted data
-        headers.extend(data);
-        headers
     }
 
     fn run_read_table_test(
@@ -504,8 +506,8 @@ mod tests {
         let expected_output = std::fs::read_to_string(expected_output_file)
             .expect("Failed to read expected output file");
 
-        let actual_lines = normalize_output(&actual_output);
-        let expected_lines = normalize_output(&expected_output);
+        let actual_lines = sort_output_lines(&actual_output);
+        let expected_lines = sort_output_lines(&expected_output);
 
         assert_eq!(
             actual_lines,

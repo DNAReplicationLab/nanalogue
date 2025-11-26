@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 // Declare the modules.
 pub mod analysis;
 pub mod cli;
+pub mod commands;
 pub mod error;
 pub mod file_utils;
 pub mod read_utils;
