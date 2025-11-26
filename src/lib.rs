@@ -264,6 +264,13 @@ when usize is 64-bit as genomic sequences are not that long"
                 .enumerate()
                 .filter(|&(_, &k)| mod_base == b'N' || k == mod_base)
             {
+                let is_seq_pos_pass: bool = filter_mod_pos(&cur_seq_idx)
+                    && (min_qual > 0).then(|| {
+                        base_qual
+                            .get(cur_seq_idx)
+                            .filter(|&x| *x >= min_qual && *x != 255u8)
+                            .is_some()
+                    }) != Some(false);
                 if cur_mod_idx < mod_dists.len()
                     && dist_from_last_mod_base
                         == *mod_dists
@@ -277,15 +284,7 @@ when usize is 64-bit as genomic sequences are not that long"
                         .ok_or(Error::InvalidModProbs(
                             "ML tag appears to be insufficiently long!".into(),
                         ))?;
-                    if filter_mod_prob(prob)
-                        && filter_mod_pos(&cur_seq_idx)
-                        && (min_qual > 0).then(|| {
-                            base_qual
-                                .get(cur_seq_idx)
-                                .filter(|&x| *x >= min_qual && *x != 255u8)
-                                .is_some()
-                        }) != Some(false)
-                    {
+                    if filter_mod_prob(prob) && is_seq_pos_pass {
                         modified_positions.push(i64::try_from(cur_seq_idx).expect(
                             "integer conversion errors unlikely \
                                 as genomic sizes far less than ~2^63",
@@ -304,16 +303,7 @@ when usize is 64-bit as genomic sequences are not that long"
                         "Problem with parsing distances in MM/ML data",
                     )));
                 } else {
-                    if is_include_zero_prob
-                        && is_implicit
-                        && filter_mod_pos(&cur_seq_idx)
-                        && (min_qual > 0).then(|| {
-                            base_qual
-                                .get(cur_seq_idx)
-                                .filter(|&x| *x >= min_qual && *x != 255u8)
-                                .is_some()
-                        }) != Some(false)
-                    {
+                    if is_include_zero_prob && is_implicit && is_seq_pos_pass {
                         modified_positions.push(i64::try_from(cur_seq_idx).expect(
                             "integer conversion errors unlikely \
                                 as genomic sizes far less than ~2^63",
