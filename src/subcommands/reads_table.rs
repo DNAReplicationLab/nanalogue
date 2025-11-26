@@ -363,11 +363,11 @@ where
                 show_base_qual.then_some(record.qual().to_vec()),
             ),
             (Some(&(Some(w), show_base_qual)), _) => {
-                let (o_1, o_2): (Vec<u8>, Vec<u8>) =
+                let (_, o_1, o_2): (Vec<bool>, Vec<u8>, Vec<u8>) =
                     match curr_read_state.seq_and_qual_on_ref_coords(&record, &w) {
-                        Err(Error::UnavailableData) => (vec![b'*'], vec![255u8]),
+                        Err(Error::UnavailableData) => (vec![false], vec![b'*'], vec![255u8]),
                         Err(e) => return Err(e),
-                        Ok(x) => x.into_iter().unzip(),
+                        Ok(x) => x.into_iter().collect(),
                     };
                 (Some(o_1), show_base_qual.then_some(o_2))
             }

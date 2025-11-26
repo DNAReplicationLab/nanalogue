@@ -8,9 +8,9 @@ use nanalogue_core::commands;
 use rust_htslib::htslib;
 use std::io;
 
-/// Main function, run the program. All business logic handled by `run`
+/// Main function, run the program. All business logic handled by [`commands::run`].
 ///
-/// This separation of function between `main` and `run` is so that we
+/// This separation of function between `main` and [`commands::run`] is so that we
 /// can test the functionality of `run` easily through our code without
 /// actually running the program on the command line like an external user.
 fn main() {

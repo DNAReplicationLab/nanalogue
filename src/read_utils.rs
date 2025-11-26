@@ -741,10 +741,16 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         Ok(self
             .seq_and_qual_on_ref_coords(record, region)?
             .into_iter()
-            .map(|x| x.0)
+            .map(|x| x.1)
             .collect::<Vec<u8>>())
     }
-    /// Returns read sequence and base-quality values overlapping with a genomic region
+    /// Returns match-or-mismatch, read sequence, base-quality values overlapping with genomic region.
+    ///
+    /// Returns a vector of tuples:
+    /// * first entry is true if the base is a match or a mismatch, or false if not
+    ///   (insertion/deletion).
+    /// * second entry is the base itself, or a '.' if a deletion,
+    /// * third entry is the base quality (0-93), set to 255 for deletions.
     ///
     /// Because sequences are encoded using 4-bit values into a `[u8]`, we need to use
     /// `rust-htslib` functions to convert them into 8-bit values and then use
@@ -755,6 +761,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// [`CurrRead::seq_coords_from_ref_coords`]
     ///
     /// # Example
+    ///
+    /// Example 1
     ///
     /// ```
     /// use bedrs::Bed3;
@@ -768,8 +776,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///
     ///     let region = Bed3::new(0, 0, 20);
     ///     let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
-    ///     assert_eq!(seq_subset, [(84, 32), (67, 0), (71, 69),
-    ///         (84, 80), (84, 79), (84, 81), (67, 29), (84, 30)]);
+    ///     assert_eq!(seq_subset, [(true, b'T', 32), (true, b'C', 0), (true, b'G', 69),
+    ///         (true, b'T', 80), (true, b'T', 79), (true, b'T', 81),
+    ///         (true, b'C', 29), (true, b'T', 30)]);
     ///
     ///     // Create a region with no overlap at all and check we get no data
     ///     let region = Bed3::new(0, 20, 22);
@@ -777,6 +786,28 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///         Err(Error::UnavailableData) => (),
     ///         _ => unreachable!(),
     ///     };
+    ///
+    /// }
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// Example 2
+    ///
+    /// ```
+    /// use bedrs::Bed3;
+    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
+    /// use rust_htslib::bam::Read;
+    ///
+    /// let mut reader = nanalogue_bam_reader(&"examples/example_7.sam")?;
+    /// for record in reader.records() {
+    ///     let r = record?;
+    ///     let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
+    ///
+    ///     let region = Bed3::new(0, 0, 20);
+    ///     let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
+    ///     assert_eq!(seq_subset, [(true, b'T', 32), (false, b'.', 255), (false, b'.', 255),
+    ///         (false, b'A', 0), (true, b'T', 0), (true, b'T', 79),
+    ///         (true, b'T', 81), (true, b'G', 29), (true, b'T', 30)]);
     ///
     /// }
     /// # Ok::<(), Error>(())
@@ -789,7 +820,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         &self,
         record: &Record,
         region: &Bed3<i32, u64>,
-    ) -> Result<Vec<(u8, u8)>, Error> {
+    ) -> Result<Vec<(bool, u8, u8)>, Error> {
         let seq = record.seq();
         let qual = record.qual();
         // Note that the SAM format uses 255 when qual is missing for the entire read,
@@ -798,18 +829,18 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         Ok(self
             .seq_coords_from_ref_coords(record, region)?
             .into_iter()
-            .map(|x| x.map_or((b'.', 255u8), |v| (seq[v], qual[v])))
-            .collect::<Vec<(u8, u8)>>())
+            .map(|x| x.map_or((false, b'.', 255u8), |v| (v.0, seq[v.1], qual[v.1])))
+            .collect::<Vec<(bool, u8, u8)>>())
     }
     /// Extract sequence coordinates corresponding to a region on the reference genome.
     ///
-    /// The vector we return contains `Some(_)` entries where both the reference and the read
+    /// The vector we return contains `Some((bool, usize))` entries where both the reference and the read
     /// have bases, and `None` where bases from the reference are missing on the read:
     /// * matches or mismatches, we record the coordinate.
-    ///   so SNPs for example (i.e. a 1 bp difference from the ref) will show up as `Some(_)`.
+    ///   so SNPs for example (i.e. a 1 bp difference from the ref) will show up as `Some((true, _))`.
     /// * a deletion or a ref skip ("N" in cigar) will show up as `None`.
     /// * insertions are preserved i.e. bases in the middle of a read present
-    ///   on the read but not on the reference are `Some(_)`
+    ///   on the read but not on the reference are `Some((false, _))`
     /// * clipped bases at the end of the read are not preserved. These are bases
     ///   on the read but not on the reference and are denoted as soft or hard
     ///   clips on the CIGAR string e.g. barcodes from sequencing
@@ -842,7 +873,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///     let region = Bed3::new(0, 9, 13);
     ///     let seq_subset = curr_read.seq_coords_from_ref_coords(&r, &region)?;
     ///     // there are deletions on the read above
-    ///     assert_eq!(seq_subset, vec![Some(0), None, None, Some(1), Some(2)]);
+    ///     assert_eq!(seq_subset, vec![Some((true, 0)), None, None, Some((false, 1)), Some((true, 2))]);
     ///
     ///     // Create a region with no overlap at all and check we get no data
     ///     let region = Bed3::new(0, 20, 22);
@@ -857,7 +888,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         &self,
         record: &Record,
         region: &Bed3<i32, u64>,
-    ) -> Result<Vec<Option<usize>>, Error> {
+    ) -> Result<Vec<Option<(bool, usize)>>, Error> {
         #[expect(
             clippy::missing_panics_doc,
             reason = "genomic coordinates are far less than (2^64-1)/2 i.e. u64->i64 should be ok"
@@ -880,7 +911,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             clippy::arithmetic_side_effects,
             reason = "genomic coordinates far less than i64::MAX (approx (2^64-1)/2)"
         )]
-        let mut s: Vec<Option<usize>> =
+        let mut s: Vec<Option<(bool, usize)>> =
             Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
 
         // we may have to trim the sequence if we hit a bunch of unaligned base
@@ -898,11 +929,11 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             )]
             match w {
                 [Some(x), Some(_)] => {
-                    s.push(Some(usize::try_from(x)?));
+                    s.push(Some((true, usize::try_from(x)?)));
                     trim_end_bp = 0;
                 }
                 [Some(x), None] => {
-                    s.push(Some(usize::try_from(x)?));
+                    s.push(Some((false, usize::try_from(x)?)));
                     trim_end_bp += 1;
                 }
                 [None, Some(_)] => {
