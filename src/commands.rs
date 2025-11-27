@@ -63,6 +63,9 @@ pub enum Commands {
         /// Displays basecalling qualities (optional)
         #[clap(long, requires = "seq")]
         show_base_qual: bool,
+        /// Show insertions in lower case
+        #[clap(long, requires = "seq_region")]
+        show_ins_lowercase: bool,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -338,13 +341,14 @@ where
     /// the full basecalled sequence, or neither, and optionally the basecalled qualities.
     /// Note: clap's `conflicts_with` ensures `seq_region` and `seq_full` are mutually exclusive
     macro_rules! seq_display {
-        ( $b : expr, $c : expr, $d : expr, $e : expr) => {
-            match ($b, $c, $d) {
-                (None, false, _) => None,
-                (Some(v), false, flag) => Some((Some(v.try_to_bed3(&$e)?), flag)),
-                (None, true, flag) => Some((None, flag)),
-                (Some(_), true, _) => {
-                    unreachable!("clap prevents seq_region and seq_full together")
+        ( $b : expr, $c : expr, $d : expr, $e : expr, $f : expr) => {
+            match ($b, $c, $d, $e) {
+                (None, false, _, _) => None,
+                (Some(v), false, flag_qual, flag_ins) => Some((Some((v.try_to_bed3(&$f)?, flag_ins)), flag_qual)),
+                (None, true, flag_qual, false) => Some((None, flag_qual)),
+                (None, true, _, true) |
+                (Some(_), true, _, _) => {
+                    unreachable!("clap prevents seq_region and seq_full, or setting insert pos retrieval without seq_region")
                 }
             }
         };
@@ -365,7 +369,13 @@ where
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 Some(mods),
-                seq_display!(seq_region, seq_full, show_base_qual, bam_rc_records.header),
+                seq_display!(
+                    seq_region,
+                    seq_full,
+                    show_base_qual,
+                    false,
+                    bam_rc_records.header
+                ),
                 &seq_summ_file,
             )
         }
@@ -374,6 +384,7 @@ where
             seq_region,
             seq_full,
             show_base_qual,
+            show_ins_lowercase,
             seq_summ_file,
         } => {
             let bam_rc_records =
@@ -382,7 +393,13 @@ where
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
                 None,
-                seq_display!(seq_region, seq_full, show_base_qual, bam_rc_records.header),
+                seq_display!(
+                    seq_region,
+                    seq_full,
+                    show_base_qual,
+                    show_ins_lowercase,
+                    bam_rc_records.header
+                ),
                 &seq_summ_file,
             )
         }

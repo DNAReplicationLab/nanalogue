@@ -666,6 +666,66 @@ mod tests {
     }
 
     #[test]
+    fn seq_and_qual_on_ref_coords_example_1() -> Result<(), Error> {
+        let mut reader = nanalogue_bam_reader("examples/example_5_valid_basequal.sam")?;
+        for record in reader.records() {
+            let r = record?;
+            let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
+
+            let region = Bed3::new(0, 0, 20);
+            let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
+            assert_eq!(
+                seq_subset,
+                [
+                    Some((true, b'T', 32)),
+                    Some((true, b'C', 0)),
+                    Some((true, b'G', 69)),
+                    Some((true, b'T', 80)),
+                    Some((true, b'T', 79)),
+                    Some((true, b'T', 81)),
+                    Some((true, b'C', 29)),
+                    Some((true, b'T', 30))
+                ]
+            );
+
+            // Create a region with no overlap at all and check we get no data
+            let region_no_overlap = Bed3::new(0, 20, 22);
+            match curr_read.seq_and_qual_on_ref_coords(&r, &region_no_overlap) {
+                Err(Error::UnavailableData) => (),
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn seq_and_qual_on_ref_coords_example_2() -> Result<(), Error> {
+        let mut reader = nanalogue_bam_reader("examples/example_7.sam")?;
+        for record in reader.records() {
+            let r = record?;
+            let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
+
+            let region = Bed3::new(0, 0, 20);
+            let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
+            assert_eq!(
+                seq_subset,
+                [
+                    Some((true, b'T', 32)),
+                    None,
+                    None,
+                    Some((false, b'A', 0)),
+                    Some((true, b'T', 0)),
+                    Some((true, b'T', 79)),
+                    Some((true, b'T', 81)),
+                    Some((true, b'G', 29)),
+                    Some((true, b'T', 30))
+                ]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn basecount_per_mod() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let first_count = HashMap::from([(ModChar::new('T'), 0)]);

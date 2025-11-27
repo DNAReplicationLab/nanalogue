@@ -741,16 +741,17 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         Ok(self
             .seq_and_qual_on_ref_coords(record, region)?
             .into_iter()
-            .map(|x| x.1)
+            .map(|x| x.map_or(b'.', |y| y.1))
             .collect::<Vec<u8>>())
     }
     /// Returns match-or-mismatch, read sequence, base-quality values overlapping with genomic region.
     ///
-    /// Returns a vector of tuples:
-    /// * first entry is true if the base is a match or a mismatch, or false if not
-    ///   (insertion/deletion).
-    /// * second entry is the base itself, or a '.' if a deletion,
-    /// * third entry is the base quality (0-93), set to 255 for deletions.
+    /// Returns a vector of Options:
+    /// * is a `None` at a deletion i.e. a base on the reference and not on the read.
+    /// * is a `Some(bool, u8, u8)` at a match/mismatch/insertion.
+    ///   The first `u8` is the base itself and the `bool` is `true` if a match/mismatch
+    ///   and `false` if an insertion, and the second `u8` is the base quality (0-93),
+    ///   which the BAM format sets to 255 if no quality is available for the entire read.
     ///
     /// Because sequences are encoded using 4-bit values into a `[u8]`, we need to use
     /// `rust-htslib` functions to convert them into 8-bit values and then use
@@ -776,9 +777,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///
     ///     let region = Bed3::new(0, 0, 20);
     ///     let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
-    ///     assert_eq!(seq_subset, [(true, b'T', 32), (true, b'C', 0), (true, b'G', 69),
-    ///         (true, b'T', 80), (true, b'T', 79), (true, b'T', 81),
-    ///         (true, b'C', 29), (true, b'T', 30)]);
+    ///     assert_eq!(seq_subset, [Some((true, b'T', 32)), Some((true, b'C', 0)),
+    ///         Some((true, b'G', 69)), Some((true, b'T', 80)), Some((true, b'T', 79)),
+    ///         Some((true, b'T', 81)), Some((true, b'C', 29)), Some((true, b'T', 30))]);
     ///
     ///     // Create a region with no overlap at all and check we get no data
     ///     let region = Bed3::new(0, 20, 22);
@@ -805,9 +806,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///
     ///     let region = Bed3::new(0, 0, 20);
     ///     let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
-    ///     assert_eq!(seq_subset, [(true, b'T', 32), (false, b'.', 255), (false, b'.', 255),
-    ///         (false, b'A', 0), (true, b'T', 0), (true, b'T', 79),
-    ///         (true, b'T', 81), (true, b'G', 29), (true, b'T', 30)]);
+    ///     assert_eq!(seq_subset, [Some((true, b'T', 32)), None, None,
+    ///         Some((false, b'A', 0)), Some((true, b'T', 0)), Some((true, b'T', 79)),
+    ///         Some((true, b'T', 81)), Some((true, b'G', 29)), Some((true, b'T', 30))]);
     ///
     /// }
     /// # Ok::<(), Error>(())
@@ -820,17 +821,14 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         &self,
         record: &Record,
         region: &Bed3<i32, u64>,
-    ) -> Result<Vec<(bool, u8, u8)>, Error> {
+    ) -> Result<Vec<Option<(bool, u8, u8)>>, Error> {
         let seq = record.seq();
         let qual = record.qual();
-        // Note that the SAM format uses 255 when qual is missing for the entire read,
-        // and we assume `rust_htslib` sticks to this convention. Additionally,
-        // we use 255 in spots where the sequence cannot be shown (e.g. deletions).
         Ok(self
             .seq_coords_from_ref_coords(record, region)?
             .into_iter()
-            .map(|x| x.map_or((false, b'.', 255u8), |v| (v.0, seq[v.1], qual[v.1])))
-            .collect::<Vec<(bool, u8, u8)>>())
+            .map(|x| x.map(|y| (y.0, seq[y.1], qual[y.1])))
+            .collect::<Vec<Option<(bool, u8, u8)>>>())
     }
     /// Extract sequence coordinates corresponding to a region on the reference genome.
     ///

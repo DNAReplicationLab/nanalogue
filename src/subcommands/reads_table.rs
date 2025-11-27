@@ -302,7 +302,7 @@ pub fn run<W, D>(
     handle: &mut W,
     bam_records: D,
     mut mods: Option<InputMods<OptionalTag>>,
-    seq_region: Option<(Option<Bed3<i32, u64>>, bool)>,
+    seq_region: Option<(Option<(Bed3<i32, u64>, bool)>, bool)>,
     seq_summ_path: &str,
 ) -> Result<(), Error>
 where
@@ -362,13 +362,28 @@ where
                 Some(record.seq().as_bytes()),
                 show_base_qual.then_some(record.qual().to_vec()),
             ),
-            (Some(&(Some(w), show_base_qual)), _) => {
-                let (_, o_1, o_2): (Vec<bool>, Vec<u8>, Vec<u8>) =
+            (Some(&(Some((w, show_ins)), show_base_qual)), _) => {
+                let (o_1, o_2): (Vec<u8>, Vec<u8>) =
                     match curr_read_state.seq_and_qual_on_ref_coords(&record, &w) {
-                        Err(Error::UnavailableData) => (vec![false], vec![b'*'], vec![255u8]),
+                        Err(Error::UnavailableData) => (vec![b'*'], vec![255u8]),
                         Err(e) => return Err(e),
-                        Ok(x) => x.into_iter().collect(),
+                        Ok(x) => x
+                            .into_iter()
+                            .map(|y| {
+                                y.map_or((b'.', 255u8), |z| {
+                                    (
+                                        if z.0 || !show_ins {
+                                            z.1
+                                        } else {
+                                            z.1.to_ascii_lowercase()
+                                        },
+                                        z.2,
+                                    )
+                                })
+                            })
+                            .collect(),
                     };
+
                 (Some(o_1), show_base_qual.then_some(o_2))
             }
         };
@@ -486,7 +501,7 @@ mod tests {
     fn run_read_table_test(
         bam_file: &str,
         mods: Option<InputMods<OptionalTag>>,
-        seq_region: Option<(Option<Bed3<i32, u64>>, bool)>,
+        seq_region: Option<(Option<(Bed3<i32, u64>, bool)>, bool)>,
         seq_summ_file: Option<&str>,
         expected_output_file: &str,
     ) -> Result<(), Error> {
@@ -599,7 +614,7 @@ mod tests {
         run_read_table_test(
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
-            Some((Some(Bed3::<i32, u64>::new(0, 10, 12)), true)),
+            Some((Some((Bed3::<i32, u64>::new(0, 10, 12), false)), true)),
             None,
             "./examples/example_5_valid_basequal_read_table_show_mods_subset",
         )
@@ -614,7 +629,7 @@ mod tests {
         run_read_table_test(
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
-            Some((Some(Bed3::<i32, u64>::new(1, 0, 2000)), true)),
+            Some((Some((Bed3::<i32, u64>::new(1, 0, 2000), false)), true)),
             None,
             "./examples/example_5_valid_basequal_read_table_show_mods_subset_no_overlap",
         )
