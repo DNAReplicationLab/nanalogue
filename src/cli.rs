@@ -371,6 +371,29 @@ impl Default for InputWindowing {
     }
 }
 
+/// This enum contains inputs to display sequences with various options
+#[derive(Debug, Clone, Default, Copy, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum SeqDisplayOptions {
+    /// Do not display any sequence, default
+    #[default]
+    No,
+    /// Display the entire sequence without any subsetting
+    Full {
+        /// Option to display basecalling qualities
+        show_base_qual: bool,
+    },
+    /// Display the sequence within a region
+    Region {
+        /// Option to display basecalling qualities
+        show_base_qual: bool,
+        /// Option to show bases in lowercase if they are insertions
+        show_ins_lowercase: bool,
+        /// Region over which sequence must be shown
+        region: Bed3<i32, u64>,
+    },
+}
+
 #[cfg(test)]
 mod tag_struct_tests {
     use super::*;

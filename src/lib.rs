@@ -31,7 +31,7 @@ pub mod utils;
 // Re-exports
 pub use cli::{
     InputBam, InputModOptions, InputMods, InputRegionOptions, InputWindowing, OptionalTag,
-    RequiredTag,
+    RequiredTag, SeqDisplayOptions,
 };
 pub use error::Error;
 pub use file_utils::{

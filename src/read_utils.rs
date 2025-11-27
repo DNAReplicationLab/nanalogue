@@ -817,6 +817,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         clippy::indexing_slicing,
         reason = "qual, seq same len and coords will not exceed these"
     )]
+    #[expect(
+        clippy::type_complexity,
+        reason = "not complex enough, I think types will make this less clear"
+    )]
     pub fn seq_and_qual_on_ref_coords(
         &self,
         record: &Record,

@@ -3,8 +3,8 @@
 //! We set up the commands and their code in this file.
 use crate::{
     BamPreFilt as _, BamRcRecords, Error, F32Bw0and1, GenomicRegion, InputBam, InputMods,
-    InputWindowing, OptionalTag, OrdPair, PathOrURLOrStdin, RequiredTag, analysis,
-    find_modified_reads, nanalogue_bam_reader, nanalogue_bam_reader_from_stdin,
+    InputWindowing, OptionalTag, OrdPair, PathOrURLOrStdin, RequiredTag, SeqDisplayOptions,
+    analysis, find_modified_reads, nanalogue_bam_reader, nanalogue_bam_reader_from_stdin,
     nanalogue_bam_reader_from_url, nanalogue_indexed_bam_reader,
     nanalogue_indexed_bam_reader_from_url, read_info, read_stats, reads_table, window_reads,
 };
@@ -343,9 +343,15 @@ where
     macro_rules! seq_display {
         ( $b : expr, $c : expr, $d : expr, $e : expr, $f : expr) => {
             match ($b, $c, $d, $e) {
-                (None, false, _, _) => None,
-                (Some(v), false, flag_qual, flag_ins) => Some((Some((v.try_to_bed3(&$f)?, flag_ins)), flag_qual)),
-                (None, true, flag_qual, false) => Some((None, flag_qual)),
+                (None, false, _, _) => SeqDisplayOptions::No,
+                (Some(v), false, flag_qual, flag_ins) => SeqDisplayOptions::Region {
+                    show_base_qual: flag_qual,
+                    show_ins_lowercase: flag_ins,
+                    region: v.try_to_bed3(&$f)?
+                },
+                (None, true, flag_qual, false) => SeqDisplayOptions::Full {
+                    show_base_qual: flag_qual
+                },
                 (None, true, _, true) |
                 (Some(_), true, _, _) => {
                     unreachable!("clap prevents seq_region and seq_full, or setting insert pos retrieval without seq_region")

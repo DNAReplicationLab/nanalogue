@@ -6,13 +6,14 @@
 //! function. The routine reads both BAM and sequencing summary files
 //! if provided, otherwise only reads the BAM file.
 
-use crate::{CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, ThresholdState};
-use bedrs::prelude::Bed3;
+use crate::{
+    CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, SeqDisplayOptions, ThresholdState,
+};
 use csv::ReaderBuilder;
 use itertools::join;
 use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, convert::identity, fmt, fs::File, rc::Rc, str};
+use std::{collections::HashMap, fmt, fs::File, rc::Rc, str};
 
 /// Write a vector as a CSV-formatted string
 macro_rules! vec_csv {
@@ -302,7 +303,7 @@ pub fn run<W, D>(
     handle: &mut W,
     bam_records: D,
     mut mods: Option<InputMods<OptionalTag>>,
-    seq_region: Option<(Option<(Bed3<i32, u64>, bool)>, bool)>,
+    seq_display: SeqDisplayOptions,
     seq_summ_path: &str,
 ) -> Result<(), Error>
 where
@@ -353,18 +354,26 @@ where
         };
 
         // get sequence and basecalling qualities
-        let (sequence, qualities) = match (seq_region.as_ref(), seq_len) {
-            (None, _) => (None, None),
-            (Some(&(_, show_base_qual)), 0) => {
-                (Some(vec![b'*']), show_base_qual.then_some(vec![255u8]))
-            }
-            (Some(&(None, show_base_qual)), _) => (
-                Some(record.seq().as_bytes()),
-                show_base_qual.then_some(record.qual().to_vec()),
+        let (sequence, qualities) = match seq_display {
+            SeqDisplayOptions::No => (None, None),
+            SeqDisplayOptions::Full { show_base_qual } => (
+                Some({
+                    let temp = record.seq().as_bytes();
+                    if temp.is_empty() { vec![b'*'] } else { temp }
+                }),
+                show_base_qual.then_some({
+                    let temp = record.qual().to_vec();
+                    if temp.is_empty() { vec![255u8] } else { temp }
+                }),
             ),
-            (Some(&(Some((w, show_ins)), show_base_qual)), _) => {
+
+            SeqDisplayOptions::Region {
+                show_ins_lowercase,
+                show_base_qual,
+                region,
+            } => {
                 let (o_1, o_2): (Vec<u8>, Vec<u8>) =
-                    match curr_read_state.seq_and_qual_on_ref_coords(&record, &w) {
+                    match curr_read_state.seq_and_qual_on_ref_coords(&record, &region) {
                         Err(Error::UnavailableData) => (vec![b'*'], vec![255u8]),
                         Err(e) => return Err(e),
                         Ok(x) => x
@@ -372,7 +381,7 @@ where
                             .map(|y| {
                                 y.map_or((b'.', 255u8), |z| {
                                     (
-                                        if z.0 || !show_ins {
+                                        if z.0 || !show_ins_lowercase {
                                             z.1
                                         } else {
                                             z.1.to_ascii_lowercase()
@@ -432,8 +441,27 @@ where
         mods.clone()
             .map_or("", |_| "# mod-unmod threshold is 0.5\n"),
         mods.map_or("", |_| "\tmod_count"),
-        seq_region.map_or("", |_| "\tsequence"),
-        seq_region.map_or("", |v| v.1.then_some("\tqualities").map_or("", identity))
+        match seq_display {
+            SeqDisplayOptions::No => "",
+            SeqDisplayOptions::Full { .. } | SeqDisplayOptions::Region { .. } => "\tsequence",
+        },
+        match seq_display {
+            SeqDisplayOptions::No
+            | SeqDisplayOptions::Full {
+                show_base_qual: false,
+            }
+            | SeqDisplayOptions::Region {
+                show_base_qual: false,
+                ..
+            } => "",
+            SeqDisplayOptions::Full {
+                show_base_qual: true,
+            }
+            | SeqDisplayOptions::Region {
+                show_base_qual: true,
+                ..
+            } => "\tqualities",
+        },
     )?;
 
     // print output tsv data
@@ -490,6 +518,7 @@ pub fn sort_output_lines(output: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::nanalogue_bam_reader;
+    use bedrs::Bed3;
     use rand::random;
     use rust_htslib::bam::Read as _;
 
@@ -501,7 +530,7 @@ mod tests {
     fn run_read_table_test(
         bam_file: &str,
         mods: Option<InputMods<OptionalTag>>,
-        seq_region: Option<(Option<(Bed3<i32, u64>, bool)>, bool)>,
+        seq_region: SeqDisplayOptions,
         seq_summ_file: Option<&str>,
         expected_output_file: &str,
     ) -> Result<(), Error> {
@@ -540,7 +569,7 @@ mod tests {
         run_read_table_test(
             "./examples/example_1.bam",
             None,
-            None,
+            SeqDisplayOptions::No,
             None,
             "./examples/example_1_read_table_hide_mods",
         )
@@ -552,7 +581,7 @@ mod tests {
         run_read_table_test(
             "./examples/example_1.bam",
             Some(InputMods::<OptionalTag>::default()),
-            None,
+            SeqDisplayOptions::No,
             None,
             "./examples/example_1_read_table_show_mods",
         )
@@ -564,7 +593,7 @@ mod tests {
         run_read_table_test(
             "./examples/example_6.sam",
             Some(InputMods::<OptionalTag>::default()),
-            None,
+            SeqDisplayOptions::No,
             None,
             "./examples/example_6_read_table_show_mods",
         )
@@ -576,7 +605,7 @@ mod tests {
         run_read_table_test(
             "./examples/example_1.bam",
             Some(InputMods::<OptionalTag>::default()),
-            None,
+            SeqDisplayOptions::No,
             Some("./examples/example_1_sequencing_summary"),
             "./examples/example_1_read_table_show_mods_seq_summ",
         )
@@ -590,7 +619,7 @@ mod tests {
         run_read_table_test(
             "./examples/example_1.bam",
             Some(InputMods::<OptionalTag>::default()),
-            None,
+            SeqDisplayOptions::No,
             Some("./examples/example_1_invalid_sequencing_summary"),
             "./examples/example_1_read_table_show_mods_seq_summ",
         )
@@ -602,7 +631,9 @@ mod tests {
         run_read_table_test(
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
-            Some((None, true)),
+            SeqDisplayOptions::Full {
+                show_base_qual: true,
+            },
             None,
             "./examples/example_5_valid_basequal_read_table_show_mods",
         )
@@ -614,7 +645,11 @@ mod tests {
         run_read_table_test(
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
-            Some((Some((Bed3::<i32, u64>::new(0, 10, 12), false)), true)),
+            SeqDisplayOptions::Region {
+                region: Bed3::<i32, u64>::new(0, 10, 12),
+                show_ins_lowercase: false,
+                show_base_qual: true,
+            },
             None,
             "./examples/example_5_valid_basequal_read_table_show_mods_subset",
         )
@@ -629,7 +664,11 @@ mod tests {
         run_read_table_test(
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
-            Some((Some((Bed3::<i32, u64>::new(1, 0, 2000), false)), true)),
+            SeqDisplayOptions::Region {
+                region: Bed3::<i32, u64>::new(1, 0, 2000),
+                show_ins_lowercase: false,
+                show_base_qual: true,
+            },
             None,
             "./examples/example_5_valid_basequal_read_table_show_mods_subset_no_overlap",
         )
@@ -641,7 +680,7 @@ mod tests {
         run_read_table_test(
             "./examples/example_2_zero_len.sam",
             None,
-            None,
+            SeqDisplayOptions::No,
             None,
             "./examples/example_2_table_w_zero_hide_mods",
         )
@@ -653,7 +692,7 @@ mod tests {
         run_read_table_test(
             "./examples/example_2_zero_len.sam",
             Some(InputMods::<OptionalTag>::default()),
-            None,
+            SeqDisplayOptions::No,
             None,
             "./examples/example_2_table_w_zero_show_mods",
         )
@@ -665,7 +704,7 @@ mod tests {
         run_read_table_test(
             "./examples/example_2_zero_len.sam",
             None,
-            None,
+            SeqDisplayOptions::No,
             Some("./examples/example_2_sequencing_summary"),
             "./examples/example_2_table_w_zero_hide_mods_seq_summ",
         )
@@ -677,9 +716,38 @@ mod tests {
         run_read_table_test(
             "./examples/example_2_zero_len.sam",
             Some(InputMods::<OptionalTag>::default()),
-            None,
+            SeqDisplayOptions::No,
             Some("./examples/example_2_sequencing_summary"),
             "./examples/example_2_table_w_zero_show_mods_seq_summ",
+        )
+        .expect("no error");
+    }
+
+    #[test]
+    fn read_table_hide_mods_ins_lowercase_with_and_without() {
+        run_read_table_test(
+            "./examples/example_7.sam",
+            None,
+            SeqDisplayOptions::Region {
+                region: Bed3::<i32, u64>::new(0, 0, 1000),
+                show_ins_lowercase: true,
+                show_base_qual: false,
+            },
+            None,
+            "./examples/example_7_table_hide_mods_ins_lowercase",
+        )
+        .expect("no error");
+
+        run_read_table_test(
+            "./examples/example_7.sam",
+            None,
+            SeqDisplayOptions::Region {
+                region: Bed3::<i32, u64>::new(0, 0, 1000),
+                show_ins_lowercase: false,
+                show_base_qual: false,
+            },
+            None,
+            "./examples/example_7_table_hide_mods",
         )
         .expect("no error");
     }
@@ -777,7 +845,9 @@ mod tests {
             &mut output,
             vec![first_record],
             None,
-            Some((None, true)), // show_base_qual = true
+            SeqDisplayOptions::Full {
+                show_base_qual: true,
+            },
             "",
         )
         .expect("no error");
@@ -834,7 +904,9 @@ mod tests {
             &mut output,
             vec![first_record],
             None,
-            Some((None, false)), // show_base_qual = false
+            SeqDisplayOptions::Full {
+                show_base_qual: false,
+            },
             "",
         )
         .expect("no error");

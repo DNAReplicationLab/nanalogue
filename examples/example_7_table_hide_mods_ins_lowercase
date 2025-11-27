@@ -1,0 +1,2 @@
+read_id	align_length	sequence_length_template	alignment_type	sequence
+read1	8	7	primary_forward	T..aTTTGT
