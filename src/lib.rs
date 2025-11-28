@@ -7,8 +7,11 @@
 use bedrs::{Bed3, Coordinates as _};
 use bio::alphabets::dna::revcomp;
 use bio_types::sequence::SequenceRead as _;
-use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
-use fibertools_rs::utils::bio_io::{convert_seq_uppercase, get_u8_tag};
+use fibertools_rs::utils::{
+    bamannotations::{FiberAnnotation, Ranges},
+    basemods::{BaseMod, BaseMods},
+    bio_io::{convert_seq_uppercase, get_u8_tag},
+};
 use rand::random;
 use regex::Regex;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
@@ -200,12 +203,14 @@ where
 
     let mut num_mods_seen: usize = 0;
 
+    let is_reverse = record.is_reverse();
+
     // if there is an MM tag iterate over all the regex matches
     if let Ok(Aux::String(mm_text)) = record.aux(b"MM") {
         // base qualities; must reverse if rev comp.
         // NOTE this is always equal to number of bases in the sequence, otherwise
         // rust_htslib will throw an error, so we don't have to check this.
-        let base_qual: Vec<u8> = match (min_qual, record.is_reverse()) {
+        let base_qual: Vec<u8> = match (min_qual, is_reverse) {
             (0, _) => Vec::new(),
             (_, true) => record.qual().iter().rev().copied().collect(),
             (_, false) => record.qual().to_vec(),
@@ -214,10 +219,31 @@ where
         // get forward sequence bases from the bam record
         let forward_bases = {
             let seq = convert_seq_uppercase(record.seq().as_bytes());
-            if record.is_reverse() {
-                revcomp(seq)
+            if is_reverse { revcomp(seq) } else { seq }
+        };
+
+        let seq_len = forward_bases.len();
+
+        let pos_map = {
+            let temp: Vec<Option<i64>> = {
+                if record.is_unmapped() {
+                    std::iter::repeat_n(None, seq_len).collect()
+                } else {
+                    record
+                        .aligned_pairs_full()
+                        .filter(|x| x[0].is_some())
+                        .map(|x| x[1])
+                        .collect()
+                }
+            };
+            if temp.len() == seq_len {
+                temp
             } else {
-                seq
+                return Err(Error::InvalidState(format!(
+                    "rust_htslib failure! seq coordinates malformed {} != {}",
+                    temp.len(),
+                    seq_len
+                )));
             }
         };
 
@@ -286,7 +312,7 @@ when usize is 64-bit as genomic sequences are not that long"
                     mod_dists.len()
                 };
                 (
-                    Vec::<i64>::with_capacity(mod_data_len_approx),
+                    Vec::<usize>::with_capacity(mod_data_len_approx),
                     Vec::<u8>::with_capacity(mod_data_len_approx),
                 )
             };
@@ -321,10 +347,7 @@ when usize is 64-bit as genomic sequences are not that long"
                             "ML tag appears to be insufficiently long!".into(),
                         ))?;
                     if filter_mod_prob(prob) && is_seq_pos_pass {
-                        modified_positions.push(i64::try_from(cur_seq_idx).expect(
-                            "integer conversion errors unlikely \
-                                as genomic sizes far less than ~2^63",
-                        ));
+                        modified_positions.push(cur_seq_idx);
                         modified_probabilities.push(*prob);
                     }
                     dist_from_last_mod_base = 0;
@@ -340,10 +363,7 @@ when usize is 64-bit as genomic sequences are not that long"
                     )));
                 } else {
                     if is_include_zero_prob && is_implicit && is_seq_pos_pass {
-                        modified_positions.push(i64::try_from(cur_seq_idx).expect(
-                            "integer conversion errors unlikely \
-                                as genomic sizes far less than ~2^63",
-                        ));
+                        modified_positions.push(cur_seq_idx);
                         modified_probabilities.push(0);
                     }
                     dist_from_last_mod_base += 1;
@@ -363,15 +383,49 @@ when usize is 64-bit as genomic sequences are not that long"
             // if data matches filters, add to struct.
             modified_positions.shrink_to(0);
             modified_probabilities.shrink_to(0);
+
+            #[expect(
+                clippy::arithmetic_side_effects,
+                reason = "`seq_len - 1 - k` (protected as mod pos cannot exceed seq_len), \
+`k.0 + 1` (overflow unlikely as genomic coords << 2^63)"
+            )]
+            #[expect(
+                clippy::indexing_slicing,
+                reason = "`pos_map[k.0]`; neither pos_map's len nor mod pos entry can exceed seq_len"
+            )]
             if filter_mod_base_strand_tag(&mod_base, &mod_strand, &modification_type) {
-                let mods = BaseMod::new(
-                    record,
-                    mod_base,
-                    mod_strand,
-                    modification_type.val(),
-                    modified_positions,
-                    modified_probabilities,
-                );
+                let annotations: Vec<FiberAnnotation> = modified_positions
+                    .iter()
+                    .map(|k| if is_reverse { seq_len - 1 - k } else { *k })
+                    .zip(modified_probabilities.iter())
+                    .map(|k| {
+                        Ok(FiberAnnotation {
+                            start: i64::try_from(k.0)?,
+                            end: i64::try_from(k.0 + 1)?,
+                            length: 1,
+                            qual: *k.1,
+                            reference_start: pos_map[k.0],
+                            reference_end: pos_map[k.0],
+                            reference_length: pos_map[k.0].is_some().then_some(0),
+                            extra_columns: None,
+                        })
+                    })
+                    .collect::<Result<Vec<FiberAnnotation>, Error>>()?;
+                let mods = BaseMod {
+                    modified_base: mod_base,
+                    strand: mod_strand,
+                    modification_type: modification_type.val(),
+                    ranges: Ranges {
+                        annotations: if is_reverse {
+                            annotations.into_iter().rev().collect()
+                        } else {
+                            annotations
+                        },
+                        seq_len: i64::try_from(seq_len)?,
+                        reverse: is_reverse,
+                    },
+                    record_is_reverse: is_reverse,
+                };
                 rtn.push(mods);
             }
         }
@@ -662,7 +716,6 @@ impl BamPreFilt for bam::Record {
 #[cfg(test)]
 mod mod_parse_tests {
     use super::*;
-    use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
     use rust_htslib::bam::Read as _;
 
     /// Tests if Mod BAM modification parsing is alright,
