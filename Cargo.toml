@@ -11,7 +11,7 @@ categories = ["command-line-utilities", "science::bioinformatics::sequence-analy
 keywords = ["modbam", "bam", "dna", "rna", "dna_methylation", "dna_mods", "rna_mods", "rna_methylation" ]
 
 [dependencies]
-fibertools-rs = "0.7.0"
+fibertools-rs = "0.8.1"
 rust-htslib = "0.46.0"
 clap = { version = "4.0.29", features = ["derive", "wrap_help"] }
 csv = "1.1"

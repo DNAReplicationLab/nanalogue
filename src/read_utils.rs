@@ -10,8 +10,10 @@ use bedrs::prelude::{Intersect as _, StrandedBed3};
 use bedrs::{Bed3, Coordinates as _, Strand};
 use bio_types::genome::AbstractInterval as _;
 use derive_builder::Builder;
-use fibertools_rs::utils::bamranges::Ranges;
-use fibertools_rs::utils::basemods::{BaseMod, BaseMods};
+use fibertools_rs::utils::{
+    bamannotations::{FiberAnnotation, Ranges},
+    basemods::{BaseMod, BaseMods},
+};
 use polars::{df, prelude::DataFrame};
 use rust_htslib::{bam::ext::BamRecordExtensions as _, bam::record::Record};
 use serde::{Deserialize, Serialize};
@@ -1138,7 +1140,7 @@ impl CurrRead<AlignAndModData> {
                     ranges: track,
                     ..
                 } if *x == tag_char => {
-                    let mod_data = &track.qual;
+                    let mod_data = track.qual();
                     if let Some(l) = mod_data.len().checked_sub(win_size) {
                         result.extend(
                             (0..=l)
@@ -1202,7 +1204,8 @@ impl CurrRead<AlignAndModData> {
             reason = "u32::MAX approx 4.2 Gb, v unlikely 1 molecule is this modified"
         )]
         for k in &self.mod_data().0.base_mods {
-            let base_count = u32::try_from(k.ranges.qual.len()).expect("number conversion error");
+            let base_count =
+                u32::try_from(k.ranges.annotations.len()).expect("number conversion error");
             let _: &mut u32 = output
                 .entry(ModChar::new(k.modification_type))
                 .and_modify(|e| *e += base_count)
@@ -1244,7 +1247,7 @@ impl DisplayCondensedModData for CurrRead<AlignAndModData> {
                 k.modified_base as char,
                 k.strand,
                 ModChar::new(k.modification_type),
-                k.ranges.qual.len()
+                k.ranges.annotations.len()
             )?;
         }
         if mod_count_str.is_empty() {
@@ -1951,14 +1954,12 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
     for base_mod in &base_mods.base_mods {
         let entries: Result<Vec<_>, Error> = base_mod
             .ranges
-            .starts
+            .annotations
             .iter()
-            .zip(base_mod.ranges.reference_starts.iter())
-            .zip(base_mod.ranges.qual.iter())
-            .map(|((start_opt, ref_start_opt), &qual)| {
-                let start = u64::try_from(start_opt.ok_or(Error::UnavailableData)?)?;
-                let ref_start = ref_start_opt.unwrap_or(-1);
-                Ok((start, ref_start, qual))
+            .map(|k| {
+                let start: u64 = k.start.try_into()?;
+                let ref_start = k.reference_start.unwrap_or(-1);
+                Ok((start, ref_start, k.qual))
             })
             .collect();
 
@@ -1983,17 +1984,15 @@ fn reconstruct_base_mods(
     let mut base_mods = Vec::new();
 
     for entry in mod_table {
-        let (starts, reference_starts, qual) = {
-            let mut temp_starts = Vec::<Option<i64>>::with_capacity(entry.data.len());
-            let mut temp_reference_starts = Vec::<Option<i64>>::with_capacity(entry.data.len());
-            let mut temp_qual = Vec::<u8>::with_capacity(entry.data.len());
+        let annotations = {
+            let mut annotations = Vec::<FiberAnnotation>::with_capacity(entry.data.len());
             let mut valid_range = 0..seq_len;
 
             #[expect(
                 clippy::arithmetic_side_effects,
-                reason = "prev_start + 1 cannot overflow as genomic coordinates << 2^64"
+                reason = "overflow errors not possible as genomic coordinates << 2^64"
             )]
-            for &(start, ref_start, q) in &entry.data {
+            for &(start, ref_start, qual) in &entry.data {
                 // Check that sequence coordinates are in range [prev_start + 1, seq_len)
                 if !valid_range.contains(&start) {
                     return Err(Error::InvalidModCoords(String::from(
@@ -2002,58 +2001,32 @@ ascending needed even if reversed read)!",
                     )));
                 }
                 valid_range = start + 1..seq_len;
-                temp_starts.push(Some(i64::try_from(start)?));
 
-                match (ref_start, ref_range.contains(&ref_start)) {
-                    (-1, _) => temp_reference_starts.push(None),
-                    (v, true) if v > -1 => temp_reference_starts.push(Some(v)),
+                let ref_start_after_check = match (ref_start, ref_range.contains(&ref_start)) {
+                    (-1, _) => None,
+                    (v, true) if v > -1 => Some(v),
                     (v, _) => {
                         return Err(Error::InvalidAlignCoords(format!(
                             "coordinate {v} invalid in mod table (exceeds alignment coords or is < -1)"
                         )));
                     }
-                }
-                temp_qual.push(q);
+                };
+                let start_i64 = i64::try_from(start)?;
+                annotations.push(FiberAnnotation {
+                    start: start_i64,
+                    end: start_i64 + 1,
+                    length: 1,
+                    qual,
+                    reference_start: ref_start_after_check,
+                    reference_end: ref_start_after_check,
+                    reference_length: ref_start_after_check.is_some().then_some(0),
+                    extra_columns: None,
+                });
             }
-            (temp_starts, temp_reference_starts, temp_qual)
+            annotations
         };
 
-        // Calculate ends: starts + 1 where available, None otherwise
-        #[expect(
-            clippy::arithmetic_side_effects,
-            reason = "overflow error impossible as genomic coords do not exceed (2^64-1)/2"
-        )]
-        let ends: Vec<Option<i64>> = starts
-            .iter()
-            .map(|&start_opt| start_opt.map(|start| start + 1))
-            .collect();
-
-        // Calculate lengths: Some(1) where starts available, None otherwise
-        let lengths: Vec<Option<i64>> = starts
-            .iter()
-            .map(|&start_opt| start_opt.map(|_| 1))
-            .collect();
-
-        // Set reference_ends identical to reference_starts
-        let reference_ends = reference_starts.clone();
-
-        // Calculate reference_lengths: Some(0) where reference_starts available, None otherwise
-        let reference_lengths: Vec<Option<i64>> = reference_starts
-            .iter()
-            .map(|&ref_start_opt| ref_start_opt.map(|_| 0))
-            .collect();
-
-        let ranges = Ranges {
-            starts,
-            ends,
-            lengths,
-            reference_starts,
-            reference_ends,
-            reference_lengths,
-            qual,
-            seq_len: seq_len.try_into()?,
-            reverse: is_reverse,
-        };
+        let ranges = Ranges::from_annotations(annotations, seq_len.try_into()?, is_reverse);
 
         let strand = if entry.is_strand_plus { '+' } else { '-' };
 

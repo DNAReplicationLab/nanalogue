@@ -60,12 +60,23 @@ base\tmod_strand\tmod_type\twin_start\twin_end"
         };
 
         // read and window modification data, then print the output
+        #[expect(
+            clippy::type_complexity,
+            reason = "I think a tuple of 5 `Vec` is fine if its readable"
+        )]
         for base_mod in &curr_read_state.mod_data().0.base_mods {
-            let mod_data = &base_mod.ranges.qual;
-            let starts = &base_mod.ranges.starts;
-            let ends = &base_mod.ranges.ends;
-            let ref_starts = &base_mod.ranges.reference_starts;
-            let ref_ends = &base_mod.ranges.reference_ends;
+            let (mod_data, starts, ends, ref_starts, ref_ends): (
+                Vec<u8>,
+                Vec<i64>,
+                Vec<i64>,
+                Vec<Option<i64>>,
+                Vec<Option<i64>>,
+            ) = base_mod
+                .ranges
+                .annotations
+                .iter()
+                .map(|k| (k.qual, k.start, k.end, k.reference_start, k.reference_end))
+                .collect();
             let base = base_mod.modified_base as char;
             let mod_strand = base_mod.strand;
             let mod_type = ModChar::new(base_mod.modification_type);
@@ -89,22 +100,14 @@ base\tmod_strand\tmod_type\twin_start\twin_end"
                     // there is no way to trigger the errors below as we control how CurrRead is
                     // populated quite strictly. Nevertheless, I am leaving these in for
                     // future-proofing.
-                    let win_start = starts
-                        .get(window_idx)
-                        .expect("window_idx is valid")
-                        .ok_or_else(|| {
-                            Error::InvalidState("Missing sequence start position".to_string())
-                        })?;
+                    let win_start = starts.get(window_idx).expect("window_idx is valid");
                     let win_end = ends
                         .get(window_idx..)
                         .expect("window_idx <= v where v = len - win_size")
                         .get(0..win_size)
                         .expect("no error as we've checked data len >= win size")
                         .last()
-                        .expect("no error as we've checked data len >= win size")
-                        .ok_or_else(|| {
-                            Error::InvalidState("Missing sequence end position".to_string())
-                        })?;
+                        .expect("no error as we've checked data len >= win size");
 
                     let ref_win_start = ref_starts
                         .get(window_idx..)
