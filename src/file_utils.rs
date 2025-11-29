@@ -490,6 +490,10 @@ mod tests {
 
         let err = result.unwrap_err();
         assert!(matches!(err, Error::InvalidSorting(_)));
+
+        // Clean up temporary files (ignore errors if files don't exist)
+        drop(std::fs::remove_file(&temp_path));
+        drop(std::fs::remove_file(format!("{}.bai", temp_path.display())));
     }
 
     /// Tests `write_bam_denovo` with sorted reads on same contig

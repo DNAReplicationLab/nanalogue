@@ -798,7 +798,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
     rng: &mut R,
 ) -> Result<Vec<bam::Record>, Error> {
     if contigs.is_empty() {
-        return Err(Error::UnavailableData);
+        return Err(Error::UnavailableData("no contigs found".to_owned()));
     }
 
     let mut reads = Vec::new();
@@ -1254,7 +1254,7 @@ mod read_generation_no_mods_tests {
         let mut rng = rand::rng();
 
         let result = generate_reads_denovo(&contigs, &config, "test", &mut rng);
-        assert!(matches!(result, Err(Error::UnavailableData)));
+        assert!(matches!(result, Err(Error::UnavailableData(_))));
     }
 
     /// Tests error when read length would be zero

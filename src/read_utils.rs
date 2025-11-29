@@ -175,7 +175,7 @@ impl CurrRead<NoData> {
             || record.is_duplicate()
             || record.is_quality_check_failed()
         {
-            return Err(Error::NotImplementedError(
+            return Err(Error::NotImplemented(
                 "paired-read/mate-read/duplicate/qual-check-failed flags not supported!"
                     .to_string(),
             ));
@@ -372,7 +372,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Errors
     /// Error if sequence length is not set
     pub fn seq_len(&self) -> Result<u64, Error> {
-        self.seq_len.ok_or(Error::UnavailableData)
+        self.seq_len
+            .ok_or(Error::UnavailableData("seq len not available".to_owned()))
     }
     /// set alignment length from BAM record if available
     ///
@@ -387,7 +388,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             )),
             None => {
                 if self.read_state().is_unmapped() {
-                    Err(Error::Unmapped)
+                    Err(Error::Unmapped(
+                        "cannot set alignment properties for unmapped reads".to_owned(),
+                    ))
                 } else {
                     // NOTE: right now, I don't know of a way to test the error below
                     // as rust htslib initializes an empty record with an alignment
@@ -433,9 +436,13 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// if instance is unmapped or alignment length is not set
     pub fn align_len(&self) -> Result<u64, Error> {
         if self.read_state().is_unmapped() {
-            Err(Error::Unmapped)
+            Err(Error::Unmapped(
+                "request alignment data on unmapped".to_owned(),
+            ))
         } else {
-            self.align_len.ok_or(Error::UnavailableData)
+            self.align_len.ok_or(Error::UnavailableData(
+                "alignment data not available".to_owned(),
+            ))
         }
     }
     /// sets contig ID and start from BAM record if available
@@ -505,7 +512,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             )),
             None => {
                 if self.read_state().is_unmapped() {
-                    Err(Error::Unmapped)
+                    Err(Error::Unmapped(
+                        "setting alignment data on unmapped read".to_owned(),
+                    ))
                 } else {
                     Ok(Some((record.tid(), record.pos().try_into()?)))
                 }
@@ -519,9 +528,13 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// If instance is unmapped or if data (contig id and start) are not set
     pub fn contig_id_and_start(&self) -> Result<(i32, u64), Error> {
         if self.read_state().is_unmapped() {
-            Err(Error::Unmapped)
+            Err(Error::Unmapped(
+                "requesting alignment data on unmapped read".to_owned(),
+            ))
         } else {
-            self.contig_id_and_start.ok_or(Error::UnavailableData)
+            self.contig_id_and_start.ok_or(Error::UnavailableData(
+                "contig id, start not available".to_owned(),
+            ))
         }
     }
     /// sets contig name
@@ -584,7 +597,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// ```
     pub fn set_contig_name(mut self, record: &Record) -> Result<Self, Error> {
         self.contig_name = match (self.read_state().is_unmapped(), self.contig_name) {
-            (true, _) => Err(Error::Unmapped),
+            (true, _) => Err(Error::Unmapped(
+                "set align data on unmapped read!".to_owned(),
+            )),
             (_, Some(_)) => Err(Error::InvalidDuplicates(
                 "cannot set contig name again!".to_string(),
             )),
@@ -598,8 +613,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// If instance is unmapped or contig name has not been set
     pub fn contig_name(&self) -> Result<&str, Error> {
         match (self.read_state().is_unmapped(), self.contig_name.as_ref()) {
-            (true, _) => Err(Error::Unmapped),
-            (_, None) => Err(Error::UnavailableData),
+            (true, _) => Err(Error::Unmapped(
+                "get align data on unmapped read".to_owned(),
+            )),
+            (_, None) => Err(Error::UnavailableData("contig name unavailable".to_owned())),
             (_, Some(v)) => Ok(v.as_str()),
         }
     }
@@ -663,7 +680,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// If read id has not been set
     pub fn read_id(&self) -> Result<&str, Error> {
         match self.read_id.as_ref() {
-            None => Err(Error::UnavailableData),
+            None => Err(Error::UnavailableData("read id not available".to_owned())),
             Some(v) => Ok(v.as_str()),
         }
     }
@@ -726,7 +743,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///         // Create a region with no overlap at all and check we get no data
     ///         let region = Bed3::new(contig_id, start + align_len, start + align_len + 2);
     ///         match curr_read.seq_on_ref_coords(&r, &region){
-    ///             Err(Error::UnavailableData) => (),
+    ///             Err(Error::UnavailableData(_)) => (),
     ///             _ => unreachable!(),
     ///         };
     ///
@@ -786,7 +803,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///     // Create a region with no overlap at all and check we get no data
     ///     let region = Bed3::new(0, 20, 22);
     ///     match curr_read.seq_and_qual_on_ref_coords(&r, &region){
-    ///         Err(Error::UnavailableData) => (),
+    ///         Err(Error::UnavailableData(_)) => (),
     ///         _ => unreachable!(),
     ///     };
     ///
@@ -882,7 +899,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///     // Create a region with no overlap at all and check we get no data
     ///     let region = Bed3::new(0, 20, 22);
     ///     match curr_read.seq_coords_from_ref_coords(&r, &region){
-    ///         Err(Error::UnavailableData) => (),
+    ///         Err(Error::UnavailableData(_)) => (),
     ///         _ => unreachable!(),
     ///     };
     ///
@@ -905,7 +922,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                     let end = i64::try_from(v.end()).expect("genomic coordinates << 2^63");
                     (start < end).then_some(start..end)
                 })
-                .ok_or(Error::UnavailableData)
+                .ok_or(Error::UnavailableData(
+                    "coord-retrieval: region does not intersect with read".to_owned(),
+                ))
         }?;
 
         // Initialize coord calculation.
@@ -2284,7 +2303,7 @@ mod test_error_handling {
                     20 | 260 | 276 | 2052 | 2068 | 2304 | 2308 | 2320 | 2324,
                     Err(Error::UnknownAlignState(_)),
                 )
-                | (_, Err(Error::NotImplementedError(_))) => {}
+                | (_, Err(Error::NotImplemented(_))) => {}
                 (_, _) => unreachable!(),
             }
         }

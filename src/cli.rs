@@ -531,7 +531,7 @@ mod input_bam_tests {
     }
 
     #[test]
-    #[should_panic(expected = "InvalidRegionError")]
+    #[should_panic(expected = "InvalidRegion")]
     fn input_bam_convert_region_to_bed3_invalid_region() {
         let mut input_bam = InputBam {
             region: Some(GenomicRegion::from_str("chr2:4400-4600").expect("no error")),
@@ -545,7 +545,7 @@ mod input_bam_tests {
     }
 
     #[test]
-    #[should_panic(expected = "InvalidRegionError")]
+    #[should_panic(expected = "InvalidRegion")]
     fn input_bam_convert_region_to_bed3_invalid_open_ended_region() {
         let mut input_bam = InputBam {
             region: Some(GenomicRegion::from_str("chr2:4600-").expect("no error")),

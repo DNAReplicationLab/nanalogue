@@ -52,7 +52,9 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
         if low <= high {
             Ok(OrdPair { low, high })
         } else {
-            Err(Error::WrongOrder)
+            Err(Error::WrongOrder(
+                "wrong order in OrdPair creation".to_owned(),
+            ))
         }
     }
     /// Gets the low value
@@ -130,7 +132,7 @@ calls are only used after verifying the length of the parts vector, ensuring saf
                     .trim()
                     .parse::<u64>()
                     .map_err(|_err| {
-                        Error::OrdPairConversionError(
+                        Error::OrdPairConversion(
                             "Invalid start coordinate in interval!".to_string(),
                         )
                     })?;
@@ -151,7 +153,7 @@ calls are only used after verifying the length of the parts vector, ensuring saf
                         .trim()
                         .parse::<u64>()
                         .map_err(|_err| {
-                            Error::OrdPairConversionError(
+                            Error::OrdPairConversion(
                                 "Invalid end coordinate in interval!".to_string(),
                             )
                         })?
@@ -164,12 +166,12 @@ calls are only used after verifying the length of the parts vector, ensuring saf
                         high: end,
                     })
                 } else {
-                    Err(Error::OrdPairConversionError(
+                    Err(Error::OrdPairConversion(
                         "Genomic intervals require start < end (strict inequality)".to_string(),
                     ))
                 }
             }
-            _ => Err(Error::OrdPairConversionError(
+            _ => Err(Error::OrdPairConversion(
                 "Invalid interval format! Expected 'start-end' or 'start-'".to_string(),
             )),
         }
@@ -183,7 +185,7 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> FromStr for Ord
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
         macro_rules! parse_error {
             () => {
-                Err(Error::OrdPairConversionError(
+                Err(Error::OrdPairConversion(
                     "Bad ordered pair inputs!".to_string(),
                 ))
             };
@@ -336,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_str_empty_first_value_panics() {
         let _: OrdPair<u8> = OrdPair::<u8>::from_str(",2").unwrap();
     }
@@ -375,55 +377,55 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_equal_start_end_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000-1000").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_start_greater_than_end_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("2000-1000").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_no_dash_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_too_many_dashes_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000-2000-3000").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_invalid_start_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("abc-2000").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_invalid_end_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000-xyz").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_empty_string_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_just_dash_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("-").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_negative_numbers_panics() {
         let _: OrdPair<u64> = OrdPair::<u64>::from_interval("-100-200").unwrap();
     }
@@ -448,25 +450,25 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_str_empty_string_panics() {
         let _: OrdPair<i32> = OrdPair::<i32>::from_str("").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_str_single_value_panics() {
         let _: OrdPair<i32> = OrdPair::<i32>::from_str("1").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_str_too_many_values_panics() {
         let _: OrdPair<i32> = OrdPair::<i32>::from_str("1,2,3").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_str_non_numeric_panics() {
         let _: OrdPair<i32> = OrdPair::<i32>::from_str("abc,def").unwrap();
     }

@@ -141,7 +141,7 @@ where
                 align_len_total += v;
                 align_len_heap.push(v);
             }
-            Err(Error::Unmapped) => {}
+            Err(Error::Unmapped(_)) => {}
             Err(e) => return Err(e),
         }
     }

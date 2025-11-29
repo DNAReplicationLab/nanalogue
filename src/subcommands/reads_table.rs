@@ -346,7 +346,7 @@ where
         let read_state = curr_read_state.read_state();
         let align_len = match curr_read_state.align_len() {
             Ok(v) => v,
-            Err(Error::Unmapped) => 0,
+            Err(Error::Unmapped(_)) => 0,
             Err(_) => continue,
         };
         let Ok(seq_len) = curr_read_state.seq_len() else {
@@ -374,7 +374,7 @@ where
             } => {
                 let (o_1, o_2): (Vec<u8>, Vec<u8>) =
                     match curr_read_state.seq_and_qual_on_ref_coords(&record, &region) {
-                        Err(Error::UnavailableData) => (vec![b'*'], vec![255u8]),
+                        Err(Error::UnavailableData(_)) => (vec![b'*'], vec![255u8]),
                         Err(e) => return Err(e),
                         Ok(x) => x
                             .into_iter()

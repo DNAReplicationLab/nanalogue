@@ -50,7 +50,7 @@ pub use subcommands::{find_modified_reads, read_info, read_stats, reads_table, w
 pub use utils::{
     AllowedAGCTN, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1, FilterByRefCoords,
     GenomicRegion, GetDNARestrictive, Intersects, ModChar, OrdPair, PathOrURLOrStdin, ReadState,
-    ReadStates, RestrictModCalledStrand, ThresholdState,
+    ReadStates, RestrictModCalledStrand, SeqCoordCalls, ThresholdState,
 };
 
 /// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods` Struct.
@@ -373,7 +373,7 @@ when usize is 64-bit as genomic sequences are not that long"
             if cur_mod_idx == mod_dists.len() {
                 num_mods_seen = num_mods_seen
                     .checked_add(cur_mod_idx)
-                    .ok_or(Error::Arithmetic)?;
+                    .ok_or(Error::Arithmetic("in MM ML parsing".to_owned()))?;
             } else {
                 return Err(Error::InvalidModCoords(String::from(
                     "Problem with parsing MM/ML data, counts do not match",

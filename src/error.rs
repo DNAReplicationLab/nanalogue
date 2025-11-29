@@ -17,6 +17,11 @@ use std::string::FromUtf8Error;
 use thiserror::Error;
 
 /// Enum that covers errors in our module.
+///
+/// Any error arising from our crate does not have the
+/// suffix 'Error'. If we are deriving an error from
+/// an error from another crate, and that has a suffix
+/// 'Error', we have let it be in our naming of the error.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum Error {
@@ -100,7 +105,7 @@ error could possibly be due to not including header with `samtools view -h` "
     /// a string of the correct format. This error says string
     /// conversion failed.
     #[error("ordered pair conversion error: `{0}`")]
-    OrdPairConversionError(String),
+    OrdPairConversion(String),
 
     /// Problem parsing integers
     #[error("integer parsing error: `{0}`")]
@@ -131,25 +136,25 @@ error could possibly be due to not including header with `samtools view -h` "
     InvalidState(String),
 
     /// Error while writing output
-    #[error("error while writing output")]
-    WriteOutputError,
+    #[error("error while writing output: `{0}`")]
+    WriteOutput(String),
 
     /// Generic not implemented error
     #[error("not implemented: `{0}`")]
-    NotImplementedError(String),
+    NotImplemented(String),
 
     /// General error when ordering of items in some context is wrong.
-    #[error("items in wrong order")]
-    WrongOrder,
+    #[error("items in wrong order: `{0}`")]
+    WrongOrder(String),
 
     /// Data not available
-    #[error("data not available")]
-    UnavailableData,
+    #[error("data not available: `{0}`")]
+    UnavailableData(String),
 
     /// Read is unmapped, use this whenever some function
     /// meant for a mapped read is called on an unmapped read
-    #[error("read is unmapped")]
-    Unmapped,
+    #[error("read is unmapped: `{0}`")]
+    Unmapped(String),
 
     /// Zero values used where they should not be
     #[error("zero values not allowed: `{0}`")]
@@ -161,7 +166,7 @@ error could possibly be due to not including header with `samtools view -h` "
 
     /// Genomic region coordinates exceed contig boundaries
     #[error("invalid region '{region}': position {pos} exceeds contig length {contig_length}")]
-    InvalidRegionError {
+    InvalidRegion {
         /// The original region string provided by the user
         region: String,
         /// The position that exceeds the contig boundary
@@ -184,20 +189,20 @@ error could possibly be due to not including header with `samtools view -h` "
     },
 
     /// Window does not contain any data
-    #[error("window does not contain any data")]
-    EmptyWindow,
+    #[error("window does not contain any data: `{0}`")]
+    EmptyWindow(String),
 
     /// Data is not of sufficient size (e.g. in a window)
-    #[error("data is not of sufficient size (e.g. in a window)")]
-    InsufficientDataSize,
+    #[error("data is not of sufficient size (e.g. in a window): `{0}`")]
+    InsufficientDataSize(String),
 
     /// Arithmetic error
-    #[error("unanticipated arithmetic error e.g. overflow")]
-    Arithmetic,
+    #[error("unanticipated arithmetic error e.g. overflow: `{0}`")]
+    Arithmetic(String),
 
     /// Problem parsing items while building structs with Builder methods
     #[error("building error, are you missing inputs?: `{0}`")]
-    Builder(#[from] UninitializedFieldError),
+    BuilderError(#[from] UninitializedFieldError),
 
     /// Problem parsing items while converting between DNA base representations
     #[error("error converting between DNA bases: `{0}`")]

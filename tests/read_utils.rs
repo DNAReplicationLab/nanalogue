@@ -190,7 +190,7 @@ mod tests {
                         .set_seq_len(&r)?
                         .set_align_len(&r);
                     match curr_read_result {
-                        Err(Error::Unmapped) => continue,
+                        Err(Error::Unmapped(_)) => continue,
                         v => v,
                     }
                 }?;
@@ -507,7 +507,7 @@ mod tests {
                 let region_no_overlap =
                     Bed3::new(contig_id, start + align_len, start + align_len + 2);
                 match curr_read.seq_on_ref_coords(&r, &region_no_overlap) {
-                    Err(Error::UnavailableData) => (),
+                    Err(Error::UnavailableData(_)) => (),
                     _ => unreachable!(),
                 }
             }
@@ -547,7 +547,7 @@ mod tests {
             if curr_read.read_state().to_string() != "unmapped" {
                 let region = Bed3::new(0, 225, 236);
                 match curr_read.seq_on_ref_coords(&r, &region) {
-                    Err(Error::UnavailableData) => {}
+                    Err(Error::UnavailableData(_)) => {}
                     Ok(v) => {
                         assert!(
                             expected_seq.contains(str::from_utf8(&v).expect("no error")),
@@ -609,7 +609,7 @@ mod tests {
             if curr_read.read_state().to_string() != "unmapped" {
                 let region = Bed3::new(0, 225, 229);
                 match curr_read.seq_on_ref_coords(&r, &region) {
-                    Err(Error::UnavailableData) => {}
+                    Err(Error::UnavailableData(_)) => {}
                     Ok(v) => {
                         if expected_seqs
                             .iter()
@@ -658,7 +658,7 @@ mod tests {
             // Create a region with no overlap at all and check we get no data
             let region_no_overlap = Bed3::new(0, 20, 22);
             match curr_read.seq_coords_from_ref_coords(&r, &region_no_overlap) {
-                Err(Error::UnavailableData) => (),
+                Err(Error::UnavailableData(_)) => (),
                 _ => unreachable!(),
             }
         }
@@ -691,7 +691,7 @@ mod tests {
             // Create a region with no overlap at all and check we get no data
             let region_no_overlap = Bed3::new(0, 20, 22);
             match curr_read.seq_and_qual_on_ref_coords(&r, &region_no_overlap) {
-                Err(Error::UnavailableData) => (),
+                Err(Error::UnavailableData(_)) => (),
                 _ => unreachable!(),
             }
         }

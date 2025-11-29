@@ -90,7 +90,7 @@ impl GenomicRegion {
                             format!("{contig_name}:{start}-{end}")
                         };
 
-                        return Err(Error::InvalidRegionError {
+                        return Err(Error::InvalidRegion {
                             region: region_str,
                             pos: start,
                             contig_length,
@@ -100,7 +100,7 @@ impl GenomicRegion {
                     // Also check end coordinate for closed intervals
                     if end != u64::MAX && end > contig_length {
                         let region_str = format!("{contig_name}:{start}-{end}");
-                        return Err(Error::InvalidRegionError {
+                        return Err(Error::InvalidRegion {
                             region: region_str,
                             pos: end,
                             contig_length,
@@ -284,35 +284,35 @@ mod tests {
 
     /// Tests `GenomicRegion` parsing with wrong order coordinates
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn genomic_region_parsing_wrong_order() {
         let _: GenomicRegion = GenomicRegion::from_str("chr1:2000-1000").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with equal start and end (strict inequality)
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn genomic_region_parsing_equal_coordinates() {
         let _: GenomicRegion = GenomicRegion::from_str("chr1:1000-1000").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with invalid coordinate format
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn genomic_region_parsing_invalid_coordinates() {
         let _: GenomicRegion = GenomicRegion::from_str("chr1:abc-def").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with invalid interval format (too many dashes)
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn genomic_region_parsing_too_many_dashes() {
         let _: GenomicRegion = GenomicRegion::from_str("chr1:1000-2000-3000").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with missing start coordinate
     #[test]
-    #[should_panic(expected = "OrdPairConversionError")]
+    #[should_panic(expected = "OrdPairConversion")]
     fn genomic_region_parsing_missing_start() {
         let _: GenomicRegion = GenomicRegion::from_str("chr1:-2000").unwrap();
     }
@@ -382,14 +382,14 @@ mod tests {
 
     /// Tests error case when start position exceeds contig length
     #[test]
-    #[should_panic(expected = "InvalidRegionError")]
+    #[should_panic(expected = "InvalidRegion")]
     fn try_to_bed3_start_exceeds_contig_length() {
         let header = create_test_header();
 
         // Create a region with start position > contig length for chr1
         let region = GenomicRegion::from_str("chr1:300000000-400000000").expect("should parse");
 
-        // This should panic with InvalidRegionError
+        // This should panic with InvalidRegion
         let _: Bed3<i32, u64> = region.try_to_bed3(&header).unwrap();
     }
 

@@ -23,7 +23,7 @@ use crate::{Contains as _, Error, F32AbsValAtMost1, F32Bw0and1, ThresholdState};
 /// ```
 pub fn threshold_and_mean(mod_list: &[u8]) -> Result<F32Bw0and1, Error> {
     let win_size: usize = match mod_list.len() {
-        0 => Err(Error::EmptyWindow),
+        0 => Err(Error::EmptyWindow("in `threshold_and_mean`".to_owned())),
         v => Ok(v),
     }?;
     let count_mod: usize = mod_list
@@ -78,8 +78,12 @@ may fix in future. this means we are using ~Mbp windows, which is unlikely..."
 )]
 pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error> {
     let win_size = match mod_list.len() {
-        0 => Err(Error::EmptyWindow),
-        1 => Err(Error::InsufficientDataSize),
+        0 => Err(Error::EmptyWindow(
+            "threshold and gradient needs > 1 data point".to_owned(),
+        )),
+        1 => Err(Error::InsufficientDataSize(
+            "threshold and gradient needs > 1 data point".to_owned(),
+        )),
         v => Ok(v),
     }?;
     let x_mean = f32::midpoint(win_size as f32, 1.0);
