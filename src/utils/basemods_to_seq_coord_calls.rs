@@ -24,8 +24,62 @@ pub struct SeqCoordCalls {
 }
 
 impl SeqCoordCalls {
-    /// Same length as DNA sequence with yes/no to whether mods
-    /// are present at any given position
+    /// Returns a boolean vector indicating whether any modification is present at each position.
+    ///
+    /// The returned vector has the same length as the DNA sequence, with `true` at positions
+    /// where at least one modification type has a non-zero quality score, and `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use nanalogue_core::utils::basemods_to_seq_coord_calls::SeqCoordCalls;
+    /// # use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
+    /// # use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
+    /// // Given BaseMods with T+ at position 0 (qual=100) and C+m at position 2 (qual=200)
+    /// // for a sequence of length 5:
+    /// let base_mods = BaseMods {
+    ///     base_mods: vec![
+    ///         BaseMod {
+    ///             modified_base: b'T',
+    ///             strand: '+',
+    ///             modification_type: 'T',
+    ///             ranges: Ranges {
+    ///                 annotations: vec![FiberAnnotation {
+    ///                     start: 0, end: 1, length: 1, qual: 100,
+    ///                     reference_start: Some(0), reference_end: Some(0),
+    ///                     reference_length: Some(0), extra_columns: None,
+    ///                 }],
+    ///                 seq_len: 5, reverse: false,
+    ///             },
+    ///             record_is_reverse: false,
+    ///         },
+    ///         BaseMod {
+    ///             modified_base: b'C',
+    ///             strand: '+',
+    ///             modification_type: 'm',
+    ///             ranges: Ranges {
+    ///                 annotations: vec![FiberAnnotation {
+    ///                     start: 2, end: 3, length: 1, qual: 200,
+    ///                     reference_start: None, reference_end: None,
+    ///                     reference_length: None, extra_columns: None,
+    ///                 }],
+    ///                 seq_len: 5, reverse: false,
+    ///             },
+    ///             record_is_reverse: false,
+    ///         },
+    ///     ],
+    /// };
+    ///
+    /// let seq_coord_calls = SeqCoordCalls::try_from(&base_mods).unwrap();
+    /// let collapsed = seq_coord_calls.collapse_mod_calls();
+    ///
+    /// // Returns [true, false, true, false, false]
+    /// // Position 0: true (T+ modified)
+    /// // Position 1: false (no modifications)
+    /// // Position 2: true (C+m modified)
+    /// // Positions 3-4: false (no modifications)
+    /// assert_eq!(collapsed, vec![true, false, true, false, false]);
+    /// ```
     #[must_use]
     pub fn collapse_mod_calls(&self) -> Vec<bool> {
         self.mod_calls
@@ -34,16 +88,129 @@ impl SeqCoordCalls {
             .collect()
     }
 
-    /// Returns types of mod calls in the order stored as a `Vec`.
-    /// Each entry is `(ModChar, bool)` where the first entry
-    /// is the type of modification, and the second entry is
-    /// whether data is on the same strand as the basecalled strand or not.
+    /// Returns the modification types and their strand information.
+    ///
+    /// Each entry in the returned vector is a tuple `(ModChar, bool)` where:
+    /// - The first element is the modification type (e.g., 'T', 'm', 'h')
+    /// - The second element indicates strand: `true` for '+' strand, `false` for '-' strand
+    ///
+    /// The order of mod types in this vector corresponds to the order of quality scores
+    /// in the arrays returned by [`mod_calls()`](Self::mod_calls).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use nanalogue_core::utils::basemods_to_seq_coord_calls::SeqCoordCalls;
+    /// # use nanalogue_core::ModChar;
+    /// # use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
+    /// # use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
+    /// // Given BaseMods with T+ and C+m modifications:
+    /// let base_mods = BaseMods {
+    ///     base_mods: vec![
+    ///         BaseMod {
+    ///             modified_base: b'T', strand: '+', modification_type: 'T',
+    ///             ranges: Ranges {
+    ///                 annotations: vec![FiberAnnotation {
+    ///                     start: 0, end: 1, length: 1, qual: 100,
+    ///                     reference_start: Some(0), reference_end: Some(0),
+    ///                     reference_length: Some(0), extra_columns: None,
+    ///                 }],
+    ///                 seq_len: 5, reverse: false,
+    ///             },
+    ///             record_is_reverse: false,
+    ///         },
+    ///         BaseMod {
+    ///             modified_base: b'C', strand: '+', modification_type: 'm',
+    ///             ranges: Ranges {
+    ///                 annotations: vec![FiberAnnotation {
+    ///                     start: 2, end: 3, length: 1, qual: 200,
+    ///                     reference_start: None, reference_end: None,
+    ///                     reference_length: None, extra_columns: None,
+    ///                 }],
+    ///                 seq_len: 5, reverse: false,
+    ///             },
+    ///             record_is_reverse: false,
+    ///         },
+    ///     ],
+    /// };
+    ///
+    /// let seq_coord_calls = SeqCoordCalls::try_from(&base_mods).unwrap();
+    /// let mod_types = seq_coord_calls.mod_types();
+    ///
+    /// // Returns 2 mod types: T+ and C+m
+    /// assert_eq!(mod_types.len(), 2);
+    /// assert_eq!(mod_types[0].0, ModChar::new('T'));
+    /// assert_eq!(mod_types[0].1, true);  // '+' strand
+    /// assert_eq!(mod_types[1].0, ModChar::new('m'));
+    /// assert_eq!(mod_types[1].1, true);  // '+' strand
+    /// ```
     #[must_use]
     pub fn mod_types(&self) -> &Vec<(ModChar, bool)> {
         &self.mod_types
     }
 
-    /// Returns mod calls
+    /// Returns modification quality scores at a given sequence position.
+    ///
+    /// Returns an array of `u8` quality scores, one for each modification type.
+    /// The order corresponds to the modification types returned by [`mod_types()`](Self::mod_types).
+    /// A value of `0` indicates no modification detected at that position for that type.
+    ///
+    /// Returns `None` if the position is out of bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `pos` - The sequence position (0-based index)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use nanalogue_core::utils::basemods_to_seq_coord_calls::SeqCoordCalls;
+    /// # use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
+    /// # use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
+    /// // Given BaseMods with T+ at position 0 (qual=100) and C+m at position 2 (qual=200):
+    /// let base_mods = BaseMods {
+    ///     base_mods: vec![
+    ///         BaseMod {
+    ///             modified_base: b'T', strand: '+', modification_type: 'T',
+    ///             ranges: Ranges {
+    ///                 annotations: vec![FiberAnnotation {
+    ///                     start: 0, end: 1, length: 1, qual: 100,
+    ///                     reference_start: Some(0), reference_end: Some(0),
+    ///                     reference_length: Some(0), extra_columns: None,
+    ///                 }],
+    ///                 seq_len: 5, reverse: false,
+    ///             },
+    ///             record_is_reverse: false,
+    ///         },
+    ///         BaseMod {
+    ///             modified_base: b'C', strand: '+', modification_type: 'm',
+    ///             ranges: Ranges {
+    ///                 annotations: vec![FiberAnnotation {
+    ///                     start: 2, end: 3, length: 1, qual: 200,
+    ///                     reference_start: None, reference_end: None,
+    ///                     reference_length: None, extra_columns: None,
+    ///                 }],
+    ///                 seq_len: 5, reverse: false,
+    ///             },
+    ///             record_is_reverse: false,
+    ///         },
+    ///     ],
+    /// };
+    ///
+    /// let seq_coord_calls = SeqCoordCalls::try_from(&base_mods).unwrap();
+    ///
+    /// // Position 0: T+ modified (100), C+m not modified (0)
+    /// assert_eq!(seq_coord_calls.mod_calls(0), Some(&[100u8, 0u8][..]));
+    ///
+    /// // Position 1: Neither modification present
+    /// assert_eq!(seq_coord_calls.mod_calls(1), Some(&[0u8, 0u8][..]));
+    ///
+    /// // Position 2: T+ not modified (0), C+m modified (200)
+    /// assert_eq!(seq_coord_calls.mod_calls(2), Some(&[0u8, 200u8][..]));
+    ///
+    /// // Out of bounds returns None
+    /// assert_eq!(seq_coord_calls.mod_calls(5), None);
+    /// ```
     #[must_use]
     pub fn mod_calls(&self, pos: usize) -> Option<&[u8]> {
         self.mod_calls.get(pos).map(|v| &**v)
@@ -53,7 +220,71 @@ impl SeqCoordCalls {
 impl TryFrom<&BaseMods> for SeqCoordCalls {
     type Error = Error;
 
-    /// Converts `BaseMod` data into data along sequence coordinates.
+    /// Converts `BaseMods` data into sequence-coordinate-indexed modification calls.
+    ///
+    /// Transforms modification data from the fibertools `BaseMods` format (which stores
+    /// per-modification-type annotations with positions and quality scores) into a
+    /// sequence-indexed format where each position has quality scores for all modification types.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The input `BaseMods` is empty (no sequence length can be determined)
+    /// - Different `BaseMod` entries have inconsistent sequence lengths
+    /// - Any strand character is not '+' or '-'
+    /// - Any annotation is not per-base (e.g., multi-base ranges are not supported)
+    /// - Position coordinates are out of bounds
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use nanalogue_core::utils::basemods_to_seq_coord_calls::SeqCoordCalls;
+    /// # use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
+    /// # use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
+    /// // Create BaseMods with multiple modification types (T+ and C+m):
+    /// let base_mods = BaseMods {
+    ///     base_mods: vec![
+    ///         BaseMod {
+    ///             modified_base: b'T',
+    ///             strand: '+',
+    ///             modification_type: 'T',
+    ///             ranges: Ranges {
+    ///                 annotations: vec![FiberAnnotation {
+    ///                     start: 0, end: 1, length: 1, qual: 100,
+    ///                     reference_start: Some(0), reference_end: Some(0),
+    ///                     reference_length: Some(0), extra_columns: None,
+    ///                 }],
+    ///                 seq_len: 5, reverse: false,
+    ///             },
+    ///             record_is_reverse: false,
+    ///         },
+    ///         BaseMod {
+    ///             modified_base: b'C',
+    ///             strand: '+',
+    ///             modification_type: 'm',
+    ///             ranges: Ranges {
+    ///                 annotations: vec![FiberAnnotation {
+    ///                     start: 2, end: 3, length: 1, qual: 200,
+    ///                     reference_start: None, reference_end: None,
+    ///                     reference_length: None, extra_columns: None,
+    ///                 }],
+    ///                 seq_len: 5, reverse: false,
+    ///             },
+    ///             record_is_reverse: false,
+    ///         },
+    ///     ],
+    /// };
+    ///
+    /// // Convert to sequence-indexed format
+    /// let seq_coord_calls = SeqCoordCalls::try_from(&base_mods).unwrap();
+    ///
+    /// // Now we can access modification data by sequence position:
+    /// // - Position 0: T+ has qual=100, C+m has qual=0
+    /// // - Position 2: T+ has qual=0, C+m has qual=200
+    /// // - Other positions: both have qual=0
+    /// assert_eq!(seq_coord_calls.mod_calls(0), Some(&[100u8, 0u8][..]));
+    /// assert_eq!(seq_coord_calls.mod_calls(2), Some(&[0u8, 200u8][..]));
+    /// ```
     fn try_from(value: &BaseMods) -> Result<Self, Error> {
         let (seq_lengths, mod_type_collection, starts_qual) = value
             .base_mods
@@ -301,11 +532,11 @@ mod tests {
         assert_eq!(seq_coord_calls.mod_calls(20), Some(&[182u8][..]));
 
         // Test mod_calls for positions without modifications
-        assert_eq!(seq_coord_calls.mod_calls(0), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(11), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(14), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(15), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(32), Some(&[0u8][..]));
+        for k in 0..33 {
+            if [12, 13, 16, 19, 20].iter().all(|x| *x != k) {
+                assert_eq!(seq_coord_calls.mod_calls(k), Some(&[0u8][..]));
+            }
+        }
         assert_eq!(seq_coord_calls.mod_calls(33), None); // Out of bounds
 
         // Test collapse_mod_calls
@@ -316,9 +547,14 @@ mod tests {
         assert!(collapsed.get(16).expect("in range"));
         assert!(collapsed.get(19).expect("in range"));
         assert!(collapsed.get(20).expect("in range"));
-        assert!(!collapsed.first().expect("in range"));
-        assert!(!collapsed.get(11).expect("in range"));
-        assert!(!collapsed.get(14).expect("in range"));
+
+        // Test collapsed_mod_calls for positions without modifications
+        for k in 0..33 {
+            if [12, 13, 16, 19, 20].iter().all(|x| *x != k) {
+                assert!(!collapsed.get(k).expect("in range"));
+            }
+        }
+        assert!(collapsed.get(33).is_none()); // Out of bounds
 
         Ok(())
     }
@@ -493,6 +729,64 @@ mod tests {
                 modification_type: 'T',
                 ranges: Ranges {
                     annotations: vec![],
+                    seq_len: 5,
+                    reverse: false,
+                },
+                record_is_reverse: false,
+            }],
+        };
+        let _: SeqCoordCalls = SeqCoordCalls::try_from(&base_mods).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "NotImplemented")]
+    fn seq_coord_calls_non_per_base_annotation() {
+        // Test with multi-base annotation (not per-base)
+        let base_mods = BaseMods {
+            base_mods: vec![BaseMod {
+                modified_base: b'T',
+                strand: '+',
+                modification_type: 'T',
+                ranges: Ranges {
+                    annotations: vec![FiberAnnotation {
+                        start: 0,
+                        end: 3, // Multi-base annotation (length 3, not 1)
+                        length: 3,
+                        qual: 100,
+                        reference_start: Some(0),
+                        reference_end: Some(2),
+                        reference_length: Some(2),
+                        extra_columns: None,
+                    }],
+                    seq_len: 5,
+                    reverse: false,
+                },
+                record_is_reverse: false,
+            }],
+        };
+        let _: SeqCoordCalls = SeqCoordCalls::try_from(&base_mods).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "NotImplemented")]
+    fn seq_coord_calls_start_beyond_seq_len() {
+        // Test with start coordinate beyond seq_len
+        let base_mods = BaseMods {
+            base_mods: vec![BaseMod {
+                modified_base: b'T',
+                strand: '+',
+                modification_type: 'T',
+                ranges: Ranges {
+                    annotations: vec![FiberAnnotation {
+                        start: 10, // Start beyond seq_len (5)
+                        end: 11,
+                        length: 1,
+                        qual: 100,
+                        reference_start: Some(10),
+                        reference_end: Some(10),
+                        reference_length: Some(0),
+                        extra_columns: None,
+                    }],
                     seq_len: 5,
                     reverse: false,
                 },
