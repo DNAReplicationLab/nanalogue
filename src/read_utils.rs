@@ -187,10 +187,9 @@ impl CurrRead<NoData> {
             || record.is_duplicate()
             || record.is_quality_check_failed()
         {
-            return Err(Error::NotImplemented(
-                "paired-read/mate-read/duplicate/qual-check-failed flags not supported!"
-                    .to_string(),
-            ));
+            return Err(Error::NotImplemented(format!(
+                "paired-read/mate-read/duplicate/qual-check-failed flags not supported! read_id: {read_id}"
+            )));
         }
         // set read state
         let state = match (
@@ -207,8 +206,8 @@ impl CurrRead<NoData> {
             (false, false, false, true) => ReadState::SupplementaryFwd,
             (false, false, false, false) => ReadState::PrimaryFwd,
             _ => {
-                return Err(Error::UnknownAlignState(String::from(
-                    "invalid flag combination!",
+                return Err(Error::UnknownAlignState(format!(
+                    "invalid flag combination! read_id: {read_id}",
                 )));
             }
         };
@@ -360,21 +359,23 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Ok::<(), Error>(())
     /// ```
     pub fn set_seq_len(mut self, record: &Record) -> Result<Self, Error> {
-        self.seq_len =
-            match self.seq_len {
-                Some(_) => {
-                    return Err(Error::InvalidDuplicates(
-                        "cannot set sequence length again!".to_string(),
-                    ));
+        self.seq_len = match self.seq_len {
+            Some(_) => {
+                return Err(Error::InvalidDuplicates(format!(
+                    "cannot set sequence length again! read_id: {}",
+                    self.read_id()
+                )));
+            }
+            None => match record.seq_len() {
+                0 => {
+                    return Err(Error::ZeroSeqLen(format!(
+                        "avoid including 0-len sequences while parsing mod data in this program, read_id: {}",
+                        self.read_id()
+                    )));
                 }
-                None => match record.seq_len() {
-                    0 => return Err(Error::ZeroSeqLen(
-                        "avoid including 0-len sequences while parsing mod data in this program"
-                            .to_owned(),
-                    )),
-                    l => Some(u64::try_from(l)?),
-                },
-            };
+                l => Some(u64::try_from(l)?),
+            },
+        };
         Ok(self)
     }
     /// gets length of sequence
@@ -382,8 +383,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Errors
     /// Error if sequence length is not set
     pub fn seq_len(&self) -> Result<u64, Error> {
-        self.seq_len
-            .ok_or(Error::UnavailableData("seq len not available".to_owned()))
+        self.seq_len.ok_or(Error::UnavailableData(format!(
+            "seq len not available, read_id: {}",
+            self.read_id()
+        )))
     }
     /// set alignment length from BAM record if available
     ///
@@ -393,14 +396,16 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// (e.g. end < start).
     pub fn set_align_len(mut self, record: &Record) -> Result<Self, Error> {
         self.align_len = match self.align_len {
-            Some(_) => Err(Error::InvalidDuplicates(
-                "cannot set alignment length again!".to_string(),
-            )),
+            Some(_) => Err(Error::InvalidDuplicates(format!(
+                "cannot set alignment length again! read_id: {}",
+                self.read_id()
+            ))),
             None => {
                 if self.read_state().is_unmapped() {
-                    Err(Error::Unmapped(
-                        "cannot set alignment properties for unmapped reads".to_owned(),
-                    ))
+                    Err(Error::Unmapped(format!(
+                        "cannot set alignment properties for unmapped reads, read_id: {}",
+                        self.read_id()
+                    )))
                 } else {
                     // NOTE: right now, I don't know of a way to test the error below
                     // as rust htslib initializes an empty record with an alignment
@@ -432,7 +437,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                         ))
                     } else {
                         Err(Error::InvalidAlignLength(format!(
-                            "in `set_align_len`, start: {st}, end: {en} invalid! i.e. en <= st or st < 0"
+                            "in `set_align_len`, start: {st}, end: {en} invalid! i.e. en <= st or st < 0, read_id: {}",
+                            self.read_id()
                         )))
                     }
                 }
@@ -446,13 +452,15 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// if instance is unmapped or alignment length is not set
     pub fn align_len(&self) -> Result<u64, Error> {
         if self.read_state().is_unmapped() {
-            Err(Error::Unmapped(
-                "request alignment data on unmapped".to_owned(),
-            ))
+            Err(Error::Unmapped(format!(
+                "request alignment data on unmapped, read_id: {}",
+                self.read_id()
+            )))
         } else {
-            self.align_len.ok_or(Error::UnavailableData(
-                "alignment data not available".to_owned(),
-            ))
+            self.align_len.ok_or(Error::UnavailableData(format!(
+                "alignment data not available, read_id: {}",
+                self.read_id()
+            )))
         }
     }
     /// sets contig ID and start from BAM record if available
@@ -517,14 +525,16 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// ```
     pub fn set_contig_id_and_start(mut self, record: &Record) -> Result<Self, Error> {
         self.contig_id_and_start = match self.contig_id_and_start {
-            Some(_) => Err(Error::InvalidDuplicates(
-                "cannot set contig and start again!".to_string(),
-            )),
+            Some(_) => Err(Error::InvalidDuplicates(format!(
+                "cannot set contig and start again! read_id: {}",
+                self.read_id()
+            ))),
             None => {
                 if self.read_state().is_unmapped() {
-                    Err(Error::Unmapped(
-                        "setting alignment data on unmapped read".to_owned(),
-                    ))
+                    Err(Error::Unmapped(format!(
+                        "setting alignment data on unmapped read, read_id: {}",
+                        self.read_id()
+                    )))
                 } else {
                     Ok(Some((record.tid(), record.pos().try_into()?)))
                 }
@@ -538,13 +548,16 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// If instance is unmapped or if data (contig id and start) are not set
     pub fn contig_id_and_start(&self) -> Result<(i32, u64), Error> {
         if self.read_state().is_unmapped() {
-            Err(Error::Unmapped(
-                "requesting alignment data on unmapped read".to_owned(),
-            ))
+            Err(Error::Unmapped(format!(
+                "requesting alignment data on unmapped read, read_id: {}",
+                self.read_id()
+            )))
         } else {
-            self.contig_id_and_start.ok_or(Error::UnavailableData(
-                "contig id, start not available".to_owned(),
-            ))
+            self.contig_id_and_start
+                .ok_or(Error::UnavailableData(format!(
+                    "contig id, start not available, read_id: {}",
+                    self.read_id()
+                )))
         }
     }
     /// sets contig name
@@ -606,14 +619,16 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Ok::<(), Error>(())
     /// ```
     pub fn set_contig_name(mut self, record: &Record) -> Result<Self, Error> {
-        self.contig_name = match (self.read_state().is_unmapped(), self.contig_name) {
-            (true, _) => Err(Error::Unmapped(
-                "set align data on unmapped read!".to_owned(),
-            )),
-            (_, Some(_)) => Err(Error::InvalidDuplicates(
-                "cannot set contig name again!".to_string(),
-            )),
-            (_, None) => Ok(Some(String::from(record.contig()))),
+        self.contig_name = match (self.read_state().is_unmapped(), self.contig_name.is_none()) {
+            (true, _) => Err(Error::Unmapped(format!(
+                "set align data on unmapped read! read_id: {}",
+                self.read_id()
+            ))),
+            (_, false) => Err(Error::InvalidDuplicates(format!(
+                "cannot set contig name again! read_id: {}",
+                self.read_id()
+            ))),
+            (_, true) => Ok(Some(String::from(record.contig()))),
         }?;
         Ok(self)
     }
@@ -623,10 +638,14 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// If instance is unmapped or contig name has not been set
     pub fn contig_name(&self) -> Result<&str, Error> {
         match (self.read_state().is_unmapped(), self.contig_name.as_ref()) {
-            (true, _) => Err(Error::Unmapped(
-                "get align data on unmapped read".to_owned(),
-            )),
-            (_, None) => Err(Error::UnavailableData("contig name unavailable".to_owned())),
+            (true, _) => Err(Error::Unmapped(format!(
+                "get align data on unmapped read, read_id: {}",
+                self.read_id()
+            ))),
+            (_, None) => Err(Error::UnavailableData(format!(
+                "contig name unavailable, read_id: {}",
+                self.read_id()
+            ))),
             (_, Some(v)) => Ok(v.as_str()),
         }
     }
@@ -1319,12 +1338,14 @@ impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for Strand
             value.contig_id_and_start().ok(),
         ) {
             ('.', _, _) => Ok(StrandedBed3::empty()),
-            (_, None, _) => Err(Error::InvalidAlignLength(
-                "align len not set while converting to bed3!".into(),
-            )),
-            (_, _, None) => Err(Error::InvalidContigAndStart(
-                "contig id and start not set while converting to bed3!".into(),
-            )),
+            (_, None, _) => Err(Error::InvalidAlignLength(format!(
+                "align len not set while converting to bed3! read_id: {}",
+                value.read_id()
+            ))),
+            (_, _, None) => Err(Error::InvalidContigAndStart(format!(
+                "contig id and start not set while converting to bed3! read_id: {}",
+                value.read_id()
+            ))),
             ('+', Some(al), Some((cg, st))) => {
                 Ok(StrandedBed3::new(cg, st, st + al, Strand::Forward))
             }
@@ -1886,8 +1907,9 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
             }
             (true, None) => (None, None, None, (-1i64)..0),
             (_, _) => {
-                return Err(Error::UnknownAlignState(String::from(
-                    "alignment_type and alignment info not matching while building CurrRead!",
+                return Err(Error::UnknownAlignState(format!(
+                    "alignment_type and alignment info not matching while building CurrRead! read_id: {}",
+                    serialized.read_id,
                 )));
             }
         };
