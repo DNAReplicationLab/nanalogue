@@ -32,7 +32,7 @@ where
         // read records
         let record = r?;
         let curr_read_state = CurrRead::default().try_from_only_alignment(&record)?;
-        let read_id = String::from(curr_read_state.read_id()?);
+        let read_id = String::from(curr_read_state.read_id());
         // apply our windowing function and then the windowing filter
         if match curr_read_state
             .set_mod_data_restricted_options(&record, mod_options)?

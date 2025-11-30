@@ -356,7 +356,7 @@ where
             }
         };
 
-        let qname = String::from(curr_read_state.read_id()?);
+        let qname = String::from(curr_read_state.read_id());
         let read_state = curr_read_state.read_state();
         let align_len = match curr_read_state.align_len() {
             Ok(v) => v,

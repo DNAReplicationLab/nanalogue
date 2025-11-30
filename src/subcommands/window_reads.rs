@@ -51,7 +51,7 @@ base\tmod_strand\tmod_type\twin_start\twin_end"
         let curr_read_state = CurrRead::default()
             .try_from_only_alignment(&record)?
             .set_mod_data_restricted_options(&record, mods)?;
-        let qname = curr_read_state.read_id()?;
+        let qname = curr_read_state.read_id();
         let strand = curr_read_state.strand();
         let contig = if curr_read_state.read_state().is_unmapped() {
             "."

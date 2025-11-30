@@ -88,7 +88,7 @@ pub struct CurrRead<S: CurrReadState> {
     state: ReadState,
 
     /// Read ID of molecule, also called query name in some contexts.
-    read_id: Option<String>,
+    read_id: String,
 
     /// Length of the stored sequence in a BAM file. This is usually the basecalled sequence.
     seq_len: Option<u64>,
@@ -122,7 +122,7 @@ impl Default for CurrRead<NoData> {
     fn default() -> Self {
         CurrRead::<NoData> {
             state: ReadState::PrimaryFwd,
-            read_id: None,
+            read_id: String::new(),
             seq_len: None,
             align_len: None,
             mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
@@ -135,7 +135,7 @@ impl Default for CurrRead<NoData> {
 }
 
 impl CurrRead<NoData> {
-    /// sets the alignment of the read using BAM record
+    /// sets the alignment of the read and read ID using BAM record
     ///
     /// # Errors
     /// While we support normal BAM reads from `ONT`, `PacBio` etc. that contain modifications,
@@ -145,6 +145,8 @@ impl CurrRead<NoData> {
     /// and we do not have functionality in place to do this.
     /// So, we return errors if such flags or an invalid combination of flags (e.g.
     /// secondary and supplementary bits are set) are encountered.
+    /// We also return error upon invalid read id but this is expected to be in violation
+    /// of the BAM format (UTF-8 error).
     ///
     /// ```
     /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader, ReadState};
@@ -153,7 +155,7 @@ impl CurrRead<NoData> {
     /// let mut count = 0;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let curr_read = CurrRead::default().set_read_state(&r)?;
+    ///     let curr_read = CurrRead::default().set_read_state_and_id(&r)?;
     ///     match count {
     ///         0 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
     ///         1 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
@@ -165,7 +167,17 @@ impl CurrRead<NoData> {
     /// }
     /// # Ok::<(), Error>(())
     /// ```
-    pub fn set_read_state(self, record: &Record) -> Result<CurrRead<OnlyAlignData>, Error> {
+    pub fn set_read_state_and_id(self, record: &Record) -> Result<CurrRead<OnlyAlignData>, Error> {
+        // extract read id
+        let read_id = match str::from_utf8(record.qname()) {
+            Ok(v) => v.to_string(),
+            Err(e) => {
+                return Err(Error::InvalidReadID(format!(
+                    "error in setting read id, which possibly violates BAM requirements: {e}"
+                )));
+            }
+        };
+        // check for unsupported flags
         if record.is_paired()
             || record.is_proper_pair()
             || record.is_first_in_template()
@@ -202,7 +214,7 @@ impl CurrRead<NoData> {
         };
         Ok(CurrRead::<OnlyAlignData> {
             state,
-            read_id: None,
+            read_id,
             seq_len: None,
             align_len: None,
             mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
@@ -266,9 +278,7 @@ impl CurrRead<NoData> {
         record: &Record,
         is_seq_len_non_zero: bool,
     ) -> Result<CurrRead<OnlyAlignDataComplete>, Error> {
-        let mut curr_read_state = CurrRead::default()
-            .set_read_state(record)?
-            .set_read_id(record)?;
+        let mut curr_read_state = CurrRead::default().set_read_state_and_id(record)?;
         if !curr_read_state.read_state().is_unmapped() {
             curr_read_state = curr_read_state
                 .set_align_len(record)?
@@ -322,7 +332,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut count = 0;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let curr_read = CurrRead::default().set_read_state(&r)?.set_seq_len(&r)?;
+    ///     let curr_read = CurrRead::default().set_read_state_and_id(&r)?.set_seq_len(&r)?;
     ///     let Ok(len) = curr_read.seq_len() else { unreachable!() };
     ///     match count {
     ///         0 => assert_eq!(len, 8),
@@ -343,7 +353,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let curr_read = CurrRead::default().set_read_state(&r)?
+    ///     let curr_read = CurrRead::default().set_read_state_and_id(&r)?
     ///         .set_seq_len(&r)?.set_seq_len(&r)?;
     ///     break;
     /// }
@@ -460,7 +470,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// for record in reader.records(){
     ///     let r = record?;
     ///     let curr_read =
-    ///         CurrRead::default().set_read_state(&r)?.set_contig_id_and_start(&r)?;
+    ///         CurrRead::default().set_read_state_and_id(&r)?.set_contig_id_and_start(&r)?;
     ///     match (count, curr_read.contig_id_and_start()) {
     ///         (0, Ok((0, 9))) |
     ///         (1, Ok((2, 23))) |
@@ -487,7 +497,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///     }
     ///     // the fourth read is unmapped
     ///     let curr_read =
-    ///         CurrRead::default().set_read_state(&r)?.set_contig_id_and_start(&r)?;
+    ///         CurrRead::default().set_read_state_and_id(&r)?.set_contig_id_and_start(&r)?;
     /// }
     /// # Ok::<(), Error>(())
     /// ```
@@ -499,7 +509,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?
+    ///     let mut curr_read = CurrRead::default().set_read_state_and_id(&r)?
     ///         .set_contig_id_and_start(&r)?.set_contig_id_and_start(&r)?;
     ///     break;
     /// }
@@ -549,7 +559,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut count = 0;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?.set_contig_name(&r)?;
+    ///     let mut curr_read = CurrRead::default().set_read_state_and_id(&r)?.set_contig_name(&r)?;
     ///     let Ok(contig_name) = curr_read.contig_name() else {unreachable!()};
     ///     match (count, contig_name) {
     ///         (0, "dummyI") |
@@ -576,7 +586,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///         continue;
     ///     }
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
+    ///     let mut curr_read = CurrRead::default().set_read_state_and_id(&r)?;
     ///     curr_read.set_contig_name(&r)?;
     /// }
     /// # Ok::<(), Error>(())
@@ -589,7 +599,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?
+    ///     let mut curr_read = CurrRead::default().set_read_state_and_id(&r)?
     ///         .set_contig_name(&r)?.set_contig_name(&r)?;
     ///     break;
     /// }
@@ -620,69 +630,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             (_, Some(v)) => Ok(v.as_str()),
         }
     }
-    /// sets read ID (also called query name) from BAM record
-    ///
-    /// # Errors
-    /// If read id has already been set for the instance, or
-    /// if read id is not valid UTF-8
-    ///
-    /// ```
-    /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
-    /// use rust_htslib::bam::Read;
-    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
-    /// let mut count = 0;
-    /// for record in reader.records(){
-    ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?.set_read_id(&r)?;
-    ///     let Ok(read_id) = curr_read.read_id() else { unreachable!() };
-    ///     match (count, read_id) {
-    ///         (0,"5d10eb9a-aae1-4db8-8ec6-7ebb34d32575") |
-    ///         (1,"a4f36092-b4d5-47a9-813e-c22c3b477a0c") |
-    ///         (2,"fffffff1-10d2-49cb-8ca3-e8d48979001b") |
-    ///         (3,"a4f36092-b4d5-47a9-813e-c22c3b477a0c") => {},
-    ///         _ => unreachable!(),
-    ///     }
-    ///     count = count + 1;
-    /// }
-    /// # Ok::<(), Error>(())
-    /// ```
-    ///
-    /// If we call the method twice, we should hit a panic
-    /// ```should_panic
-    /// # use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
-    /// # use rust_htslib::bam::Read;
-    /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
-    /// for record in reader.records(){
-    ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?
-    ///         .set_read_id(&r)?.set_read_id(&r)?;
-    ///     break;
-    /// }
-    /// # Ok::<(), Error>(())
-    /// ```
-    pub fn set_read_id(mut self, record: &Record) -> Result<Self, Error> {
-        self.read_id = match self.read_id {
-            Some(_) => Err(Error::InvalidDuplicates(
-                "cannot set read id again!".to_string(),
-            )),
-            None => match str::from_utf8(record.qname()) {
-                Ok(v) => Ok(Some(v.to_string())),
-                Err(e) => Err(Error::InvalidReadID(format!(
-                    "error in setting read id: {e}"
-                ))),
-            },
-        }?;
-        Ok(self)
-    }
     /// gets read id
-    ///
-    /// # Errors
-    /// If read id has not been set
-    pub fn read_id(&self) -> Result<&str, Error> {
-        match self.read_id.as_ref() {
-            None => Err(Error::UnavailableData("read id not available".to_owned())),
-            Some(v) => Ok(v.as_str()),
-        }
+    #[must_use]
+    pub fn read_id(&self) -> &str {
+        self.read_id.as_str()
     }
     /// Returns the character corresponding to the strand
     ///
@@ -693,7 +644,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// let mut count = 0;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let mut curr_read = CurrRead::default().set_read_state(&r)?;
+    ///     let mut curr_read = CurrRead::default().set_read_state_and_id(&r)?;
     ///     let strand = curr_read.strand() else { unreachable!() };
     ///     match (count, strand) {
     ///         (0, '+') | (1, '+') | (2, '-') | (3, '.') => {},
@@ -1197,7 +1148,7 @@ impl CurrRead<AlignAndModData> {
     /// let mut count = 0;
     /// for record in reader.records(){
     ///     let r = record?;
-    ///     let curr_read = CurrRead::default().set_read_state(&r)?
+    ///     let curr_read = CurrRead::default().set_read_state_and_id(&r)?
     ///         .set_mod_data(&r, ThresholdState::GtEq(180), 0)?;
     ///     let mod_count = curr_read.base_count_per_mod();
     ///     let zero_count = HashMap::from([(ModChar::new('T'), 0)]);
@@ -1290,9 +1241,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut output_string = String::from("{\n");
 
-        if let Some(v) = self.read_id.as_ref() {
-            writeln!(output_string, "\t\"read_id\": \"{v}\",")?;
-        }
+        writeln!(output_string, "\t\"read_id\": \"{}\",", self.read_id)?;
 
         if let Some(v) = self.seq_len {
             writeln!(output_string, "\t\"sequence_length\": {v},")?;
@@ -1883,7 +1832,7 @@ impl TryFrom<CurrRead<AlignAndModData>> for CurrReadBuilder {
 
         let mod_table = condense_base_mods(&curr_read.mod_data().0)?;
 
-        let read_id = curr_read.read_id()?.to_string();
+        let read_id = curr_read.read_id().to_string();
         let seq_len = curr_read.seq_len()?;
 
         Ok(CurrReadBuilder {
@@ -1954,7 +1903,7 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
         // Create CurrRead directly
         Ok(CurrRead {
             state: serialized.alignment_type,
-            read_id: Some(serialized.read_id),
+            read_id: serialized.read_id,
             seq_len: Some(serialized.seq_len),
             align_len,
             mods: (base_mods, ThresholdState::GtEq(0)), // Default threshold
@@ -2186,7 +2135,7 @@ ascending needed even if reversed read)!",
 )]
 pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<DataFrame, Error> {
     // Vectors to hold column data
-    let mut read_ids: Vec<Option<String>> = Vec::new();
+    let mut read_ids: Vec<String> = Vec::new();
     let mut seq_lens: Vec<Option<u64>> = Vec::new();
     let mut alignment_types: Vec<String> = Vec::new();
 
@@ -2209,7 +2158,7 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
     // Iterate through each CurrRead
     for read in reads {
         // Extract read-level information
-        let read_id = read.read_id().ok();
+        let read_id = read.read_id();
         let seq_len = read.seq_len().ok();
         let alignment_type = read.read_state();
 
@@ -2239,7 +2188,7 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
             // For each data point in this mod entry
             for &(start, ref_start, qual) in &mod_entry.data {
                 // Add read-level fields (repeated)
-                read_ids.push(read_id.map(ToString::to_string));
+                read_ids.push(read_id.to_string());
                 seq_lens.push(seq_len);
                 alignment_types.push(alignment_type.to_string());
 
@@ -2290,6 +2239,7 @@ mod test_error_handling {
     fn set_read_state_not_implemented_error() {
         for flag_value in 0..4096u16 {
             let mut record = Record::new();
+            record.set_qname(b"test_read");
             record.set_flags(flag_value);
             let curr_read = CurrRead::default();
             // * first line below is usual primary, secondary, supplementary,
@@ -2297,7 +2247,7 @@ mod test_error_handling {
             // * second line is if unmapped is set with a mapped state, or
             //   secondary and supplementary are both set
             // * third line are flags we have chosen to exclude from our program.
-            match (flag_value, curr_read.set_read_state(&record)) {
+            match (flag_value, curr_read.set_read_state_and_id(&record)) {
                 (0 | 4 | 16 | 256 | 272 | 2048 | 2064, Ok(_))
                 | (
                     20 | 260 | 276 | 2052 | 2068 | 2304 | 2308 | 2320 | 2324,

@@ -23,7 +23,7 @@ mod tests {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
-            let curr_read = CurrRead::default().set_read_state(&r)?;
+            let curr_read = CurrRead::default().set_read_state_and_id(&r)?;
             match count {
                 0 | 1 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
                 2 => assert_eq!(curr_read.read_state(), ReadState::PrimaryRev),
@@ -42,7 +42,7 @@ mod tests {
         // so it is easier for us to read code when counter starts from 1.
         for record in reader.records() {
             let r = record?;
-            let curr_read = CurrRead::default().set_read_state(&r)?;
+            let curr_read = CurrRead::default().set_read_state_and_id(&r)?;
             match count {
                 1 | 4 | 5 | 8 | 10 => assert_eq!(curr_read.read_state(), ReadState::PrimaryFwd),
                 2 => assert_eq!(curr_read.read_state(), ReadState::SecondaryFwd),
@@ -62,7 +62,9 @@ mod tests {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
-            let curr_read = CurrRead::default().set_read_state(&r)?.set_seq_len(&r)?;
+            let curr_read = CurrRead::default()
+                .set_read_state_and_id(&r)?
+                .set_seq_len(&r)?;
             let Ok(len) = curr_read.seq_len() else {
                 unreachable!()
             };
@@ -99,7 +101,9 @@ mod tests {
             let mut deviation_sq: u64 = 0;
             for record in reader.records() {
                 let r = record?;
-                let curr_read = CurrRead::default().set_read_state(&r)?.set_seq_len(&r)?;
+                let curr_read = CurrRead::default()
+                    .set_read_state_and_id(&r)?
+                    .set_seq_len(&r)?;
                 let len = curr_read.seq_len().unwrap();
                 sum = sum.checked_add(len).unwrap();
                 deviation_sq = deviation_sq.checked_add(len.abs_diff(150).pow(2)).unwrap();
@@ -121,7 +125,7 @@ mod tests {
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
             let _curr_read = CurrRead::default()
-                .set_read_state(&r)
+                .set_read_state_and_id(&r)
                 .unwrap()
                 .set_seq_len(&r)
                 .unwrap()
@@ -136,7 +140,9 @@ mod tests {
         let mut count = 0;
         for record in reader.records() {
             let r = record?;
-            let curr_read = CurrRead::default().set_read_state(&r)?.set_align_len(&r)?;
+            let curr_read = CurrRead::default()
+                .set_read_state_and_id(&r)?
+                .set_align_len(&r)?;
             let Ok(len) = curr_read.align_len() else {
                 unreachable!()
             };
@@ -186,7 +192,7 @@ mod tests {
                 let r = record?;
                 let curr_read = {
                     let curr_read_result = CurrRead::default()
-                        .set_read_state(&r)?
+                        .set_read_state_and_id(&r)?
                         .set_seq_len(&r)?
                         .set_align_len(&r);
                     match curr_read_result {
@@ -257,7 +263,7 @@ mod tests {
                 count += 1;
             } else {
                 let _: CurrRead<OnlyAlignData> = CurrRead::default()
-                    .set_read_state(&r)
+                    .set_read_state_and_id(&r)
                     .unwrap()
                     .set_align_len(&r)
                     .unwrap();
@@ -272,7 +278,7 @@ mod tests {
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
             let _curr_read = CurrRead::default()
-                .set_read_state(&r)
+                .set_read_state_and_id(&r)
                 .unwrap()
                 .set_align_len(&r)
                 .unwrap()
@@ -288,7 +294,7 @@ mod tests {
         for record in reader.records() {
             let r = record?;
             let curr_read = CurrRead::default()
-                .set_read_state(&r)?
+                .set_read_state_and_id(&r)?
                 .set_contig_id_and_start(&r)?;
             match (count, curr_read.contig_id_and_start()) {
                 (0, Ok((0, 9))) | (1, Ok((2, 23))) | (2, Ok((1, 3))) => {}
@@ -315,7 +321,7 @@ mod tests {
             }
             // the fourth read is unmapped
             let _curr_read = CurrRead::default()
-                .set_read_state(&r)
+                .set_read_state_and_id(&r)
                 .unwrap()
                 .set_contig_id_and_start(&r)
                 .unwrap();
@@ -329,7 +335,7 @@ mod tests {
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
             let _curr_read = CurrRead::default()
-                .set_read_state(&r)
+                .set_read_state_and_id(&r)
                 .unwrap()
                 .set_contig_id_and_start(&r)
                 .unwrap()
@@ -345,7 +351,7 @@ mod tests {
         for record in reader.records() {
             let r = record?;
             let curr_read = CurrRead::default()
-                .set_read_state(&r)?
+                .set_read_state_and_id(&r)?
                 .set_contig_name(&r)?;
             let Ok(contig_name) = curr_read.contig_name() else {
                 unreachable!()
@@ -373,7 +379,7 @@ mod tests {
                 continue;
             }
             let r = record.unwrap();
-            let curr_read = CurrRead::default().set_read_state(&r).unwrap();
+            let curr_read = CurrRead::default().set_read_state_and_id(&r).unwrap();
             let _: CurrRead<OnlyAlignData> = curr_read.set_contig_name(&r).unwrap();
         }
     }
@@ -389,7 +395,7 @@ mod tests {
                 continue;
             }
             let r = record.unwrap();
-            let curr_read = CurrRead::default().set_read_state(&r).unwrap();
+            let curr_read = CurrRead::default().set_read_state_and_id(&r).unwrap();
             let _: &str = curr_read.contig_name().unwrap();
         }
     }
@@ -400,7 +406,7 @@ mod tests {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
-            let curr_read = CurrRead::default().set_read_state(&r).unwrap();
+            let curr_read = CurrRead::default().set_read_state_and_id(&r).unwrap();
             let _: &str = curr_read.contig_name().unwrap();
         }
     }
@@ -412,7 +418,7 @@ mod tests {
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
             let _curr_read = CurrRead::default()
-                .set_read_state(&r)
+                .set_read_state_and_id(&r)
                 .unwrap()
                 .set_contig_name(&r)
                 .unwrap()
@@ -426,10 +432,8 @@ mod tests {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
-            let curr_read = CurrRead::default().set_read_state(&r)?.set_read_id(&r)?;
-            let Ok(read_id) = curr_read.read_id() else {
-                unreachable!()
-            };
+            let curr_read = CurrRead::default().set_read_state_and_id(&r)?;
+            let read_id = curr_read.read_id();
             match (count, read_id) {
                 (0, "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575")
                 | (1 | 3, "a4f36092-b4d5-47a9-813e-c22c3b477a0c")
@@ -441,38 +445,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "UnavailableData")]
-    fn get_read_id_without_setting_should_panic() {
-        let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
-        if let Some(record) = reader.records().next() {
-            let r = record.unwrap();
-            let curr_read = CurrRead::default().set_read_state(&r).unwrap();
-            let _: &str = curr_read.read_id().unwrap();
-        }
-    }
-
-    #[test]
-    #[should_panic(expected = "InvalidDuplicates")]
-    fn set_read_id_duplicate_should_panic() {
-        let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
-        if let Some(record) = reader.records().next() {
-            let r = record.unwrap();
-            let _curr_read = CurrRead::default()
-                .set_read_state(&r)
-                .unwrap()
-                .set_read_id(&r)
-                .unwrap()
-                .set_read_id(&r)
-                .unwrap();
-        }
-    }
-
-    #[test]
     fn strand() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         for (count, record) in reader.records().enumerate() {
             let r = record?;
-            let curr_read = CurrRead::default().set_read_state(&r)?;
+            let curr_read = CurrRead::default().set_read_state_and_id(&r)?;
             let strand = curr_read.strand();
             match (count, strand) {
                 (0 | 1, '+') | (2, '-') | (3, '.') => {}
@@ -734,11 +711,9 @@ mod tests {
         let fourth_count = HashMap::from([(ModChar::new('T'), 3), (ModChar::new('ᰠ'), 0)]);
         for (count, record) in reader.records().enumerate() {
             let r = record?;
-            let curr_read = CurrRead::default().set_read_state(&r)?.set_mod_data(
-                &r,
-                ThresholdState::GtEq(180),
-                0,
-            )?;
+            let curr_read = CurrRead::default()
+                .set_read_state_and_id(&r)?
+                .set_mod_data(&r, ThresholdState::GtEq(180), 0)?;
             let modcount = curr_read.base_count_per_mod();
             match (count, modcount) {
                 (0, v) => assert_eq!(v, first_count),
@@ -817,7 +792,7 @@ mod tests {
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
             let curr_read = CurrRead::default()
-                .set_read_state(&r)
+                .set_read_state_and_id(&r)
                 .unwrap()
                 .set_contig_id_and_start(&r)
                 .unwrap();
@@ -835,7 +810,7 @@ mod tests {
         if let Some(record) = reader.records().next() {
             let r = record.unwrap();
             let curr_read = CurrRead::default()
-                .set_read_state(&r)
+                .set_read_state_and_id(&r)
                 .unwrap()
                 .set_align_len(&r)
                 .unwrap();
@@ -874,11 +849,10 @@ mod tests {
         if let Some(record) = reader.records().next() {
             let r = record?;
             let curr_read = CurrRead::default()
-                .set_read_state(&r)?
+                .set_read_state_and_id(&r)?
                 .set_seq_len(&r)?
                 .set_align_len(&r)?
-                .set_contig_id_and_start(&r)?
-                .set_read_id(&r)?;
+                .set_contig_id_and_start(&r)?;
 
             let display_str = curr_read.to_string();
 

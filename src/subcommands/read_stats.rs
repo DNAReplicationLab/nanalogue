@@ -108,7 +108,7 @@ where
         let record = r?;
 
         let curr_read = CurrRead::default()
-            .set_read_state(&record)?
+            .set_read_state_and_id(&record)?
             .set_seq_len(&record)?;
 
         if curr_read.read_state().strand() == '-' {
