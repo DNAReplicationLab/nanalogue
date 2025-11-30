@@ -45,6 +45,12 @@ pub enum Commands {
         /// Displays basecalling qualities (optional)
         #[clap(long, requires = "seq")]
         show_base_qual: bool,
+        /// Show insertions in lower case
+        #[clap(long, requires = "seq_region")]
+        show_ins_lowercase: bool,
+        /// Shows modified bases in bold
+        #[clap(long, requires = "seq_region")]
+        show_mod_bold: bool,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -341,20 +347,23 @@ where
     /// the full basecalled sequence, or neither, and optionally the basecalled qualities.
     /// Note: clap's `conflicts_with` ensures `seq_region` and `seq_full` are mutually exclusive
     macro_rules! seq_display {
-        ( $b : expr, $c : expr, $d : expr, $e : expr, $f : expr) => {
-            match ($b, $c, $d, $e) {
-                (None, false, _, _) => SeqDisplayOptions::No,
-                (Some(v), false, flag_qual, flag_ins) => SeqDisplayOptions::Region {
+        ( $b : expr, $c : expr, $d : expr, $e : expr, $f : expr, $g : expr) => {
+            match ($b, $c, $d, $e, $f) {
+                (None, false, _, _, _) => SeqDisplayOptions::No,
+                (Some(v), false, flag_qual, flag_ins, flag_mods) => SeqDisplayOptions::Region {
                     show_base_qual: flag_qual,
                     show_ins_lowercase: flag_ins,
-                    region: v.try_to_bed3(&$f)?
+                    region: v.try_to_bed3(&$g)?,
+                    show_mod_bold: flag_mods,
                 },
-                (None, true, flag_qual, false) => SeqDisplayOptions::Full {
-                    show_base_qual: flag_qual
+                (None, true, flag_qual, false, false) => SeqDisplayOptions::Full {
+                    show_base_qual: flag_qual,
                 },
-                (None, true, _, true) |
-                (Some(_), true, _, _) => {
-                    unreachable!("clap prevents seq_region and seq_full, or setting insert pos retrieval without seq_region")
+                (None, true, _, true, _) | (None, true, _, _, true) | (Some(_), true, _, _, _) => {
+                    unreachable!(
+                        "clap prevents seq_region and seq_full, or setting insert \
+pos retrieval/mod colouring without seq_region"
+                    )
                 }
             }
         };
@@ -368,6 +377,8 @@ where
             seq_region,
             seq_full,
             show_base_qual,
+            show_ins_lowercase,
+            show_mod_bold,
             seq_summ_file,
         } => {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
@@ -379,7 +390,8 @@ where
                     seq_region,
                     seq_full,
                     show_base_qual,
-                    false,
+                    show_ins_lowercase,
+                    show_mod_bold,
                     bam_rc_records.header
                 ),
                 &seq_summ_file,
@@ -404,6 +416,7 @@ where
                     seq_full,
                     show_base_qual,
                     show_ins_lowercase,
+                    false,
                     bam_rc_records.header
                 ),
                 &seq_summ_file,

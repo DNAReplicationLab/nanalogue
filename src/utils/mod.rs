@@ -2,6 +2,7 @@
 //! Includes genomic coordinates, constrained numerics, and BAM-related types
 
 pub mod allowed_agctn;
+pub mod basemods_to_seq_coord_calls;
 pub mod contains;
 pub mod dna_restrictive;
 pub mod f32_abs_val_at_most1;
@@ -19,6 +20,7 @@ pub mod threshold_state;
 
 // Re-export public utility types and functions to expose the utils API
 pub use allowed_agctn::*;
+pub use basemods_to_seq_coord_calls::*;
 pub use contains::*;
 pub use dna_restrictive::*;
 pub use f32_abs_val_at_most1::*;

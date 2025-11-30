@@ -389,6 +389,8 @@ pub enum SeqDisplayOptions {
         show_base_qual: bool,
         /// Option to show bases in lowercase if they are insertions
         show_ins_lowercase: bool,
+        /// Option to show modified bases in bold
+        show_mod_bold: bool,
         /// Region over which sequence must be shown
         region: Bed3<i32, u64>,
     },

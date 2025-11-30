@@ -334,12 +334,26 @@ where
         let record = r?;
 
         // get information of current read
-        let curr_read_state = match CurrRead::default().try_from_only_alignment(&record) {
-            Ok(v) => v,
-            Err(Error::ZeroSeqLen(_)) => {
-                CurrRead::default().try_from_only_alignment_zero_seq_len(&record)?
+        let curr_read_state = {
+            let (temp, is_non_zero_len) = match CurrRead::default().try_from_only_alignment(&record)
+            {
+                Ok(v) => (v, true),
+                Err(Error::ZeroSeqLen(_)) => (
+                    CurrRead::default().try_from_only_alignment_zero_seq_len(&record)?,
+                    false,
+                ),
+                Err(e) => return Err(e),
+            };
+            let record_to_be_used = if mods.is_some() && is_non_zero_len {
+                &record
+            } else {
+                // A new record contains no mod information.
+                &bam::Record::new()
+            };
+            match mods.as_ref() {
+                Some(v) => temp.set_mod_data_restricted_options(record_to_be_used, v)?,
+                None => temp.set_mod_data(record_to_be_used, ThresholdState::GtEq(0), 0)?,
             }
-            Err(e) => return Err(e),
         };
 
         let qname = String::from(curr_read_state.read_id()?);
@@ -371,6 +385,7 @@ where
                 show_ins_lowercase,
                 show_base_qual,
                 region,
+                ..
             } => {
                 let (o_1, o_2): (Vec<u8>, Vec<u8>) =
                     match curr_read_state.seq_and_qual_on_ref_coords(&record, &region) {
@@ -398,19 +413,9 @@ where
         };
 
         // get modification information
-        let mod_count = {
-            let record_to_be_used = if seq_len > 0 {
-                &record
-            } else {
-                // A new record contains no mod information.
-                // So if `seq_len` is zero, we get zero mod counts.
-                &bam::Record::new()
-            };
-            mods.as_ref()
-                .map(|v| curr_read_state.set_mod_data_restricted_options(record_to_be_used, v))
-                .transpose()?
-                .map(|v| ModCountTbl::new(v.base_count_per_mod()))
-        };
+        let mod_count = mods
+            .as_ref()
+            .map(|_| ModCountTbl::new(curr_read_state.base_count_per_mod()));
 
         // add data depending on whether an entry is already present
         // in the hashmap from the sequencing summary file
@@ -649,6 +654,7 @@ mod tests {
                 region: Bed3::<i32, u64>::new(0, 10, 12),
                 show_ins_lowercase: false,
                 show_base_qual: true,
+                show_mod_bold: false,
             },
             None,
             "./examples/example_5_valid_basequal_read_table_show_mods_subset",
@@ -668,6 +674,7 @@ mod tests {
                 region: Bed3::<i32, u64>::new(1, 0, 2000),
                 show_ins_lowercase: false,
                 show_base_qual: true,
+                show_mod_bold: false,
             },
             None,
             "./examples/example_5_valid_basequal_read_table_show_mods_subset_no_overlap",
@@ -732,6 +739,7 @@ mod tests {
                 region: Bed3::<i32, u64>::new(0, 0, 1000),
                 show_ins_lowercase: true,
                 show_base_qual: false,
+                show_mod_bold: false,
             },
             None,
             "./examples/example_7_table_hide_mods_ins_lowercase",
@@ -745,6 +753,7 @@ mod tests {
                 region: Bed3::<i32, u64>::new(0, 0, 1000),
                 show_ins_lowercase: false,
                 show_base_qual: false,
+                show_mod_bold: false,
             },
             None,
             "./examples/example_7_table_hide_mods",
