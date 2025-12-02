@@ -219,6 +219,7 @@ mod tests {
         let threshold = ThresholdState::InvertGtEqLtEq(pair);
 
         // Test contains functionality
+        assert!(threshold.contains(&0)); // zero is outside range
         assert!(threshold.contains(&100)); // outside range (below)
         assert!(!threshold.contains(&200)); // within range (boundary)
         assert!(!threshold.contains(&210)); // within range (middle)
@@ -237,6 +238,7 @@ mod tests {
         let threshold = ThresholdState::Both((100, pair));
 
         // Test contains functionality
+        assert!(!threshold.contains(&0)); // fails zero
         assert!(!threshold.contains(&99)); // fails first condition
         assert!(threshold.contains(&100)); // meets both conditions
         assert!(threshold.contains(&101)); // meets both conditions

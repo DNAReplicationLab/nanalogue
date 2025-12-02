@@ -159,21 +159,6 @@ impl FilterByRefCoords for Ranges {
             } else {
                 (0usize, 0usize)
             }
-            /*
-            if coord_limits.is_none() {
-                (0usize, 0usize)
-            } else {
-                (
-                    coord_limits
-                        .expect("no error as we've checked if `Some`")
-                        .get_low(),
-                    coord_limits
-                        .expect("no error as we've checked if `Some`")
-                        .get_high()
-                        .checked_add(1)
-                        .ok_or(Error::Arithmetic("overflow error in coordinates while filtering by ref".to_owned()))?
-                )
-            }*/
         };
         self.annotations.truncate(stop_index_plus_one);
         self.annotations.drain(0..start_index).for_each(drop);
@@ -698,5 +683,265 @@ mod tests {
         // Verify that only one point comes through
         assert_eq!(ranges.annotations.len(), 1);
         assert_eq!(ranges.qual(), vec![140u8]);
+    }
+}
+
+#[cfg(test)]
+mod window_state_tests {
+    use super::*;
+
+    /// Tests `WindowState::new` with both start and end as None
+    #[test]
+    fn window_state_new_both_none() {
+        let ws = WindowState::new(None, None).expect("should succeed");
+        assert_eq!(ws, WindowState(None));
+    }
+
+    /// Tests `WindowState::new` with valid start and end values
+    #[test]
+    fn window_state_new_valid_start_end() {
+        let ws = WindowState::new(Some(10), Some(20)).expect("should succeed");
+        assert_eq!(ws, WindowState(Some(OrdPair::new(10, 20).unwrap())));
+    }
+
+    /// Tests `WindowState::new` with equal start and end values
+    #[test]
+    fn window_state_new_equal_start_end() {
+        let ws = WindowState::new(Some(15), Some(15)).expect("should succeed");
+        assert_eq!(ws, WindowState(Some(OrdPair::new(15, 15).unwrap())));
+    }
+
+    /// Tests `WindowState::new` fails when only start is Some
+    #[test]
+    #[should_panic(expected = "NotImplemented")]
+    fn window_state_new_only_start_panics() {
+        let _: WindowState = WindowState::new(Some(10), None).unwrap();
+    }
+
+    /// Tests `WindowState::new` fails when only end is Some
+    #[test]
+    #[should_panic(expected = "NotImplemented")]
+    fn window_state_new_only_end_panics() {
+        let _: WindowState = WindowState::new(None, Some(20)).unwrap();
+    }
+
+    /// Tests `WindowState::new` fails when start > end
+    #[test]
+    #[should_panic(expected = "WrongOrder")]
+    fn window_state_new_start_greater_than_end_panics() {
+        let _: WindowState = WindowState::new(Some(30), Some(20)).unwrap();
+    }
+
+    /// Tests `WindowState::new` fails with negative start value
+    #[test]
+    #[should_panic(expected = "TryFromInt")]
+    fn window_state_new_negative_start_panics() {
+        let _: WindowState = WindowState::new(Some(-10), Some(20)).unwrap();
+    }
+
+    /// Tests `WindowState::new` fails with negative end value
+    #[test]
+    #[should_panic(expected = "TryFromInt")]
+    fn window_state_new_negative_end_panics() {
+        let _: WindowState = WindowState::new(Some(10), Some(-20)).unwrap();
+    }
+
+    /// Tests `WindowState::new` fails with both negative values
+    #[test]
+    #[should_panic(expected = "TryFromInt")]
+    fn window_state_new_both_negative_panics() {
+        let _: WindowState = WindowState::new(Some(-10), Some(-5)).unwrap();
+    }
+
+    /// Tests `WindowState::intersects` returns false for undefined window
+    #[test]
+    fn window_state_intersects_none_returns_false() {
+        let ws = WindowState(None);
+        let interval = OrdPair::new(10, 20).unwrap();
+        assert!(!ws.intersects(interval));
+    }
+
+    /// Tests `WindowState::intersects` with overlapping intervals
+    #[test]
+    fn window_state_intersects_fully_overlapping() {
+        let ws = WindowState::new(Some(10), Some(20)).unwrap();
+        let interval = OrdPair::new(15, 25).unwrap();
+        assert!(ws.intersects(interval));
+    }
+
+    /// Tests `WindowState::intersects` with interval contained in window
+    #[test]
+    fn window_state_intersects_interval_contained() {
+        let ws = WindowState::new(Some(10), Some(30)).unwrap();
+        let interval = OrdPair::new(15, 20).unwrap();
+        assert!(ws.intersects(interval));
+    }
+
+    /// Tests `WindowState::intersects` with window contained in interval
+    #[test]
+    fn window_state_intersects_window_contained() {
+        let ws = WindowState::new(Some(15), Some(20)).unwrap();
+        let interval = OrdPair::new(10, 30).unwrap();
+        assert!(ws.intersects(interval));
+    }
+
+    /// Tests `WindowState::intersects` with non-overlapping intervals (window before)
+    #[test]
+    fn window_state_intersects_non_overlapping_before() {
+        let ws = WindowState::new(Some(10), Some(20)).unwrap();
+        let interval = OrdPair::new(25, 30).unwrap();
+        assert!(!ws.intersects(interval));
+    }
+
+    /// Tests `WindowState::intersects` with non-overlapping intervals (window after)
+    #[test]
+    fn window_state_intersects_non_overlapping_after() {
+        let ws = WindowState::new(Some(25), Some(30)).unwrap();
+        let interval = OrdPair::new(10, 20).unwrap();
+        assert!(!ws.intersects(interval));
+    }
+
+    /// Tests `WindowState::intersects` with adjacent intervals (no overlap)
+    #[test]
+    fn window_state_intersects_adjacent_no_overlap() {
+        let ws = WindowState::new(Some(10), Some(20)).unwrap();
+        let interval = OrdPair::new(20, 30).unwrap();
+        assert!(!ws.intersects(interval));
+    }
+
+    /// Tests `WindowState::intersects` with 0-bp window (treated as 1-bp)
+    #[test]
+    fn window_state_intersects_zero_bp_window() {
+        // 0-bp window at position 15 should be treated as 1-bp window [15, 16)
+        let ws = WindowState::new(Some(15), Some(15)).unwrap();
+        let interval = OrdPair::new(14, 16).unwrap();
+        assert!(ws.intersects(interval));
+    }
+
+    /// Tests `WindowState::intersects` with 0-bp window not overlapping
+    #[test]
+    fn window_state_intersects_zero_bp_window_no_overlap() {
+        // 0-bp window at position 15 should be treated as 1-bp window [15, 16)
+        let ws = WindowState::new(Some(15), Some(15)).unwrap();
+        let interval = OrdPair::new(20, 30).unwrap();
+        assert!(!ws.intersects(interval));
+    }
+
+    /// Tests `WindowState::Display` for undefined window
+    #[test]
+    fn window_state_display_none() {
+        let ws = WindowState(None);
+        assert_eq!(format!("{ws}"), "undefined");
+    }
+
+    /// Tests `WindowState::Display` for defined window
+    #[test]
+    fn window_state_display_some() {
+        let ws = WindowState::new(Some(10), Some(20)).unwrap();
+        assert_eq!(format!("{ws}"), "10, 20");
+    }
+
+    /// Tests `WindowState::PartialEq` for two None values
+    #[test]
+    fn window_state_eq_both_none() {
+        let ws1 = WindowState(None);
+        let ws2 = WindowState(None);
+        assert_eq!(ws1, ws2);
+    }
+
+    /// Tests `WindowState::PartialEq` for equal Some values
+    #[test]
+    fn window_state_eq_equal_some() {
+        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
+        let ws2 = WindowState::new(Some(10), Some(20)).unwrap();
+        assert_eq!(ws1, ws2);
+    }
+
+    /// Tests `WindowState::PartialEq` for different Some values
+    #[test]
+    fn window_state_eq_different_some() {
+        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
+        let ws2 = WindowState::new(Some(15), Some(25)).unwrap();
+        assert_ne!(ws1, ws2);
+    }
+
+    /// Tests `WindowState::PartialEq` for None and Some
+    #[test]
+    fn window_state_eq_none_and_some() {
+        let ws1 = WindowState(None);
+        let ws2 = WindowState::new(Some(10), Some(20)).unwrap();
+        assert_ne!(ws1, ws2);
+    }
+
+    /// Tests `WindowState::PartialOrd` for two None values
+    #[test]
+    fn window_state_ord_both_none() {
+        let ws1 = WindowState(None);
+        let ws2 = WindowState(None);
+        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Equal));
+    }
+
+    /// Tests `WindowState::PartialOrd` for None < Some
+    #[test]
+    fn window_state_ord_none_less_than_some() {
+        let ws1 = WindowState(None);
+        let ws2 = WindowState::new(Some(10), Some(20)).unwrap();
+        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Less));
+    }
+
+    /// Tests `WindowState::PartialOrd` for Some > None
+    #[test]
+    fn window_state_ord_some_greater_than_none() {
+        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
+        let ws2 = WindowState(None);
+        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Greater));
+    }
+
+    /// Tests `WindowState::PartialOrd` for equal Some values
+    #[test]
+    fn window_state_ord_equal_some() {
+        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
+        let ws2 = WindowState::new(Some(10), Some(20)).unwrap();
+        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Equal));
+    }
+
+    /// Tests `WindowState::PartialOrd` for non-overlapping windows (first before second)
+    #[test]
+    fn window_state_ord_non_overlapping_less() {
+        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
+        let ws2 = WindowState::new(Some(25), Some(30)).unwrap();
+        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Less));
+    }
+
+    /// Tests `WindowState::PartialOrd` for non-overlapping windows (first after second)
+    #[test]
+    fn window_state_ord_non_overlapping_greater() {
+        let ws1 = WindowState::new(Some(25), Some(30)).unwrap();
+        let ws2 = WindowState::new(Some(10), Some(20)).unwrap();
+        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Greater));
+    }
+
+    /// Tests `WindowState::PartialOrd` for adjacent windows (first.high == second.low)
+    #[test]
+    fn window_state_ord_adjacent() {
+        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
+        let ws2 = WindowState::new(Some(20), Some(30)).unwrap();
+        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Less));
+    }
+
+    /// Tests `WindowState::PartialOrd` for overlapping windows returns None
+    #[test]
+    fn window_state_ord_overlapping() {
+        let ws1 = WindowState::new(Some(10), Some(25)).unwrap();
+        let ws2 = WindowState::new(Some(20), Some(30)).unwrap();
+        assert_eq!(ws1.partial_cmp(&ws2), None);
+    }
+
+    /// Tests `WindowState::PartialOrd` for contained windows returns None
+    #[test]
+    fn window_state_ord_contained() {
+        let ws1 = WindowState::new(Some(15), Some(20)).unwrap();
+        let ws2 = WindowState::new(Some(10), Some(30)).unwrap();
+        assert_eq!(ws1.partial_cmp(&ws2), None);
     }
 }

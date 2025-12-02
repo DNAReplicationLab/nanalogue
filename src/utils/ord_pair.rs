@@ -534,4 +534,38 @@ mod tests {
     fn ord_pair_from_str_non_numeric_panics() {
         let _: OrdPair<i32> = OrdPair::<i32>::from_str("abc,def").unwrap();
     }
+
+    /// Tests `update_low` method successfully updates the low value
+    #[test]
+    fn ord_pair_update_low_success() {
+        let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
+        x.update_low(9).unwrap();
+        assert_eq!(x.get_low(), 9);
+        assert_eq!(x.get_high(), 11);
+    }
+
+    /// Tests `update_low` method panics when violating the low <= high invariant
+    #[test]
+    #[should_panic(expected = "WrongOrder")]
+    fn ord_pair_update_low_violates_order_panics() {
+        let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
+        x.update_low(12).unwrap();
+    }
+
+    /// Tests `update_high` method successfully updates the high value
+    #[test]
+    fn ord_pair_update_high_success() {
+        let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
+        x.update_high(20).unwrap();
+        assert_eq!(x.get_low(), 10);
+        assert_eq!(x.get_high(), 20);
+    }
+
+    /// Tests `update_high` method panics when violating the low <= high invariant
+    #[test]
+    #[should_panic(expected = "WrongOrder")]
+    fn ord_pair_update_high_violates_order_panics() {
+        let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
+        x.update_high(9).unwrap();
+    }
 }
