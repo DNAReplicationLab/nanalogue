@@ -17,10 +17,13 @@ use fibertools_rs::utils::{
 use polars::{df, prelude::DataFrame};
 use rust_htslib::{bam::ext::BamRecordExtensions as _, bam::record::Record};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::fmt::{self, Write as _};
-use std::ops::Range;
-use std::rc::Rc;
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    fmt::{self, Write as _},
+    ops::Range,
+    rc::Rc,
+};
 
 /// Shows [`CurrRead`] has no data, a state-type parameter
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
@@ -1064,12 +1067,18 @@ genomic coordinates are far smaller than ~2^63"
                 mod_options.base_qual_filter_mod(),
             )?;
             if let Some(v) = interval {
-                read.filter_by_ref_pos(
-                    i64::try_from(v.start)
-                        .expect("no error as genomic coordinates far less than ~2^63"),
-                    i64::try_from(v.end)
-                        .expect("no error as genomic coordinates far less than ~2^63"),
-                );
+                match v.start.cmp(&v.end) {
+                    Ordering::Less => read.filter_by_ref_pos(
+                        i64::try_from(v.start)
+                            .expect("no error as genomic coordinates far less than ~2^63"),
+                        i64::try_from(v.end)
+                            .expect("no error as genomic coordinates far less than ~2^63"),
+                    )?,
+                    Ordering::Equal => read.filter_by_ref_pos(i64::MAX - 1, i64::MAX)?,
+                    Ordering::Greater => {
+                        unreachable!("`bedrs` should not allow malformed intervals!")
+                    }
+                }
             }
             read
         })
@@ -1397,10 +1406,11 @@ impl TryFrom<Rc<Record>> for CurrRead<AlignAndModData> {
 impl FilterByRefCoords for CurrRead<AlignAndModData> {
     /// filters modification data by reference position i.e. all pos such that
     /// start <= pos < end are retained. does not use contig in filtering.
-    fn filter_by_ref_pos(&mut self, start: i64, end: i64) {
+    fn filter_by_ref_pos(&mut self, start: i64, end: i64) -> Result<(), Error> {
         for k in &mut self.mods.0.base_mods {
-            k.ranges.filter_by_ref_pos(start, end);
+            k.ranges.filter_by_ref_pos(start, end)?;
         }
+        Ok(())
     }
 }
 

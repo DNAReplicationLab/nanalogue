@@ -319,8 +319,9 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
             )?;
 
         let Some(seq_len) = seq_lengths.first() else {
-            return Err(Error::InvalidSeqLength(
-                "In an empty `BaseMods`, we don't know sequence length!".to_owned(),
+            return Err(Error::UnavailableData(
+                "In an empty `BaseMods`, we don't know sequence length, so we cannot process this"
+                    .to_owned(),
             ));
         };
 
@@ -678,7 +679,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "InvalidSeqLength")]
+    #[should_panic(expected = "UnavailableData")]
     fn seq_coord_calls_empty_basemods() {
         // Test with empty BaseMods - should fail
         let base_mods = BaseMods { base_mods: vec![] };

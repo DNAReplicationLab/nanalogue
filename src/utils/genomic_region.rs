@@ -53,7 +53,7 @@ impl FromStr for GenomicRegion {
             _ => {
                 let interval_str = colon_split.pop().expect("no error");
                 Ok(GenomicRegion((
-                    colon_split.join(":").to_string(),
+                    colon_split.join(":").clone(),
                     Some(OrdPair::<u64>::from_interval(interval_str)?),
                 )))
             }

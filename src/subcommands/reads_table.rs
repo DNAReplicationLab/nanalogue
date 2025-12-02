@@ -7,13 +7,14 @@
 //! if provided, otherwise only reads the BAM file.
 
 use crate::{
-    CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, SeqDisplayOptions, ThresholdState,
+    CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, SeqCoordCalls, SeqDisplayOptions,
+    ThresholdState,
 };
 use csv::ReaderBuilder;
 use itertools::join;
 use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt, fs::File, rc::Rc, str};
+use std::{collections::HashMap, fmt, fs::File, iter, rc::Rc, str};
 
 /// Write a vector as a CSV-formatted string
 macro_rules! vec_csv {
@@ -49,6 +50,19 @@ impl fmt::Display for ModCountTbl {
     }
 }
 
+/// Enum with instructions on how a base should be formatted
+#[derive(Debug, Clone, PartialEq)]
+enum BaseFmt {
+    /// No special formatting needed
+    No,
+    /// Show as lowercase
+    LowerCase,
+    /// Show as highlight
+    Highlight,
+    /// Show as lowercase, highlight
+    LowerCaseHighlight,
+}
+
 /// Enum showing state of a read composed from BAM and optionally
 /// a sequencing summary file.
 /// - only BAM file alignment information is available
@@ -71,7 +85,7 @@ enum ReadInstance {
         /// Alignment type (primary, secondary, reverse etc.) from the BAM file.
         read_state: Vec<ReadState>,
         /// Sequence from the BAM file.
-        seq: Vec<Vec<u8>>,
+        seq: Vec<Vec<(u8, BaseFmt)>>,
         /// Basecalling qualities from the BAM file.
         qual: Vec<Vec<u8>>,
     },
@@ -93,7 +107,7 @@ enum ReadInstance {
         /// Alignment type (primary, secondary, reverse etc.) from the BAM file.
         read_state: Vec<ReadState>,
         /// Sequence from the BAM file.
-        seq: Vec<Vec<u8>>,
+        seq: Vec<Vec<(u8, BaseFmt)>>,
         /// Basecalling qualities from the BAM file.
         qual: Vec<Vec<u8>>,
     },
@@ -132,10 +146,19 @@ impl fmt::Display for ReadInstance {
                     v if !v.is_empty() => format!("\t{v}"),
                     _ => String::new(),
                 },
-                match vec_csv!(
-                    sq.iter()
-                        .map(|v| unsafe { String::from_utf8_unchecked(v.clone()) })
-                ) {
+                match vec_csv!(sq.iter().map(|v| unsafe {
+                    String::from_utf8_unchecked(
+                        v.clone()
+                            .into_iter()
+                            .map(|w| match w.1 {
+                                BaseFmt::No => w.0,
+                                BaseFmt::LowerCase => w.0.to_ascii_lowercase(),
+                                BaseFmt::Highlight => b'Z',
+                                BaseFmt::LowerCaseHighlight => b'z',
+                            })
+                            .collect::<Vec<u8>>(),
+                    )
+                })) {
                     v if !v.is_empty() => format!("\t{v}"),
                     _ => String::new(),
                 },
@@ -166,7 +189,7 @@ impl Read {
         seq_len: u64,
         mod_count: Option<ModCountTbl>,
         read_state: ReadState,
-        seq: Option<Vec<u8>>,
+        seq: Option<Vec<(u8, BaseFmt)>>,
         qual: Option<Vec<u8>>,
     ) -> Self {
         Self(ReadInstance::OnlyAlign {
@@ -190,7 +213,7 @@ impl Read {
         seq_len: u64,
         mod_count: Option<ModCountTbl>,
         read_state: ReadState,
-        seq: Option<Vec<u8>>,
+        seq: Option<Vec<(u8, BaseFmt)>>,
         qual: Option<Vec<u8>>,
     ) {
         match &mut self.0 {
@@ -298,6 +321,10 @@ fn process_tsv(file_path: &str) -> Result<HashMap<String, Read>, Error> {
 ///
 /// # Errors
 /// Returns an error if TSV processing, BAM record reading, sequence retrieval, or output writing fails.
+///
+/// # Panics
+/// If lists associated with sequence, modification, and/or base quality are malformed i.e.
+/// not of correct lengths or missing data etc.
 #[expect(clippy::too_many_lines, reason = "needs to process many options")]
 pub fn run<W, D>(
     handle: &mut W,
@@ -368,47 +395,72 @@ where
         };
 
         // get sequence and basecalling qualities
-        let (sequence, qualities) = match seq_display {
-            SeqDisplayOptions::No => (None, None),
-            SeqDisplayOptions::Full { show_base_qual } => (
-                Some({
-                    let temp = record.seq().as_bytes();
-                    if temp.is_empty() { vec![b'*'] } else { temp }
-                }),
-                show_base_qual.then_some({
-                    let temp = record.qual().to_vec();
-                    if temp.is_empty() { vec![255u8] } else { temp }
-                }),
-            ),
-
-            SeqDisplayOptions::Region {
-                show_ins_lowercase,
-                show_base_qual,
-                region,
-                ..
-            } => {
-                let (o_1, o_2): (Vec<u8>, Vec<u8>) =
-                    match curr_read_state.seq_and_qual_on_ref_coords(&record, &region) {
-                        Err(Error::UnavailableData(_)) => (vec![b'*'], vec![255u8]),
-                        Err(e) => return Err(e),
-                        Ok(x) => x
-                            .into_iter()
-                            .map(|y| {
-                                y.map_or((b'.', 255u8), |z| {
-                                    (
-                                        if z.0 || !show_ins_lowercase {
-                                            z.1
-                                        } else {
-                                            z.1.to_ascii_lowercase()
-                                        },
-                                        z.2,
-                                    )
+        let (sequence, qualities) = {
+            let seq = record.seq().as_bytes();
+            let qual = record.qual().to_vec();
+            match seq_display {
+                SeqDisplayOptions::No => (None, None),
+                SeqDisplayOptions::Full { show_base_qual } => (
+                    Some({
+                        if seq.is_empty() {
+                            vec![(b'*', BaseFmt::No)]
+                        } else {
+                            seq.into_iter().zip(iter::repeat(BaseFmt::No)).collect()
+                        }
+                    }),
+                    show_base_qual.then_some(if qual.is_empty() { vec![255u8] } else { qual }),
+                ),
+                SeqDisplayOptions::Region {
+                    show_ins_lowercase,
+                    show_base_qual,
+                    region,
+                    show_mod_z,
+                } => {
+                    let error_message = "no coordinate errors anticipated";
+                    let (o_1, o_2): (Vec<(u8, BaseFmt)>, Vec<u8>) = {
+                        let coord_map =
+                            match curr_read_state.seq_coords_from_ref_coords(&record, &region) {
+                                Err(Error::UnavailableData(_)) => vec![],
+                                Err(e) => return Err(e),
+                                Ok(x) => x,
+                            };
+                        if coord_map.is_empty() || seq.is_empty() {
+                            (vec![(b'*', BaseFmt::No)], vec![255u8])
+                        } else {
+                            let mod_data =
+                                match SeqCoordCalls::try_from(&curr_read_state.mod_data().0) {
+                                    Err(Error::UnavailableData(_)) => vec![false; coord_map.len()],
+                                    Err(e) => return Err(e),
+                                    Ok(v) => v.collapse_mod_calls(),
+                                };
+                            coord_map
+                                .into_iter()
+                                .map(|y| {
+                                    y.map_or(((b'.', BaseFmt::No), 255u8), |z| {
+                                        (
+                                            (
+                                                *seq.get(z.1).expect(error_message),
+                                                match (
+                                                    show_ins_lowercase && !z.0,
+                                                    show_mod_z
+                                                        && *mod_data.get(z.1).expect(error_message),
+                                                ) {
+                                                    (true, true) => BaseFmt::LowerCaseHighlight,
+                                                    (true, false) => BaseFmt::LowerCase,
+                                                    (false, true) => BaseFmt::Highlight,
+                                                    (false, false) => BaseFmt::No,
+                                                },
+                                            ),
+                                            *qual.get(z.1).expect(error_message),
+                                        )
+                                    })
                                 })
-                            })
-                            .collect(),
+                                .collect()
+                        }
                     };
 
-                (Some(o_1), show_base_qual.then_some(o_2))
+                    (Some(o_1), show_base_qual.then_some(o_2))
+                }
             }
         };
 
@@ -654,7 +706,7 @@ mod tests {
                 region: Bed3::<i32, u64>::new(0, 10, 12),
                 show_ins_lowercase: false,
                 show_base_qual: true,
-                show_mod_bold: false,
+                show_mod_z: false,
             },
             None,
             "./examples/example_5_valid_basequal_read_table_show_mods_subset",
@@ -674,7 +726,7 @@ mod tests {
                 region: Bed3::<i32, u64>::new(1, 0, 2000),
                 show_ins_lowercase: false,
                 show_base_qual: true,
-                show_mod_bold: false,
+                show_mod_z: false,
             },
             None,
             "./examples/example_5_valid_basequal_read_table_show_mods_subset_no_overlap",
@@ -739,7 +791,7 @@ mod tests {
                 region: Bed3::<i32, u64>::new(0, 0, 1000),
                 show_ins_lowercase: true,
                 show_base_qual: false,
-                show_mod_bold: false,
+                show_mod_z: false,
             },
             None,
             "./examples/example_7_table_hide_mods_ins_lowercase",
@@ -753,7 +805,7 @@ mod tests {
                 region: Bed3::<i32, u64>::new(0, 0, 1000),
                 show_ins_lowercase: false,
                 show_base_qual: false,
-                show_mod_bold: false,
+                show_mod_z: false,
             },
             None,
             "./examples/example_7_table_hide_mods",

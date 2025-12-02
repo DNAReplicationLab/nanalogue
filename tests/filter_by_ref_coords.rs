@@ -76,7 +76,7 @@ mod tests {
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
-        curr_read.filter_by_ref_pos(15, 25);
+        curr_read.filter_by_ref_pos(15, 25).unwrap();
 
         let expected_curr_read: CurrRead<AlignAndModData> =
             serde_json::from_str(expected_json).unwrap();
@@ -128,7 +128,7 @@ mod tests {
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
-        curr_read.filter_by_ref_pos(26, 60);
+        curr_read.filter_by_ref_pos(26, 60).unwrap();
 
         let expected_curr_read: CurrRead<AlignAndModData> =
             serde_json::from_str(expected_json).unwrap();
@@ -179,7 +179,7 @@ mod tests {
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
-        curr_read.filter_by_ref_pos(0, 15);
+        curr_read.filter_by_ref_pos(0, 15).unwrap();
 
         let expected_curr_read: CurrRead<AlignAndModData> =
             serde_json::from_str(expected_json).unwrap();
@@ -236,7 +236,7 @@ mod tests {
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
-        curr_read.filter_by_ref_pos(20, 30);
+        curr_read.filter_by_ref_pos(20, 30).unwrap();
 
         let expected_curr_read: CurrRead<AlignAndModData> =
             serde_json::from_str(expected_json).unwrap();
@@ -292,7 +292,7 @@ mod tests {
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
-        curr_read.filter_by_ref_pos(20, 30);
+        curr_read.filter_by_ref_pos(20, 30).unwrap();
 
         let expected_curr_read: CurrRead<AlignAndModData> =
             serde_json::from_str(expected_json).unwrap();

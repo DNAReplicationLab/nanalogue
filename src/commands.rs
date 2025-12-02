@@ -48,9 +48,9 @@ pub enum Commands {
         /// Show insertions in lower case
         #[clap(long, requires = "seq_region")]
         show_ins_lowercase: bool,
-        /// Shows modified bases in bold
+        /// Shows modified bases as Z (or z depending on other options)
         #[clap(long, requires = "seq_region")]
-        show_mod_bold: bool,
+        show_mod_z: bool,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
@@ -354,7 +354,7 @@ where
                     show_base_qual: flag_qual,
                     show_ins_lowercase: flag_ins,
                     region: v.try_to_bed3(&$g)?,
-                    show_mod_bold: flag_mods,
+                    show_mod_z: flag_mods,
                 },
                 (None, true, flag_qual, false, false) => SeqDisplayOptions::Full {
                     show_base_qual: flag_qual,
@@ -378,7 +378,7 @@ pos retrieval/mod colouring without seq_region"
             seq_full,
             show_base_qual,
             show_ins_lowercase,
-            show_mod_bold,
+            show_mod_z,
             seq_summ_file,
         } => {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
@@ -391,7 +391,7 @@ pos retrieval/mod colouring without seq_region"
                     seq_full,
                     show_base_qual,
                     show_ins_lowercase,
-                    show_mod_bold,
+                    show_mod_z,
                     bam_rc_records.header
                 ),
                 &seq_summ_file,

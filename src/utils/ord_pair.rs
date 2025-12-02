@@ -77,6 +77,68 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     pub fn get_high(&self) -> T {
         self.high
     }
+    /// Updates the low value with a given value if possible
+    ///
+    /// # Errors
+    ///
+    /// If update not possible because `low < high` is violated.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nanalogue_core::OrdPair;
+    /// let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
+    /// x.update_low(9).unwrap();
+    /// assert_eq!(x.get_low(), 9);
+    /// assert_eq!(x.get_high(), 11);
+    /// ```
+    ///
+    /// ```should_panic
+    /// use nanalogue_core::OrdPair;
+    /// let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
+    /// x.update_low(12).unwrap();
+    /// ```
+    pub fn update_low(&mut self, value: T) -> Result<(), Error> {
+        if value <= self.get_high() {
+            self.low = value;
+            Ok(())
+        } else {
+            Err(Error::WrongOrder(
+                "wrong order in OrdPair `update_low`".to_owned(),
+            ))
+        }
+    }
+    /// Updates the high value with a given value if possible
+    ///
+    /// # Errors
+    ///
+    /// If update not possible because `low < high` is violated.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nanalogue_core::OrdPair;
+    /// let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
+    /// x.update_high(20).unwrap();
+    /// assert_eq!(x.get_low(), 10);
+    /// assert_eq!(x.get_high(), 20);
+    /// ```
+    ///
+    /// ```should_panic
+    /// use nanalogue_core::OrdPair;
+    /// let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
+    /// x.update_high(9).unwrap();
+    /// ```
+    pub fn update_high(&mut self, value: T) -> Result<(), Error> {
+        if value >= self.get_low() {
+            self.high = value;
+            Ok(())
+        } else {
+            Err(Error::WrongOrder(
+                "wrong order in OrdPair `update_high`".to_owned(),
+            ))
+        }
+    }
 }
 
 impl OrdPair<u64> {

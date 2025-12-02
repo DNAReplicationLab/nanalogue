@@ -117,7 +117,7 @@ mod tests {
     #[should_panic(expected = "not implemented")]
     fn filter_by_ref_coords_filter_by_ref_pos_panics() {
         let mut test_obj = TestFilterByRefCoords;
-        test_obj.filter_by_ref_pos(0, 100);
+        test_obj.filter_by_ref_pos(0, 100).unwrap();
     }
 
     #[test]

@@ -92,11 +92,13 @@ impl fmt::Display for ThresholdState {
 /// assert!(b.contains(&101));
 /// assert!(b.contains(&100));
 /// assert!(!b.contains(&99));
+/// assert!(!b.contains(&0));
 /// ```
 /// Example 2:
 /// ```
 /// # use nanalogue_core::{Error, OrdPair, ThresholdState, Contains};
 /// let b = ThresholdState::InvertGtEqLtEq(OrdPair::new(200, 220).expect("no error"));
+/// assert!(b.contains(&0));
 /// assert!(b.contains(&100));
 /// assert!(!b.contains(&200));
 /// assert!(!b.contains(&210));
@@ -107,6 +109,7 @@ impl fmt::Display for ThresholdState {
 /// ```
 /// # use nanalogue_core::{Error, OrdPair, ThresholdState, Contains};
 /// let b = ThresholdState::Both((100, OrdPair::new(200, 220).expect("no error")));
+/// assert!(!b.contains(&0));
 /// assert!(!b.contains(&99));
 /// assert!(b.contains(&100));
 /// assert!(b.contains(&101));

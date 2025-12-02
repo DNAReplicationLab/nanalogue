@@ -615,7 +615,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_interval_removes_all_mods() -> Result<(), Error> {
+    fn empty_interval_due_to_no_overlap_removes_all_mods() -> Result<(), Error> {
         // Test: Empty interval (0..0) should remove all modifications
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let record = reader.records().nth(1).unwrap()?;
