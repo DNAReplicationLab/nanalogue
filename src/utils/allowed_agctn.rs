@@ -3,6 +3,8 @@
 //! in the modBAM format
 
 use crate::Error;
+use rand::Rng;
+use rand::distr::{Distribution, StandardUniform};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
@@ -28,6 +30,21 @@ pub enum AllowedAGCTN {
     /// Any base (N)
     #[default]
     N,
+}
+
+// Implements random pick of a variant
+impl Distribution<AllowedAGCTN> for StandardUniform {
+    /// Allows us to randomly pick a variant
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> AllowedAGCTN {
+        match rng.random_range(0..5) {
+            0 => AllowedAGCTN::A,
+            1 => AllowedAGCTN::G,
+            2 => AllowedAGCTN::C,
+            3 => AllowedAGCTN::T,
+            4 => AllowedAGCTN::N,
+            _ => unreachable!(),
+        }
+    }
 }
 
 /// Implements conversion from `AllowedAGCTN` to `char`
