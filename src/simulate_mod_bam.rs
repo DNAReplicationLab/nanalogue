@@ -452,9 +452,35 @@ pub struct PerfectSeqMatchToNot {
 
 impl PerfectSeqMatchToNot {
     /// Creates a new builder with the given sequence
-    #[must_use]
-    pub fn seq(seq: Vec<u8>) -> Self {
-        Self { seq, barcode: None }
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidState` if the sequence is empty
+    ///
+    /// # Examples
+    ///
+    /// Valid sequence:
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    ///
+    /// let builder = PerfectSeqMatchToNot::seq(b"ACGT".to_vec()).unwrap();
+    /// ```
+    ///
+    /// Empty sequence returns error:
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    /// use nanalogue_core::Error;
+    ///
+    /// let result = PerfectSeqMatchToNot::seq(b"".to_vec());
+    /// assert!(matches!(result, Err(Error::InvalidState(_))));
+    /// ```
+    pub fn seq(seq: Vec<u8>) -> Result<Self, Error> {
+        if seq.is_empty() {
+            return Err(Error::InvalidState(
+                "Sequence length is 0; cannot create PerfectSeqMatchToNot with empty sequence"
+                    .into(),
+            ));
+        }
+        Ok(Self { seq, barcode: None })
     }
 
     /// Sets the barcode for this sequence
@@ -465,6 +491,62 @@ impl PerfectSeqMatchToNot {
     }
 
     /// Builds the final sequence with barcode (if specified) and corresponding cigar string
+    ///
+    /// # Examples
+    ///
+    /// Without barcode, forward read:
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    /// use nanalogue_core::{ReadState, Error};
+    ///
+    /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+    ///     .build(ReadState::PrimaryFwd);
+    /// assert_eq!(seq, b"GGGGGGGG");
+    /// assert_eq!(cigar.to_string(), "8M");
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// Without barcode, reverse read:
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    /// use nanalogue_core::{ReadState, Error};
+    ///
+    /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+    ///     .build(ReadState::PrimaryRev);
+    /// assert_eq!(seq, b"GGGGGGGG");
+    /// assert_eq!(cigar.to_string(), "8M");
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// With barcode, forward read (barcode + seq + revcomp(barcode)):
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    /// use nanalogue_core::{ReadState, DNARestrictive, Error};
+    /// use std::str::FromStr;
+    ///
+    /// let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
+    /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+    ///     .add_barcode(barcode)
+    ///     .build(ReadState::PrimaryFwd);
+    /// assert_eq!(seq, b"ACGTAAGGGGGGGGTTACGT");
+    /// assert_eq!(cigar.to_string(), "6S8M6S");
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// With barcode, reverse read (comp(barcode) + seq + rev(barcode)):
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    /// use nanalogue_core::{ReadState, DNARestrictive, Error};
+    /// use std::str::FromStr;
+    ///
+    /// let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
+    /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+    ///     .add_barcode(barcode)
+    ///     .build(ReadState::PrimaryRev);
+    /// assert_eq!(seq, b"TGCATTGGGGGGGGAATGCA");
+    /// assert_eq!(cigar.to_string(), "6S8M6S");
+    /// # Ok::<(), Error>(())
+    /// ```
     ///
     /// # Returns
     /// A tuple of (`final_sequence`, `cigar_string`) where:
@@ -858,7 +940,6 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
         let contig_len = contig.get_dna_restrictive().get().len() as u64;
 
         // Calculate read length as fraction of contig length
-        // Ensure read length is at least 1; this also checks if contig_len is non-zero
         #[expect(
             clippy::cast_precision_loss,
             reason = "u64->f32 causes precision loss but we are fine with this for now"
@@ -867,19 +948,11 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             clippy::cast_sign_loss,
             reason = "these are positive numbers so no problem"
         )]
-        let read_len = match ((rng.random_range(
+        let read_len = ((rng.random_range(
             read_config.len_range.get_low().val()..=read_config.len_range.get_high().val(),
         ) * contig_len as f32)
             .trunc() as u64)
-            .min(contig_len)
-        {
-            0 => {
-                return Err(Error::InvalidState(
-                    "Read length calculated as 0; increase len_range or contig size".into(),
-                ));
-            }
-            v => v,
-        };
+            .min(contig_len);
 
         // Set starting position
         let start_pos = rng.random_range(0..=(contig_len.saturating_sub(read_len)));
@@ -896,7 +969,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
                 .get(start_idx..end_pos)
                 .expect("start_idx and end_pos are within contig bounds")
                 .to_vec();
-            let mut builder = PerfectSeqMatchToNot::seq(temp_seq);
+            let mut builder = PerfectSeqMatchToNot::seq(temp_seq)?;
             if let Some(barcode) = read_config.barcode.clone() {
                 builder = builder.add_barcode(barcode);
             }
@@ -2694,5 +2767,63 @@ mod contig_generation_tests {
         for count in counts {
             assert!(count >= 3000);
         }
+    }
+}
+
+/// Tests for `PerfectSeqMatchToNot` methods
+#[cfg(test)]
+mod perfect_seq_match_to_not_tests {
+    use super::*;
+
+    #[test]
+    fn seq_with_valid_sequence() -> Result<(), Error> {
+        let _builder = PerfectSeqMatchToNot::seq(b"ACGT".to_vec())?;
+        Ok(())
+    }
+
+    #[test]
+    fn seq_with_empty_sequence_returns_error() {
+        let result = PerfectSeqMatchToNot::seq(b"".to_vec());
+        assert!(matches!(result, Err(Error::InvalidState(_))));
+    }
+
+    #[test]
+    fn build_without_barcode_forward_read() -> Result<(), Error> {
+        let (seq, cigar) =
+            PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?.build(ReadState::PrimaryFwd);
+        assert_eq!(seq, b"GGGGGGGG");
+        assert_eq!(cigar.to_string(), "8M");
+        Ok(())
+    }
+
+    #[test]
+    fn build_without_barcode_reverse_read() -> Result<(), Error> {
+        let (seq, cigar) =
+            PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?.build(ReadState::PrimaryRev);
+        assert_eq!(seq, b"GGGGGGGG");
+        assert_eq!(cigar.to_string(), "8M");
+        Ok(())
+    }
+
+    #[test]
+    fn build_with_barcode_forward_read() -> Result<(), Error> {
+        let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+            .add_barcode(barcode)
+            .build(ReadState::PrimaryFwd);
+        assert_eq!(seq, b"ACGTAAGGGGGGGGTTACGT");
+        assert_eq!(cigar.to_string(), "6S8M6S");
+        Ok(())
+    }
+
+    #[test]
+    fn build_with_barcode_reverse_read() -> Result<(), Error> {
+        let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+            .add_barcode(barcode)
+            .build(ReadState::PrimaryRev);
+        assert_eq!(seq, b"TGCATTGGGGGGGGAATGCA");
+        assert_eq!(cigar.to_string(), "6S8M6S");
+        Ok(())
     }
 }
