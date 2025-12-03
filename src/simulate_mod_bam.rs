@@ -441,6 +441,56 @@ impl Default for ModConfig {
     }
 }
 
+/// Builder for creating a sequence with cigar string and optional barcode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerfectSeqMatchToNot {
+    /// The DNA sequence to be processed
+    seq: Vec<u8>,
+    /// Optional barcode to add to both ends of the sequence
+    barcode: Option<DNARestrictive>,
+}
+
+impl PerfectSeqMatchToNot {
+    /// Creates a new builder with the given sequence
+    #[must_use]
+    pub fn seq(seq: Vec<u8>) -> Self {
+        Self { seq, barcode: None }
+    }
+
+    /// Sets the barcode for this sequence
+    #[must_use]
+    pub fn add_barcode(mut self, barcode: DNARestrictive) -> Self {
+        self.barcode = Some(barcode);
+        self
+    }
+
+    /// Builds the final sequence with barcode (if specified) and corresponding cigar string
+    ///
+    /// # Returns
+    /// A tuple of (`final_sequence`, `cigar_string`) where:
+    /// - `final_sequence` includes barcodes if specified
+    /// - `cigar_string` includes `SoftClip` operations for barcodes
+    ///
+    /// # Panics
+    /// Panics on number conversion errors (sequence or barcode length overflow)
+    #[must_use]
+    pub fn build(self, read_state: ReadState) -> (Vec<u8>, CigarString) {
+        let seq_len = u32::try_from(self.seq.len()).expect("number conversion error");
+        let mut cigar_string = CigarString([Cigar::Match(seq_len)].into());
+
+        match self.barcode {
+            Some(barcode) => {
+                let barcode_len = u32::try_from(barcode.get_dna_restrictive().get().len())
+                    .expect("number conversion error");
+                cigar_string.0.push(Cigar::SoftClip(barcode_len));
+                cigar_string.0.insert(0, Cigar::SoftClip(barcode_len));
+                (add_barcode(&self.seq, barcode, read_state), cigar_string)
+            }
+            None => (self.seq, cigar_string),
+        }
+    }
+}
+
 /// Generates BAM MM and ML tags with DNA modification probabilities
 ///
 /// # Examples
@@ -787,10 +837,6 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
     clippy::cast_possible_truncation,
     reason = "read length calculated as a fraction of contig length, managed with trunc()"
 )]
-#[expect(
-    clippy::too_many_lines,
-    reason = "Complex read generation with multiple configuration options"
-)]
 pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
     contigs: &[S],
     read_config: &ReadConfig,
@@ -812,6 +858,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
         let contig_len = contig.get_dna_restrictive().get().len() as u64;
 
         // Calculate read length as fraction of contig length
+        // Ensure read length is at least 1; this also checks if contig_len is non-zero
         #[expect(
             clippy::cast_precision_loss,
             reason = "u64->f32 causes precision loss but we are fine with this for now"
@@ -820,18 +867,19 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             clippy::cast_sign_loss,
             reason = "these are positive numbers so no problem"
         )]
-        let read_len = ((rng.random_range(
+        let read_len = match ((rng.random_range(
             read_config.len_range.get_low().val()..=read_config.len_range.get_high().val(),
         ) * contig_len as f32)
             .trunc() as u64)
-            .min(contig_len);
-
-        // Ensure read length is at least 1; this also checks if contig_len is non-zero
-        if read_len == 0 {
-            return Err(Error::InvalidState(
-                "Read length calculated as 0; increase len_range or contig size".into(),
-            ));
-        }
+            .min(contig_len)
+        {
+            0 => {
+                return Err(Error::InvalidState(
+                    "Read length calculated as 0; increase len_range or contig size".into(),
+                ));
+            }
+            v => v,
+        };
 
         // Set starting position
         let start_pos = rng.random_range(0..=(contig_len.saturating_sub(read_len)));
@@ -848,24 +896,11 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
                 .get(start_idx..end_pos)
                 .expect("start_idx and end_pos are within contig bounds")
                 .to_vec();
-            let mut cigar_string = CigarString(
-                [Cigar::Match(
-                    u32::try_from(read_len).expect("number conversion error"),
-                )]
-                .into(),
-            );
-
-            // Add barcode if specified
-            match read_config.barcode.clone() {
-                Some(barcode) => {
-                    let barcode_len = u32::try_from(barcode.get_dna_restrictive().get().len())
-                        .expect("number conversion error");
-                    cigar_string.0.push(Cigar::SoftClip(barcode_len));
-                    cigar_string.0.insert(0, Cigar::SoftClip(barcode_len));
-                    (add_barcode(&temp_seq, barcode, random_state), cigar_string)
-                }
-                None => (temp_seq, cigar_string),
+            let mut builder = PerfectSeqMatchToNot::seq(temp_seq);
+            if let Some(barcode) = read_config.barcode.clone() {
+                builder = builder.add_barcode(barcode);
             }
+            builder.build(random_state)
         };
 
         // Generate quality scores (for final read length including any adjustments like barcodes)
@@ -879,22 +914,20 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
         let seq: DNARestrictive;
         let (mod_prob_mm_tag, mod_pos_ml_tag) = generate_random_dna_modification(
             &read_config.mods,
-            match random_state {
-                ReadState::Unmapped
-                | ReadState::PrimaryFwd
-                | ReadState::SecondaryFwd
-                | ReadState::SupplementaryFwd => {
+            match random_state.strand() {
+                '.' | '+' => {
                     seq = DNARestrictive::from_str(str::from_utf8(&read_seq).expect("no error"))
                         .expect("no error");
                     &seq
                 }
-                ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
+                '-' => {
                     seq = DNARestrictive::from_str(
                         str::from_utf8(&bio::alphabets::dna::revcomp(&read_seq)).expect("no error"),
                     )
                     .expect("no error");
                     &seq
                 }
+                _ => unreachable!("`strand` is supposed to return one of +/-/."),
             },
             rng,
         );
