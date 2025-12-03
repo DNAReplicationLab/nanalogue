@@ -9,7 +9,8 @@
 //!
 //! We've shown how to construct `SimulationConfig` which contains input options
 //! and then use it to create a BAM file below. You can also use [`SimulationConfigBuilder`]
-//! to achieve this without using a `json` structure.
+//! to achieve this without using a `json` structure. Some of the fields in the `json` entry
+//! shown below are optional; please read the comments following it.
 //!
 //! ```
 //! use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam::run};
@@ -18,7 +19,8 @@
 //! let config_json = r#"{
 //!   "contigs": {
 //!     "number": 4,
-//!     "len_range": [1000, 8000]
+//!     "len_range": [1000, 8000],
+//!     "repeated_seq": "ATCGAATT"
 //!   },
 //!   "reads": [{
 //!     "number": 1000,
@@ -26,6 +28,9 @@
 //!     "base_qual_range": [10, 20],
 //!     "len_range": [0.1, 0.8],
 //!     "barcode": "ACGTAA",
+//!     "delete": [0.5, 0.7],
+//!     "insert_middle": "ATCG",
+//!     "mismatch": 0.5,
 //!     "mods": [{
 //!         "base": "T",
 //!         "is_strand_plus": true,
@@ -36,11 +41,39 @@
 //!   }]
 //! }"#;
 //!
-//! // Note: * "barcode" field is optional and can be omitted; barcodes added to both ends.
-//! //         As sequences and lengths are generated independently of barcodes,
-//! //         a barcode will _add_ 2 times so many bp to sequence length statistics.
+//! // Note: * We generate four contigs `4` with a length chosen randomly from the range `1000-8000`
+//! //         in the example above. Contigs are called `contig_00000`, ..., `contig_00003`.
 //! //       * "repeated_seq" field is optional in contigs; if set, contigs are made by
 //! //         repeating this sequence instead of generating random sequences.
+//! //       * Reads are generated with options shown. In the example, 1000 reads are made, with a
+//! //         mapping quality in the range 10-20, a basecalling quality in the range 10-20,
+//! //         lengths in the range 10%-80% of a contig (each read is mapped to a contig chosen
+//! //         randomly with equal probability for all contigs). Reads are randomly assigned to be
+//! //         in one of seven states -> primary/secondary/supplementary X fwd/rev plus unmapped.
+//! //         Read sequences are drawn from the associated contig at a random location.
+//! //         (Unmapped reads are also drawn from contig sequences; they are just marked unmapped
+//! //          after the fact).
+//! //         Read names are 'n.uuid' where n is the read group number and uuid is a random UUID
+//! //         (UUID is a random string that looks like this for example ->
+//! //          "e9529f28-d27a-497a-be7e-bffdb77e8bc1"). Read group number is assigned
+//! //         automatically, depending on how many entries are in the `reads` field.
+//! //         In the example here, there is only one entry, so the read group number is 0,
+//! //         so all the reads will have a name like '0.uuid'.
+//! //       * "barcode" field is optional and can be omitted; barcodes added to both ends.
+//! //         As sequences and lengths are generated independently of barcodes,
+//! //         a barcode will _add_ 2 times so many bp to sequence length statistics.
+//! //       * "delete" is optional. If specified, the shown section is deleted on
+//! //         all reads. In the example, the section between the middle of the read (50%)
+//! //         and seven-tenths of the read (70%) is deleted. The direction in the instructions
+//! //         here is parallel to the reference genome.
+//! //       * "insert_middle" is optional. If specified, the specified sequence will be inserted
+//! //         at the middle of the read.
+//! //       * "mismatch" is optional. If specified, this random fraction of bases is mismatched i.e.
+//! //         we make the base different from what it is supposed to be.
+//! //       * insertion/deletion/barcode are applied after sequence lengths are determined
+//! //         according to the given options. In other words, these options will cause sequence
+//! //         lengths to be different from the given statistics e.g. an insertion of
+//! //         10 bp will make all reads longer than the desired sequence statistics by 10 bp.
 //! //       * "mods" are optional as well, omitting them will create a BAM file
 //! //          with no modification information.
 //! //       * mod information is specified using windows i.e. in window of given size,
@@ -72,6 +105,7 @@ use crate::{
 use crate::{write_bam_denovo, write_fasta};
 use derive_builder::Builder;
 use itertools::join;
+use rand::seq::SliceRandom as _;
 use rand::{Rng, random};
 use rust_htslib::bam;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
@@ -294,6 +328,24 @@ pub struct ReadConfig {
         build = "(!self.barcode.is_empty()).then(|| DNARestrictive::from_str(&self.barcode)).transpose()?"
     ))]
     pub barcode: Option<DNARestrictive>,
+    /// Optional deletion: fractional range [start, end] of read to delete (e.g., [0.5, 0.7] deletes middle 20%)
+    #[builder(field(
+        ty = "Option<(f32, f32)>",
+        build = "self.delete.map(TryInto::try_into).transpose()?"
+    ))]
+    pub delete: Option<OrdPair<F32Bw0and1>>,
+    /// Optional sequence to insert at the middle of the read
+    #[builder(field(
+        ty = "String",
+        build = "(!self.insert_middle.is_empty()).then(|| DNARestrictive::from_str(&self.insert_middle)).transpose()?"
+    ))]
+    pub insert_middle: Option<DNARestrictive>,
+    /// Optional mismatch fraction: random fraction of bases to mutate (e.g., 0.5 = 50% of bases)
+    #[builder(field(
+        ty = "Option<f32>",
+        build = "self.mismatch.map(F32Bw0and1::try_from).transpose()?"
+    ))]
+    pub mismatch: Option<F32Bw0and1>,
     /// Modification configurations
     pub mods: Vec<ModConfig>,
 }
@@ -424,6 +476,9 @@ impl Default for ReadConfig {
             base_qual_range: OrdPair::new(0, 0).unwrap(),
             len_range: ord_pair_f32_bw0and1!(0.0, 0.0),
             barcode: None,
+            delete: None,
+            insert_middle: None,
+            mismatch: None,
             mods: Vec::new(),
         }
     }
@@ -448,6 +503,12 @@ pub struct PerfectSeqMatchToNot {
     seq: Vec<u8>,
     /// Optional barcode to add to both ends of the sequence
     barcode: Option<DNARestrictive>,
+    /// Optional deletion: fractional range of sequence to delete
+    delete: Option<OrdPair<F32Bw0and1>>,
+    /// Optional sequence to insert at the middle
+    insert_middle: Option<DNARestrictive>,
+    /// Optional mismatch fraction
+    mismatch: Option<F32Bw0and1>,
 }
 
 impl PerfectSeqMatchToNot {
@@ -480,13 +541,40 @@ impl PerfectSeqMatchToNot {
                     .into(),
             ));
         }
-        Ok(Self { seq, barcode: None })
+        Ok(Self {
+            seq,
+            barcode: None,
+            delete: None,
+            insert_middle: None,
+            mismatch: None,
+        })
     }
 
     /// Sets the barcode for this sequence
     #[must_use]
     pub fn add_barcode(mut self, barcode: DNARestrictive) -> Self {
         self.barcode = Some(barcode);
+        self
+    }
+
+    /// Sets the deletion range for this sequence
+    #[must_use]
+    pub fn add_delete(mut self, delete: OrdPair<F32Bw0and1>) -> Self {
+        self.delete = Some(delete);
+        self
+    }
+
+    /// Sets the sequence to insert at the middle
+    #[must_use]
+    pub fn add_insert_middle(mut self, insert: DNARestrictive) -> Self {
+        self.insert_middle = Some(insert);
+        self
+    }
+
+    /// Sets the mismatch fraction for this sequence
+    #[must_use]
+    pub fn add_mismatch(mut self, mismatch: F32Bw0and1) -> Self {
+        self.mismatch = Some(mismatch);
         self
     }
 
@@ -498,11 +586,13 @@ impl PerfectSeqMatchToNot {
     /// ```
     /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
     /// use nanalogue_core::{ReadState, Error};
+    /// use rand::Rng;
     ///
+    /// let mut rng = rand::rng();
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
-    ///     .build(ReadState::PrimaryFwd);
+    ///     .build(ReadState::PrimaryFwd, &mut rng);
     /// assert_eq!(seq, b"GGGGGGGG");
-    /// assert_eq!(cigar.to_string(), "8M");
+    /// assert_eq!(cigar.expect("no error").to_string(), "8M");
     /// # Ok::<(), Error>(())
     /// ```
     ///
@@ -510,11 +600,13 @@ impl PerfectSeqMatchToNot {
     /// ```
     /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
     /// use nanalogue_core::{ReadState, Error};
+    /// use rand::Rng;
     ///
+    /// let mut rng = rand::rng();
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
-    ///     .build(ReadState::PrimaryRev);
+    ///     .build(ReadState::PrimaryRev, &mut rng);
     /// assert_eq!(seq, b"GGGGGGGG");
-    /// assert_eq!(cigar.to_string(), "8M");
+    /// assert_eq!(cigar.expect("no error").to_string(), "8M");
     /// # Ok::<(), Error>(())
     /// ```
     ///
@@ -523,13 +615,15 @@ impl PerfectSeqMatchToNot {
     /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
     /// use nanalogue_core::{ReadState, DNARestrictive, Error};
     /// use std::str::FromStr;
+    /// use rand::Rng;
     ///
+    /// let mut rng = rand::rng();
     /// let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
     ///     .add_barcode(barcode)
-    ///     .build(ReadState::PrimaryFwd);
+    ///     .build(ReadState::PrimaryFwd, &mut rng);
     /// assert_eq!(seq, b"ACGTAAGGGGGGGGTTACGT");
-    /// assert_eq!(cigar.to_string(), "6S8M6S");
+    /// assert_eq!(cigar.expect("no error").to_string(), "6S8M6S");
     /// # Ok::<(), Error>(())
     /// ```
     ///
@@ -538,38 +632,169 @@ impl PerfectSeqMatchToNot {
     /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
     /// use nanalogue_core::{ReadState, DNARestrictive, Error};
     /// use std::str::FromStr;
+    /// use rand::Rng;
     ///
+    /// let mut rng = rand::rng();
     /// let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
     ///     .add_barcode(barcode)
-    ///     .build(ReadState::PrimaryRev);
+    ///     .build(ReadState::PrimaryRev, &mut rng);
     /// assert_eq!(seq, b"TGCATTGGGGGGGGAATGCA");
-    /// assert_eq!(cigar.to_string(), "6S8M6S");
+    /// assert_eq!(cigar.expect("no error").to_string(), "6S8M6S");
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// Unmapped read returns None for cigar:
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    /// use nanalogue_core::{ReadState, Error};
+    /// use rand::Rng;
+    ///
+    /// let mut rng = rand::rng();
+    /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+    ///     .build(ReadState::Unmapped, &mut rng);
+    /// assert_eq!(seq, b"GGGGGGGG");
+    /// assert!(cigar.is_none());
     /// # Ok::<(), Error>(())
     /// ```
     ///
     /// # Returns
     /// A tuple of (`final_sequence`, `cigar_string`) where:
     /// - `final_sequence` includes barcodes if specified
-    /// - `cigar_string` includes `SoftClip` operations for barcodes
+    /// - `cigar_string` includes `SoftClip` operations for barcodes, or `None` if unmapped
     ///
     /// # Panics
     /// Panics on number conversion errors (sequence or barcode length overflow)
     #[must_use]
-    pub fn build(self, read_state: ReadState) -> (Vec<u8>, CigarString) {
-        let seq_len = u32::try_from(self.seq.len()).expect("number conversion error");
-        let mut cigar_string = CigarString([Cigar::Match(seq_len)].into());
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "Casting and arithmetic needed for fractional calculations on sequence positions"
+    )]
+    pub fn build<R: Rng>(
+        self,
+        read_state: ReadState,
+        rng: &mut R,
+    ) -> (Vec<u8>, Option<CigarString>) {
+        let seq = self.seq;
 
-        match self.barcode {
-            Some(barcode) => {
-                let barcode_len = u32::try_from(barcode.get_dna_restrictive().get().len())
-                    .expect("number conversion error");
-                cigar_string.0.push(Cigar::SoftClip(barcode_len));
-                cigar_string.0.insert(0, Cigar::SoftClip(barcode_len));
-                (add_barcode(&self.seq, barcode, read_state), cigar_string)
+        // Step 1: Create initial representation as (base, operation) tuples
+        // All bases start with 'M' for Match operation
+        let mut bases_and_ops: Vec<(u8, u8)> = seq.iter().map(|&base| (base, b'M')).collect();
+
+        // Step 2: Apply mismatch (randomly mutate bases, keep 'M' operation)
+        if let Some(mismatch_frac) = self.mismatch {
+            let num_mismatches =
+                ((bases_and_ops.len() as f32) * mismatch_frac.val()).round() as usize;
+
+            let (to_mutate, _) = bases_and_ops.partial_shuffle(rng, num_mismatches);
+
+            for item in to_mutate {
+                let current_base = item.0;
+                let new_base = match current_base {
+                    v @ (b'A' | b'C' | b'G' | b'T') => {
+                        // Sample random bases until we get A/C/G/T different from the current
+                        loop {
+                            let candidate: AllowedAGCTN = rng.random();
+                            let candidate_u8: u8 = candidate.into();
+                            if candidate_u8 != v && candidate_u8 != b'N' {
+                                break candidate_u8;
+                            }
+                        }
+                    }
+                    other => other, // Keep N and other bases as is
+                };
+                item.0 = new_base;
             }
-            None => (self.seq, cigar_string),
         }
+
+        // Step 3: Apply delete (mark bases as deleted with 'D' operation)
+        if let Some(delete_range) = self.delete {
+            let start =
+                ((bases_and_ops.len() as f32) * delete_range.get_low().val()).round() as usize;
+            let end_raw =
+                ((bases_and_ops.len() as f32) * delete_range.get_high().val()).round() as usize;
+            let end = end_raw.min(bases_and_ops.len());
+
+            if let Some(slice) = bases_and_ops.get_mut(start..end) {
+                for item in slice {
+                    item.1 = b'D';
+                }
+            }
+        }
+
+        // Step 4: Apply insert_middle (add new tuples with 'I' operation)
+        if let Some(insert_seq) = self.insert_middle {
+            let middle = bases_and_ops.len() / 2;
+            let insert_bases = insert_seq.get_dna_restrictive().get();
+            let insertions: Vec<(u8, u8)> = insert_bases.iter().map(|&b| (b, b'I')).collect();
+
+            drop(
+                bases_and_ops
+                    .splice(middle..middle, insertions)
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        // Step 5: Apply barcode (add tuples with 'S' for SoftClip operation)
+        if let Some(barcode) = self.barcode {
+            // Use add_barcode with empty sequence to get the transformed barcodes
+            let barcoded_seq = add_barcode(&[], barcode.clone(), read_state);
+            let barcode_len = barcode.get_dna_restrictive().get().len();
+
+            // Split the result into start and end barcodes
+            let (start_bc, end_bc) = barcoded_seq.split_at(barcode_len);
+
+            // Prepend start barcode with 'S' operations
+            let bc_tuples_start: Vec<(u8, u8)> = start_bc.iter().map(|&b| (b, b'S')).collect();
+            drop(
+                bases_and_ops
+                    .splice(0..0, bc_tuples_start)
+                    .collect::<Vec<_>>(),
+            );
+
+            // Append end barcode with 'S' operations
+            let bc_tuples_end: Vec<(u8, u8)> = end_bc.iter().map(|&b| (b, b'S')).collect();
+            bases_and_ops.extend(bc_tuples_end);
+        }
+
+        // Step 6: Build CIGAR string from operations (second entries)
+        let cigar_string = CigarString(
+            bases_and_ops
+                .iter()
+                .map(|&(_, op)| op)
+                .fold(Vec::<(u8, u32)>::new(), |mut acc, op| {
+                    match acc.last_mut() {
+                        Some(&mut (last_op, ref mut count)) if last_op == op => {
+                            *count = count.saturating_add(1);
+                        }
+                        _ => acc.push((op, 1u32)),
+                    }
+                    acc
+                })
+                .into_iter()
+                .map(|(op, count)| match op {
+                    b'M' => Cigar::Match(count),
+                    b'I' => Cigar::Ins(count),
+                    b'D' => Cigar::Del(count),
+                    b'S' => Cigar::SoftClip(count),
+                    _ => unreachable!("Invalid CIGAR operation: {op}"),
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        // Step 7: Build final sequence by filtering out deletions and collecting bases
+        let final_seq: Vec<u8> = bases_and_ops
+            .iter()
+            .copied()
+            .filter_map(|item| (item.1 != b'D').then_some(item.0))
+            .collect();
+
+        (
+            final_seq,
+            (!read_state.is_unmapped()).then_some(cigar_string),
+        )
     }
 }
 
@@ -911,9 +1136,10 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 /// or if BAM record creation fails, such as when making RG, MM, or ML tags.
 #[expect(
     clippy::missing_panics_doc,
+    clippy::too_many_lines,
     reason = "number conversion errors or mis-generation of DNA bases are unlikely \
     as we generate DNA sequences ourselves here, and genomic data are unlikely \
-    to exceed ~2^63 bp or have ~2^32 contigs"
+    to exceed ~2^63 bp or have ~2^32 contigs. Function length is acceptable for read generation"
 )]
 #[expect(
     clippy::cast_possible_truncation,
@@ -973,7 +1199,16 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             if let Some(barcode) = read_config.barcode.clone() {
                 builder = builder.add_barcode(barcode);
             }
-            builder.build(random_state)
+            if let Some(delete) = read_config.delete {
+                builder = builder.add_delete(delete);
+            }
+            if let Some(insert_middle) = read_config.insert_middle.clone() {
+                builder = builder.add_insert_middle(insert_middle);
+            }
+            if let Some(mismatch) = read_config.mismatch {
+                builder = builder.add_mismatch(mismatch);
+            }
+            builder.build(random_state, rng)
         };
 
         // Generate quality scores (for final read length including any adjustments like barcodes)
@@ -1018,7 +1253,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
                 record.set_pos(-1);
             } else {
                 let mapq = rng.random_range(RangeInclusive::from(read_config.mapq_range));
-                record.set(&qname, Some(&cigar), &read_seq, &qual);
+                record.set(&qname, cigar.as_ref(), &read_seq, &qual);
                 record.set_mapq(mapq);
                 record.set_tid(i32::try_from(contig_idx).expect("number conversion error"));
                 record.set_pos(i64::try_from(start_pos).expect("number conversion error"));
@@ -1447,11 +1682,32 @@ mod read_generation_no_mods_tests {
         assert!(header_text.contains("@RG\tID:1"));
         assert!(header_text.contains("@RG\tID:2"));
 
-        // Count reads per read group
+        // Count reads per read group and verify read name format
         let mut rg_counts = [0, 0, 0];
         for record in reader2.records() {
             let read = record.unwrap();
+            let qname = std::str::from_utf8(read.qname()).unwrap();
+
             if let Ok(Aux::String(rg)) = read.aux(b"RG") {
+                // Verify read name format: should be "rg.uuid"
+                let parts: Vec<&str> = qname.split('.').collect();
+                assert_eq!(parts.len(), 2, "Read name should be in format 'n.uuid'");
+
+                let read_group_prefix =
+                    parts.first().expect("parts should have at least 1 element");
+                let uuid_part = parts.get(1).expect("parts should have 2 elements");
+
+                assert_eq!(
+                    *read_group_prefix, rg,
+                    "Read name prefix should match read group"
+                );
+
+                // Verify the second part is a valid UUID
+                assert!(
+                    Uuid::parse_str(uuid_part).is_ok(),
+                    "Read name should contain a valid UUID after the dot"
+                );
+
                 match rg {
                     "0" => *rg_counts.get_mut(0).unwrap() += 1,
                     "1" => *rg_counts.get_mut(1).unwrap() += 1,
@@ -2789,41 +3045,204 @@ mod perfect_seq_match_to_not_tests {
 
     #[test]
     fn build_without_barcode_forward_read() -> Result<(), Error> {
+        let mut rng = rand::rng();
         let (seq, cigar) =
-            PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?.build(ReadState::PrimaryFwd);
+            PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?.build(ReadState::PrimaryFwd, &mut rng);
         assert_eq!(seq, b"GGGGGGGG");
-        assert_eq!(cigar.to_string(), "8M");
+        assert_eq!(cigar.expect("no error").to_string(), "8M");
         Ok(())
     }
 
     #[test]
     fn build_without_barcode_reverse_read() -> Result<(), Error> {
+        let mut rng = rand::rng();
         let (seq, cigar) =
-            PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?.build(ReadState::PrimaryRev);
+            PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?.build(ReadState::PrimaryRev, &mut rng);
         assert_eq!(seq, b"GGGGGGGG");
-        assert_eq!(cigar.to_string(), "8M");
+        assert_eq!(cigar.expect("no error").to_string(), "8M");
         Ok(())
     }
 
     #[test]
     fn build_with_barcode_forward_read() -> Result<(), Error> {
+        let mut rng = rand::rng();
         let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
             .add_barcode(barcode)
-            .build(ReadState::PrimaryFwd);
+            .build(ReadState::PrimaryFwd, &mut rng);
         assert_eq!(seq, b"ACGTAAGGGGGGGGTTACGT");
-        assert_eq!(cigar.to_string(), "6S8M6S");
+        assert_eq!(cigar.expect("no error").to_string(), "6S8M6S");
         Ok(())
     }
 
     #[test]
     fn build_with_barcode_reverse_read() -> Result<(), Error> {
+        let mut rng = rand::rng();
         let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
             .add_barcode(barcode)
-            .build(ReadState::PrimaryRev);
+            .build(ReadState::PrimaryRev, &mut rng);
         assert_eq!(seq, b"TGCATTGGGGGGGGAATGCA");
-        assert_eq!(cigar.to_string(), "6S8M6S");
+        assert_eq!(cigar.expect("no error").to_string(), "6S8M6S");
+        Ok(())
+    }
+
+    #[test]
+    fn build_unmapped_read_returns_none_cigar() -> Result<(), Error> {
+        let mut rng = rand::rng();
+        let (seq, cigar) =
+            PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?.build(ReadState::Unmapped, &mut rng);
+        assert_eq!(seq, b"GGGGGGGG");
+        assert!(cigar.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn build_unmapped_read_with_barcode_returns_none_cigar() -> Result<(), Error> {
+        let mut rng = rand::rng();
+        let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+            .add_barcode(barcode)
+            .build(ReadState::Unmapped, &mut rng);
+        assert_eq!(seq, b"ACGTAAGGGGGGGGTTACGT");
+        assert!(cigar.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn build_with_delete() -> Result<(), Error> {
+        let mut rng = rand::rng();
+        let delete_range = OrdPair::new(F32Bw0and1::try_from(0.5)?, F32Bw0and1::try_from(0.75)?)?;
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAATTTTCCCCGGGG".to_vec())?
+            .add_delete(delete_range)
+            .build(ReadState::PrimaryFwd, &mut rng);
+
+        // Original: AAAATTTTCCCCGGGG (16 bases)
+        // Delete 50%-75%: positions 8-12, deletes CCCC (4 bases)
+        // Result: AAAATTTTGGGG (12 bases)
+        assert_eq!(seq, b"AAAATTTTGGGG");
+        assert_eq!(cigar.expect("no error").to_string(), "8M4D4M");
+        Ok(())
+    }
+
+    #[test]
+    fn build_with_insert_middle() -> Result<(), Error> {
+        let mut rng = rand::rng();
+        let insert_seq = DNARestrictive::from_str("TTTT").unwrap();
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAGGGG".to_vec())?
+            .add_insert_middle(insert_seq)
+            .build(ReadState::PrimaryFwd, &mut rng);
+
+        // Original: AAAAGGGG (8 bases)
+        // Middle is at position 4
+        // Insert TTTT at position 4
+        // Result: AAAATTTTGGGG (12 bases)
+        assert_eq!(seq, b"AAAATTTTGGGG");
+        assert_eq!(cigar.expect("no error").to_string(), "4M4I4M");
+        Ok(())
+    }
+
+    #[test]
+    fn build_with_mismatch() -> Result<(), Error> {
+        let mut rng = rand::rng();
+        let mismatch_frac = F32Bw0and1::try_from(0.5)?;
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAAAAA".to_vec())?
+            .add_mismatch(mismatch_frac)
+            .build(ReadState::PrimaryFwd, &mut rng);
+
+        // Original: AAAAAAAA (8 bases)
+        // 50% mismatch = 4 bases should be changed
+        // Count how many bases are NOT 'A'
+        let mismatch_count = seq.iter().filter(|&&b| b != b'A').count();
+        assert_eq!(mismatch_count, 4);
+
+        // CIGAR should still be 8M (mismatches don't change CIGAR)
+        assert_eq!(cigar.expect("no error").to_string(), "8M");
+        Ok(())
+    }
+
+    #[test]
+    fn build_with_delete_and_insert() -> Result<(), Error> {
+        let mut rng = rand::rng();
+        let delete_range = OrdPair::new(F32Bw0and1::try_from(0.5)?, F32Bw0and1::try_from(0.75)?)?;
+        let insert_seq = DNARestrictive::from_str("TT").unwrap();
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAACCCCGGGG".to_vec())?
+            .add_delete(delete_range)
+            .add_insert_middle(insert_seq)
+            .build(ReadState::PrimaryFwd, &mut rng);
+
+        // Original: AAAACCCCGGGG (12 bases)
+        // Delete 50%-75%: positions 6-9, deletes CCC (3 bases)
+        // After delete: AAAACGGGG (9 bases)
+        // Middle of 9 is position 4
+        // Insert TT at position 4
+        // Result: AAAATTCGGGG (11 bases)
+        assert_eq!(seq.len(), 11);
+
+        // CIGAR should reflect both operations
+        let cigar_str = cigar.expect("no error").to_string();
+        assert!(cigar_str.contains('D')); // Should have deletion
+        assert!(cigar_str.contains('I')); // Should have insertion
+        Ok(())
+    }
+
+    #[test]
+    fn build_with_all_features() -> Result<(), Error> {
+        let mut rng = rand::rng();
+        let delete_range = OrdPair::new(F32Bw0and1::try_from(0.25)?, F32Bw0and1::try_from(0.5)?)?;
+        let insert_seq = DNARestrictive::from_str("CC").unwrap();
+        let mismatch_frac = F32Bw0and1::try_from(0.25)?;
+        let barcode = DNARestrictive::from_str("AAA").unwrap();
+
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGGGGGGGGGG".to_vec())?
+            .add_delete(delete_range)
+            .add_insert_middle(insert_seq)
+            .add_mismatch(mismatch_frac)
+            .add_barcode(barcode)
+            .build(ReadState::PrimaryFwd, &mut rng);
+
+        // Original: GGGGGGGGGGGGGGGG (16 bases)
+        // Mismatch 25% = 4 bases changed (but to C, T, or A)
+        // Delete 25%-50%: positions 4-8, deletes GGGG (4 bases) -> 12 bases
+        // Insert CC at middle (position 6) -> 14 bases
+        // Add barcode AAA to both ends -> 20 bases total
+        assert_eq!(seq.len(), 20);
+
+        // CIGAR should have SoftClips, deletion, insertion, and matches
+        let cigar_str = cigar.expect("no error").to_string();
+        assert!(cigar_str.starts_with("3S")); // Barcode at start
+        assert!(cigar_str.ends_with("3S")); // Barcode at end
+        assert!(cigar_str.contains('D')); // Deletion
+        assert!(cigar_str.contains('I')); // Insertion
+        Ok(())
+    }
+
+    #[test]
+    fn build_with_delete_zero_length() -> Result<(), Error> {
+        let mut rng = rand::rng();
+        // Delete nothing (start == end after rounding)
+        let delete_range = OrdPair::new(F32Bw0and1::try_from(0.5)?, F32Bw0and1::try_from(0.5)?)?;
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAAAAA".to_vec())?
+            .add_delete(delete_range)
+            .build(ReadState::PrimaryFwd, &mut rng);
+
+        // No deletion should occur
+        assert_eq!(seq, b"AAAAAAAA");
+        assert_eq!(cigar.expect("no error").to_string(), "8M");
+        Ok(())
+    }
+
+    #[test]
+    fn build_with_mismatch_zero_fraction() -> Result<(), Error> {
+        let mut rng = rand::rng();
+        let mismatch_frac = F32Bw0and1::try_from(0.0)?;
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAAAAA".to_vec())?
+            .add_mismatch(mismatch_frac)
+            .build(ReadState::PrimaryFwd, &mut rng);
+
+        // No mismatches should occur
+        assert_eq!(seq, b"AAAAAAAA");
+        assert_eq!(cigar.expect("no error").to_string(), "8M");
         Ok(())
     }
 }
