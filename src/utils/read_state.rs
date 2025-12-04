@@ -9,7 +9,7 @@ use std::fmt;
 use std::str::FromStr;
 
 /// Alignment state of a read; seven possibilities + one unknown state
-#[derive(Debug, Clone, Default, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ReadState {
     #[default]
@@ -309,5 +309,28 @@ mod tests {
     #[should_panic(expected = "UnknownAlignState")]
     fn readstate_from_str_incomplete_string() {
         let _result: ReadState = ReadState::from_str("primary").unwrap();
+    }
+
+    /// Tests random `ReadState` generation from `StandardUniform` produces all variants
+    #[test]
+    fn readstate_random_generation_all_variants() {
+        let mut rng = rand::rng();
+
+        // Generate many random states to ensure all variants appear
+        let mut generated_states = std::collections::HashSet::new();
+        for _ in 0..1000 {
+            let state: ReadState = rng.random();
+            let _: bool = generated_states.insert(state);
+        }
+
+        // Verify all 7 variants can be generated
+        assert_eq!(generated_states.len(), 7);
+        assert!(generated_states.contains(&ReadState::PrimaryFwd));
+        assert!(generated_states.contains(&ReadState::PrimaryRev));
+        assert!(generated_states.contains(&ReadState::SecondaryFwd));
+        assert!(generated_states.contains(&ReadState::SecondaryRev));
+        assert!(generated_states.contains(&ReadState::SupplementaryFwd));
+        assert!(generated_states.contains(&ReadState::SupplementaryRev));
+        assert!(generated_states.contains(&ReadState::Unmapped));
     }
 }

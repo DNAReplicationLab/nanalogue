@@ -340,4 +340,42 @@ mod tests {
         let _: Error = ThresholdState::from_str_ordpair_fraction("0.6,0.4").unwrap_err(); // wrong order
         let _: Error = ThresholdState::from_str_ordpair_fraction("1.5,2.0").unwrap_err(); // out of range
     }
+
+    /// Tests conversion from `OrdPair<F32Bw0and1>` to `ThresholdState::InvertGtEqLtEq`
+    #[test]
+    fn threshold_state_from_ordpair_f32bw0and1_conversion() {
+        use std::str::FromStr as _;
+
+        // Test basic conversion with 0.4,0.6
+        let pair1 = OrdPair::<F32Bw0and1>::from_str("0.4,0.6").expect("should parse");
+        let threshold1: ThresholdState = pair1.into();
+        assert_eq!(
+            threshold1,
+            ThresholdState::InvertGtEqLtEq(
+                OrdPair::<u8>::new(102u8, 153u8).expect("should create")
+            )
+        );
+
+        // Test with edge values 0.0,1.0
+        let pair2 = OrdPair::<F32Bw0and1>::from_str("0.0,1.0").expect("should parse");
+        let threshold2: ThresholdState = pair2.into();
+        assert_eq!(
+            threshold2,
+            ThresholdState::InvertGtEqLtEq(OrdPair::<u8>::new(0u8, 255u8).expect("should create"))
+        );
+
+        // Test with mid-range values 0.5,0.7
+        let pair3 = OrdPair::<F32Bw0and1>::from_str("0.5,0.7").expect("should parse");
+        let threshold3: ThresholdState = pair3.into();
+        assert!(
+            matches!(threshold3, ThresholdState::InvertGtEqLtEq(_)),
+            "Expected InvertGtEqLtEq variant"
+        );
+        if let ThresholdState::InvertGtEqLtEq(ord_pair) = threshold3 {
+            // Verify the conversion is approximately correct
+            // 0.5 * 255 ≈ 127.5, 0.7 * 255 ≈ 178.5
+            assert!(ord_pair.get_low() >= 127 && ord_pair.get_low() <= 128);
+            assert!(ord_pair.get_high() >= 178 && ord_pair.get_high() <= 179);
+        }
+    }
 }

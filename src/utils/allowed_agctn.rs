@@ -369,4 +369,25 @@ mod tests {
             assert_eq!(converted_back, base);
         }
     }
+
+    /// Tests random `AllowedAGCTN` generation from `StandardUniform` produces all variants
+    #[test]
+    fn allowed_agctn_random_generation_all_variants() {
+        let mut rng = rand::rng();
+
+        // Generate many random bases to ensure all variants appear
+        let mut generated_bases = std::collections::HashSet::new();
+        for _ in 0..1000 {
+            let base: AllowedAGCTN = rng.random();
+            let _: bool = generated_bases.insert(base);
+        }
+
+        // Verify all 5 variants can be generated
+        assert_eq!(generated_bases.len(), 5);
+        assert!(generated_bases.contains(&AllowedAGCTN::A));
+        assert!(generated_bases.contains(&AllowedAGCTN::G));
+        assert!(generated_bases.contains(&AllowedAGCTN::C));
+        assert!(generated_bases.contains(&AllowedAGCTN::T));
+        assert!(generated_bases.contains(&AllowedAGCTN::N));
+    }
 }
