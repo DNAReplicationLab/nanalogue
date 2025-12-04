@@ -86,6 +86,10 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
             let mod_strand = base_mod.strand;
             let mod_type = ModChar::new(base_mod.modification_type);
             if let Some(v) = mod_data.len().checked_sub(win_size) {
+                #[expect(
+                    clippy::arithmetic_side_effects,
+                    reason = "a +1 on `ref_win_end`, no overflow as coords << 2^63, complex arithmetic in Q score avg"
+                )]
                 for window_idx in (0..=v).step_by(slide_size) {
                     let win_val = match window_function(
                         mod_data
@@ -133,9 +137,8 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
                         .flatten()
                         .max()
                         .copied()
-                        .unwrap_or(INVALID_REF_POS);
+                        .map_or(INVALID_REF_POS, |x| x + 1);
                     #[expect(
-                        clippy::arithmetic_side_effects,
                         clippy::cast_possible_truncation,
                         clippy::cast_sign_loss,
                         reason = "we are forced to do these due to the math itself, of taking a power, avg, and then log"
@@ -422,9 +425,9 @@ mod stochastic_tests {
                 "len_range": [100, 200]
             },
             "reads": [{
-                "number": 1,
+                "number": 1000,
                 "mapq_range": [10, 20],
-                "base_qual_range": [10, 20],
+                "base_qual_range": [20, 30],
                 "len_range": [0.1, 0.8],
                 "mods": [{
                     "base": "T",
@@ -487,6 +490,115 @@ mod stochastic_tests {
 
         let mod_qual = df.column("win_val")?.f32()?;
         assert!(mod_qual.iter().all(|x| x == Some(0.0)));
+
+        let basecall_qual = df.column("basecall_qual")?.u32()?;
+        assert!(
+            basecall_qual
+                .iter()
+                .all(|x| (20..=30).contains(&x.unwrap()))
+        );
+
+        Ok(())
+    }
+
+    /// Test that `run_df` produces a non-empty dataframe with modification data,
+    /// when reads that are 'noisy' i.e. not perfectly aligned are used.
+    ///
+    /// This test creates a simulated BAM file with modification data and verifies that
+    /// `run_df` correctly processes the modifications and returns a dataframe with data rows.
+    #[test]
+    fn run_df_with_mods_and_non_perfectly_aligned_reads() -> Result<(), Error> {
+        // Create simulation config with modifications
+        let config_json = r#"{
+            "contigs": {
+                "number": 4,
+                "len_range": [100000, 200000]
+            },
+            "reads": [{
+                "number": 100,
+                "mapq_range": [10, 20],
+                "base_qual_range": [30, 40],
+                "len_range": [0.1, 0.8],
+                "delete": [0.5, 0.7],
+                "insert_middle": "ATCGAATTGGAA",
+                "mismatch": 0.2,
+                "mods": [{
+                    "base": "C",
+                    "is_strand_plus": false,
+                    "mod_code": "m",
+                    "win": [4],
+                    "mod_range": [[0.2, 0.8]]
+                }]
+            }]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json)?;
+        let sim = TempBamSimulation::new(config)?;
+
+        // Read BAM file
+        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
+        let bam_records = bam_reader.rc_records();
+
+        // Set up windowing options
+        let window_options: InputWindowing =
+            serde_json::from_str("{\"win\": 200, \"step\": 100}").unwrap();
+        let mods = InputMods::default();
+
+        // Call run_df with threshold_and_mean function
+        let df = run_df(bam_records, window_options, &mods, |x| {
+            analysis::threshold_and_mean(x).map(Into::into)
+        })?;
+
+        // Verify the dataframe is NOT empty (should have data rows with mods)
+        assert!(
+            df.height() > 0,
+            "DataFrame should have rows when modifications are present"
+        );
+
+        // Verify we have the expected column headers
+        let expected_columns = vec![
+            "contig",
+            "ref_win_start",
+            "ref_win_end",
+            "read_id",
+            "win_val",
+            "strand",
+            "base",
+            "mod_strand",
+            "mod_type",
+            "win_start",
+            "win_end",
+            "basecall_qual",
+        ];
+
+        let actual_columns: Vec<String> = df
+            .get_column_names()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            actual_columns, expected_columns,
+            "DataFrame should have correct column headers"
+        );
+
+        let mod_qual = df.column("win_val")?.f32()?;
+        assert!(mod_qual.iter().all(|x| (0.2..=0.8).contains(&x.unwrap())));
+        // when we window, we threshold. so a 20%-80% chance of mod on a base level
+        // gets converted into a 0 or a 1 depending on whether the probability is
+        // below or above 50%. Now, when we window over like 200 candidate bases,
+        // the number of mod bases is 100 +- 7, so that's like a standard deviation
+        // of 7% of the mean. So, most of the time we end up in the interval `(0.43..=0.57)`.
+        // So `(0.2..=0.8)` is quite lax actually.
+
+        let basecall_qual = df.column("basecall_qual")?.u32()?;
+        assert!(
+            basecall_qual
+                .iter()
+                .all(|x| (30..=40).contains(&x.unwrap()))
+        );
+        // as we are averaging 10^(-Q/10), the average basecalling quality will
+        // be in a much tighter range around 30.. but I haven't calculated what
+        // this is.. We are just using a very lax 30..=40 here.
 
         Ok(())
     }

@@ -1,8 +1,8 @@
 #contig	ref_win_start	ref_win_end	read_id	win_val	strand	base	mod_strand	mod_type	win_start	win_end	basecall_qual
-dummyIII	26	31	a4f36092-b4d5-47a9-813e-c22c3b477a0c	1	+	T	+	T	3	9	255
-dummyIII	31	50	a4f36092-b4d5-47a9-813e-c22c3b477a0c	0.5	+	T	+	T	8	28	255
-dummyIII	62	70	a4f36092-b4d5-47a9-813e-c22c3b477a0c	0.5	+	T	+	T	39	48	255
-dummyII	22	23	fffffff1-10d2-49cb-8ca3-e8d48979001b	0.5	-	T	+	T	19	21	255
+dummyIII	26	32	a4f36092-b4d5-47a9-813e-c22c3b477a0c	1	+	T	+	T	3	9	255
+dummyIII	31	51	a4f36092-b4d5-47a9-813e-c22c3b477a0c	0.5	+	T	+	T	8	28	255
+dummyIII	62	71	a4f36092-b4d5-47a9-813e-c22c3b477a0c	0.5	+	T	+	T	39	48	255
+dummyII	22	24	fffffff1-10d2-49cb-8ca3-e8d48979001b	0.5	-	T	+	T	19	21	255
 .	-1	-1	a4f36092-b4d5-47a9-813e-c22c3b477a0c	1	.	T	+	T	3	9	255
 .	-1	-1	a4f36092-b4d5-47a9-813e-c22c3b477a0c	0.5	.	T	+	T	8	28	255
 .	-1	-1	a4f36092-b4d5-47a9-813e-c22c3b477a0c	0.5	.	T	+	T	39	48	255
