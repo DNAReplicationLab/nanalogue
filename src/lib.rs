@@ -375,8 +375,10 @@ when usize is 64-bit as genomic sequences are not that long"
                     .checked_add(cur_mod_idx)
                     .ok_or(Error::Arithmetic("in MM ML parsing".to_owned()))?;
             } else {
-                return Err(Error::InvalidModCoords(String::from(
-                    "Problem with parsing MM/ML data, counts do not match",
+                return Err(Error::InvalidModCoords(format!(
+                    "Problem with parsing MM/ML data, counts do not match {} != {}",
+                    cur_mod_idx,
+                    mod_dists.len(),
                 )));
             }
 

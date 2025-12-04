@@ -1,0 +1,4 @@
+#contig	ref_win_start	ref_win_end	read_id	win_val	strand	base	mod_strand	mod_type	win_start	win_end	basecall_qual
+dummyI	9	12	read1	0	+	T	+	T	0	3	2
+dummyI	12	13	read1	0	+	T	+	T	2	4	3
+dummyI	13	16	read1	0	+	T	+	T	3	7	32

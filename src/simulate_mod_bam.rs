@@ -838,11 +838,11 @@ impl PerfectSeqMatchToNot {
 /// let mut rng = rand::rng();
 /// let (mm_str, ml_str) = generate_random_dna_modification(&mod_config, &seq, &mut rng);
 ///
-/// // MM string format: C+m?prob1,prob2,prob3,prob4,...;A-20000?,...;
-/// assert_eq!(mm_str, String::from("C+m?,204,204,102,102,102,204,204,102;A-20000?,51,51,51,51;"));
+/// // MM string format: C+m?gap1,gap2,gap3,gap4,...;A-20000?,...;
+/// assert_eq!(mm_str, String::from("C+m?,0,0,0,0,0,0,0,0;A-20000?,0,0,0,0;"));
 ///
-/// // ML string contains gap coordinates
-/// assert_eq!(ml_str, vec![0; 12]);
+/// // ML string contains probabilities
+/// assert_eq!(ml_str, vec![204, 204, 102, 102, 102, 204, 204, 102, 51, 51, 51, 51]);
 /// # Ok::<(), Error>(())
 /// ```
 ///
@@ -900,13 +900,14 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
             }
         }
         if !output.is_empty() {
-            ml_vec.append(&mut vec![0; output.len()]);
+            let mod_len = output.len();
+            ml_vec.append(&mut output);
             mm_str += format!(
                 "{}{}{}?,{};",
                 base as char,
                 strand,
                 mod_code,
-                join(output, ",")
+                join(vec![0; mod_len], ",")
             )
             .as_str();
         }
@@ -2093,7 +2094,7 @@ mod read_generation_with_mods_tests {
         ];
 
         let config = ReadConfigBuilder::default()
-            .number(10)
+            .number(10000)
             .mapq_range((10, 20))
             .base_qual_range((30, 50))
             .len_range((0.2, 0.8))
@@ -2111,7 +2112,9 @@ mod read_generation_with_mods_tests {
             .unwrap();
 
         let reads = generate_reads_denovo(&contigs, &config, "1", &mut rng).unwrap();
-        assert_eq!(reads.len(), 10);
+        assert_eq!(reads.len(), 10000);
+
+        let mut zero_to_255_visited = vec![false; 256];
 
         for read in &reads {
             // check mapping information
@@ -2131,12 +2134,29 @@ mod read_generation_with_mods_tests {
             let Aux::ArrayU8(mod_prob_ml_tag) = read.aux(b"ML").unwrap() else {
                 unreachable!()
             };
-            assert!(mod_pos_mm_tag.starts_with("C+m?,"));
-            assert!(mod_pos_mm_tag.ends_with(';'));
+            // Parse and verify the actual gap position values in MM tag
+            let pos: Vec<&str> = mod_pos_mm_tag
+                .strip_prefix("C+m?,")
+                .unwrap()
+                .strip_suffix(';')
+                .unwrap()
+                .split(',')
+                .collect();
+            assert!(pos.iter().all(|&x| x == "0"), "All MM values should be 0");
+
+            // verify probability values which should have been converted to 0-255.
+            #[expect(
+                clippy::indexing_slicing,
+                reason = "we are not gonna bother, this should be fine"
+            )]
             for k in 0..mod_prob_ml_tag.len() {
-                assert_eq!(mod_prob_ml_tag.get(k).unwrap(), 0u8);
+                zero_to_255_visited[usize::from(mod_prob_ml_tag.get(k).expect("no error"))] = true;
             }
         }
+
+        // check that all values from 0-255 have been visited as we are using a huge number of
+        // reads.
+        assert!(zero_to_255_visited.into_iter().all(|x| x));
     }
 
     /// Tests `TempBamSimulation` struct functionality with mods
@@ -2206,12 +2226,10 @@ mod read_generation_with_mods_tests {
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
 
         // Sequence has 4 C's, so we expect 4 modifications
-        assert!(mm_str.starts_with("C+m?,"));
-        assert!(mm_str.ends_with(';'));
         assert_eq!(ml_vec.len(), 4);
-        // All should be gap coordinate 0
-        assert!(ml_vec.iter().all(|&x| x == 0));
-        // All should be probability 128 (0.5 * 255)
+        // All should be 128 (0.5 * 255)
+        assert!(ml_vec.iter().all(|&x| x == 128u8));
+        // All should be zero
         let probs: Vec<&str> = mm_str
             .strip_prefix("C+m?,")
             .unwrap()
@@ -2220,7 +2238,7 @@ mod read_generation_with_mods_tests {
             .split(',')
             .collect();
         assert_eq!(probs.len(), 4);
-        assert!(probs.iter().all(|&x| x == "128"));
+        assert!(probs.iter().all(|&x| x == "0"));
     }
 
     /// Tests `generate_random_dna_modification` with multiple modification configs
@@ -2252,8 +2270,11 @@ mod read_generation_with_mods_tests {
         // Sequence has 2 C's and 2 T's
         assert!(mm_str.contains("C+m?,"));
         assert!(mm_str.contains("T-t?,"));
-        assert_eq!(ml_vec.len(), 4);
-        assert!(ml_vec.iter().all(|&x| x == 0), "All ML values should be 0");
+        assert_eq!(
+            ml_vec,
+            vec![204u8, 204u8, 102u8, 102u8],
+            "ML values should be 204,204,102,102"
+        );
 
         // Parse and verify the C modifications
         let c_section = mm_str
@@ -2270,10 +2291,10 @@ mod read_generation_with_mods_tests {
             2,
             "Should have exactly 2 C modifications in ACGTACGT"
         );
-        // All C probabilities should be 204 (0.8 * 255)
+        // All C pos should be 0
         assert!(
-            c_probs.iter().all(|&x| x == "204"),
-            "All C modifications should have probability 204 (0.8)"
+            c_probs.iter().all(|&x| x == "0"),
+            "All C modifications should have gap pos 0",
         );
 
         // Parse and verify the T modifications
@@ -2291,10 +2312,10 @@ mod read_generation_with_mods_tests {
             2,
             "Should have exactly 2 T modifications in ACGTACGT"
         );
-        // All T probabilities should be 102 (0.4 * 255)
+        // All T pos should be 0
         assert!(
-            t_probs.iter().all(|&x| x == "102"),
-            "All T modifications should have probability 102 (0.4)"
+            t_probs.iter().all(|&x| x == "0"),
+            "All T modifications should have a gap pos of 0"
         );
     }
 
@@ -2315,32 +2336,29 @@ mod read_generation_with_mods_tests {
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
 
         // N base means all 4 bases should be marked
-        assert!(mm_str.starts_with("N+n?,"));
-        assert!(mm_str.ends_with(';'));
         assert_eq!(ml_vec.len(), 4);
-
-        // Parse and verify the actual probability values in MM tag
-        let probs: Vec<&str> = mm_str
+        // Parse and verify the actual pos values in MM tag
+        let pos: Vec<&str> = mm_str
             .strip_prefix("N+n?,")
             .unwrap()
             .strip_suffix(';')
             .unwrap()
             .split(',')
             .collect();
-        assert_eq!(
-            probs.len(),
-            4,
-            "Should have exactly 4 modifications for ACGT"
-        );
+        assert_eq!(pos.len(), 4, "Should have exactly 4 modifications for ACGT");
 
-        // All probabilities should be 128 (0.5 * 255)
+        // All positions should be 0
         assert!(
-            probs.iter().all(|&x| x == "128"),
-            "All N base modifications should have probability 128 (0.5)"
+            pos.iter().all(|&x| x == "0"),
+            "All N base modifications should have 0 as their gap position coordinate"
         );
 
-        // Verify all ML values are 0 (gap coordinates)
-        assert!(ml_vec.iter().all(|&x| x == 0), "All ML values should be 0");
+        // Verify all ML values are 128 (probabilities)
+        assert_eq!(
+            ml_vec,
+            vec![128u8, 128u8, 128u8, 128u8],
+            "All ML values should be 128 and number of values is 4"
+        );
     }
 
     /// Tests `generate_random_dna_modification` with cycling windows
@@ -2360,22 +2378,19 @@ mod read_generation_with_mods_tests {
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
 
         // Should have 16 modifications, cycling pattern: 3@0.8, 2@0.4, 3@0.8, 2@0.4, ...
-        assert_eq!(ml_vec.len(), 16);
-        let probs: Vec<&str> = mm_str
+        let pos: Vec<&str> = mm_str
             .strip_prefix("C+m?,")
             .unwrap()
             .strip_suffix(';')
             .unwrap()
             .split(',')
             .collect();
-        assert_eq!(probs.len(), 16);
-
+        assert_eq!(pos, vec!["0"; 16]);
         // Verify the cycling pattern (0.8 = 204, 0.4 = 102)
-        let expected_pattern = vec![
-            "204", "204", "204", "102", "102", "204", "204", "204", "102", "102", "204", "204",
-            "204", "102", "102", "204",
+        let expected_pattern: Vec<u8> = vec![
+            204, 204, 204, 102, 102, 204, 204, 204, 102, 102, 204, 204, 204, 102, 102, 204,
         ];
-        assert_eq!(probs, expected_pattern);
+        assert_eq!(ml_vec, expected_pattern);
     }
     /// Tests multiple simultaneous modifications on different bases
     #[expect(
@@ -2481,7 +2496,6 @@ mod read_generation_with_mods_tests {
 
         // Sequence has exactly 4 C's, so should have 4 modifications
         assert_eq!(ml_vec.len(), 4);
-        assert!(mm_str.starts_with("C+m?,"));
         let probs: Vec<&str> = mm_str
             .strip_prefix("C+m?,")
             .unwrap()
@@ -2504,7 +2518,6 @@ mod read_generation_with_mods_tests {
 
         // Sequence has exactly 4 T's, so should have 4 modifications
         assert_eq!(ml_vec.len(), 4);
-        assert!(mm_str.starts_with("T-t?,"));
         let probs: Vec<&str> = mm_str
             .strip_prefix("T-t?,")
             .unwrap()
@@ -2526,7 +2539,6 @@ mod read_generation_with_mods_tests {
 
         // Sequence has exactly 4 A's, so should have 4 modifications
         assert_eq!(ml_vec.len(), 4);
-        assert!(mm_str.starts_with("A+a?,"));
         let probs: Vec<&str> = mm_str
             .strip_prefix("A+a?,")
             .unwrap()
@@ -2548,7 +2560,6 @@ mod read_generation_with_mods_tests {
 
         // Sequence has exactly 4 G's, so should have 4 modifications
         assert_eq!(ml_vec.len(), 4);
-        assert!(mm_str.starts_with("G+g?,"));
         let probs: Vec<&str> = mm_str
             .strip_prefix("G+g?,")
             .unwrap()
@@ -2604,15 +2615,15 @@ mod read_generation_with_mods_tests {
         let mut rng = rand::rng();
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_zero], &seq, &mut rng);
 
-        assert_eq!(ml_vec.len(), 8);
-        let probs: Vec<&str> = mm_str
+        assert_eq!(ml_vec, vec![0u8; 8]);
+        let pos: Vec<&str> = mm_str
             .strip_prefix("C+m?,")
             .unwrap()
             .strip_suffix(';')
             .unwrap()
             .split(',')
             .collect();
-        assert!(probs.iter().all(|&x| x == "0"));
+        assert!(pos.iter().all(|&x| x == "0"));
 
         // Test probability 1.0
         let mod_config_one = mod_config_template
@@ -2623,15 +2634,15 @@ mod read_generation_with_mods_tests {
 
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config_one], &seq, &mut rng);
 
-        assert_eq!(ml_vec.len(), 8);
-        let probs: Vec<&str> = mm_str
+        assert_eq!(ml_vec, vec![255u8; 8]);
+        let pos: Vec<&str> = mm_str
             .strip_prefix("C+m?,")
             .unwrap()
             .strip_suffix(';')
             .unwrap()
             .split(',')
             .collect();
-        assert!(probs.iter().all(|&x| x == "255"));
+        assert!(pos.iter().all(|&x| x == "0"));
     }
 
     /// Tests config deserialization from JSON string with mods
@@ -2787,23 +2798,19 @@ mod read_generation_with_mods_tests {
 
         // Should only generate modifications for the 2 C's that exist
         assert_eq!(
-            ml_vec.len(),
-            2,
-            "Should have exactly 2 modifications for 2 C's"
+            ml_vec,
+            vec![128u8, 128u8],
+            "All prob should be 128 (0.5*255)"
         );
-        assert!(mm_str.starts_with("C+m?,"));
-        let probs: Vec<&str> = mm_str
+        let pos: Vec<&str> = mm_str
             .strip_prefix("C+m?,")
             .unwrap()
             .strip_suffix(';')
             .unwrap()
             .split(',')
             .collect();
-        assert_eq!(probs.len(), 2, "Should have exactly 2 probability values");
-        assert!(
-            probs.iter().all(|&x| x == "128"),
-            "All should be 128 (0.5 * 255)"
-        );
+        assert_eq!(pos.len(), 2, "Should have exactly 2 position values");
+        assert!(pos.iter().all(|&x| x == "0"), "All pos should be 0");
     }
 
     /// Tests edge case: single-base windows with multiple cycles
@@ -2824,22 +2831,19 @@ mod read_generation_with_mods_tests {
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
 
         // Should have 16 modifications, alternating pattern: 0.9, 0.1, 0.9, 0.1, ...
-        assert_eq!(ml_vec.len(), 16);
-        let probs: Vec<&str> = mm_str
+        // Verify alternating pattern (0.9*255=229.5→230, 0.1*255=25.5→26)
+        let expected_pattern: Vec<u8> = vec![
+            230, 26, 230, 26, 230, 26, 230, 26, 230, 26, 230, 26, 230, 26, 230, 26,
+        ];
+        assert_eq!(ml_vec, expected_pattern);
+        let pos: Vec<&str> = mm_str
             .strip_prefix("C+m?,")
             .unwrap()
             .strip_suffix(';')
             .unwrap()
             .split(',')
             .collect();
-        assert_eq!(probs.len(), 16);
-
-        // Verify alternating pattern (0.9*255=229.5→230, 0.1*255=25.5→26)
-        let expected_pattern = vec![
-            "230", "26", "230", "26", "230", "26", "230", "26", "230", "26", "230", "26", "230",
-            "26", "230", "26",
-        ];
-        assert_eq!(probs, expected_pattern);
+        assert_eq!(pos, vec!["0"; 16], "pos should have 16 entries, all 0");
     }
 
     /// Tests that modifications on reverse reads are correctly applied to reverse-complemented sequence
@@ -2888,11 +2892,6 @@ mod read_generation_with_mods_tests {
                     // Forward reads should have MM tag with 3 C modifications
                     assert!(mm_result.is_ok(), "Forward reads should have MM tag");
                     if let Ok(Aux::String(mm_str)) = mm_result {
-                        assert!(
-                            mm_str.starts_with("C+m?,"),
-                            "MM tag should be for C modifications"
-                        );
-
                         // Parse and count modifications
                         let probs: Vec<&str> = mm_str
                             .strip_prefix("C+m?,")

@@ -16,6 +16,10 @@ use std::rc::Rc;
     clippy::missing_panics_doc,
     reason = "window slice indexing should not fail due to bounds checking"
 )]
+#[expect(
+    clippy::too_many_lines,
+    reason = "windowing logic is simple but just takes up many lines"
+)]
 pub fn run<W, F, D>(
     handle: &mut W,
     bam_records: D,
@@ -39,7 +43,7 @@ where
     writeln!(
         handle,
         "#contig\tref_win_start\tref_win_end\tread_id\twin_val\tstrand\t\
-base\tmod_strand\tmod_type\twin_start\twin_end"
+base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
     )?;
 
     // Go record by record in the BAM file,
@@ -58,6 +62,7 @@ base\tmod_strand\tmod_type\twin_start\twin_end"
         } else {
             curr_read_state.contig_name()?
         };
+        let base_qual = record.qual();
 
         // read and window modification data, then print the output
         #[expect(
@@ -129,10 +134,36 @@ base\tmod_strand\tmod_type\twin_start\twin_end"
                         .max()
                         .copied()
                         .unwrap_or(INVALID_REF_POS);
+                    #[expect(
+                        clippy::arithmetic_side_effects,
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "we are forced to do these due to the math itself, of taking a power, avg, and then log"
+                    )]
+                    let mean_base_qual = {
+                        let quals = base_qual
+                            .get(usize::try_from(*win_start)?..usize::try_from(*win_end)?)
+                            .expect("no error as `win_start`, `win_end` in range");
+                        if quals.first() == Some(&255u8) {
+                            // BAM format is such that all values are 255, or values are between
+                            // 0 and 93. So if we see one 255, we can just return 255
+                            255u8
+                        } else {
+                            // we do an average using the probability of errors,
+                            // and not the Q scores directly.
+                            let quals_min = quals.iter().min().expect("no error");
+                            let data_size =
+                                f64::from(i32::try_from(*win_end)? - i32::try_from(*win_start)?);
+                            let x = quals.iter().fold(0f64, |acc, x| {
+                                acc + (10f64).powf(-0.1f64 * f64::from(x - quals_min))
+                            });
+                            quals_min + ((-10f64 * f64::log10(x / data_size)).round() as u8)
+                        }
+                    };
                     writeln!(
                         handle,
                         "{contig}\t{ref_win_start}\t{ref_win_end}\t{qname}\t{win_val}\t{strand}\t\
-{base}\t{mod_strand}\t{mod_type}\t{win_start}\t{win_end}"
+                    {base}\t{mod_strand}\t{mod_type}\t{win_start}\t{win_end}\t{mean_base_qual}",
                     )?;
                 }
             }
@@ -140,6 +171,75 @@ base\tmod_strand\tmod_type\twin_start\twin_end"
     }
 
     Ok(())
+}
+
+/// Creates a `DataFrame` from windowed modification data
+///
+/// This function calls [`run`] with a buffer handle, then parses the output into a Polars `DataFrame`.
+/// The first line of output (after removing the leading '#') contains tab-separated column names,
+/// and subsequent lines contain tab-separated data values.
+///
+/// # Errors
+/// Returns an error if BAM record reading, output writing, or `DataFrame` construction fails.
+///
+pub fn run_df<F, D>(
+    bam_records: D,
+    window_options: InputWindowing,
+    mods: &InputMods<OptionalTag>,
+    window_function: F,
+) -> Result<polars::frame::DataFrame, Error>
+where
+    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+    D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
+{
+    use polars::prelude::*;
+
+    // Create a buffer to capture output
+    let mut buffer = Vec::new();
+
+    // Call run with the buffer
+    run(
+        &mut buffer,
+        bam_records,
+        window_options,
+        mods,
+        window_function,
+    )?;
+
+    // Convert buffer to string and remove leading '#' from header
+    let output = String::from_utf8(buffer)?;
+    let output_without_hash = output
+        .strip_prefix('#')
+        .ok_or_else(|| Error::InvalidState("Output does not start with '#'".to_string()))?;
+
+    // Define schema based on column types
+    let schema_fields = vec![
+        Field::new("contig".into(), DataType::String),
+        Field::new("ref_win_start".into(), DataType::Int64),
+        Field::new("ref_win_end".into(), DataType::Int64),
+        Field::new("read_id".into(), DataType::String),
+        Field::new("win_val".into(), DataType::Float32),
+        Field::new("strand".into(), DataType::String),
+        Field::new("base".into(), DataType::String),
+        Field::new("mod_strand".into(), DataType::String),
+        Field::new("mod_type".into(), DataType::String),
+        Field::new("win_start".into(), DataType::UInt64),
+        Field::new("win_end".into(), DataType::UInt64),
+        Field::new("basecall_qual".into(), DataType::UInt32),
+    ];
+
+    let schema = Schema::from_iter(schema_fields);
+
+    // Parse the TSV data with the schema
+    let cursor = std::io::Cursor::new(output_without_hash.as_bytes());
+    let df = CsvReadOptions::default()
+        .with_has_header(true)
+        .map_parse_options(|parse_options| parse_options.with_separator(b'\t'))
+        .with_schema(Some(Arc::new(schema)))
+        .into_reader_with_file_handle(cursor)
+        .finish()?;
+
+    Ok(df)
 }
 
 #[cfg(test)]
@@ -154,13 +254,14 @@ mod tests {
     /// This function encapsulates the common test setup and execution logic for `window_reads` tests
     /// that use a threshold value for filtering.
     fn run_window_reads_test_with_threshold(
+        input_file: &str,
         threshold: Option<f32>,
         expected_output_file: &str,
     ) -> Result<(), Error> {
         // Set input, output, options
         let mut output = Vec::new();
-        let mut bam_reader = bam::Reader::from_path("./examples/example_1.bam")?;
-        let bam_records = bam_reader.records().map(|r| r.map(Rc::new));
+        let mut bam_reader = bam::Reader::from_path(input_file)?;
+        let bam_records = bam_reader.rc_records();
         let window_options: InputWindowing =
             serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
         let mods = InputMods::default();
@@ -192,16 +293,201 @@ mod tests {
 
     #[test]
     fn window_reads_example_1() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(None, "./examples/example_1_window_reads")
+        run_window_reads_test_with_threshold(
+            "./examples/example_1.bam",
+            None,
+            "./examples/example_1_window_reads",
+        )
     }
 
     #[test]
     fn window_reads_example_1_gt_0pt4() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(Some(0.4), "./examples/example_1_window_reads_gt_0pt4")
+        run_window_reads_test_with_threshold(
+            "./examples/example_1.bam",
+            Some(0.4),
+            "./examples/example_1_window_reads_gt_0pt4",
+        )
     }
 
     #[test]
     fn window_reads_example_1_gt_0pt8() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(Some(0.8), "./examples/example_1_window_reads_gt_0pt8")
+        run_window_reads_test_with_threshold(
+            "./examples/example_1.bam",
+            Some(0.8),
+            "./examples/example_1_window_reads_gt_0pt8",
+        )
+    }
+
+    #[test]
+    fn window_reads_example_7() -> Result<(), Error> {
+        run_window_reads_test_with_threshold(
+            "./examples/example_7.sam",
+            None,
+            "./examples/example_7_window_reads",
+        )
+    }
+}
+
+#[cfg(test)]
+mod stochastic_tests {
+    use super::*;
+    use crate::SimulationConfig;
+    use crate::analysis;
+    use crate::simulate_mod_bam::TempBamSimulation;
+    use rust_htslib::bam::{self, Read as _};
+
+    /// Test that `run_df` produces an empty dataframe for BAM files with no modification data
+    ///
+    /// This test creates a simulated BAM file without any modification information and verifies
+    /// that `run_df` correctly returns an empty dataframe (no data rows, only column headers).
+    #[test]
+    fn run_df_empty_for_no_mods() -> Result<(), Error> {
+        // Create simulation config with no modifications
+        let config_json = r#"{
+            "contigs": {
+                "number": 2,
+                "len_range": [100, 200]
+            },
+            "reads": [{
+                "number": 100,
+                "mapq_range": [10, 20],
+                "base_qual_range": [10, 20],
+                "len_range": [0.1, 0.8]
+            }]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json)?;
+        let sim = TempBamSimulation::new(config)?;
+
+        // Read BAM file
+        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
+        let bam_records = bam_reader.rc_records();
+
+        // Set up windowing options
+        let window_options: InputWindowing =
+            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+        let mods = InputMods::default();
+
+        // Call run_df with threshold_and_mean function
+        let df = run_df(bam_records, window_options, &mods, |x| {
+            analysis::threshold_and_mean(x).map(Into::into)
+        })?;
+
+        // Verify the dataframe is empty (no data rows)
+        assert_eq!(
+            df.height(),
+            0,
+            "DataFrame should have no rows for BAM with no modifications"
+        );
+
+        // Verify we have the expected column headers
+        let expected_columns = vec![
+            "contig",
+            "ref_win_start",
+            "ref_win_end",
+            "read_id",
+            "win_val",
+            "strand",
+            "base",
+            "mod_strand",
+            "mod_type",
+            "win_start",
+            "win_end",
+            "basecall_qual",
+        ];
+
+        let actual_columns: Vec<String> = df
+            .get_column_names()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            actual_columns, expected_columns,
+            "DataFrame should have correct column headers"
+        );
+
+        Ok(())
+    }
+
+    /// Test that `run_df` produces a non-empty dataframe with modification data
+    ///
+    /// This test creates a simulated BAM file with modification data and verifies that
+    /// `run_df` correctly processes the modifications and returns a dataframe with data rows.
+    #[test]
+    fn run_df_with_mods() -> Result<(), Error> {
+        // Create simulation config with modifications
+        let config_json = r#"{
+            "contigs": {
+                "number": 4,
+                "len_range": [100, 200]
+            },
+            "reads": [{
+                "number": 1,
+                "mapq_range": [10, 20],
+                "base_qual_range": [10, 20],
+                "len_range": [0.1, 0.8],
+                "mods": [{
+                    "base": "T",
+                    "is_strand_plus": true,
+                    "mod_code": "T",
+                    "win": [4],
+                    "mod_range": [[0.1, 0.2]]
+                }]
+            }]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json)?;
+        let sim = TempBamSimulation::new(config)?;
+
+        // Read BAM file
+        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
+        let bam_records = bam_reader.rc_records();
+
+        // Set up windowing options
+        let window_options: InputWindowing =
+            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+        let mods = InputMods::default();
+
+        // Call run_df with threshold_and_mean function
+        let df = run_df(bam_records, window_options, &mods, |x| {
+            analysis::threshold_and_mean(x).map(Into::into)
+        })?;
+
+        // Verify the dataframe is NOT empty (should have data rows with mods)
+        assert!(
+            df.height() > 0,
+            "DataFrame should have rows when modifications are present"
+        );
+
+        // Verify we have the expected column headers
+        let expected_columns = vec![
+            "contig",
+            "ref_win_start",
+            "ref_win_end",
+            "read_id",
+            "win_val",
+            "strand",
+            "base",
+            "mod_strand",
+            "mod_type",
+            "win_start",
+            "win_end",
+            "basecall_qual",
+        ];
+
+        let actual_columns: Vec<String> = df
+            .get_column_names()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            actual_columns, expected_columns,
+            "DataFrame should have correct column headers"
+        );
+
+        let mod_qual = df.column("win_val")?.f32()?;
+        assert!(mod_qual.iter().all(|x| x == Some(0.0)));
+
+        Ok(())
     }
 }
