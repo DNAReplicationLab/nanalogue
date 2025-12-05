@@ -62,9 +62,9 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     /// ```
     /// use nanalogue_core::OrdPair;
     /// let x = OrdPair::<u8>::new(10,11).expect("no failure");
-    /// assert_eq!(x.get_low(),10);
+    /// assert_eq!(x.low(),10);
     /// ```
-    pub fn get_low(&self) -> T {
+    pub fn low(&self) -> T {
         self.low
     }
     /// Gets the high value
@@ -72,9 +72,9 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     /// ```
     /// use nanalogue_core::OrdPair;
     /// let x = OrdPair::<u8>::new(10,11).expect("no failure");
-    /// assert_eq!(x.get_high(),11);
+    /// assert_eq!(x.high(),11);
     /// ```
-    pub fn get_high(&self) -> T {
+    pub fn high(&self) -> T {
         self.high
     }
     /// Updates the low value with a given value if possible
@@ -89,8 +89,8 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     /// use nanalogue_core::OrdPair;
     /// let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
     /// x.update_low(9).unwrap();
-    /// assert_eq!(x.get_low(), 9);
-    /// assert_eq!(x.get_high(), 11);
+    /// assert_eq!(x.low(), 9);
+    /// assert_eq!(x.high(), 11);
     /// ```
     ///
     /// ```should_panic
@@ -99,7 +99,7 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     /// x.update_low(12).unwrap();
     /// ```
     pub fn update_low(&mut self, value: T) -> Result<(), Error> {
-        if value <= self.get_high() {
+        if value <= self.high() {
             self.low = value;
             Ok(())
         } else {
@@ -120,8 +120,8 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     /// use nanalogue_core::OrdPair;
     /// let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
     /// x.update_high(20).unwrap();
-    /// assert_eq!(x.get_low(), 10);
-    /// assert_eq!(x.get_high(), 20);
+    /// assert_eq!(x.low(), 10);
+    /// assert_eq!(x.high(), 20);
     /// ```
     ///
     /// ```should_panic
@@ -130,7 +130,7 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     /// x.update_high(9).unwrap();
     /// ```
     pub fn update_high(&mut self, value: T) -> Result<(), Error> {
-        if value >= self.get_low() {
+        if value >= self.low() {
             self.high = value;
             Ok(())
         } else {
@@ -151,8 +151,8 @@ impl OrdPair<u64> {
     ///
     /// // Standard interval
     /// let interval = OrdPair::<u64>::from_interval("1000-2000")?;
-    /// assert_eq!(interval.get_low(), 1000);
-    /// assert_eq!(interval.get_high(), 2000);
+    /// assert_eq!(interval.low(), 1000);
+    /// assert_eq!(interval.high(), 2000);
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     ///
@@ -161,8 +161,8 @@ impl OrdPair<u64> {
     /// #
     /// // Open-ended interval (end defaults to u64::MAX)
     /// let interval = OrdPair::<u64>::from_interval("1000-")?;
-    /// assert_eq!(interval.get_low(), 1000);
-    /// assert_eq!(interval.get_high(), u64::MAX);
+    /// assert_eq!(interval.low(), 1000);
+    /// assert_eq!(interval.high(), u64::MAX);
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     ///
@@ -271,7 +271,7 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd + FromStr> FromStr for Ord
 impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> From<OrdPair<T>> for RangeInclusive<T> {
     /// Convert the `OrdPair` into a `RangeInclusive` i.e. (start..=end)
     fn from(value: OrdPair<T>) -> Self {
-        RangeInclusive::<T>::new(value.get_low(), value.get_high())
+        RangeInclusive::<T>::new(value.low(), value.high())
     }
 }
 
@@ -285,7 +285,7 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> Contains<T> for OrdPair<T
 impl<T: Clone + Copy + Debug + fmt::Display + PartialEq + PartialOrd> fmt::Display for OrdPair<T> {
     /// converts to string for display i.e. "low, high"
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}, {}", self.get_low(), self.get_high())
+        write!(f, "{}, {}", self.low(), self.high())
     }
 }
 
@@ -371,13 +371,13 @@ mod tests {
         assert_eq!(
             OrdPair::<f32>::from_str("1.0,2.0")
                 .expect("no failure")
-                .get_low(),
+                .low(),
             1.0
         );
         assert_eq!(
             OrdPair::<f32>::from_str("1.0,2.0")
                 .expect("no failure")
-                .get_high(),
+                .high(),
             2.0
         );
     }
@@ -386,15 +386,11 @@ mod tests {
     #[test]
     fn ord_pair_from_str_u8() {
         assert_eq!(
-            OrdPair::<u8>::from_str("1, 2")
-                .expect("no failure")
-                .get_low(),
+            OrdPair::<u8>::from_str("1, 2").expect("no failure").low(),
             1
         );
         assert_eq!(
-            OrdPair::<u8>::from_str("1, 2")
-                .expect("no failure")
-                .get_high(),
+            OrdPair::<u8>::from_str("1, 2").expect("no failure").high(),
             2
         );
     }
@@ -429,13 +425,13 @@ mod tests {
     fn ord_pair_from_interval() {
         // Standard interval
         let interval = OrdPair::<u64>::from_interval("1000-2000").expect("should parse");
-        assert_eq!(interval.get_low(), 1000);
-        assert_eq!(interval.get_high(), 2000);
+        assert_eq!(interval.low(), 1000);
+        assert_eq!(interval.high(), 2000);
 
         // Open-ended interval
         let interval = OrdPair::<u64>::from_interval("1000-").expect("should parse");
-        assert_eq!(interval.get_low(), 1000);
-        assert_eq!(interval.get_high(), u64::MAX);
+        assert_eq!(interval.low(), 1000);
+        assert_eq!(interval.high(), u64::MAX);
     }
 
     #[test]
@@ -540,8 +536,8 @@ mod tests {
     fn ord_pair_update_low_success() {
         let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
         x.update_low(9).unwrap();
-        assert_eq!(x.get_low(), 9);
-        assert_eq!(x.get_high(), 11);
+        assert_eq!(x.low(), 9);
+        assert_eq!(x.high(), 11);
     }
 
     /// Tests `update_low` method panics when violating the low <= high invariant
@@ -557,8 +553,8 @@ mod tests {
     fn ord_pair_update_high_success() {
         let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
         x.update_high(20).unwrap();
-        assert_eq!(x.get_low(), 10);
-        assert_eq!(x.get_high(), 20);
+        assert_eq!(x.low(), 10);
+        assert_eq!(x.high(), 20);
     }
 
     /// Tests `update_high` method panics when violating the low <= high invariant

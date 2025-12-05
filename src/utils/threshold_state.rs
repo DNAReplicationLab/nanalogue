@@ -67,8 +67,8 @@ impl fmt::Display for ThresholdState {
             ThresholdState::InvertGtEqLtEq(v) => {
                 format!(
                     "probabilities < {:.4} or > {:.4}",
-                    F32Bw0and1::from(v.get_low()),
-                    F32Bw0and1::from(v.get_high())
+                    F32Bw0and1::from(v.low()),
+                    F32Bw0and1::from(v.high())
                 )
             }
             ThresholdState::Both((a, b)) => {
@@ -145,8 +145,8 @@ impl Contains<u8> for ThresholdState {
 /// ```
 impl From<OrdPair<F32Bw0and1>> for ThresholdState {
     fn from(value: OrdPair<F32Bw0and1>) -> Self {
-        let low: u8 = value.get_low().into();
-        let high: u8 = value.get_high().into();
+        let low: u8 = value.low().into();
+        let high: u8 = value.high().into();
         ThresholdState::InvertGtEqLtEq(OrdPair::<u8>::new(low, high).expect("no error"))
     }
 }
@@ -374,8 +374,8 @@ mod tests {
         if let ThresholdState::InvertGtEqLtEq(ord_pair) = threshold3 {
             // Verify the conversion is approximately correct
             // 0.5 * 255 ≈ 127.5, 0.7 * 255 ≈ 178.5
-            assert!(ord_pair.get_low() >= 127 && ord_pair.get_low() <= 128);
-            assert!(ord_pair.get_high() >= 178 && ord_pair.get_high() <= 179);
+            assert!(ord_pair.low() >= 127 && ord_pair.low() <= 128);
+            assert!(ord_pair.high() >= 178 && ord_pair.high() <= 179);
         }
     }
 }

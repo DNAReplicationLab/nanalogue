@@ -791,10 +791,9 @@ impl PerfectSeqMatchToNot {
 
         // Step 3: Apply delete (mark bases as deleted with 'D' operation)
         if let Some(delete_range) = self.delete {
-            let start =
-                ((bases_and_ops.len() as f32) * delete_range.get_low().val()).round() as usize;
+            let start = ((bases_and_ops.len() as f32) * delete_range.low().val()).round() as usize;
             let end_raw =
-                ((bases_and_ops.len() as f32) * delete_range.get_high().val()).round() as usize;
+                ((bases_and_ops.len() as f32) * delete_range.high().val()).round() as usize;
             let end = end_raw.min(bases_and_ops.len());
 
             if let Some(slice) = bases_and_ops.get_mut(start..end) {
@@ -957,8 +956,8 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
             .cycle()
             .zip(mod_config.mod_range.iter().cycle())
         {
-            let low = u8::from(k.1.get_low());
-            let high = u8::from(k.1.get_high());
+            let low = u8::from(k.1.low());
+            let high = u8::from(k.1.high());
             #[expect(
                 clippy::redundant_else,
                 reason = "so that the clippy arithmetic lint fits better with the code"
@@ -1105,7 +1104,7 @@ pub fn generate_contigs_denovo<R: Rng>(
 ) -> Vec<Contig> {
     (0..contig_number.get())
         .map(|i| {
-            let length = rng.random_range(len_range.get_low().get()..=len_range.get_high().get());
+            let length = rng.random_range(len_range.low().get()..=len_range.high().get());
             let seq_bytes =
                 generate_random_dna_sequence(NonZeroU64::try_from(length).expect("no error"), rng);
             let seq_str = String::from_utf8(seq_bytes).expect("valid DNA sequence");
@@ -1159,7 +1158,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 ) -> Vec<Contig> {
     (0..contig_number.get())
         .map(|i| {
-            let length = rng.random_range(len_range.get_low().get()..=len_range.get_high().get());
+            let length = rng.random_range(len_range.low().get()..=len_range.high().get());
             let contig_seq: Vec<u8> = seq
                 .get_dna_restrictive()
                 .get()
@@ -1255,9 +1254,9 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             clippy::cast_sign_loss,
             reason = "these are positive numbers so no problem"
         )]
-        let read_len = ((rng.random_range(
-            read_config.len_range.get_low().val()..=read_config.len_range.get_high().val(),
-        ) * contig_len as f32)
+        let read_len = ((rng
+            .random_range(read_config.len_range.low().val()..=read_config.len_range.high().val())
+            * contig_len as f32)
             .trunc() as u64)
             .min(contig_len);
 
@@ -2768,18 +2767,18 @@ mod read_generation_with_mods_tests {
 
         // Verify all fields deserialized correctly
         assert_eq!(config.contigs.number.get(), 5);
-        assert_eq!(config.contigs.len_range.get_low().get(), 100);
-        assert_eq!(config.contigs.len_range.get_high().get(), 500);
+        assert_eq!(config.contigs.len_range.low().get(), 100);
+        assert_eq!(config.contigs.len_range.high().get(), 500);
         assert!(config.contigs.repeated_seq.is_some());
 
         assert_eq!(config.reads.len(), 2);
 
         // Verify first read config
         assert_eq!(config.reads[0].number.get(), 100);
-        assert_eq!(config.reads[0].mapq_range.get_low(), 10);
-        assert_eq!(config.reads[0].mapq_range.get_high(), 30);
-        assert_eq!(config.reads[0].base_qual_range.get_low(), 20);
-        assert_eq!(config.reads[0].base_qual_range.get_high(), 40);
+        assert_eq!(config.reads[0].mapq_range.low(), 10);
+        assert_eq!(config.reads[0].mapq_range.high(), 30);
+        assert_eq!(config.reads[0].base_qual_range.low(), 20);
+        assert_eq!(config.reads[0].base_qual_range.high(), 40);
         assert!(config.reads[0].barcode.is_some());
         assert_eq!(config.reads[0].mods.len(), 1);
         assert!(matches!(config.reads[0].mods[0].base, AllowedAGCTN::C));

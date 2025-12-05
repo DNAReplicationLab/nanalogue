@@ -59,10 +59,10 @@ impl WindowState {
                 // struct (as that crate is evolving (still in version 0.x at time of writing),
                 // this may change in the future).
 
-                let lo = v.get_low();
-                let hi = v.get_high();
+                let lo = v.low();
+                let hi = v.high();
 
-                (interval.get_low()..interval.get_high()).intersects(&(lo..max(lo + 1, hi)))
+                (interval.low()..interval.high()).intersects(&(lo..max(lo + 1, hi)))
             }
         }
     }
@@ -85,10 +85,10 @@ impl PartialOrd for WindowState {
             (WindowState(None), WindowState(Some(_))) => Some(Ordering::Less),
             (WindowState(Some(_)), WindowState(None)) => Some(Ordering::Greater),
             (WindowState(Some(v)), WindowState(Some(w))) if v == w => Some(Ordering::Equal),
-            (WindowState(Some(v)), WindowState(Some(w))) if v.get_high() <= w.get_low() => {
+            (WindowState(Some(v)), WindowState(Some(w))) if v.high() <= w.low() => {
                 Some(Ordering::Less)
             }
-            (WindowState(Some(v)), WindowState(Some(w))) if w.get_high() <= v.get_low() => {
+            (WindowState(Some(v)), WindowState(Some(w))) if w.high() <= v.low() => {
                 Some(Ordering::Greater)
             }
             _ => None,
@@ -151,8 +151,8 @@ impl FilterByRefCoords for Ranges {
             }
             if let Some(item) = coord_limits {
                 (
-                    item.get_low(),
-                    item.get_high().checked_add(1).ok_or(Error::Arithmetic(
+                    item.low(),
+                    item.high().checked_add(1).ok_or(Error::Arithmetic(
                         "overflow error in coordinates while filtering by ref".to_owned(),
                     ))?,
                 )

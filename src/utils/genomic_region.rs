@@ -78,8 +78,8 @@ impl GenomicRegion {
                 .try_into()?;
 
             let (start, end) = if let Some(c) = coords {
-                let start = c.get_low();
-                let end = c.get_high();
+                let start = c.low();
+                let end = c.high();
 
                 // Check if start position exceeds contig length
                 if let Some(contig_length) = header.target_len(u32::try_from(numeric_contig)?) {
@@ -143,7 +143,7 @@ impl GenomicRegion {
     /// ```
     #[must_use]
     pub fn start_end(&self) -> Option<(u64, u64)> {
-        self.0.1.as_ref().map(|v| (v.get_low(), v.get_high()))
+        self.0.1.as_ref().map(|v| (v.low(), v.high()))
     }
 }
 
@@ -253,22 +253,22 @@ mod tests {
         let region = GenomicRegion::from_str("chr1:1000-2000").expect("should parse");
         assert_eq!(region.0.0, "chr1");
         let coords = region.0.1.unwrap();
-        assert_eq!(coords.get_low(), 1000);
-        assert_eq!(coords.get_high(), 2000);
+        assert_eq!(coords.low(), 1000);
+        assert_eq!(coords.high(), 2000);
 
         // Contig name with colons (e.g., from some assemblies)
         let region = GenomicRegion::from_str("chr1:alternate:1000-2000").expect("should parse");
         assert_eq!(region.0.0, "chr1:alternate");
         let coords = region.0.1.unwrap();
-        assert_eq!(coords.get_low(), 1000);
-        assert_eq!(coords.get_high(), 2000);
+        assert_eq!(coords.low(), 1000);
+        assert_eq!(coords.high(), 2000);
 
         // Complex contig names
         let region = GenomicRegion::from_str("scaffold_123:456-789").expect("should parse");
         assert_eq!(region.0.0, "scaffold_123");
         let coords = region.0.1.unwrap();
-        assert_eq!(coords.get_low(), 456);
-        assert_eq!(coords.get_high(), 789);
+        assert_eq!(coords.low(), 456);
+        assert_eq!(coords.high(), 789);
     }
 
     /// Tests `GenomicRegion` parsing with open-ended support
@@ -278,8 +278,8 @@ mod tests {
         let region = GenomicRegion::from_str("chr1:1000-").expect("should parse");
         assert_eq!(region.0.0, "chr1");
         let coords = region.0.1.unwrap();
-        assert_eq!(coords.get_low(), 1000);
-        assert_eq!(coords.get_high(), u64::MAX);
+        assert_eq!(coords.low(), 1000);
+        assert_eq!(coords.high(), u64::MAX);
     }
 
     /// Tests `GenomicRegion` parsing with wrong order coordinates
@@ -324,8 +324,8 @@ mod tests {
         assert_eq!(region.0.0, "chr22");
 
         let coords = &region.0.1.unwrap();
-        assert_eq!(coords.get_low(), 5000);
-        assert_eq!(coords.get_high(), 10000);
+        assert_eq!(coords.low(), 5000);
+        assert_eq!(coords.high(), 10000);
     }
 
     #[test]
