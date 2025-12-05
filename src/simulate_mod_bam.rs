@@ -283,7 +283,7 @@ pub struct ContigConfig {
 /// ```
 /// # Example 2
 ///
-///  Request reads with modifications
+///  Request reads with modifications, but also with insertions, deletions, and a mismatch rate.
 /// ```
 /// use nanalogue_core::Error;
 /// use nanalogue_core::simulate_mod_bam::{ReadConfigBuilder, ModConfigBuilder};
@@ -301,6 +301,9 @@ pub struct ContigConfig {
 ///     .base_qual_range((50, 60))
 ///     .barcode("AATTG".into())
 ///     .len_range((0.7, 0.8))
+///     .delete((0.2, 0.3))
+///     .insert_middle("ATCGA".into())
+///     .mismatch(0.1)
 ///     .mods(vec![mod_config]).build()?;
 ///
 /// # Ok::<(), Error>(())
@@ -330,8 +333,8 @@ pub struct ReadConfig {
     pub barcode: Option<DNARestrictive>,
     /// Optional deletion: fractional range [start, end] of read to delete (e.g., [0.5, 0.7] deletes middle 20%)
     #[builder(field(
-        ty = "Option<(f32, f32)>",
-        build = "self.delete.map(TryInto::try_into).transpose()?"
+        ty = "(f32, f32)",
+        build = "Some(self.delete).map(TryInto::try_into).transpose()?"
     ))]
     pub delete: Option<OrdPair<F32Bw0and1>>,
     /// Optional sequence to insert at the middle of the read
@@ -341,10 +344,7 @@ pub struct ReadConfig {
     ))]
     pub insert_middle: Option<DNARestrictive>,
     /// Optional mismatch fraction: random fraction of bases to mutate (e.g., 0.5 = 50% of bases)
-    #[builder(field(
-        ty = "Option<f32>",
-        build = "self.mismatch.map(F32Bw0and1::try_from).transpose()?"
-    ))]
+    #[builder(field(ty = "f32", build = "Some(F32Bw0and1::try_from(self.mismatch)?)"))]
     pub mismatch: Option<F32Bw0and1>,
     /// Modification configurations
     pub mods: Vec<ModConfig>,

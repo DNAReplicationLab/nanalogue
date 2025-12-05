@@ -337,6 +337,7 @@ mod stochastic_tests {
     use crate::SimulationConfig;
     use crate::analysis;
     use crate::simulate_mod_bam::TempBamSimulation;
+    use itertools::izip;
     use rust_htslib::bam::{self, Read as _};
 
     /// Test that `run_df` produces an empty dataframe for BAM files with no modification data
@@ -599,6 +600,217 @@ mod stochastic_tests {
         // as we are averaging 10^(-Q/10), the average basecalling quality will
         // be in a much tighter range around 30.. but I haven't calculated what
         // this is.. We are just using a very lax 30..=40 here.
+
+        Ok(())
+    }
+
+    /// Test that `run_df` works as expected when we generate two types of reads,
+    /// and that the statistics are as expected in the two groups of reads.
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        clippy::arithmetic_side_effects,
+        reason = "test with too many lines is ok; no chance of overflow due to small data len"
+    )]
+    fn run_df_with_two_types_of_mod_reads() -> Result<(), Error> {
+        // Create simulation config with modifications
+        let config_json = r#"{
+            "contigs": {
+                "number": 4,
+                "len_range": [10000, 20000]
+            },
+            "reads": [
+                {
+                    "number": 100,
+                    "mapq_range": [10, 20],
+                    "base_qual_range": [30, 40],
+                    "len_range": [0.1, 0.8],
+                    "mods": [
+                        {
+                            "base": "C",
+                            "is_strand_plus": false,
+                            "mod_code": "m",
+                            "win": [4],
+                            "mod_range": [[0.2, 0.4]]
+                        },
+                        {
+                            "base": "N",
+                            "is_strand_plus": true,
+                            "mod_code": "N",
+                            "win": [4],
+                            "mod_range": [[0.6, 0.8]]
+                        }
+                    ]
+                },
+                {
+                    "number": 100,
+                    "mapq_range": [10, 20],
+                    "base_qual_range": [10, 20],
+                    "len_range": [0.5, 0.6]
+                }
+            ]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json)?;
+        let sim = TempBamSimulation::new(config)?;
+
+        // Read BAM file
+        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
+        let bam_records = bam_reader.rc_records();
+
+        // Set up windowing options
+        let window_options: InputWindowing =
+            serde_json::from_str("{\"win\": 200, \"step\": 100}").unwrap();
+        let mods = InputMods::default();
+
+        // Call run_df with threshold_and_mean function
+        let df = run_df(bam_records, window_options, &mods, |x| {
+            analysis::threshold_and_mean(x).map(Into::into)
+        })?;
+
+        // Verify the dataframe is NOT empty (should have data rows with mods)
+        assert!(
+            df.height() > 0,
+            "DataFrame should have rows when modifications are present"
+        );
+
+        // Verify we have the expected column headers
+        let expected_columns = vec![
+            "contig",
+            "ref_win_start",
+            "ref_win_end",
+            "read_id",
+            "win_val",
+            "strand",
+            "base",
+            "mod_strand",
+            "mod_type",
+            "win_start",
+            "win_end",
+            "basecall_qual",
+        ];
+
+        let actual_columns: Vec<String> = df
+            .get_column_names()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            actual_columns, expected_columns,
+            "DataFrame should have correct column headers"
+        );
+
+        let mod_qual = df.column("win_val")?.f32()?;
+        let basecall_qual = df.column("basecall_qual")?.u32()?;
+        let read_id = df.column("read_id")?.str()?;
+        let base = df.column("base")?.str()?;
+        let mod_strand = df.column("mod_strand")?.str()?;
+        let mod_type = df.column("mod_type")?.str()?;
+        let ref_win_start = df.column("ref_win_start")?.i64()?;
+        let ref_win_end = df.column("ref_win_end")?.i64()?;
+        let win_start = df.column("win_start")?.u64()?;
+        let win_end = df.column("win_end")?.u64()?;
+
+        let mut previous_win_start: Option<u64> = None;
+        let mut previous_win_end: Option<u64> = None;
+
+        let mut sum_c_read_window_size: u64 = 0;
+        let mut sum_c_ref_window_size: i64 = 0;
+        let mut count_c_read_window_size: u32 = 0;
+        let mut count_c_ref_window_size: u32 = 0;
+
+        for k in izip!(
+            mod_qual,
+            basecall_qual,
+            read_id,
+            base,
+            mod_strand,
+            mod_type,
+            ref_win_start,
+            ref_win_end,
+            win_start,
+            win_end
+        ) {
+            assert!(
+                k.2.unwrap().starts_with("0."),
+                "only 1st read group comes through, 2nd read group has no mods"
+            );
+            assert!(
+                (30..=40).contains(&k.1.unwrap()),
+                "base call quals are 30 to 40"
+            );
+            if k.5 == Some("N") {
+                assert_eq!(k.4.unwrap(), "+");
+                assert_eq!(k.3.unwrap(), "N");
+                assert_eq!(
+                    k.9.unwrap() - k.8.unwrap(),
+                    200,
+                    "N mod should produce 200 bp windows"
+                );
+                assert_eq!(k.0, Some(1f32));
+
+                let ref_st = k.6.unwrap();
+                let ref_en = k.7.unwrap();
+
+                if ref_en > -1 && ref_st > -1 {
+                    assert_eq!(
+                        ref_en - ref_st,
+                        200,
+                        "N mod should produce 200 bp windows on ref on mapped reads"
+                    );
+                }
+
+                // if previous window data is available, and we are not at a transition from one
+                // read to another, check if the windows have slid correctly
+                if previous_win_start.is_some() && previous_win_end.is_some() && k.8.unwrap() != 0 {
+                    assert_eq!(
+                        k.9.unwrap() - previous_win_end.unwrap(),
+                        100,
+                        "100 bp sliding window on N mod"
+                    );
+                    assert_eq!(
+                        k.8.unwrap() - previous_win_start.unwrap(),
+                        100,
+                        "100 bp sliding window on N mod"
+                    );
+                }
+                previous_win_start = k.8;
+                previous_win_end = k.9;
+            } else if k.5 == Some("m") {
+                assert_eq!(k.4.unwrap(), "-");
+                assert_eq!(k.3.unwrap(), "C");
+                assert_eq!(k.0, Some(0f32));
+
+                count_c_read_window_size += 1;
+                sum_c_read_window_size += k.9.unwrap() - k.8.unwrap();
+
+                let ref_st = k.6.unwrap();
+                let ref_en = k.7.unwrap();
+                if ref_en > -1 && ref_st > -1 {
+                    sum_c_ref_window_size += k.7.unwrap() - k.6.unwrap();
+                    count_c_ref_window_size += 1;
+                }
+            } else {
+                unreachable!("Only N or m mods are present!");
+            }
+        }
+
+        // Tolerate some spread around 800 (200 base windows with 25% chance of each base = 800).
+        // I think the spread we have taken here is quite lax actually...
+        assert!(
+            (700..=900).contains(
+                &sum_c_read_window_size
+                    .checked_div(count_c_read_window_size.into())
+                    .unwrap()
+            )
+        );
+        assert!(
+            (700..=900).contains(
+                &sum_c_ref_window_size
+                    .checked_div(count_c_ref_window_size.into())
+                    .unwrap()
+            )
+        );
 
         Ok(())
     }

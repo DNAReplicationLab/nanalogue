@@ -66,9 +66,13 @@ pub struct InputBam {
     #[clap(long)]
     pub read_filter: Option<ReadStates>,
     /// Subsample BAM to retain only this fraction of total number of reads,
-    /// defaults to 1.0.
+    /// defaults to 1.0. The sampling algorithm considers every read according
+    /// to the specified probability, so due to this, you may not always get
+    /// the same number of reads e.g. if you set `-s 0.05` in a file with 1000 reads,
+    /// you will get 50 +- sqrt(50) reads.
     /// NOTE: a new subsample is drawn every time as the seed is not fixed.
-    /// If you want reproducibility, consider piping the output of `samtools view -s`.
+    /// If you want reproducibility, consider piping the output of `samtools view -s`
+    /// to our program.
     #[clap(short, long, default_value_t = F32Bw0and1::one())]
     pub sample_fraction: F32Bw0and1,
     /// Exclude reads whose MAPQ (Mapping quality of position) is below this value.
