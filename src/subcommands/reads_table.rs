@@ -12,6 +12,7 @@ use crate::{
 };
 use csv::ReaderBuilder;
 use itertools::join;
+use polars::prelude::*;
 use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt, fs::File, iter, rc::Rc, str};
@@ -540,6 +541,107 @@ where
     }
 
     Ok(())
+}
+
+/// Creates a `DataFrame` from read table data
+///
+/// This function calls [`run`] with a buffer handle, then parses the output into a Polars `DataFrame`.
+/// Lines starting with '#' are removed as comments, and the remaining first line contains
+/// tab-separated column names. Subsequent lines contain tab-separated data values.
+///
+/// The schema adapts to the columns present based on the options passed to [`run`]:
+/// - Always present: `read_id`, `align_length`, `sequence_length_template`, `alignment_type`
+/// - Optional: `mod_count` (if mods are requested)
+/// - Optional: `sequence` (if `seq_display` is not `No`)
+/// - Optional: `qualities` (if `seq_display` requests base quality)
+///
+/// # Errors
+/// Returns an error if BAM record reading, output writing, or `DataFrame` construction fails.
+///
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "mods must be cloned to pass to run() which takes ownership and mutates it"
+)]
+pub fn run_df<D>(
+    bam_records: D,
+    mods: Option<InputMods<OptionalTag>>,
+    seq_display: SeqDisplayOptions,
+    seq_summ_path: &str,
+) -> Result<DataFrame, Error>
+where
+    D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
+{
+    // Create a buffer to capture output
+    let mut buffer = Vec::new();
+
+    // Call run with the buffer
+    run(
+        &mut buffer,
+        bam_records,
+        mods.clone(),
+        seq_display,
+        seq_summ_path,
+    )?;
+
+    // Convert buffer to string
+    let output = String::from_utf8(buffer)?;
+
+    // Remove comment lines (starting with '#') and find the header
+    let lines: Vec<&str> = output
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect();
+
+    if lines.is_empty() {
+        return Err(Error::InvalidState("Output has no header line".to_string()));
+    }
+
+    // First non-comment line is the header
+    let header_line = lines
+        .first()
+        .ok_or_else(|| Error::InvalidState("Output has no header line".to_string()))?;
+
+    // Parse header to determine which columns are present
+    let column_names: Vec<&str> = header_line.split('\t').collect();
+
+    // Build schema dynamically based on detected columns
+    let mut schema_fields = Vec::new();
+
+    for col_name in &column_names {
+        let field = match *col_name {
+            "read_id" => Field::new("read_id".into(), DataType::String),
+            "align_length" => Field::new("align_length".into(), DataType::String),
+            "sequence_length_template" => {
+                Field::new("sequence_length_template".into(), DataType::UInt64)
+            }
+            "alignment_type" => Field::new("alignment_type".into(), DataType::String),
+            "mod_count" => Field::new("mod_count".into(), DataType::String),
+            "sequence" => Field::new("sequence".into(), DataType::String),
+            "qualities" => Field::new("qualities".into(), DataType::String),
+            _ => {
+                return Err(Error::InvalidState(format!(
+                    "Unknown column name: {col_name}"
+                )));
+            }
+        };
+        schema_fields.push(field);
+    }
+
+    let schema = Schema::from_iter(schema_fields);
+
+    // Reconstruct TSV without comment lines for parsing
+    let tsv_without_comments = lines.join("\n");
+
+    // Parse the TSV data with the schema
+    let cursor = std::io::Cursor::new(tsv_without_comments.as_bytes());
+    let df = CsvReadOptions::default()
+        .with_has_header(true)
+        .map_parse_options(|parse_options| parse_options.with_separator(b'\t'))
+        .with_schema(Some(Arc::new(schema)))
+        .into_reader_with_file_handle(cursor)
+        .finish()?;
+
+    Ok(df)
 }
 
 /// Sorts string that represents tabular data by first column (removing empty lines).

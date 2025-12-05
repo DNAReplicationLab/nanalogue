@@ -4,6 +4,7 @@
 //! these windows
 
 use crate::{CurrRead, Error, F32AbsValAtMost1, InputMods, InputWindowing, ModChar, OptionalTag};
+use polars::prelude::*;
 use rust_htslib::bam::Record;
 use std::rc::Rc;
 
@@ -190,13 +191,11 @@ pub fn run_df<F, D>(
     window_options: InputWindowing,
     mods: &InputMods<OptionalTag>,
     window_function: F,
-) -> Result<polars::frame::DataFrame, Error>
+) -> Result<DataFrame, Error>
 where
     F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
-    use polars::prelude::*;
-
     // Create a buffer to capture output
     let mut buffer = Vec::new();
 
@@ -351,7 +350,7 @@ mod stochastic_tests {
         sim: &TempBamSimulation,
         win: usize,
         step: usize,
-    ) -> Result<polars::frame::DataFrame, Error> {
+    ) -> Result<DataFrame, Error> {
         let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
         let bam_records = bam_reader.rc_records();
 
@@ -365,7 +364,7 @@ mod stochastic_tests {
     }
 
     /// Helper to assert dataframe has expected column headers
-    fn assert_expected_columns(df: &polars::frame::DataFrame) {
+    fn assert_expected_columns(df: &DataFrame) {
         let expected_columns = vec![
             "contig",
             "ref_win_start",
