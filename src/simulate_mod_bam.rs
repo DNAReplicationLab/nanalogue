@@ -658,6 +658,86 @@ impl PerfectSeqMatchToNot {
     /// # Ok::<(), Error>(())
     /// ```
     ///
+    /// With deletion (removes a portion of the sequence):
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    /// use nanalogue_core::{ReadState, F32Bw0and1, OrdPair, Error};
+    /// use rand::Rng;
+    ///
+    /// let mut rng = rand::rng();
+    /// let delete_range = OrdPair::new(
+    ///     F32Bw0and1::try_from(0.5)?,
+    ///     F32Bw0and1::try_from(0.75)?
+    /// )?;
+    /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAATTTTCCCCGGGG".to_vec())?
+    ///     .add_delete(delete_range)
+    ///     .build(ReadState::PrimaryFwd, &mut rng);
+    /// // Deletes positions 8-12 (CCCC), resulting in AAAATTTTGGGG
+    /// assert_eq!(seq, b"AAAATTTTGGGG");
+    /// assert_eq!(cigar.expect("no error").to_string(), "8M4D4M");
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// With insertion in the middle:
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    /// use nanalogue_core::{ReadState, DNARestrictive, Error};
+    /// use std::str::FromStr;
+    /// use rand::Rng;
+    ///
+    /// let mut rng = rand::rng();
+    /// let insert_seq = DNARestrictive::from_str("TTTT")?;
+    /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAGGGG".to_vec())?
+    ///     .add_insert_middle(insert_seq)
+    ///     .build(ReadState::PrimaryFwd, &mut rng);
+    /// // Inserts TTTT at position 4 (middle), resulting in AAAATTTTGGGG
+    /// assert_eq!(seq, b"AAAATTTTGGGG");
+    /// assert_eq!(cigar.expect("no error").to_string(), "4M4I4M");
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// With mismatches (randomly changes bases):
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    /// use nanalogue_core::{ReadState, F32Bw0and1, Error};
+    /// use rand::Rng;
+    ///
+    /// let mut rng = rand::rng();
+    /// let mismatch_frac = F32Bw0and1::try_from(0.5)?;
+    /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAAAAA".to_vec())?
+    ///     .add_mismatch(mismatch_frac)
+    ///     .build(ReadState::PrimaryFwd, &mut rng);
+    /// // 50% of bases (4 out of 8) will be changed to different bases
+    /// let mismatch_count = seq.iter().filter(|&&b| b != b'A').count();
+    /// assert_eq!(mismatch_count, 4);
+    /// // CIGAR remains 8M (mismatches don't change CIGAR)
+    /// assert_eq!(cigar.expect("no error").to_string(), "8M");
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// Combining deletion and insertion:
+    /// ```
+    /// use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
+    /// use nanalogue_core::{ReadState, F32Bw0and1, OrdPair, DNARestrictive, Error};
+    /// use std::str::FromStr;
+    /// use rand::Rng;
+    ///
+    /// let mut rng = rand::rng();
+    /// let delete_range = OrdPair::new(
+    ///     F32Bw0and1::try_from(0.5)?,
+    ///     F32Bw0and1::try_from(0.75)?
+    /// )?;
+    /// let insert_seq = DNARestrictive::from_str("TT")?;
+    /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAACCCCGGGG".to_vec())?
+    ///     .add_delete(delete_range)
+    ///     .add_insert_middle(insert_seq)
+    ///     .build(ReadState::PrimaryFwd, &mut rng);
+    /// // Applies both deletion and insertion operations
+    /// assert_eq!(seq, b"AAAACCTTGGG");
+    /// assert_eq!(cigar.expect("no error").to_string(), "6M2I3D3M");
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
     /// # Returns
     /// A tuple of (`final_sequence`, `cigar_string`) where:
     /// - `final_sequence` includes barcodes if specified
@@ -3171,17 +3251,12 @@ mod perfect_seq_match_to_not_tests {
             .build(ReadState::PrimaryFwd, &mut rng);
 
         // Original: AAAACCCCGGGG (12 bases)
-        // Delete 50%-75%: positions 6-9, deletes CCC (3 bases)
-        // After delete: AAAACGGGG (9 bases)
-        // Middle of 9 is position 4
-        // Insert TT at position 4
-        // Result: AAAATTCGGGG (11 bases)
-        assert_eq!(seq.len(), 11);
-
-        // CIGAR should reflect both operations
-        let cigar_str = cigar.expect("no error").to_string();
-        assert!(cigar_str.contains('D')); // Should have deletion
-        assert!(cigar_str.contains('I')); // Should have insertion
+        // Mark positions 6-8 for deletion (CCG)
+        // Insert TT at position 6 (middle of 12)
+        // Final operations: 6M (AAAACC) + 2I (TT) + 3D (CCG) + 3M (GGG)
+        // Result: AAAACCTTGGG (11 bases)
+        assert_eq!(seq, b"AAAACCTTGGG");
+        assert_eq!(cigar.expect("no error").to_string(), "6M2I3D3M");
         Ok(())
     }
 

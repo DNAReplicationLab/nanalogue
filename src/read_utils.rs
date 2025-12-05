@@ -70,6 +70,9 @@ impl CurrReadStateOnlyAlign for OnlyAlignDataComplete {}
 /// Also has methods for processing this information.
 /// Also see [`CurrReadBuilder`] for a way to build this without BAM records.
 ///
+/// We call this `CurrRead` as in 'current read'. `Read` is used
+/// within `rust-htslib`, so we don't want to create another `Read` struct.
+///
 /// The information within the struct is hard to access without
 /// the methods defined here. This is to ensure the struct
 /// doesn't fall into an invalid state, which could cause mistakes
