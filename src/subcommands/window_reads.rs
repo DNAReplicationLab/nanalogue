@@ -340,51 +340,32 @@ mod stochastic_tests {
     use itertools::izip;
     use rust_htslib::bam::{self, Read as _};
 
-    /// Test that `run_df` produces an empty dataframe for BAM files with no modification data
-    ///
-    /// This test creates a simulated BAM file without any modification information and verifies
-    /// that `run_df` correctly returns an empty dataframe (no data rows, only column headers).
-    #[test]
-    fn run_df_empty_for_no_mods() -> Result<(), Error> {
-        // Create simulation config with no modifications
-        let config_json = r#"{
-            "contigs": {
-                "number": 2,
-                "len_range": [100, 200]
-            },
-            "reads": [{
-                "number": 100,
-                "mapq_range": [10, 20],
-                "base_qual_range": [10, 20],
-                "len_range": [0.1, 0.8]
-            }]
-        }"#;
-
+    /// Helper to create a simulation from JSON config
+    fn create_test_simulation(config_json: &str) -> Result<TempBamSimulation, Error> {
         let config: SimulationConfig = serde_json::from_str(config_json)?;
-        let sim = TempBamSimulation::new(config)?;
+        TempBamSimulation::new(config)
+    }
 
-        // Read BAM file
+    /// Helper to run window analysis with `threshold_and_mean` aggregation function
+    fn run_window_analysis_with_threshold(
+        sim: &TempBamSimulation,
+        win: usize,
+        step: usize,
+    ) -> Result<polars::frame::DataFrame, Error> {
         let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
         let bam_records = bam_reader.rc_records();
 
-        // Set up windowing options
         let window_options: InputWindowing =
-            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+            serde_json::from_str(&format!("{{\"win\": {win}, \"step\": {step}}}"))?;
         let mods = InputMods::default();
 
-        // Call run_df with threshold_and_mean function
-        let df = run_df(bam_records, window_options, &mods, |x| {
+        run_df(bam_records, window_options, &mods, |x| {
             analysis::threshold_and_mean(x).map(Into::into)
-        })?;
+        })
+    }
 
-        // Verify the dataframe is empty (no data rows)
-        assert_eq!(
-            df.height(),
-            0,
-            "DataFrame should have no rows for BAM with no modifications"
-        );
-
-        // Verify we have the expected column headers
+    /// Helper to assert dataframe has expected column headers
+    fn assert_expected_columns(df: &polars::frame::DataFrame) {
         let expected_columns = vec![
             "contig",
             "ref_win_start",
@@ -409,6 +390,39 @@ mod stochastic_tests {
             actual_columns, expected_columns,
             "DataFrame should have correct column headers"
         );
+    }
+
+    /// Test that `run_df` produces an empty dataframe for BAM files with no modification data
+    ///
+    /// This test creates a simulated BAM file without any modification information and verifies
+    /// that `run_df` correctly returns an empty dataframe (no data rows, only column headers).
+    #[test]
+    fn run_df_empty_for_no_mods() -> Result<(), Error> {
+        // Create simulation config with no modifications
+        let config_json = r#"{
+            "contigs": {
+                "number": 2,
+                "len_range": [100, 200]
+            },
+            "reads": [{
+                "number": 100,
+                "mapq_range": [10, 20],
+                "base_qual_range": [10, 20],
+                "len_range": [0.1, 0.8]
+            }]
+        }"#;
+
+        let sim = create_test_simulation(config_json)?;
+        let df = run_window_analysis_with_threshold(&sim, 2, 1)?;
+
+        // Verify the dataframe is empty (no data rows)
+        assert_eq!(
+            df.height(),
+            0,
+            "DataFrame should have no rows for BAM with no modifications"
+        );
+
+        assert_expected_columns(&df);
 
         Ok(())
     }
@@ -440,22 +454,8 @@ mod stochastic_tests {
             }]
         }"#;
 
-        let config: SimulationConfig = serde_json::from_str(config_json)?;
-        let sim = TempBamSimulation::new(config)?;
-
-        // Read BAM file
-        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
-        let bam_records = bam_reader.rc_records();
-
-        // Set up windowing options
-        let window_options: InputWindowing =
-            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
-        let mods = InputMods::default();
-
-        // Call run_df with threshold_and_mean function
-        let df = run_df(bam_records, window_options, &mods, |x| {
-            analysis::threshold_and_mean(x).map(Into::into)
-        })?;
+        let sim = create_test_simulation(config_json)?;
+        let df = run_window_analysis_with_threshold(&sim, 2, 1)?;
 
         // Verify the dataframe is NOT empty (should have data rows with mods)
         assert!(
@@ -463,31 +463,7 @@ mod stochastic_tests {
             "DataFrame should have rows when modifications are present"
         );
 
-        // Verify we have the expected column headers
-        let expected_columns = vec![
-            "contig",
-            "ref_win_start",
-            "ref_win_end",
-            "read_id",
-            "win_val",
-            "strand",
-            "base",
-            "mod_strand",
-            "mod_type",
-            "win_start",
-            "win_end",
-            "basecall_qual",
-        ];
-
-        let actual_columns: Vec<String> = df
-            .get_column_names()
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        assert_eq!(
-            actual_columns, expected_columns,
-            "DataFrame should have correct column headers"
-        );
+        assert_expected_columns(&df);
 
         let mod_qual = df.column("win_val")?.f32()?;
         assert!(mod_qual.iter().all(|x| x == Some(0.0)));
@@ -533,22 +509,8 @@ mod stochastic_tests {
             }]
         }"#;
 
-        let config: SimulationConfig = serde_json::from_str(config_json)?;
-        let sim = TempBamSimulation::new(config)?;
-
-        // Read BAM file
-        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
-        let bam_records = bam_reader.rc_records();
-
-        // Set up windowing options
-        let window_options: InputWindowing =
-            serde_json::from_str("{\"win\": 200, \"step\": 100}").unwrap();
-        let mods = InputMods::default();
-
-        // Call run_df with threshold_and_mean function
-        let df = run_df(bam_records, window_options, &mods, |x| {
-            analysis::threshold_and_mean(x).map(Into::into)
-        })?;
+        let sim = create_test_simulation(config_json)?;
+        let df = run_window_analysis_with_threshold(&sim, 200, 100)?;
 
         // Verify the dataframe is NOT empty (should have data rows with mods)
         assert!(
@@ -556,31 +518,7 @@ mod stochastic_tests {
             "DataFrame should have rows when modifications are present"
         );
 
-        // Verify we have the expected column headers
-        let expected_columns = vec![
-            "contig",
-            "ref_win_start",
-            "ref_win_end",
-            "read_id",
-            "win_val",
-            "strand",
-            "base",
-            "mod_strand",
-            "mod_type",
-            "win_start",
-            "win_end",
-            "basecall_qual",
-        ];
-
-        let actual_columns: Vec<String> = df
-            .get_column_names()
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        assert_eq!(
-            actual_columns, expected_columns,
-            "DataFrame should have correct column headers"
-        );
+        assert_expected_columns(&df);
 
         let mod_qual = df.column("win_val")?.f32()?;
         assert!(mod_qual.iter().all(|x| (0.2..=0.8).contains(&x.unwrap())));
@@ -651,22 +589,8 @@ mod stochastic_tests {
             ]
         }"#;
 
-        let config: SimulationConfig = serde_json::from_str(config_json)?;
-        let sim = TempBamSimulation::new(config)?;
-
-        // Read BAM file
-        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
-        let bam_records = bam_reader.rc_records();
-
-        // Set up windowing options
-        let window_options: InputWindowing =
-            serde_json::from_str("{\"win\": 200, \"step\": 100}").unwrap();
-        let mods = InputMods::default();
-
-        // Call run_df with threshold_and_mean function
-        let df = run_df(bam_records, window_options, &mods, |x| {
-            analysis::threshold_and_mean(x).map(Into::into)
-        })?;
+        let sim = create_test_simulation(config_json)?;
+        let df = run_window_analysis_with_threshold(&sim, 200, 100)?;
 
         // Verify the dataframe is NOT empty (should have data rows with mods)
         assert!(
@@ -674,31 +598,7 @@ mod stochastic_tests {
             "DataFrame should have rows when modifications are present"
         );
 
-        // Verify we have the expected column headers
-        let expected_columns = vec![
-            "contig",
-            "ref_win_start",
-            "ref_win_end",
-            "read_id",
-            "win_val",
-            "strand",
-            "base",
-            "mod_strand",
-            "mod_type",
-            "win_start",
-            "win_end",
-            "basecall_qual",
-        ];
-
-        let actual_columns: Vec<String> = df
-            .get_column_names()
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        assert_eq!(
-            actual_columns, expected_columns,
-            "DataFrame should have correct column headers"
-        );
+        assert_expected_columns(&df);
 
         let mod_qual = df.column("win_val")?.f32()?;
         let basecall_qual = df.column("basecall_qual")?.u32()?;
