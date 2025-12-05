@@ -1106,3 +1106,185 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod stochastic_tests {
+    use super::*;
+    use crate::simulate_mod_bam::{
+        ContigConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder, TempBamSimulation,
+    };
+    use rust_htslib::bam::Read as _;
+
+    /// Helper to run reads table generation
+    fn run_reads_table_generation_bare_options(
+        sim: &TempBamSimulation,
+    ) -> Result<DataFrame, Error> {
+        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
+        let bam_records = bam_reader.rc_records();
+        let mods: Option<InputMods<OptionalTag>> = None;
+        run_df(bam_records, mods, SeqDisplayOptions::No, "")
+    }
+
+    /// Helper to keep track that all read states have been visited
+    fn track_read_state_visits(val: &mut [bool; 7], state: &str) {
+        match state {
+            "unmapped" => val[0] = true,
+            "primary_forward" => val[1] = true,
+            "primary_reverse" => val[2] = true,
+            "secondary_forward" => val[3] = true,
+            "secondary_reverse" => val[4] = true,
+            "supplementary_forward" => val[5] = true,
+            "supplementary_reverse" => val[6] = true,
+            &_ => unreachable!(),
+        }
+    }
+
+    /// Helper to assert dataframe has expected column headers
+    fn assert_expected_columns(
+        df: &DataFrame,
+        with_mod_count: bool,
+        with_sequence: bool,
+        with_qualities: bool,
+    ) {
+        let mut expected_columns = vec![
+            "read_id",
+            "align_length",
+            "sequence_length_template",
+            "alignment_type",
+            "mod_count",
+            "sequence",
+            "qualities",
+        ];
+        if !with_qualities {
+            let _ : &str = expected_columns.pop().expect("no error");
+        }
+        if !with_sequence {
+            let _: &str = expected_columns.pop().expect("no error");
+        }
+        if !with_mod_count {
+            let _: &str = expected_columns.pop().expect("no error");
+        }
+
+        let actual_columns: Vec<String> = df
+            .get_column_names()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            actual_columns, expected_columns,
+            "DataFrame should have correct column headers"
+        );
+    }
+
+    /// Simple test, produce some reads and see if we get expected statistics.
+    /// Here `alignment length == sequence_length_template` and all read ids
+    /// start with "0." as there is only one read group. The `alignment_type`
+    /// is equally likely to be one of seven.
+    #[test]
+    fn run_df_simple() -> Result<(), Error> {
+        // Create simulation config with no modifications
+        let contig_config = ContigConfigBuilder::default()
+            .number(2)
+            .len_range((1000, 2000))
+            .build()?;
+
+        let read_config = ReadConfigBuilder::default()
+            .number(100)
+            .mapq_range((10, 20))
+            .base_qual_range((30, 40))
+            .len_range((0.5, 0.6));
+
+        let sim_config = SimulationConfigBuilder::default()
+            .contigs(contig_config)
+            .reads(vec![read_config.build()?])
+            .build()?;
+
+        let sim = TempBamSimulation::new(sim_config)?;
+        let df = run_reads_table_generation_bare_options(&sim)?;
+
+        // Verify the dataframe is not empty and has expected columns
+        assert!(df.height() > 0, "DataFrame should have some rows");
+        assert_expected_columns(&df, false, false, false);
+
+        let mut read_states = [false; 7];
+
+        let read_id = df.column("read_id")?.str()?;
+        assert!(read_id.iter().all(|k| k.unwrap().starts_with("0.")), "only one RG, must start with 0");
+
+        let align_length = df.column("align_length")?.str()?;
+        let seq_length = df.column("sequence_length_template")?.u64()?;
+        let alignment_type = df.column("alignment_type")?.str()?;
+
+        for k in align_length.iter().zip(seq_length).zip(alignment_type) {
+            let al = k.0.0.unwrap().parse::<u64>().unwrap();
+            let sl = k.0.1.unwrap();
+            let rs = k.1.unwrap();
+            assert!(al == 0 || al == sl);
+            if al == 0 {
+                assert_eq!(rs, "unmapped");
+            }
+            track_read_state_visits(&mut read_states, rs);
+            assert!((500..=1200).contains(&sl));
+        }
+
+        assert!(read_states.into_iter().all(|k| k));
+
+        Ok(())
+    }
+
+    /// More complex, now sequence and alignment lengths are systematically
+    /// different due to an insertion and a barcode.
+    #[test]
+    fn run_df_al_sl_different() -> Result<(), Error> {
+        // Create simulation config with no modifications
+        let contig_config = ContigConfigBuilder::default()
+            .number(2)
+            .len_range((1000, 2000))
+            .build()?;
+
+        let read_config = ReadConfigBuilder::default()
+            .number(100)
+            .mapq_range((10, 20))
+            .base_qual_range((30, 40))
+            .len_range((0.5, 0.6))
+            .barcode("AATTGAA".into())
+            .insert_middle("GGTT".into());
+
+        let sim_config = SimulationConfigBuilder::default()
+            .contigs(contig_config)
+            .reads(vec![read_config.build()?])
+            .build()?;
+
+        let sim = TempBamSimulation::new(sim_config)?;
+        let df = run_reads_table_generation_bare_options(&sim)?;
+
+        // Verify the dataframe is not empty and has expected columns
+        assert!(df.height() > 0, "DataFrame should have some rows");
+        assert_expected_columns(&df, false, false, false);
+
+        let mut read_states = [false; 7];
+
+        let read_id = df.column("read_id")?.str()?;
+        assert!(read_id.iter().all(|k| k.unwrap().starts_with("0.")), "only one RG, must start with 0");
+
+        let align_length = df.column("align_length")?.str()?;
+        let seq_length = df.column("sequence_length_template")?.u64()?;
+        let alignment_type = df.column("alignment_type")?.str()?;
+
+        for k in align_length.iter().zip(seq_length).zip(alignment_type) {
+            let al = k.0.0.unwrap().parse::<u64>().unwrap();
+            let sl = k.0.1.unwrap();
+            let rs = k.1.unwrap();
+            assert!(al == 0 || al == sl - 18); // barcode is 7 bp, insertion is 4 bp, so 2 * 7 + 4
+            if al == 0 {
+                assert_eq!(rs, "unmapped");
+            }
+            track_read_state_visits(&mut read_states, rs);
+            assert!((518..=1218).contains(&sl));
+        }
+
+        assert!(read_states.into_iter().all(|k| k));
+
+        Ok(())
+    }
+}
