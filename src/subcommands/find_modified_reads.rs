@@ -74,7 +74,7 @@ mod tests {
     {
         // Open the BAM file and collect records
         let mut reader = nanalogue_bam_reader(bam_path)?;
-        let records: Vec<_> = reader.records().map(|r| r.map(Rc::new)).collect();
+        let records = reader.rc_records();
 
         // Set up windowing options
         let window_options = InputWindowing {

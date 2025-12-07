@@ -1113,16 +1113,19 @@ mod stochastic_tests {
     use crate::simulate_mod_bam::{
         ContigConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder, TempBamSimulation,
     };
+    use derive_builder::Builder;
     use rust_htslib::bam::Read as _;
+    use std::ops::RangeInclusive;
 
     /// Helper to run reads table generation
-    fn run_reads_table_generation_bare_options(
+    fn run_reads_table_generation(
         sim: &TempBamSimulation,
+        mods: Option<InputMods<OptionalTag>>,
+        seq_display: SeqDisplayOptions,
     ) -> Result<DataFrame, Error> {
         let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
         let bam_records = bam_reader.rc_records();
-        let mods: Option<InputMods<OptionalTag>> = None;
-        run_df(bam_records, mods, SeqDisplayOptions::No, "")
+        run_df(bam_records, mods, seq_display, "")
     }
 
     /// Helper to keep track that all read states have been visited
@@ -1139,30 +1142,35 @@ mod stochastic_tests {
         }
     }
 
+    /// Helper struct used in the [`assert_expected_columns`] function
+    /// to register what columns are expected.
+    #[derive(Builder, Clone, Copy, Debug, Default, PartialEq)]
+    #[builder(default, build_fn(error = "Error"))]
+    struct Columns {
+        /// Expect a `mod_count` column
+        mod_count: bool,
+        /// Expect a `sequence` column
+        sequence: bool,
+        /// Expect a `qualities` column
+        qualities: bool,
+    }
+
     /// Helper to assert dataframe has expected column headers
-    fn assert_expected_columns(
-        df: &DataFrame,
-        with_mod_count: bool,
-        with_sequence: bool,
-        with_qualities: bool,
-    ) {
+    fn assert_expected_columns(df: &DataFrame, columns: Columns) {
         let mut expected_columns = vec![
             "read_id",
             "align_length",
             "sequence_length_template",
             "alignment_type",
-            "mod_count",
-            "sequence",
-            "qualities",
         ];
-        if !with_qualities {
-            let _ : &str = expected_columns.pop().expect("no error");
+        if columns.mod_count {
+            expected_columns.push("mod_count");
         }
-        if !with_sequence {
-            let _: &str = expected_columns.pop().expect("no error");
+        if columns.sequence {
+            expected_columns.push("sequence");
         }
-        if !with_mod_count {
-            let _: &str = expected_columns.pop().expect("no error");
+        if columns.qualities {
+            expected_columns.push("qualities");
         }
 
         let actual_columns: Vec<String> = df
@@ -1174,6 +1182,95 @@ mod stochastic_tests {
             actual_columns, expected_columns,
             "DataFrame should have correct column headers"
         );
+    }
+
+    /// Helper struct used in the `check_seq_qual` function
+    /// to register expected/observed counts of different non-upper-case A/C/G/T
+    /// characters in a sequence
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    struct Counts {
+        /// Number of occurences of '.'
+        period: usize,
+        /// Number of occurences of lowercase bases
+        lowercase: usize,
+        /// Number of occurences of 'Z'
+        uppercase_z: usize,
+        /// Number of occurences of 'z'
+        lowercase_z: usize,
+    }
+
+    impl Counts {
+        /// Increment appropriate count
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "we are ok with this in tests"
+        )]
+        fn increment(&mut self, value: char) -> Result<(), Error> {
+            match value {
+                '.' => self.period += 1,
+                'A' | 'C' | 'G' | 'T' => {}
+                'a' | 'c' | 'g' | 't' => {
+                    self.lowercase += 1;
+                }
+                'z' => {
+                    self.lowercase_z += 1;
+                    self.lowercase += 1;
+                }
+                'Z' => {
+                    self.uppercase_z += 1;
+                }
+                v => {
+                    return Err(Error::InvalidSeq(format!(
+                        "Invalid character {v} found in sequence!"
+                    )));
+                }
+            }
+
+            Ok(())
+        }
+    }
+
+    /// Helper to check if sequence and quality columns are as desired
+    fn check_seq_qual(
+        seq_col: &ChunkedArray<StringType>,
+        qual_col: &ChunkedArray<StringType>,
+        seq_len: usize,
+        expected_count: &Counts,
+        qual_allowed: RangeInclusive<u8>,
+    ) {
+        let mut data_present = false;
+
+        for k in seq_col.iter().zip(qual_col) {
+            data_present = true;
+
+            let seq = k.0.unwrap();
+            assert_eq!(seq.len(), seq_len, "Sequence length mismatch");
+
+            let qual =
+                k.1.unwrap()
+                    .split('.')
+                    .map(|x| x.parse::<u8>().unwrap())
+                    .collect::<Vec<u8>>();
+            assert_eq!(qual.len(), seq_len, "Quality length mismatch");
+
+            let mut count: Counts = Counts::default();
+
+            for l in seq.chars().zip(qual) {
+                match l {
+                    ('.', 255u8) => count.increment('.').unwrap(),
+                    (v, w) => {
+                        count.increment(v).unwrap();
+                        assert!(qual_allowed.contains(&w));
+                    }
+                }
+            }
+            assert!(
+                count == *expected_count,
+                "need correct number of . if . is expected"
+            );
+        }
+
+        assert!(data_present, "Some data must be present in the table");
     }
 
     /// Simple test, produce some reads and see if we get expected statistics.
@@ -1200,16 +1297,19 @@ mod stochastic_tests {
             .build()?;
 
         let sim = TempBamSimulation::new(sim_config)?;
-        let df = run_reads_table_generation_bare_options(&sim)?;
+        let df = run_reads_table_generation(&sim, None, SeqDisplayOptions::No)?;
 
         // Verify the dataframe is not empty and has expected columns
         assert!(df.height() > 0, "DataFrame should have some rows");
-        assert_expected_columns(&df, false, false, false);
+        assert_expected_columns(&df, ColumnsBuilder::default().build()?);
 
         let mut read_states = [false; 7];
 
         let read_id = df.column("read_id")?.str()?;
-        assert!(read_id.iter().all(|k| k.unwrap().starts_with("0.")), "only one RG, must start with 0");
+        assert!(
+            read_id.iter().all(|k| k.unwrap().starts_with("0.")),
+            "only one RG, must start with 0"
+        );
 
         let align_length = df.column("align_length")?.str()?;
         let seq_length = df.column("sequence_length_template")?.u64()?;
@@ -1256,16 +1356,19 @@ mod stochastic_tests {
             .build()?;
 
         let sim = TempBamSimulation::new(sim_config)?;
-        let df = run_reads_table_generation_bare_options(&sim)?;
+        let df = run_reads_table_generation(&sim, None, SeqDisplayOptions::No)?;
 
         // Verify the dataframe is not empty and has expected columns
         assert!(df.height() > 0, "DataFrame should have some rows");
-        assert_expected_columns(&df, false, false, false);
+        assert_expected_columns(&df, ColumnsBuilder::default().build()?);
 
         let mut read_states = [false; 7];
 
         let read_id = df.column("read_id")?.str()?;
-        assert!(read_id.iter().all(|k| k.unwrap().starts_with("0.")), "only one RG, must start with 0");
+        assert!(
+            read_id.iter().all(|k| k.unwrap().starts_with("0.")),
+            "only one RG, must start with 0"
+        );
 
         let align_length = df.column("align_length")?.str()?;
         let seq_length = df.column("sequence_length_template")?.u64()?;
@@ -1278,12 +1381,130 @@ mod stochastic_tests {
             assert!(al == 0 || al == sl - 18); // barcode is 7 bp, insertion is 4 bp, so 2 * 7 + 4
             if al == 0 {
                 assert_eq!(rs, "unmapped");
+            } else {
+                assert!((500..=1200).contains(&al));
             }
             track_read_state_visits(&mut read_states, rs);
-            assert!((518..=1218).contains(&sl));
         }
 
         assert!(read_states.into_iter().all(|k| k));
+
+        Ok(())
+    }
+
+    /// Test retrieval of sequence and qualities
+    #[test]
+    fn run_df_seq_qual_retrieval() -> Result<(), Error> {
+        // Create simulation config with no modifications
+        let contig_config = ContigConfigBuilder::default()
+            .number(2)
+            .len_range((1000, 1000))
+            .build()?;
+
+        let read_config = ReadConfigBuilder::default()
+            .number(100)
+            .mapq_range((10, 20))
+            .base_qual_range((71, 79))
+            .len_range((0.5, 0.5));
+
+        let sim_config = SimulationConfigBuilder::default()
+            .contigs(contig_config)
+            .reads(vec![read_config.build()?])
+            .build()?;
+
+        let sim = TempBamSimulation::new(sim_config)?;
+        let df = run_reads_table_generation(
+            &sim,
+            None,
+            SeqDisplayOptions::Full {
+                show_base_qual: true,
+            },
+        )?;
+
+        // Verify the dataframe has expected columns
+        assert_expected_columns(
+            &df,
+            ColumnsBuilder::default()
+                .sequence(true)
+                .qualities(true)
+                .build()?,
+        );
+
+        let seq_col = df.column("sequence")?.str()?;
+        let qual_col = df.column("qualities")?.str()?;
+
+        check_seq_qual(seq_col, qual_col, 500, &Counts::default(), 71u8..=79u8);
+
+        let df_2 = run_reads_table_generation(
+            &sim,
+            None,
+            SeqDisplayOptions::Full {
+                show_base_qual: false,
+            },
+        )?;
+
+        // Verify the dataframe is not empty and has expected columns
+        assert!(df_2.height() > 0, "DataFrame should have some rows");
+        assert_expected_columns(&df_2, ColumnsBuilder::default().sequence(true).build()?);
+
+        // extract seq but we won't be getting a column called qualities
+        let seq_col_2 = df_2.column("sequence")?.str()?;
+        drop(df_2.column("qualities").unwrap_err());
+
+        for k in seq_col_2.iter() {
+            assert_eq!(k.unwrap().len(), 500);
+        }
+
+        Ok(())
+    }
+
+    /// Test retrieval of sequence and qualities of the full
+    /// sequence even with indels and barcode.
+    #[test]
+    fn run_df_seq_qual_retrieval_indels_barcode() -> Result<(), Error> {
+        // Create simulation config with no modifications
+        let contig_config = ContigConfigBuilder::default()
+            .number(2)
+            .len_range((1000, 1000))
+            .build()?;
+
+        let read_config = ReadConfigBuilder::default()
+            .number(100)
+            .mapq_range((10, 20))
+            .base_qual_range((71, 79))
+            .len_range((0.5, 0.5))
+            .barcode("AATT".into())
+            .delete((0.5, 0.6))
+            .insert_middle("GGTTGG".into())
+            .mismatch(0.1);
+
+        let sim_config = SimulationConfigBuilder::default()
+            .contigs(contig_config)
+            .reads(vec![read_config.build()?])
+            .build()?;
+
+        let sim = TempBamSimulation::new(sim_config)?;
+        let df = run_reads_table_generation(
+            &sim,
+            None,
+            SeqDisplayOptions::Full {
+                show_base_qual: true,
+            },
+        )?;
+
+        // Verify the dataframe has expected columns
+        assert_expected_columns(
+            &df,
+            ColumnsBuilder::default()
+                .sequence(true)
+                .qualities(true)
+                .build()?,
+        );
+
+        let seq_col = df.column("sequence")?.str()?;
+        let qual_col = df.column("qualities")?.str()?;
+
+        check_seq_qual(seq_col, qual_col, 464, &Counts::default(), 71u8..=79u8);
 
         Ok(())
     }
