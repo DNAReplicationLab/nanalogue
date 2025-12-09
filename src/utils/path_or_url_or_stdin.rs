@@ -265,4 +265,22 @@ mod tests {
             "Windows-like paths should be treated as Path"
         );
     }
+
+    #[test]
+    fn display_stdin() {
+        let stdin = PathOrURLOrStdin::Stdin;
+        assert_eq!(stdin.to_string(), "-");
+    }
+
+    #[test]
+    fn display_path() {
+        let path = PathOrURLOrStdin::Path("/some/path/to/file.bam".into());
+        assert_eq!(path.to_string(), "/some/path/to/file.bam");
+    }
+
+    #[test]
+    fn display_url() {
+        let url = PathOrURLOrStdin::URL(Url::parse("https://example.com/data.bam").unwrap());
+        assert_eq!(url.to_string(), "https://example.com/data.bam");
+    }
 }

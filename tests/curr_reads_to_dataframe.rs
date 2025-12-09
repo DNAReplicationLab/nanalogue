@@ -71,7 +71,7 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, 15, 200), (2, 25, 100)].into())
+            .data([(0, 15, 200), (2, 25, 100)])
             .build()?;
 
         let read = CurrReadBuilder::default()
@@ -161,14 +161,14 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, 15, 200), (2, 25, 100)].into())
+            .data([(0, 15, 200), (2, 25, 100)])
             .build()?;
 
         let mod_table_entry_2 = ModTableEntryBuilder::default()
             .base('A')
             .is_strand_plus(true)
             .mod_code("a".into())
-            .data([(1, 20, 50), (3, 30, 225)].into())
+            .data([(1, 20, 50), (3, 30, 225)])
             .build()?;
 
         let read = CurrReadBuilder::default()
@@ -262,14 +262,14 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, -1, 200), (2, -1, 100)].into())
+            .data([(0, -1, 200), (2, -1, 100)])
             .build()?;
 
         let mod_table_entry_2 = ModTableEntryBuilder::default()
             .base('A')
             .is_strand_plus(true)
             .mod_code("a".into())
-            .data([(1, -1, 50), (3, -1, 225)].into())
+            .data([(1, -1, 50), (3, -1, 225)])
             .build()?;
 
         let read = CurrReadBuilder::default()

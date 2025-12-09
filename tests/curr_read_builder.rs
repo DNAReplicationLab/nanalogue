@@ -65,7 +65,7 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, 15, 200), (2, 25, 100)].into())
+            .data([(0, 15, 200), (2, 25, 100)])
             .build()?;
 
         let _read: CurrRead<AlignAndModData> = CurrReadBuilder::default()
@@ -92,14 +92,14 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, 15, 200), (2, 25, 100)].into())
+            .data([(0, 15, 200), (2, 25, 100)])
             .build()?;
 
         let mod_table_entry_2 = ModTableEntryBuilder::default()
             .base('A')
             .is_strand_plus(true)
             .mod_code("a".into())
-            .data([(1, 20, 50), (3, 30, 225)].into())
+            .data([(1, 20, 50), (3, 30, 225)])
             .build()?;
 
         let _read: CurrRead<AlignAndModData> = CurrReadBuilder::default()
@@ -126,14 +126,14 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, -1, 200), (2, -1, 100)].into())
+            .data([(0, -1, 200), (2, -1, 100)])
             .build()?;
 
         let mod_table_entry_2 = ModTableEntryBuilder::default()
             .base('A')
             .is_strand_plus(true)
             .mod_code("a".into())
-            .data([(1, -1, 50), (3, -1, 225)].into())
+            .data([(1, -1, 50), (3, -1, 225)])
             .build()?;
 
         let _read: CurrRead<AlignAndModData> = CurrReadBuilder::default()
@@ -152,7 +152,7 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(2, 25, 100), (0, 15, 200)].into())
+            .data([(2, 25, 100), (0, 15, 200)])
             .build()
             .unwrap();
 
@@ -184,7 +184,7 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(2, 25, 100), (0, 15, 200)].into())
+            .data([(2, 25, 100), (0, 15, 200)])
             .build()
             .unwrap();
 
@@ -216,7 +216,7 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, -1, 200), (2, 11, 100)].into())
+            .data([(0, -1, 200), (2, 11, 100)])
             .build()
             .unwrap();
 
@@ -236,7 +236,7 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, -1, 200), (42, -1, 100)].into())
+            .data([(0, -1, 200), (42, -1, 100)])
             .build()
             .unwrap();
 
@@ -256,7 +256,7 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, 20, 200), (42, 30, 100)].into())
+            .data([(0, 20, 200), (42, 30, 100)])
             .build()
             .unwrap();
 
@@ -286,7 +286,7 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, 1, 200), (22, 30, 100)].into())
+            .data([(0, 1, 200), (22, 30, 100)])
             .build()
             .unwrap();
 
@@ -316,7 +316,7 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(0, -1, 200), (2, -1, 100)].into())
+            .data([(0, -1, 200), (2, -1, 100)])
             .build()
             .unwrap();
 
@@ -324,7 +324,7 @@ mod tests {
             .base('C')
             .is_strand_plus(true)
             .mod_code("m".into())
-            .data([(1, -1, 50), (3, -1, 225)].into())
+            .data([(1, -1, 50), (3, -1, 225)])
             .build()
             .unwrap();
 

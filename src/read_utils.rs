@@ -1483,7 +1483,7 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(0, 15, 200), (2, 25, 100)].into()).build()?;
+///     .data([(0, 15, 200), (2, 25, 100)]).build()?;
 ///
 /// let read = CurrReadBuilder::default()
 ///     .read_id("some_read".into())
@@ -1508,13 +1508,13 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(0, 15, 200), (2, 25, 100)].into()).build()?;
+///     .data([(0, 15, 200), (2, 25, 100)]).build()?;
 ///
 /// let mod_table_entry_2 = ModTableEntryBuilder::default()
 ///     .base('A')
 ///     .is_strand_plus(true)
 ///     .mod_code("a".into())
-///     .data([(1, 20, 50), (3, 30, 225)].into()).build()?;
+///     .data([(1, 20, 50), (3, 30, 225)]).build()?;
 ///
 /// let read = CurrReadBuilder::default()
 ///     .read_id("some_read".into())
@@ -1539,13 +1539,13 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(0, -1, 200), (2, -1, 100)].into()).build()?;
+///     .data([(0, -1, 200), (2, -1, 100)]).build()?;
 ///
 /// let mod_table_entry_2 = ModTableEntryBuilder::default()
 ///     .base('A')
 ///     .is_strand_plus(true)
 ///     .mod_code("a".into())
-///     .data([(1, -1, 50), (3, -1, 225)].into()).build()?;
+///     .data([(1, -1, 50), (3, -1, 225)]).build()?;
 ///
 /// let read = CurrReadBuilder::default()
 ///     .read_id("some_read".into())
@@ -1569,7 +1569,7 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(2, 25, 100), (0, 15, 200)].into()).build()?;
+///     .data([(2, 25, 100), (0, 15, 200)]).build()?;
 ///
 /// let read_before_build = CurrReadBuilder::default()
 ///     .read_id("some_read".into())
@@ -1593,7 +1593,7 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
 /// #    .base('C')
 /// #    .is_strand_plus(true)
 /// #    .mod_code("m".into())
-/// #    .data([(2, 25, 100), (0, 15, 200)].into()).build()?;
+/// #    .data([(2, 25, 100), (0, 15, 200)]).build()?;
 /// #
 /// # let read_before_build = CurrReadBuilder::default()
 /// #    .read_id("some_read".into())
@@ -1618,7 +1618,7 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(0, -1, 200), (2, 11, 100)].into()).build()?;
+///     .data([(0, -1, 200), (2, 11, 100)]).build()?;
 ///
 /// let read = CurrReadBuilder::default()
 ///     .read_id("some_read".into())
@@ -1638,7 +1638,7 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(0, -1, 200), (42, -1, 100)].into()).build()?;
+///     .data([(0, -1, 200), (42, -1, 100)]).build()?;
 ///
 /// let read = CurrReadBuilder::default()
 ///     .read_id("some_read".into())
@@ -1655,7 +1655,7 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(0, 20, 200), (42, 30, 100)].into()).build()?;
+///     .data([(0, 20, 200), (42, 30, 100)]).build()?;
 ///
 /// let read = CurrReadBuilder::default()
 ///     .read_id("some_read".into())
@@ -1678,7 +1678,7 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(0, 1, 200), (22, 30, 100)].into()).build()?;
+///     .data([(0, 1, 200), (22, 30, 100)]).build()?;
 ///
 /// let read = CurrReadBuilder::default()
 ///     .read_id("some_read".into())
@@ -1706,13 +1706,13 @@ impl FilterByRefCoords for CurrRead<AlignAndModData> {
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(0, -1, 200), (2, -1, 100)].into()).build()?;
+///     .data([(0, -1, 200), (2, -1, 100)]).build()?;
 ///
 /// let mod_table_entry_2 = ModTableEntryBuilder::default()
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(1, -1, 50), (3, -1, 225)].into()).build()?;
+///     .data([(1, -1, 50), (3, -1, 225)]).build()?;
 ///
 /// let read = CurrReadBuilder::default()
 ///     .read_id("some_read".into())
@@ -1783,6 +1783,7 @@ pub struct ModTableEntry {
     #[builder(field(ty = "String", build = "self.mod_code.parse()?"))]
     mod_code: ModChar,
     /// Modification data as [`start`, `ref_start`, `mod_qual`] tuples
+    #[builder(setter(into))]
     data: Vec<(u64, i64, u8)>,
 }
 
@@ -2078,7 +2079,7 @@ ascending needed even if reversed read)!",
 ///     .base('C')
 ///     .is_strand_plus(true)
 ///     .mod_code("m".into())
-///     .data([(0, 15, 200), (2, 25, 100)].into())
+///     .data([(0, 15, 200), (2, 25, 100)])
 ///     .build()?;
 ///
 /// // Build a CurrRead<AlignAndModData>

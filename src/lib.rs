@@ -1564,4 +1564,83 @@ mod bam_rc_record_tests {
         // 2/3 used above. So the same criterion will work with the second count quadrupled.
         assert!(4 * count_retained.1 >= min_count && 4 * count_retained.1 <= max_count);
     }
+
+    #[test]
+    #[should_panic(expected = "InvalidState")]
+    fn bam_rc_records_conflicting_read_id_set_and_list() {
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
+        let mut read_id_set = HashSet::new();
+        let _: bool = read_id_set.insert("some-read".to_owned());
+
+        // Build InputBam with read_id_list, then manually set read_id_set to create conflict
+        let mut bam_opts = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path("examples/example_1.bam".into()))
+            .read_id_list("examples/example_3_subset_1")
+            .build()
+            .unwrap();
+
+        // Manually set read_id_set to create the forbidden (true, true) state
+        bam_opts.read_id_set = Some(read_id_set);
+
+        let _: BamRcRecords<_> = BamRcRecords::new(
+            &mut reader,
+            &mut bam_opts,
+            &mut InputMods::<OptionalTag>::default(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn bam_rc_records_read_id_list_none_read_id_set_none() {
+        // Test (false, false) case: both None, both should remain None
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
+        let mut bam_opts = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path("examples/example_1.bam".into()))
+            .build()
+            .unwrap();
+
+        assert!(bam_opts.read_id_list.is_none());
+        assert!(bam_opts.read_id_set.is_none());
+
+        let _: BamRcRecords<_> = BamRcRecords::new(
+            &mut reader,
+            &mut bam_opts,
+            &mut InputMods::<OptionalTag>::default(),
+        )
+        .unwrap();
+
+        // Both should still be None
+        assert!(bam_opts.read_id_list.is_none());
+        assert!(bam_opts.read_id_set.is_none());
+    }
+
+    #[test]
+    fn bam_rc_records_read_id_list_none_read_id_set_some() {
+        // Test (true, false) case: read_id_set is Some, read_id_list is None
+        // read_id_set should remain unchanged
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
+        let mut read_id_set = HashSet::new();
+        let _: bool = read_id_set.insert("read1".to_owned());
+        let _: bool = read_id_set.insert("read2".to_owned());
+
+        let mut bam_opts = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path("examples/example_1.bam".into()))
+            .read_id_set(read_id_set.clone())
+            .build()
+            .unwrap();
+
+        assert!(bam_opts.read_id_list.is_none());
+        assert!(bam_opts.read_id_set.is_some());
+
+        let _: BamRcRecords<_> = BamRcRecords::new(
+            &mut reader,
+            &mut bam_opts,
+            &mut InputMods::<OptionalTag>::default(),
+        )
+        .unwrap();
+
+        // read_id_set should remain unchanged
+        assert!(bam_opts.read_id_list.is_none());
+        assert_eq!(bam_opts.read_id_set, Some(read_id_set));
+    }
 }

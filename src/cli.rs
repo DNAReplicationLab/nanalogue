@@ -25,10 +25,16 @@ use std::str::FromStr;
 ///
 /// # Examples
 ///
+/// We first begin with an example to build the struct.
+/// The next example shows how this struct and [`InputMods`] can be used
+/// to construct inputs to one of our BAM processing functions.
+///
 /// Sample way to build the struct. Some of the parameters are optional
 /// and can be left unset which would give them default values.
 /// We do not check if the specified bam path or URL exists as there are
 /// use cases where files are generated before the `InputBam` object is used.
+/// Not all options are listed here; for a full list, please see all the
+/// methods of the builder.
 ///
 /// ```
 /// use nanalogue_core::{Error, InputBamBuilder, PathOrURLOrStdin};
@@ -408,6 +414,9 @@ impl TagState for RequiredTag {
 ///
 /// # Examples
 ///
+/// Please look at the documentation of [`InputBam`] to see a fully-worked
+/// example to set up inputs to perform a calculation.
+///
 /// Following example uses many fields and is for a [`RequiredTag`] variant.
 /// You can omit some of them depending on your use case. `mod_region` must
 /// can be converted to `region_bed3` using [`GenomicRegion::try_to_bed3`]
@@ -430,9 +439,6 @@ impl TagState for RequiredTag {
 ///
 /// # Ok::<(), Error>(())
 /// ```
-///
-/// Please look at the documentation of [`InputBam`] to see a fully worked
-/// example to set up inputs to perform a calculation.
 ///
 /// A [`RequiredTag`] variant that sets `region_bed3` instead of `mod_region`.
 /// If `mod_region` is set, then a downstream function must parse a BAM file,
@@ -647,13 +653,18 @@ pub trait InputRegionOptions {
     /// Returns error if conversion fails
     fn convert_region_to_bed3(&mut self, header: bam::HeaderView) -> Result<(), Error> {
         match (
-            self.region_filter_genomic_string(),
-            self.region_filter().as_ref().is_some(),
+            self.region_filter_genomic_string().is_some(),
+            self.region_filter().is_some(),
         ) {
-            (None, false) => self.set_region_filter(None),
-            (Some(v), false) => self.set_region_filter(Some(v.try_to_bed3(&header)?)),
-            (None, true) => {}
-            (Some(_), true) => {
+            (false, false) => self.set_region_filter(None),
+            (true, false) => {
+                let genomic_region = self
+                    .region_filter_genomic_string()
+                    .expect("checked above that this is Some");
+                self.set_region_filter(Some(genomic_region.try_to_bed3(&header)?));
+            }
+            (false, true) => {}
+            (true, true) => {
                 return Err(Error::InvalidState(
                     "cannot set a region as both a `GenomicRegion` and a `Bed3`".to_owned(),
                 ));
@@ -816,6 +827,18 @@ mod tag_struct_tests {
         let required_tag = RequiredTag { tag: mod_char };
         assert_eq!(required_tag.tag(), Some(mod_char));
     }
+
+    #[test]
+    fn optional_tag_from_str() {
+        let tag = OptionalTag::from_str("m").unwrap();
+        assert_eq!(tag.tag.unwrap().val(), 'm');
+    }
+
+    #[test]
+    fn required_tag_from_str() {
+        let tag = RequiredTag::from_str("m").unwrap();
+        assert_eq!(tag.tag.val(), 'm');
+    }
 }
 
 #[cfg(test)]
@@ -838,6 +861,15 @@ mod input_windowing_tests {
         assert_eq!(windowing.win, NonZeroUsize::new(300).unwrap());
         assert_eq!(windowing.step, NonZeroUsize::new(150).unwrap());
     }
+
+    #[test]
+    fn input_windowing_builder() {
+        let _: InputWindowing = InputWindowingBuilder::default()
+            .win(20)
+            .step(10)
+            .build()
+            .unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -858,6 +890,40 @@ mod input_mods_required_tag_tests {
         };
 
         assert_eq!(input_mods.required_tag(), mod_char);
+    }
+
+    #[test]
+    fn input_mods_builder_required_tag_with_mod_region() {
+        let _: InputMods<RequiredTag> = InputModsBuilder::default()
+            .tag(RequiredTag::from_str("m").unwrap())
+            .mod_strand("bc".into())
+            .mod_prob_filter(ThresholdState::GtEq(0))
+            .trim_read_ends_mod(10)
+            .base_qual_filter_mod(10)
+            .mod_region("chr3:4000-5000".into())
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    fn input_mods_builder_required_tag_with_region_bed3() {
+        let _: InputMods<RequiredTag> = InputModsBuilder::<RequiredTag>::default()
+            .tag(RequiredTag::from_str("m").unwrap())
+            .mod_strand("bc".into())
+            .mod_prob_filter(ThresholdState::GtEq(0))
+            .trim_read_ends_mod(10)
+            .base_qual_filter_mod(10)
+            .region_bed3(Bed3::<i32, u64>::new(4, 4000, 5000))
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    fn input_mods_builder_optional_tag_minimal() {
+        let _: InputMods<OptionalTag> = InputModsBuilder::<OptionalTag>::default()
+            .mod_prob_filter(ThresholdState::GtEq(0))
+            .build()
+            .unwrap();
     }
 }
 
@@ -886,6 +952,23 @@ mod input_bam_tests {
             ..Default::default()
         };
         assert!(input_bam_true.is_full_overlap());
+    }
+
+    #[test]
+    fn input_bam_builder() {
+        let _: InputBam = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path("/some/path/to/bam.bam".into()))
+            .min_seq_len(30000u64)
+            .min_align_len(20000i64)
+            .read_id("some-id")
+            .read_filter("primary_forward,secondary_forward".into())
+            .sample_fraction(1.0)
+            .mapq_filter(20)
+            .exclude_mapq_unavail(true)
+            .region("chr4:1000-2000".into())
+            .full_region(true)
+            .build()
+            .unwrap();
     }
 
     #[test]
@@ -959,5 +1042,149 @@ mod input_bam_tests {
                 @SQ\tSN:chr2\tLN:4000\n"});
 
         input_bam.convert_region_to_bed3(header_view).unwrap();
+    }
+
+    #[test]
+    fn input_bam_convert_region_to_bed3_already_set_bed3() {
+        // When region_bed3 is already set and region is None, should not convert
+        let mut input_bam = InputBam {
+            region: None,
+            region_bed3: Some(Bed3::<i32, u64>::new(1, 1000, 2000)),
+            ..Default::default()
+        };
+
+        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
+                @SQ\tSN:chr1\tLN:3000
+                @SQ\tSN:chr2\tLN:4000\n"});
+
+        input_bam.convert_region_to_bed3(header_view).unwrap();
+
+        // Bed3 should remain unchanged
+        assert!(input_bam.region_bed3.is_some());
+        let bed3 = input_bam.region_bed3.unwrap();
+        assert_eq!(bed3.chr(), &1);
+        assert_eq!(bed3.start(), 1000);
+        assert_eq!(bed3.end(), 2000);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidState")]
+    fn input_bam_convert_region_to_bed3_both_set() {
+        // When both region and region_bed3 are set, should error
+        let mut input_bam = InputBam {
+            region: Some(GenomicRegion::from_str("chr2:1500-2500").unwrap()),
+            region_bed3: Some(Bed3::<i32, u64>::new(1, 1000, 2000)),
+            ..Default::default()
+        };
+
+        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
+                @SQ\tSN:chr1\tLN:3000
+                @SQ\tSN:chr2\tLN:4000\n"});
+
+        input_bam.convert_region_to_bed3(header_view).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod validate_builder_functions {
+    use super::*;
+
+    // Tests for InputBamBuilder::validate conflicts
+
+    #[test]
+    #[should_panic(expected = "BuilderValidation")]
+    fn input_bam_builder_full_region_without_region_fails() {
+        let _: InputBam = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path("/some/path.bam".into()))
+            .full_region(true)
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "BuilderValidation")]
+    fn input_bam_builder_both_region_and_region_bed3_fails() {
+        let _: InputBam = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path("/some/path.bam".into()))
+            .region("chr1:1000-2000".into())
+            .region_bed3(Bed3::<i32, u64>::new(0, 1000, 2000))
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "BuilderValidation")]
+    fn input_bam_builder_read_id_and_read_id_list_fails() {
+        let _: InputBam = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path("/some/path.bam".into()))
+            .read_id("some-id")
+            .read_id_list("/some/file.txt")
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "BuilderValidation")]
+    fn input_bam_builder_read_id_and_read_id_set_fails() {
+        let mut read_ids = HashSet::new();
+        let _: bool = read_ids.insert("read1".to_owned());
+        let _: InputBam = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path("/some/path.bam".into()))
+            .read_id("some-id")
+            .read_id_set(read_ids)
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "BuilderValidation")]
+    fn input_bam_builder_read_id_list_and_read_id_set_fails() {
+        let mut read_ids = HashSet::new();
+        let _: bool = read_ids.insert("read1".to_owned());
+        let _: InputBam = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path("/some/path.bam".into()))
+            .read_id_list("/some/file.txt")
+            .read_id_set(read_ids)
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "BuilderValidation")]
+    fn input_bam_builder_all_three_read_id_options_fails() {
+        let mut read_ids = HashSet::new();
+        let _: bool = read_ids.insert("read1".to_owned());
+        let _: InputBam = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path("/some/path.bam".into()))
+            .read_id("some-id")
+            .read_id_list("/some/file.txt")
+            .read_id_set(read_ids)
+            .build()
+            .unwrap();
+    }
+
+    // Tests for InputModsBuilder::validate conflicts
+
+    #[test]
+    #[should_panic(expected = "BuilderValidation")]
+    fn input_mods_builder_both_mod_region_and_region_bed3_fails() {
+        let _: InputMods<OptionalTag> = InputModsBuilder::<OptionalTag>::default()
+            .mod_prob_filter(ThresholdState::GtEq(0))
+            .mod_region("chr1:1000-2000".into())
+            .region_bed3(Bed3::<i32, u64>::new(0, 1000, 2000))
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "BuilderValidation")]
+    fn input_mods_builder_required_tag_both_regions_fails() {
+        let _: InputMods<RequiredTag> = InputModsBuilder::<RequiredTag>::default()
+            .tag(RequiredTag::from_str("m").unwrap())
+            .mod_prob_filter(ThresholdState::GtEq(0))
+            .mod_region("chr1:1000-2000".into())
+            .region_bed3(Bed3::<i32, u64>::new(0, 1000, 2000))
+            .build()
+            .unwrap();
     }
 }
