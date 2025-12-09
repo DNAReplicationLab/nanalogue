@@ -430,7 +430,7 @@ where
                         } else {
                             let mod_data =
                                 match SeqCoordCalls::try_from(&curr_read_state.mod_data().0) {
-                                    Err(Error::UnavailableData(_)) => vec![false; coord_map.len()],
+                                    Err(Error::UnavailableData(_)) => vec![false; seq.len()],
                                     Err(e) => return Err(e),
                                     Ok(v) => v.collapse_mod_calls(),
                                 };
@@ -1187,7 +1187,8 @@ mod stochastic_tests {
     /// Helper struct used in the `check_seq_qual` function
     /// to register expected/observed counts of different non-upper-case A/C/G/T
     /// characters in a sequence
-    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    #[derive(Builder, Clone, Copy, Debug, Default, PartialEq)]
+    #[builder(default, build_fn(error = "Error"))]
     struct Counts {
         /// Number of occurences of '.'
         period: usize,

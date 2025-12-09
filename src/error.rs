@@ -204,6 +204,10 @@ error could possibly be due to not including header with `samtools view -h` "
     #[error("building error, are you missing inputs?: `{0}`")]
     BuilderError(#[from] UninitializedFieldError),
 
+    /// Problem validating items with a Builder method
+    #[error("building error, input validation failed: `{0}`")]
+    BuilderValidation(String),
+
     /// Problem parsing items while converting between DNA base representations
     #[error("error converting between DNA bases: `{0}`")]
     FromCharError(#[from] TryFromCharError),

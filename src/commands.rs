@@ -405,8 +405,11 @@ pos retrieval/mod colouring without seq_region"
             show_ins_lowercase,
             seq_summ_file,
         } => {
-            let bam_rc_records =
-                BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
+            let bam_rc_records = BamRcRecords::new(
+                &mut bam_reader,
+                &mut bam,
+                &mut InputMods::<OptionalTag>::default(),
+            )?;
             reads_table::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
@@ -423,8 +426,11 @@ pos retrieval/mod colouring without seq_region"
             )
         }
         Commands::ReadStats { mut bam } => {
-            let bam_rc_records =
-                BamRcRecords::new(&mut bam_reader, &mut bam, &mut InputMods::default())?;
+            let bam_rc_records = BamRcRecords::new(
+                &mut bam_reader,
+                &mut bam,
+                &mut InputMods::<OptionalTag>::default(),
+            )?;
             read_stats::run(&mut handle, pre_filt!(bam_rc_records, &bam))
         }
         Commands::ReadInfo {

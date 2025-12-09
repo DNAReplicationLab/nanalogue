@@ -3,6 +3,7 @@
 
 use crate::Error;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
 use url::Url;
@@ -108,6 +109,23 @@ impl FromStr for PathOrURLOrStdin {
         // Otherwise, treat as path (don't check existence to avoid TOCTOU)
         let path = PathBuf::from(s);
         Ok(PathOrURLOrStdin::Path(path))
+    }
+}
+
+impl fmt::Display for PathOrURLOrStdin {
+    /// display "-" or the underlying path or URL.
+    /// If the path contains non-UTF-8 characters, you may not get a valid display
+    #[expect(
+        clippy::pattern_type_mismatch,
+        reason = "&self/self/etc. does not make a difference to readability here"
+    )]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PathOrURLOrStdin::Stdin => String::from("-"),
+            PathOrURLOrStdin::Path(v) => v.to_string_lossy().to_string(),
+            PathOrURLOrStdin::URL(v) => v.to_string(),
+        }
+        .fmt(f)
     }
 }
 

@@ -33,8 +33,8 @@ pub mod utils;
 
 // Re-exports
 pub use cli::{
-    InputBam, InputModOptions, InputMods, InputRegionOptions, InputWindowing, OptionalTag,
-    RequiredTag, SeqDisplayOptions,
+    InputBam, InputBamBuilder, InputModOptions, InputMods, InputModsBuilder, InputRegionOptions,
+    InputWindowing, InputWindowingBuilder, OptionalTag, RequiredTag, SeqDisplayOptions,
 };
 pub use error::Error;
 pub use file_utils::{
@@ -463,11 +463,12 @@ when usize is 64-bit as genomic sequences are not that long"
 /// does not have many traits.
 ///
 /// ```
-/// use nanalogue_core::{Error, nanalogue_bam_reader, BamRcRecords, InputBam, InputMods};
+/// use nanalogue_core::{Error, nanalogue_bam_reader, BamRcRecords, InputBam, InputMods,
+///     OptionalTag};
 /// use rust_htslib::bam::Read;
 /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
 /// let BamRcRecords = BamRcRecords::new(&mut reader, &mut InputBam::default(),
-///     &mut InputMods::default())?;
+///     &mut InputMods::<OptionalTag>::default())?;
 /// assert_eq!(BamRcRecords.header.tid(b"dummyI"), Some(0));
 /// assert_eq!(BamRcRecords.header.tid(b"dummyII"), Some(1));
 /// assert_eq!(BamRcRecords.header.tid(b"dummyIII"), Some(2));
@@ -501,22 +502,35 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
         bam_reader.set_thread_pool(&tp)?;
 
         // Load read ID list if specified
-        bam_opts.read_id_set = if let Some(file_path) = bam_opts.read_id_list.as_ref() {
-            let file = File::open(file_path).map_err(Error::InputOutputError)?;
-            let reader = BufReader::new(file);
-            let mut read_ids = HashSet::new();
-
-            for raw_line in reader.lines() {
-                let temp_line = raw_line.map_err(Error::InputOutputError)?;
-                let line = temp_line.trim();
-                if !line.is_empty() && !line.starts_with('#') {
-                    let _: bool = read_ids.insert(line.to_string());
-                }
+        match (
+            bam_opts.read_id_set.is_some(),
+            bam_opts.read_id_list.is_some(),
+        ) {
+            (_, false) => {}
+            (true, true) => {
+                return Err(Error::InvalidState(
+                    "cannot set both `read_id_set` and `read_id_list` in `bam_opts` in `BamRcRecords`".to_owned(),
+                ));
             }
-            Some(read_ids)
-        } else {
-            None
-        };
+            (false, true) => {
+                bam_opts.read_id_set = if let Some(file_path) = bam_opts.read_id_list.as_ref() {
+                    let file = File::open(file_path).map_err(Error::InputOutputError)?;
+                    let reader = BufReader::new(file);
+                    let mut read_ids = HashSet::new();
+
+                    for raw_line in reader.lines() {
+                        let temp_line = raw_line.map_err(Error::InputOutputError)?;
+                        let line = temp_line.trim();
+                        if !line.is_empty() && !line.starts_with('#') {
+                            let _: bool = read_ids.insert(line.to_string());
+                        }
+                    }
+                    Some(read_ids)
+                } else {
+                    None
+                };
+            }
+        }
 
         bam_opts.convert_region_to_bed3(header.clone())?;
         mod_opts.convert_region_to_bed3(header.clone())?;
@@ -610,8 +624,8 @@ pub trait BamPreFilt {
 impl BamPreFilt for bam::Record {
     /// apply default filtration by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
-        self.filt_by_len(bam_opts.min_seq_len, bam_opts.include_zero_len)
-            & self.filt_random_subset(bam_opts.sample_fraction)
+        self.filt_random_subset(bam_opts.sample_fraction)
+            & self.filt_by_len(bam_opts.min_seq_len, bam_opts.include_zero_len)
             & self.filt_by_mapq(bam_opts.mapq_filter, bam_opts.exclude_mapq_unavail)
             & {
                 if let Some(v) = bam_opts.read_id.as_ref() {
@@ -1242,7 +1256,7 @@ mod bam_rc_record_tests {
         let bam_rc_records = BamRcRecords::new(
             &mut reader,
             &mut InputBam::default(),
-            &mut InputMods::default(),
+            &mut InputMods::<OptionalTag>::default(),
         )
         .unwrap();
         assert_eq!(bam_rc_records.header.tid(b"dummyI"), Some(0));
@@ -1257,8 +1271,12 @@ mod bam_rc_record_tests {
         let mut bam_opts: InputBam =
             serde_json::from_str(r#"{"read_id_list": "examples/example_3_subset_1"}"#).unwrap();
 
-        let bam_rc_records =
-            BamRcRecords::new(&mut reader, &mut bam_opts, &mut InputMods::default()).unwrap();
+        let bam_rc_records = BamRcRecords::new(
+            &mut reader,
+            &mut bam_opts,
+            &mut InputMods::<OptionalTag>::default(),
+        )
+        .unwrap();
 
         // Count lines in the read ID file
         let file = File::open("examples/example_3_subset_1").unwrap();
@@ -1291,8 +1309,12 @@ mod bam_rc_record_tests {
         let mut bam_opts: InputBam =
             serde_json::from_str(r#"{"read_id_list": "examples/example_3_subset_w_invalid"}"#)
                 .unwrap();
-        let bam_rc_records =
-            BamRcRecords::new(&mut reader, &mut bam_opts, &mut InputMods::default()).unwrap();
+        let bam_rc_records = BamRcRecords::new(
+            &mut reader,
+            &mut bam_opts,
+            &mut InputMods::<OptionalTag>::default(),
+        )
+        .unwrap();
 
         // Count lines in the read ID file
         let file = File::open("examples/example_3_subset_w_invalid").unwrap();
