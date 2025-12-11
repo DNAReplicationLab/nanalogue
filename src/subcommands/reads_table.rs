@@ -1111,7 +1111,8 @@ mod tests {
 mod stochastic_tests {
     use super::*;
     use crate::simulate_mod_bam::{
-        ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder, TempBamSimulation,
+        ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder,
+        TempBamSimulation,
     };
     use bedrs::Bed3;
     use derive_builder::Builder;
@@ -1529,12 +1530,13 @@ mod stochastic_tests {
             .repeated_seq("ACGT".into())
             .build()?;
 
-       let mod_config = ModConfigBuilder::default()
-           .base('C')
-           .is_strand_plus(true)
-           .mod_code("m".into())
-           .win(vec![1, 1])
-           .mod_range(vec![(1.0, 1.0), (0.0, 0.0)]).build()?;
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .is_strand_plus(true)
+            .mod_code("m".into())
+            .win(vec![1, 1])
+            .mod_range(vec![(1.0, 1.0), (0.0, 0.0)])
+            .build()?;
 
         let read_config = ReadConfigBuilder::default()
             .number(100)

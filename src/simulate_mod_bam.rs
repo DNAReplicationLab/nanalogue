@@ -590,7 +590,7 @@ impl PerfectSeqMatchToNot {
     ///
     /// let mut rng = rand::rng();
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
-    ///     .build(ReadState::PrimaryFwd, &mut rng);
+    ///     .build(ReadState::PrimaryFwd, &mut rng)?;
     /// assert_eq!(seq, b"GGGGGGGG");
     /// assert_eq!(cigar.expect("no error").to_string(), "8M");
     /// # Ok::<(), Error>(())
@@ -604,7 +604,7 @@ impl PerfectSeqMatchToNot {
     ///
     /// let mut rng = rand::rng();
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
-    ///     .build(ReadState::PrimaryRev, &mut rng);
+    ///     .build(ReadState::PrimaryRev, &mut rng)?;
     /// assert_eq!(seq, b"GGGGGGGG");
     /// assert_eq!(cigar.expect("no error").to_string(), "8M");
     /// # Ok::<(), Error>(())
@@ -621,7 +621,7 @@ impl PerfectSeqMatchToNot {
     /// let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
     ///     .barcode(barcode)
-    ///     .build(ReadState::PrimaryFwd, &mut rng);
+    ///     .build(ReadState::PrimaryFwd, &mut rng)?;
     /// assert_eq!(seq, b"ACGTAAGGGGGGGGTTACGT");
     /// assert_eq!(cigar.expect("no error").to_string(), "6S8M6S");
     /// # Ok::<(), Error>(())
@@ -638,7 +638,7 @@ impl PerfectSeqMatchToNot {
     /// let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
     ///     .barcode(barcode)
-    ///     .build(ReadState::PrimaryRev, &mut rng);
+    ///     .build(ReadState::PrimaryRev, &mut rng)?;
     /// assert_eq!(seq, b"TGCATTGGGGGGGGAATGCA");
     /// assert_eq!(cigar.expect("no error").to_string(), "6S8M6S");
     /// # Ok::<(), Error>(())
@@ -652,7 +652,7 @@ impl PerfectSeqMatchToNot {
     ///
     /// let mut rng = rand::rng();
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
-    ///     .build(ReadState::Unmapped, &mut rng);
+    ///     .build(ReadState::Unmapped, &mut rng)?;
     /// assert_eq!(seq, b"GGGGGGGG");
     /// assert!(cigar.is_none());
     /// # Ok::<(), Error>(())
@@ -671,7 +671,7 @@ impl PerfectSeqMatchToNot {
     /// )?;
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAATTTTCCCCGGGG".to_vec())?
     ///     .delete(delete_range)
-    ///     .build(ReadState::PrimaryFwd, &mut rng);
+    ///     .build(ReadState::PrimaryFwd, &mut rng)?;
     /// // Deletes positions 8-12 (CCCC), resulting in AAAATTTTGGGG
     /// assert_eq!(seq, b"AAAATTTTGGGG");
     /// assert_eq!(cigar.expect("no error").to_string(), "8M4D4M");
@@ -689,7 +689,7 @@ impl PerfectSeqMatchToNot {
     /// let insert_seq = DNARestrictive::from_str("TTTT")?;
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAGGGG".to_vec())?
     ///     .insert_middle(insert_seq)
-    ///     .build(ReadState::PrimaryFwd, &mut rng);
+    ///     .build(ReadState::PrimaryFwd, &mut rng)?;
     /// // Inserts TTTT at position 4 (middle), resulting in AAAATTTTGGGG
     /// assert_eq!(seq, b"AAAATTTTGGGG");
     /// assert_eq!(cigar.expect("no error").to_string(), "4M4I4M");
@@ -706,7 +706,7 @@ impl PerfectSeqMatchToNot {
     /// let mismatch_frac = F32Bw0and1::try_from(0.5)?;
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAAAAA".to_vec())?
     ///     .mismatch(mismatch_frac)
-    ///     .build(ReadState::PrimaryFwd, &mut rng);
+    ///     .build(ReadState::PrimaryFwd, &mut rng)?;
     /// // 50% of bases (4 out of 8) will be changed to different bases
     /// let mismatch_count = seq.iter().filter(|&&b| b != b'A').count();
     /// assert_eq!(mismatch_count, 4);
@@ -731,7 +731,7 @@ impl PerfectSeqMatchToNot {
     /// let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAACCCCGGGG".to_vec())?
     ///     .delete(delete_range)
     ///     .insert_middle(insert_seq)
-    ///     .build(ReadState::PrimaryFwd, &mut rng);
+    ///     .build(ReadState::PrimaryFwd, &mut rng)?;
     /// // Applies both deletion and insertion operations
     /// assert_eq!(seq, b"AAAACCTTGGG");
     /// assert_eq!(cigar.expect("no error").to_string(), "6M2I3D3M");
@@ -739,13 +739,21 @@ impl PerfectSeqMatchToNot {
     /// ```
     ///
     /// # Returns
-    /// A tuple of (`final_sequence`, `cigar_string`) where:
+    /// A tuple of (`final_sequence`, `cigar_string`) wrapped in a `Result` where:
     /// - `final_sequence` includes barcodes if specified
     /// - `cigar_string` includes `SoftClip` operations for barcodes, or `None` if unmapped
     ///
+    /// # Errors
+    /// - If parameters result in a sequence with no mapped bases i.e. a sequence without
+    ///   any M characters in the CIGAR string.
+    /// - If a deletion occurs right after a softclip at the start of a sequence
+    ///   a cigar like "20S10D..." is not valid as we can just shift the start of the sequence
+    ///   and make the cigar "20S...". We will end up in this state if the deletion is right at
+    ///   the beginning of the sequence. We may deal with this in the future by shifting the start
+    ///   of the sequence, but we don't want to do this right now.
+    ///
     /// # Panics
     /// Panics on number conversion errors (sequence or barcode length overflow)
-    #[must_use]
     #[expect(
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,
@@ -756,7 +764,7 @@ impl PerfectSeqMatchToNot {
         self,
         read_state: ReadState,
         rng: &mut R,
-    ) -> (Vec<u8>, Option<CigarString>) {
+    ) -> Result<(Vec<u8>, Option<CigarString>), Error> {
         let seq = self.seq;
 
         // Step 1: Create initial representation as (base, operation) tuples
@@ -870,10 +878,31 @@ impl PerfectSeqMatchToNot {
             .filter_map(|item| (item.1 != b'D').then_some(item.0))
             .collect();
 
-        (
-            final_seq,
-            (!read_state.is_unmapped()).then_some(cigar_string),
-        )
+        // Step 8: final checks
+        let first_ok = (cigar_string.0.as_slice().first().map(|x| x.char()) == Some('M'))
+            || (cigar_string
+                .0
+                .as_slice()
+                .first_chunk::<2>()
+                .map(|&x| [x[0].char(), x[1].char()])
+                == Some(['S', 'M']));
+        let last_ok = (cigar_string.0.as_slice().last().map(|x| x.char()) == Some('M'))
+            || (cigar_string
+                .0
+                .as_slice()
+                .last_chunk::<2>()
+                .map(|&x| [x[0].char(), x[1].char()])
+                == Some(['M', 'S']));
+        if first_ok && last_ok {
+            Ok((
+                final_seq,
+                (!read_state.is_unmapped()).then_some(cigar_string),
+            ))
+        } else {
+            Err(Error::SimulateDNASeqCIGAREndProblem(
+                "too few bp or insertion/deletion close to end".to_owned(),
+            ))
+        }
     }
 }
 
@@ -1288,7 +1317,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             if let Some(mismatch) = read_config.mismatch {
                 builder = builder.mismatch(mismatch);
             }
-            builder.build(random_state, rng)
+            builder.build(random_state, rng)?
         };
 
         // Generate quality scores (for final read length including any adjustments like barcodes)
@@ -3124,8 +3153,8 @@ mod perfect_seq_match_to_not_tests {
     #[test]
     fn build_without_barcode_forward_read() -> Result<(), Error> {
         let mut rng = rand::rng();
-        let (seq, cigar) =
-            PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?.build(ReadState::PrimaryFwd, &mut rng);
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+            .build(ReadState::PrimaryFwd, &mut rng)?;
         assert_eq!(seq, b"GGGGGGGG");
         assert_eq!(cigar.expect("no error").to_string(), "8M");
         Ok(())
@@ -3134,8 +3163,8 @@ mod perfect_seq_match_to_not_tests {
     #[test]
     fn build_without_barcode_reverse_read() -> Result<(), Error> {
         let mut rng = rand::rng();
-        let (seq, cigar) =
-            PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?.build(ReadState::PrimaryRev, &mut rng);
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+            .build(ReadState::PrimaryRev, &mut rng)?;
         assert_eq!(seq, b"GGGGGGGG");
         assert_eq!(cigar.expect("no error").to_string(), "8M");
         Ok(())
@@ -3147,7 +3176,7 @@ mod perfect_seq_match_to_not_tests {
         let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
             .barcode(barcode)
-            .build(ReadState::PrimaryFwd, &mut rng);
+            .build(ReadState::PrimaryFwd, &mut rng)?;
         assert_eq!(seq, b"ACGTAAGGGGGGGGTTACGT");
         assert_eq!(cigar.expect("no error").to_string(), "6S8M6S");
         Ok(())
@@ -3159,7 +3188,7 @@ mod perfect_seq_match_to_not_tests {
         let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
             .barcode(barcode)
-            .build(ReadState::PrimaryRev, &mut rng);
+            .build(ReadState::PrimaryRev, &mut rng)?;
         assert_eq!(seq, b"TGCATTGGGGGGGGAATGCA");
         assert_eq!(cigar.expect("no error").to_string(), "6S8M6S");
         Ok(())
@@ -3168,8 +3197,8 @@ mod perfect_seq_match_to_not_tests {
     #[test]
     fn build_unmapped_read_returns_none_cigar() -> Result<(), Error> {
         let mut rng = rand::rng();
-        let (seq, cigar) =
-            PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?.build(ReadState::Unmapped, &mut rng);
+        let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
+            .build(ReadState::Unmapped, &mut rng)?;
         assert_eq!(seq, b"GGGGGGGG");
         assert!(cigar.is_none());
         Ok(())
@@ -3181,7 +3210,7 @@ mod perfect_seq_match_to_not_tests {
         let barcode = DNARestrictive::from_str("ACGTAA").unwrap();
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"GGGGGGGG".to_vec())?
             .barcode(barcode)
-            .build(ReadState::Unmapped, &mut rng);
+            .build(ReadState::Unmapped, &mut rng)?;
         assert_eq!(seq, b"ACGTAAGGGGGGGGTTACGT");
         assert!(cigar.is_none());
         Ok(())
@@ -3193,7 +3222,7 @@ mod perfect_seq_match_to_not_tests {
         let delete_range = OrdPair::new(F32Bw0and1::try_from(0.5)?, F32Bw0and1::try_from(0.75)?)?;
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAATTTTCCCCGGGG".to_vec())?
             .delete(delete_range)
-            .build(ReadState::PrimaryFwd, &mut rng);
+            .build(ReadState::PrimaryFwd, &mut rng)?;
 
         // Original: AAAATTTTCCCCGGGG (16 bases)
         // Delete 50%-75%: positions 8-12, deletes CCCC (4 bases)
@@ -3209,7 +3238,7 @@ mod perfect_seq_match_to_not_tests {
         let insert_seq = DNARestrictive::from_str("TTTT").unwrap();
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAGGGG".to_vec())?
             .insert_middle(insert_seq)
-            .build(ReadState::PrimaryFwd, &mut rng);
+            .build(ReadState::PrimaryFwd, &mut rng)?;
 
         // Original: AAAAGGGG (8 bases)
         // Middle is at position 4
@@ -3226,7 +3255,7 @@ mod perfect_seq_match_to_not_tests {
         let mismatch_frac = F32Bw0and1::try_from(0.5)?;
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAAAAA".to_vec())?
             .mismatch(mismatch_frac)
-            .build(ReadState::PrimaryFwd, &mut rng);
+            .build(ReadState::PrimaryFwd, &mut rng)?;
 
         // Original: AAAAAAAA (8 bases)
         // 50% mismatch = 4 bases should be changed
@@ -3247,7 +3276,7 @@ mod perfect_seq_match_to_not_tests {
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAACCCCGGGG".to_vec())?
             .delete(delete_range)
             .insert_middle(insert_seq)
-            .build(ReadState::PrimaryFwd, &mut rng);
+            .build(ReadState::PrimaryFwd, &mut rng)?;
 
         // Original: AAAACCCCGGGG (12 bases)
         // Mark positions 6-8 for deletion (CCG)
@@ -3272,7 +3301,7 @@ mod perfect_seq_match_to_not_tests {
             .insert_middle(insert_seq)
             .mismatch(mismatch_frac)
             .barcode(barcode)
-            .build(ReadState::PrimaryFwd, &mut rng);
+            .build(ReadState::PrimaryFwd, &mut rng)?;
 
         // Original: GGGGGGGGGGGGGGGG (16 bases)
         // Mismatch 25% = 4 bases changed (but to C, T, or A)
@@ -3297,7 +3326,7 @@ mod perfect_seq_match_to_not_tests {
         let delete_range = OrdPair::new(F32Bw0and1::try_from(0.5)?, F32Bw0and1::try_from(0.5)?)?;
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAAAAA".to_vec())?
             .delete(delete_range)
-            .build(ReadState::PrimaryFwd, &mut rng);
+            .build(ReadState::PrimaryFwd, &mut rng)?;
 
         // No deletion should occur
         assert_eq!(seq, b"AAAAAAAA");
@@ -3311,11 +3340,63 @@ mod perfect_seq_match_to_not_tests {
         let mismatch_frac = F32Bw0and1::try_from(0.0)?;
         let (seq, cigar) = PerfectSeqMatchToNot::seq(b"AAAAAAAA".to_vec())?
             .mismatch(mismatch_frac)
-            .build(ReadState::PrimaryFwd, &mut rng);
+            .build(ReadState::PrimaryFwd, &mut rng)?;
 
         // No mismatches should occur
         assert_eq!(seq, b"AAAAAAAA");
         assert_eq!(cigar.expect("no error").to_string(), "8M");
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "SimulateDNASeqCIGAREndProblem")]
+    fn build_with_delete_whole_length() {
+        let mut rng = rand::rng();
+        let delete_range = OrdPair::new(F32Bw0and1::zero(), F32Bw0and1::one()).unwrap();
+        let (_seq, _cigar) = PerfectSeqMatchToNot::seq(b"AAAAAAAA".to_vec())
+            .unwrap()
+            .delete(delete_range)
+            .build(ReadState::PrimaryFwd, &mut rng)
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "SimulateDNASeqCIGAREndProblem")]
+    fn build_with_insert_almost_whole_length() {
+        let mut rng = rand::rng();
+        let insert_seq = DNARestrictive::from_str("AATT").unwrap();
+        let (_seq, _cigar) = PerfectSeqMatchToNot::seq(b"A".to_vec())
+            .unwrap()
+            .insert_middle(insert_seq)
+            .build(ReadState::PrimaryFwd, &mut rng)
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "SimulateDNASeqCIGAREndProblem")]
+    fn build_with_delete_whole_length_with_barcode() {
+        let mut rng = rand::rng();
+        let delete_range = OrdPair::new(F32Bw0and1::zero(), F32Bw0and1::one()).unwrap();
+        let barcode = DNARestrictive::from_str("CGCG").unwrap();
+        let (_seq, _cigar) = PerfectSeqMatchToNot::seq(b"AAAAAAAA".to_vec())
+            .unwrap()
+            .delete(delete_range)
+            .barcode(barcode)
+            .build(ReadState::PrimaryFwd, &mut rng)
+            .unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "SimulateDNASeqCIGAREndProblem")]
+    fn build_with_insert_almost_whole_length_with_barcode() {
+        let mut rng = rand::rng();
+        let insert_seq = DNARestrictive::from_str("AATT").unwrap();
+        let barcode = DNARestrictive::from_str("CGCG").unwrap();
+        let (_seq, _cigar) = PerfectSeqMatchToNot::seq(b"A".to_vec())
+            .unwrap()
+            .insert_middle(insert_seq)
+            .barcode(barcode)
+            .build(ReadState::PrimaryFwd, &mut rng)
+            .unwrap();
     }
 }

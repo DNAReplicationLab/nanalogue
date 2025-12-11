@@ -215,4 +215,8 @@ error could possibly be due to not including header with `samtools view -h` "
     /// Error from Polars during `DataFrame` construction or manipulation
     #[error("Polars error: `{0}`")]
     PolarsError(#[from] polars::error::PolarsError),
+
+    /// Error simulating DNA sequences
+    #[error("Simulate DNA sequence error; problem at end of CIGAR: {0}")]
+    SimulateDNASeqCIGAREndProblem(String),
 }
