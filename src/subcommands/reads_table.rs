@@ -1111,8 +1111,9 @@ mod tests {
 mod stochastic_tests {
     use super::*;
     use crate::simulate_mod_bam::{
-        ContigConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder, TempBamSimulation,
+        ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder, TempBamSimulation,
     };
+    use bedrs::Bed3;
     use derive_builder::Builder;
     use rust_htslib::bam::Read as _;
     use std::ops::RangeInclusive;
@@ -1241,34 +1242,44 @@ mod stochastic_tests {
     ) {
         let mut data_present = false;
 
+        #[expect(
+            clippy::needless_continue,
+            clippy::redundant_else,
+            reason = "I prefer it this way; I think this is more readable"
+        )]
         for k in seq_col.iter().zip(qual_col) {
             data_present = true;
 
             let seq = k.0.unwrap();
-            assert_eq!(seq.len(), seq_len, "Sequence length mismatch");
 
             let qual =
                 k.1.unwrap()
                     .split('.')
                     .map(|x| x.parse::<u8>().unwrap())
                     .collect::<Vec<u8>>();
-            assert_eq!(qual.len(), seq_len, "Quality length mismatch");
 
-            let mut count: Counts = Counts::default();
+            if seq == "*" && qual == vec![255u8] {
+                continue;
+            } else {
+                assert_eq!(seq.len(), seq_len, "Sequence length mismatch");
+                assert_eq!(qual.len(), seq_len, "Quality length mismatch");
 
-            for l in seq.chars().zip(qual) {
-                match l {
-                    ('.', 255u8) => count.increment('.').unwrap(),
-                    (v, w) => {
-                        count.increment(v).unwrap();
-                        assert!(qual_allowed.contains(&w));
+                let mut count: Counts = Counts::default();
+
+                for l in seq.chars().zip(qual) {
+                    match l {
+                        ('.', 255u8) => count.increment('.').unwrap(),
+                        (v, w) => {
+                            count.increment(v).unwrap();
+                            assert!(qual_allowed.contains(&w));
+                        }
                     }
                 }
+                assert!(
+                    count == *expected_count,
+                    "need correct number of bases and/or special characters!"
+                );
             }
-            assert!(
-                count == *expected_count,
-                "need correct number of . if . is expected"
-            );
         }
 
         assert!(data_present, "Some data must be present in the table");
@@ -1508,5 +1519,158 @@ mod stochastic_tests {
         check_seq_qual(seq_col, qual_col, 464, &Counts::default(), 71u8..=79u8);
 
         Ok(())
+    }
+
+    /// Helper function to create a simulation with indels and barcodes for region testing.
+    fn create_indels_barcode_simulation() -> Result<TempBamSimulation, Error> {
+        let contig_config = ContigConfigBuilder::default()
+            .number(1)
+            .len_range((1000, 1000))
+            .repeated_seq("ACGT".into())
+            .build()?;
+
+       let mod_config = ModConfigBuilder::default()
+           .base('C')
+           .is_strand_plus(true)
+           .mod_code("m".into())
+           .win(vec![1, 1])
+           .mod_range(vec![(1.0, 1.0), (0.0, 0.0)]).build()?;
+
+        let read_config = ReadConfigBuilder::default()
+            .number(100)
+            .mapq_range((10, 20))
+            .base_qual_range((41, 49))
+            .len_range((1.0, 1.0))
+            .barcode("AATT".into())
+            .delete((0.1, 0.2))
+            .insert_middle("GGTTGG".into())
+            .mods([mod_config].into());
+
+        let sim_config = SimulationConfigBuilder::default()
+            .contigs(contig_config)
+            .reads(vec![read_config.build()?])
+            .build()?;
+
+        TempBamSimulation::new(sim_config)
+    }
+
+    /// Helper function to test sequence retrieval from a specific region.
+    fn test_region_retrieval(
+        sim: &TempBamSimulation,
+        seq_display_options: SeqDisplayOptions,
+        expected_seq: &str,
+        seq_len: usize,
+        counts: &Counts,
+    ) -> Result<(), Error> {
+        let df = run_reads_table_generation(sim, None, seq_display_options)?;
+
+        assert_expected_columns(
+            &df,
+            ColumnsBuilder::default()
+                .sequence(true)
+                .qualities(true)
+                .build()?,
+        );
+
+        let seq_col = df.column("sequence")?.str()?;
+        let qual_col = df.column("qualities")?.str()?;
+        let alignment_type = df.column("alignment_type")?.str()?;
+
+        for k in seq_col.iter().zip(alignment_type) {
+            if k.1.unwrap() == "unmapped" {
+                assert_eq!(k.0.unwrap(), "*");
+            } else {
+                assert_eq!(k.0.unwrap(), expected_seq);
+            }
+        }
+
+        check_seq_qual(seq_col, qual_col, seq_len, counts, 41u8..=49u8);
+
+        Ok(())
+    }
+
+    #[test]
+    fn region_0_to_10() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        test_region_retrieval(
+            &sim,
+            SeqDisplayOptions::Region {
+                show_base_qual: true,
+                show_ins_lowercase: true,
+                show_mod_z: false,
+                region: Bed3::<i32, u64>::new(0, 0, 10),
+            },
+            "ACGTACGTAC",
+            10,
+            &Counts::default(),
+        )
+    }
+
+    #[test]
+    fn region_100_to_110() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        test_region_retrieval(
+            &sim,
+            SeqDisplayOptions::Region {
+                show_base_qual: true,
+                show_ins_lowercase: true,
+                show_mod_z: false,
+                region: Bed3::<i32, u64>::new(0, 100, 110),
+            },
+            "..........",
+            10,
+            &CountsBuilder::default().period(10).build()?,
+        )
+    }
+
+    #[test]
+    fn region_195_to_205() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        test_region_retrieval(
+            &sim,
+            SeqDisplayOptions::Region {
+                show_base_qual: true,
+                show_ins_lowercase: true,
+                show_mod_z: false,
+                region: Bed3::<i32, u64>::new(0, 195, 205),
+            },
+            ".....ACGTA",
+            10,
+            &CountsBuilder::default().period(5).build()?,
+        )
+    }
+
+    #[test]
+    fn region_495_to_505() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        test_region_retrieval(
+            &sim,
+            SeqDisplayOptions::Region {
+                show_base_qual: true,
+                show_ins_lowercase: true,
+                show_mod_z: false,
+                region: Bed3::<i32, u64>::new(0, 495, 505),
+            },
+            "TACGTggttggACGTA",
+            16,
+            &CountsBuilder::default().lowercase(6).build()?,
+        )
+    }
+
+    #[test]
+    fn region_990_to_1000() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        test_region_retrieval(
+            &sim,
+            SeqDisplayOptions::Region {
+                show_base_qual: true,
+                show_ins_lowercase: true,
+                show_mod_z: false,
+                region: Bed3::<i32, u64>::new(0, 990, 1000),
+            },
+            "GTACGTACGT",
+            10,
+            &CountsBuilder::default().build()?,
+        )
     }
 }

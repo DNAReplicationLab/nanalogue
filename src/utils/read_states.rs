@@ -55,8 +55,16 @@ impl FromStr for ReadStates {
     fn from_str(s: &str) -> Result<ReadStates, Self::Err> {
         let mut states = {
             let mut temp_states = HashSet::<u16>::new();
-            for part in s.split(',') {
-                let _: bool = temp_states.insert(u16::from(ReadState::from_str(part.trim())?));
+            for part in s.split(',').map(str::trim) {
+                if let Ok(v) = ReadState::from_str(part) {
+                    let _: bool = temp_states.insert(u16::from(v));
+                } else {
+                    let err_msg = "invalid `ReadStates`. Needs strings separated by commas \
+where allowed list is primary_forward primary_reverse secondary_forward secondary_reverse \
+supplementary_forward supplementary_reverse unmapped. The following are all valid examples: \
+* primary_forward * primary_forward,primary_reverse * secondary_forward,primary_reverse,unmapped";
+                    return Err(Error::UnknownAlignState(err_msg.to_string()));
+                }
             }
             temp_states.into_iter().collect::<Vec<u16>>()
         };
