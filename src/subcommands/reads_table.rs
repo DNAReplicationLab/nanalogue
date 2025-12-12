@@ -1111,8 +1111,7 @@ mod tests {
 mod stochastic_tests {
     use super::*;
     use crate::simulate_mod_bam::{
-        ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder,
-        TempBamSimulation,
+        ContigConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder, TempBamSimulation,
     };
     use bedrs::Bed3;
     use derive_builder::Builder;
@@ -1448,9 +1447,11 @@ mod stochastic_tests {
 
         check_seq_qual(seq_col, qual_col, 500, &Counts::default(), 71u8..=79u8);
 
+        // extract seq and mod_count but we won't be getting a column called qualities.
+        // mod_count will all be NAs
         let df_2 = run_reads_table_generation(
             &sim,
-            None,
+            Some(InputMods::<OptionalTag>::default()),
             SeqDisplayOptions::Full {
                 show_base_qual: false,
             },
@@ -1458,15 +1459,26 @@ mod stochastic_tests {
 
         // Verify the dataframe is not empty and has expected columns
         assert!(df_2.height() > 0, "DataFrame should have some rows");
-        assert_expected_columns(&df_2, ColumnsBuilder::default().sequence(true).build()?);
+        assert_expected_columns(
+            &df_2,
+            ColumnsBuilder::default()
+                .sequence(true)
+                .mod_count(true)
+                .build()?,
+        );
 
-        // extract seq but we won't be getting a column called qualities
         let seq_col_2 = df_2.column("sequence")?.str()?;
         drop(df_2.column("qualities").unwrap_err());
+        let mod_count = df_2.column("mod_count")?.str()?;
 
-        for k in seq_col_2.iter() {
-            assert_eq!(k.unwrap().len(), 500);
-        }
+        assert!(
+            seq_col_2.iter().all(|x| x.unwrap().len() == 500),
+            "500 bp seq expected"
+        );
+        assert!(
+            mod_count.iter().all(|x| x == Some("NA")),
+            "no mod information expected"
+        );
 
         Ok(())
     }
@@ -1530,14 +1542,6 @@ mod stochastic_tests {
             .repeated_seq("ACGT".into())
             .build()?;
 
-        let mod_config = ModConfigBuilder::default()
-            .base('C')
-            .is_strand_plus(true)
-            .mod_code("m".into())
-            .win(vec![1, 1])
-            .mod_range(vec![(1.0, 1.0), (0.0, 0.0)])
-            .build()?;
-
         let read_config = ReadConfigBuilder::default()
             .number(100)
             .mapq_range((10, 20))
@@ -1545,8 +1549,7 @@ mod stochastic_tests {
             .len_range((1.0, 1.0))
             .barcode("AATT".into())
             .delete((0.1, 0.2))
-            .insert_middle("GGTTGG".into())
-            .mods([mod_config].into());
+            .insert_middle("GGTTGG".into());
 
         let sim_config = SimulationConfigBuilder::default()
             .contigs(contig_config)
@@ -1564,6 +1567,13 @@ mod stochastic_tests {
         seq_len: usize,
         counts: &Counts,
     ) -> Result<(), Error> {
+        // check that we get the correct kind of `SeqDisplayOptions`
+        assert!(matches!(
+            seq_display_options,
+            SeqDisplayOptions::Region { .. }
+        ));
+
+        // first, do a check without retrieving mods
         let df = run_reads_table_generation(sim, None, seq_display_options)?;
 
         assert_expected_columns(
@@ -1587,6 +1597,29 @@ mod stochastic_tests {
         }
 
         check_seq_qual(seq_col, qual_col, seq_len, counts, 41u8..=49u8);
+
+        // do a check with retrieving mods. Must get N/As in the mod count column
+        let df_2 = run_reads_table_generation(
+            sim,
+            Some(InputMods::<OptionalTag>::default()),
+            seq_display_options,
+        )?;
+
+        assert_expected_columns(
+            &df_2,
+            ColumnsBuilder::default()
+                .mod_count(true)
+                .sequence(true)
+                .qualities(true)
+                .build()?,
+        );
+
+        let mod_count = df_2.column("mod_count")?.str()?;
+
+        assert!(
+            mod_count.iter().all(|k| k == Some("NA")),
+            "should not get mod counts as no mod info available!"
+        );
 
         Ok(())
     }
@@ -1674,5 +1707,240 @@ mod stochastic_tests {
             10,
             &CountsBuilder::default().build()?,
         )
+    }
+}
+
+#[cfg(test)]
+mod stochastic_tests_with_mods {
+    use super::*;
+    use crate::simulate_mod_bam::{
+        ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder,
+        TempBamSimulation,
+    };
+    use bedrs::Bed3;
+    use itertools::izip;
+    use rust_htslib::bam::Read as _;
+
+    /// Helper to run reads table generation
+    fn run_reads_table_generation(
+        sim: &TempBamSimulation,
+        mods: Option<InputMods<OptionalTag>>,
+        seq_display: SeqDisplayOptions,
+    ) -> Result<DataFrame, Error> {
+        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
+        let bam_records = bam_reader.rc_records();
+        run_df(bam_records, mods, seq_display, "")
+    }
+
+    /// Helper function to create a simulation with indels and barcodes for region testing.
+    fn create_indels_barcode_simulation() -> Result<TempBamSimulation, Error> {
+        let contig_config = ContigConfigBuilder::default()
+            .number(1)
+            .len_range((1000, 1000))
+            .repeated_seq("ACGT".into())
+            .build()?;
+
+        let mod_config = ModConfigBuilder::default()
+            .base('G')
+            .is_strand_plus(true)
+            .mod_code("g".into())
+            .win(vec![1, 1])
+            .mod_range(vec![(0.0, 0.0), (0.6, 0.6)])
+            .build()?;
+
+        let read_config = ReadConfigBuilder::default()
+            .number(100)
+            .mapq_range((10, 20))
+            .base_qual_range((35, 35))
+            .len_range((1.0, 1.0))
+            .barcode("AATT".into())
+            .delete((0.1, 0.2))
+            .insert_middle("GGTTGG".into())
+            .mods(vec![mod_config]);
+
+        let sim_config = SimulationConfigBuilder::default()
+            .contigs(contig_config)
+            .reads(vec![read_config.build()?])
+            .build()?;
+
+        TempBamSimulation::new(sim_config)
+    }
+
+    /// Helper function to test sequence retrieval from a specific region.
+    fn test_region_retrieval(
+        sim: &TempBamSimulation,
+        seq_display_options: SeqDisplayOptions,
+        expected_seq_fwd: &str,
+        expected_seq_rev: &str,
+        qual_col_str: &str,
+        mod_count_fwd_str: &str,
+        mod_count_rev_str: &str,
+    ) -> Result<(), Error> {
+        // check that we get the correct kind of `SeqDisplayOptions`
+        assert!(matches!(
+            seq_display_options,
+            SeqDisplayOptions::Region { .. }
+        ));
+
+        // first, do a check without retrieving mods
+        let df = run_reads_table_generation(
+            sim,
+            Some(InputMods::<OptionalTag>::default()),
+            seq_display_options,
+        )?;
+        let seq_col = df.column("sequence")?.str()?;
+        let qual_col = df.column("qualities")?.str()?;
+        let mod_count = df.column("mod_count")?.str()?;
+        let alignment_type = df.column("alignment_type")?.str()?;
+
+        for k in izip!(seq_col, qual_col, mod_count, alignment_type) {
+            match k.3.unwrap() {
+                "unmapped" => {
+                    assert_eq!(k.0.unwrap(), "*");
+                    assert_eq!(k.1.unwrap(), "255");
+                    assert_eq!(k.2.unwrap(), mod_count_fwd_str);
+                }
+                "primary_forward" | "secondary_forward" | "supplementary_forward" => {
+                    assert_eq!(k.0.unwrap(), expected_seq_fwd);
+                    assert_eq!(k.1.unwrap(), qual_col_str);
+                    assert_eq!(k.2.unwrap(), mod_count_fwd_str);
+                }
+                "primary_reverse" | "secondary_reverse" | "supplementary_reverse" => {
+                    assert_eq!(k.0.unwrap(), expected_seq_rev);
+                    assert_eq!(k.1.unwrap(), qual_col_str);
+                    assert_eq!(k.2.unwrap(), mod_count_rev_str);
+                }
+                _ => unreachable!("read states fall in the above 7 categories"),
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn region_0_to_10() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        for k in [
+            (false, "ACGTACGTAC", "ACGTACGTAC"),
+            (true, "ACGTACZTAC", "ACGTAZGTAC"),
+        ] {
+            test_region_retrieval(
+                &sim,
+                SeqDisplayOptions::Region {
+                    show_base_qual: true,
+                    show_ins_lowercase: true,
+                    show_mod_z: k.0,
+                    region: Bed3::<i32, u64>::new(0, 0, 10),
+                },
+                k.1,
+                k.2,
+                "35.35.35.35.35.35.35.35.35.35",
+                "g:114",
+                "g:112",
+            )?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn region_100_to_110() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        for k in [false, true] {
+            test_region_retrieval(
+                &sim,
+                SeqDisplayOptions::Region {
+                    show_base_qual: true,
+                    show_ins_lowercase: true,
+                    show_mod_z: k,
+                    region: Bed3::<i32, u64>::new(0, 100, 110),
+                },
+                "..........",
+                "..........",
+                "255.255.255.255.255.255.255.255.255.255",
+                "g:114",
+                "g:112",
+            )?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn region_195_to_205() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        for k in [
+            (false, ".....ACGTA", ".....ACGTA"),
+            (true, ".....ACZTA", ".....AZGTA"),
+        ] {
+            test_region_retrieval(
+                &sim,
+                SeqDisplayOptions::Region {
+                    show_base_qual: true,
+                    show_ins_lowercase: true,
+                    show_mod_z: k.0,
+                    region: Bed3::<i32, u64>::new(0, 195, 205),
+                },
+                k.1,
+                k.2,
+                "255.255.255.255.255.35.35.35.35.35",
+                "g:114",
+                "g:112",
+            )?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn region_495_to_505() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        for k in [
+            (false, "TACGTggttggACGTA", "TACGTggttggACGTA"),
+            (true, "TACZTgzttgzACGTA", "TAZGTggttggACGTA"),
+        ] {
+            test_region_retrieval(
+                &sim,
+                SeqDisplayOptions::Region {
+                    show_base_qual: true,
+                    show_ins_lowercase: true,
+                    show_mod_z: k.0,
+                    region: Bed3::<i32, u64>::new(0, 495, 505),
+                },
+                k.1,
+                k.2,
+                "35.35.35.35.35.35.35.35.35.35.35.35.35.35.35.35",
+                "g:114",
+                "g:112",
+            )?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn region_990_to_1000() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        for k in [
+            (false, "GTACGTACGT", "GTACGTACGT"),
+            (true, "GTACZTACGT", "GTAZGTACGT"),
+        ] {
+            test_region_retrieval(
+                &sim,
+                SeqDisplayOptions::Region {
+                    show_base_qual: true,
+                    show_ins_lowercase: true,
+                    show_mod_z: k.0,
+                    region: Bed3::<i32, u64>::new(0, 990, 1000),
+                },
+                k.1,
+                k.2,
+                "35.35.35.35.35.35.35.35.35.35",
+                "g:114",
+                "g:112",
+            )?;
+        }
+
+        Ok(())
     }
 }

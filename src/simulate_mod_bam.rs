@@ -760,6 +760,10 @@ impl PerfectSeqMatchToNot {
         clippy::cast_sign_loss,
         reason = "Casting and arithmetic needed for fractional calculations on sequence positions"
     )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "performs many steps to alter sequence (indel, mismatch, barcode)"
+    )]
     pub fn build<R: Rng>(
         self,
         read_state: ReadState,
