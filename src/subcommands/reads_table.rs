@@ -1693,6 +1693,23 @@ mod stochastic_tests {
     }
 
     #[test]
+    fn region_495_to_505_no_ins_lowercase() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+        test_region_retrieval(
+            &sim,
+            SeqDisplayOptions::Region {
+                show_base_qual: true,
+                show_ins_lowercase: false,
+                show_mod_z: false,
+                region: Bed3::<i32, u64>::new(0, 495, 505),
+            },
+            "TACGTGGTTGGACGTA",
+            16,
+            &CountsBuilder::default().build()?,
+        )
+    }
+
+    #[test]
     fn region_990_to_1000() -> Result<(), Error> {
         let sim = create_indels_barcode_simulation()?;
         test_region_retrieval(
@@ -1713,6 +1730,7 @@ mod stochastic_tests {
 #[cfg(test)]
 mod stochastic_tests_with_mods {
     use super::*;
+    use crate::InputModsBuilder;
     use crate::simulate_mod_bam::{
         ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder,
         TempBamSimulation,
@@ -1939,6 +1957,357 @@ mod stochastic_tests_with_mods {
                 "g:114",
                 "g:112",
             )?;
+        }
+
+        Ok(())
+    }
+
+    /// Region-based modification counting
+    /// This test verifies that when `InputMods::region_bed3` is set,
+    /// mod counts reflect only modifications within that region
+    #[test]
+    fn region_based_mod_counting() -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation()?;
+
+        // Test region 0-10
+        let mods_for_region = InputModsBuilder::<OptionalTag>::default()
+            .region_bed3(Bed3::<i32, u64>::new(0, 0, 10))
+            .build()?;
+
+        let df = run_reads_table_generation(
+            &sim,
+            Some(mods_for_region),
+            SeqDisplayOptions::Region {
+                show_base_qual: true,
+                show_ins_lowercase: true,
+                show_mod_z: false,
+                region: Bed3::<i32, u64>::new(0, 0, 10),
+            },
+        )?;
+
+        let mod_count_col = df.column("mod_count")?.str()?;
+        let alignment_type = df.column("alignment_type")?.str()?;
+
+        // Count mods in region 0-10 for forward and reverse reads
+        for (mod_count, aln_type) in izip!(mod_count_col, alignment_type) {
+            match aln_type.unwrap() {
+                "unmapped" => {
+                    // Unmapped reads show mod count of 0
+                    assert_eq!(
+                        mod_count.unwrap(),
+                        "g:0",
+                        "unmapped reads should have g:0 mod_count"
+                    );
+                }
+                "primary_forward" | "secondary_forward" | "supplementary_forward" => {
+                    let count_str = mod_count.unwrap();
+                    // Parse the count (format is "g:N")
+                    if let Some(count_part) = count_str.strip_prefix("g:") {
+                        let count: u32 = count_part.parse().expect("valid number");
+                        // Region 0-10 has 10 bases, with "ACGTACGTAC" pattern
+                        assert_eq!(count, 1, "expected 1 'g' mod in region 0-10, got {count}");
+                    } else {
+                        unreachable!("unexpected mod_count format: {count_str}");
+                    }
+                }
+                "primary_reverse" | "secondary_reverse" | "supplementary_reverse" => {
+                    let count_str = mod_count.unwrap();
+                    if let Some(count_part) = count_str.strip_prefix("g:") {
+                        let count: u32 = count_part.parse().expect("valid number");
+                        assert_eq!(count, 1, "expected 1 'g' mod in region 0-10, got {count}");
+                    } else {
+                        unreachable!("unexpected mod_count format: {count_str}");
+                    }
+                }
+                _ => unreachable!("read states fall in the above 7 categories"),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Test Multiple modifications on the same read
+    /// This test creates reads with two different modification types
+    /// and verifies both are counted correctly
+    fn create_multi_mod_simulation() -> Result<TempBamSimulation, Error> {
+        let contig_config = ContigConfigBuilder::default()
+            .number(1)
+            .len_range((1000, 1000))
+            .repeated_seq("ACGT".into())
+            .build()?;
+
+        // First mod: 'm' on 'C' bases
+        let mod_config_c = ModConfigBuilder::default()
+            .base('C')
+            .is_strand_plus(true)
+            .mod_code("m".into())
+            .win(vec![1])
+            .mod_range(vec![(0.55, 0.55)])
+            .build()?;
+
+        // Second mod: 'a' on 'A' bases but on the opposite
+        // strand to the basecalled strand
+        let mod_config_a = ModConfigBuilder::default()
+            .base('A')
+            .is_strand_plus(false)
+            .mod_code("a".into())
+            .win(vec![1, 1])
+            .mod_range(vec![(0.6, 0.6), (0.1, 0.1)])
+            .build()?;
+
+        let read_config = ReadConfigBuilder::default()
+            .number(100)
+            .mapq_range((10, 20))
+            .base_qual_range((35, 35))
+            .len_range((1.0, 1.0))
+            .barcode("AATT".into())
+            .delete((0.1, 0.2))
+            .insert_middle("GGTTGG".into())
+            .mods(vec![mod_config_c, mod_config_a]);
+
+        let sim_config = SimulationConfigBuilder::default()
+            .contigs(contig_config)
+            .reads(vec![read_config.build()?])
+            .build()?;
+
+        TempBamSimulation::new(sim_config)
+    }
+
+    #[test]
+    fn multiple_mod_count_on_same_read() -> Result<(), Error> {
+        let sim = create_multi_mod_simulation()?;
+
+        let df = run_reads_table_generation(
+            &sim,
+            Some(InputMods::<OptionalTag>::default()),
+            SeqDisplayOptions::Full {
+                show_base_qual: true,
+            },
+        )?;
+
+        let mod_count_col = df.column("mod_count")?.str()?;
+        let alignment_type = df.column("alignment_type")?.str()?;
+
+        // Check that both 'a' and 'm' modifications are present
+        for (mod_count, aln_type) in izip!(mod_count_col, alignment_type) {
+            match aln_type.unwrap() {
+                "unmapped" | "primary_forward" | "secondary_forward" | "supplementary_forward" => {
+                    let count_str = mod_count.unwrap();
+                    assert_eq!(
+                        count_str, "a:115;m:225",
+                        "incorrect mod counts in unmapped/forward: {count_str}"
+                    );
+                }
+                "primary_reverse" | "secondary_reverse" | "supplementary_reverse" => {
+                    // we have an insertion in the middle of the read,
+                    // which will have mods on it if it is reverse complemented,
+                    // as we assign mods to A and C.
+                    let count_str = mod_count.unwrap();
+                    assert_eq!(
+                        count_str, "a:116;m:229",
+                        "incorrect mod counts in reverse: {count_str}"
+                    );
+                }
+                _ => unreachable!("read states fall in the above 7 categories"),
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn multiple_mod_count_on_same_read_with_stronger_thresholding() -> Result<(), Error> {
+        let sim = create_multi_mod_simulation()?;
+
+        let df = run_reads_table_generation(
+            &sim,
+            Some(
+                InputModsBuilder::<OptionalTag>::default()
+                    .mod_prob_filter(ThresholdState::InvertGtEqLtEq((100u8, 150u8).try_into()?))
+                    .build()?,
+            ),
+            SeqDisplayOptions::Full {
+                show_base_qual: true,
+            },
+        )?;
+
+        let mod_count_col = df.column("mod_count")?.str()?;
+        let alignment_type = df.column("alignment_type")?.str()?;
+
+        // Check that both 'a' and 'm' modifications are present
+        for (mod_count, aln_type) in izip!(mod_count_col, alignment_type) {
+            match aln_type.unwrap() {
+                "unmapped" | "primary_forward" | "secondary_forward" | "supplementary_forward" => {
+                    let count_str = mod_count.unwrap();
+                    assert_eq!(
+                        count_str, "a:115;m:0",
+                        "incorrect mod counts in unmapped/forward: {count_str}"
+                    );
+                }
+                "primary_reverse" | "secondary_reverse" | "supplementary_reverse" => {
+                    // we have an insertion in the middle of the read,
+                    // which will have mods on it if it is reverse complemented,
+                    // as we assign mods to A and C.
+                    let count_str = mod_count.unwrap();
+                    assert_eq!(
+                        count_str, "a:116;m:0",
+                        "incorrect mod counts in reverse: {count_str}"
+                    );
+                }
+                _ => unreachable!("read states fall in the above 7 categories"),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Test multiple modifications with region filtering.
+    /// Verifies that region filtering and retrieval works correctly when
+    /// multiple mod types are present
+    #[test]
+    fn multiple_mods_with_region_filtering() -> Result<(), Error> {
+        let sim = create_multi_mod_simulation()?;
+
+        // Test a small region
+        let mods_for_region = InputModsBuilder::<OptionalTag>::default()
+            .region_bed3(Bed3::<i32, u64>::new(0, 495, 505))
+            .build()?;
+
+        let df = run_reads_table_generation(
+            &sim,
+            Some(mods_for_region),
+            SeqDisplayOptions::Region {
+                show_base_qual: true,
+                show_ins_lowercase: true,
+                show_mod_z: true,
+                region: Bed3::<i32, u64>::new(0, 495, 505),
+            },
+        )?;
+
+        let mod_count_col = df.column("mod_count")?.str()?;
+        let alignment_type_col = df.column("alignment_type")?.str()?;
+        let seq_col = df.column("sequence")?.str()?;
+
+        // Verify both mod types are present but with region-limited counts and correct sequence.
+        // The sequence here is "TACGTggttggACGTA"
+        for (mod_count, aln_type, seq) in izip!(mod_count_col, alignment_type_col, seq_col) {
+            match aln_type.unwrap() {
+                "unmapped" => {
+                    // Unmapped reads show mod count of 0 when region filtering is applied
+                    assert_eq!(
+                        mod_count.unwrap(),
+                        "a:0;m:0",
+                        "unmapped reads should have zero counts with region filtering"
+                    );
+                    assert_eq!(
+                        seq,
+                        Some("*"),
+                        "unmapped reads should have a * for sequence"
+                    );
+                }
+                "primary_forward" | "secondary_forward" | "supplementary_forward" => {
+                    let count_str = mod_count.unwrap();
+                    let seq_str = seq.unwrap();
+                    assert_eq!(
+                        count_str, "a:1;m:2",
+                        "incorrect mod counts in unmapped/forward: {count_str}"
+                    );
+                    assert_eq!(
+                        seq_str, "TAZGTggttggZZGTA",
+                        "incorrect mod counts in unmapped/forward: {count_str}"
+                    );
+                }
+                "primary_reverse" | "secondary_reverse" | "supplementary_reverse" => {
+                    let count_str = mod_count.unwrap();
+                    let seq_str = seq.unwrap();
+                    assert_eq!(
+                        count_str, "a:3;m:6",
+                        "incorrect mod counts in reverse: {count_str}"
+                    );
+                    assert_eq!(
+                        seq_str, "ZACZTzzztzzACZZA",
+                        "incorrect mod counts in unmapped/forward: {count_str}"
+                    );
+                }
+                _ => unreachable!("read states fall in the above 7 categories"),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Test multiple modifications with region filtering and with
+    /// very strict filters that would let nothing through and with
+    /// inserts set to same case as the others.
+    #[test]
+    fn multiple_mods_with_region_filtering_strict_mod_prob_filter_no_ins_lowercase()
+    -> Result<(), Error> {
+        let sim = create_multi_mod_simulation()?;
+
+        // Test a small region
+        let mods_for_region = InputModsBuilder::<OptionalTag>::default()
+            .region_bed3(Bed3::<i32, u64>::new(0, 495, 505))
+            .mod_prob_filter(ThresholdState::Both((250u8, (100u8, 150u8).try_into()?)))
+            .build()?;
+
+        let df = run_reads_table_generation(
+            &sim,
+            Some(mods_for_region),
+            SeqDisplayOptions::Region {
+                show_base_qual: false,
+                show_ins_lowercase: false,
+                show_mod_z: true,
+                region: Bed3::<i32, u64>::new(0, 495, 505),
+            },
+        )?;
+
+        let mod_count_col = df.column("mod_count")?.str()?;
+        let alignment_type_col = df.column("alignment_type")?.str()?;
+        let seq_col = df.column("sequence")?.str()?;
+
+        // Verify both mod types are present but with region-limited counts and correct sequence.
+        // The sequence here is "TACGTggttggACGTA" but without lowercase for the insert.
+        for (mod_count, aln_type, seq) in izip!(mod_count_col, alignment_type_col, seq_col) {
+            match aln_type.unwrap() {
+                "unmapped" => {
+                    // Unmapped reads show mod count of 0 when region filtering is applied
+                    assert_eq!(
+                        mod_count.unwrap(),
+                        "a:0;m:0",
+                        "unmapped reads should have zero counts with region filtering"
+                    );
+                    assert_eq!(
+                        seq,
+                        Some("*"),
+                        "unmapped reads should have a * for sequence"
+                    );
+                }
+                "primary_forward" | "secondary_forward" | "supplementary_forward" => {
+                    let count_str = mod_count.unwrap();
+                    let seq_str = seq.unwrap();
+                    assert_eq!(
+                        count_str, "a:0;m:0",
+                        "incorrect mod counts in unmapped/forward: {count_str}"
+                    );
+                    assert_eq!(
+                        seq_str, "TACGTGGTTGGACGTA",
+                        "incorrect mod counts in unmapped/forward: {count_str}"
+                    );
+                }
+                "primary_reverse" | "secondary_reverse" | "supplementary_reverse" => {
+                    let count_str = mod_count.unwrap();
+                    let seq_str = seq.unwrap();
+                    assert_eq!(
+                        count_str, "a:0;m:0",
+                        "incorrect mod counts in reverse: {count_str}"
+                    );
+                    assert_eq!(
+                        seq_str, "TACGTGGTTGGACGTA",
+                        "incorrect mod counts in unmapped/forward: {count_str}"
+                    );
+                }
+                _ => unreachable!("read states fall in the above 7 categories"),
+            }
         }
 
         Ok(())
