@@ -2,7 +2,7 @@
 name = "nanalogue"
 version = "0.1.0"
 edition = "2024"
-description = "Mod BAM parsing tool with a single-molecule focus"
+description = "BAM/Mod BAM parsing and analysis tool with a single-molecule focus"
 license = "MIT"
 readme = "README.md"
 authors = ["Sathish Thiyagarajan <sathish.thiyagarajan@earlham.ac.uk>"]

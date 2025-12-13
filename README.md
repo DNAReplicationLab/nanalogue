@@ -1,25 +1,41 @@
 # `nanalogue`
 
-Package to primarily process single-molecule base modification data
-stored in the modBAM format.
+Nanalogue = *N*ucleic Acid *Analogue*
+
+Nanalogue is a tool to parse or analyse BAM/Mod BAM files with a single-molecule focus.
 
 # Commands
 
-### `nanalogue read-table-no-mods`
+All the commands below have options you can specify on the command line.
+Please run `--help` with a command to learn what the options are.
 
-Given a BAM file and a sequencing summary file, or just the BAM file,
-this command outputs a table where each row contains the basecalled
-length and alignment length per molecule.
+## `nanalogue read-table-hide-mods`
 
-### `nanalogue read-stats`
+Prints basecalled length, alignment length, read id,
+and optionally other information such as sequence per molecule.
+This command does not expect modification data at all.
 
-Given a BAM file, prints read and alignment length statistics such as N50,
-and how many alignments are primary, secondary etc. For more statistics,
-please consider using `samtools stats`.
+## `nanalogue read-table-show-mods`
 
-### Other commands
+Prints basecalled length, alignment length, read id, modification counts,
+and optionally other information such as sequence per molecule.
+If modification data is not available, any modification-related columns
+have outputs like "NA".
 
-Please run `nanalogue -h` to see what other commands are available.
+## `nanalogue read-stats`
+Calculates various summary statistics on all reads
+
+## `nanalogue read-info`
+Prints information about reads
+
+## `nanalogue find-modified-reads`
+Find names of modified reads through criteria specified by sub commands
+
+## `nanalogue window-dens`
+Output windowed densities of reads
+
+## `nanalogue window-grad`
+Output windowed gradients of reads
 
 # Acknowledgments
 
