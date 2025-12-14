@@ -37,7 +37,7 @@ use std::str::FromStr;
 /// methods of the builder.
 ///
 /// ```
-/// use nanalogue_core::{Error, InputBamBuilder, PathOrURLOrStdin};
+/// use nanalogue_core::{Error, F32Bw0and1, InputBamBuilder, PathOrURLOrStdin};
 ///
 /// let bam = InputBamBuilder::default()
 ///     .bam_path(PathOrURLOrStdin::Path("/some/path/to/bam.bam".into()))
@@ -45,7 +45,7 @@ use std::str::FromStr;
 ///     .min_align_len(20000i64)
 ///     .read_id("some-id")
 ///     .read_filter("primary_forward,secondary_forward".into())
-///     .sample_fraction(1.0)
+///     .sample_fraction(F32Bw0and1::new(1.0).expect("no error"))
 ///     .mapq_filter(20)
 ///     .exclude_mapq_unavail(true)
 ///     .region("chr4:1000-2000".into())
@@ -80,6 +80,8 @@ use std::str::FromStr;
 ///     &mods,
 ///     None,
 /// )?;
+/// assert!(str::from_utf8(buffer.as_slice())?
+///     .contains("5d10eb9a-aae1-4db8-8ec6-7ebb34d32575"));
 /// # Ok::<(), Error>(())
 /// ```
 ///
@@ -216,7 +218,6 @@ pub struct InputBam {
     /// If you want reproducibility, consider piping the output of `samtools view -s`
     /// to our program.
     #[clap(short, long, default_value_t = F32Bw0and1::one())]
-    #[builder(field(ty = "f32", build = "self.sample_fraction.try_into()?"))]
     pub sample_fraction: F32Bw0and1,
     /// Exclude reads whose MAPQ (Mapping quality of position) is below this value.
     /// Defaults to zero i.e. do not exclude any read.
@@ -962,7 +963,7 @@ mod input_bam_tests {
             .min_align_len(20000i64)
             .read_id("some-id")
             .read_filter("primary_forward,secondary_forward".into())
-            .sample_fraction(1.0)
+            .sample_fraction(F32Bw0and1::one())
             .mapq_filter(20)
             .exclude_mapq_unavail(true)
             .region("chr4:1000-2000".into())
