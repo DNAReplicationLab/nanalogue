@@ -9,13 +9,14 @@ use crate::{
     nanalogue_indexed_bam_reader_from_url, read_info, read_stats, reads_table, window_reads,
 };
 use clap::{Parser, Subcommand};
+use derive_builder::Builder;
 use rust_htslib::bam;
 use rust_htslib::errors::Error as RHError;
 use std::io;
 use std::ops::RangeInclusive;
 
 /// Main command line parsing struct
-#[derive(Parser, Debug, Clone)]
+#[derive(Builder, Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 #[non_exhaustive]
 pub struct Cli {
