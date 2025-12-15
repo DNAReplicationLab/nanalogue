@@ -661,17 +661,12 @@ mod stochastic_tests {
 
                 // if previous window data is available, and we are not at a transition from one
                 // read to another, check if the windows have slid correctly
-                if previous_win_start.is_some() && previous_win_end.is_some() && k.8.unwrap() != 0 {
-                    assert_eq!(
-                        k.9.unwrap() - previous_win_end.unwrap(),
-                        100,
-                        "100 bp sliding window on N mod"
-                    );
-                    assert_eq!(
-                        k.8.unwrap() - previous_win_start.unwrap(),
-                        100,
-                        "100 bp sliding window on N mod"
-                    );
+                match (previous_win_start, previous_win_end) {
+                    (Some(s), Some(e)) if k.8.unwrap() != 0 => {
+                        assert_eq!(k.9.unwrap() - e, 100, "100 bp sliding window on N mod");
+                        assert_eq!(k.8.unwrap() - s, 100, "100 bp sliding window on N mod");
+                    }
+                    _ => {}
                 }
                 previous_win_start = k.8;
                 previous_win_end = k.9;

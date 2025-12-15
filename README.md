@@ -4,6 +4,11 @@ Nanalogue = *N*ucleic Acid *Analogue*
 
 Nanalogue is a tool to parse or analyse BAM/Mod BAM files with a single-molecule focus.
 
+[![Actions Status](https://github.com/DNAReplicationLab/nanalogue/workflows/ci/badge.svg)](https://github.com/DNAReplicationLab/nanalogue/actions)
+[![crates.io](https://img.shields.io/crates/v/nanalogue.svg)](https://crates.io/crates/nanalogue)
+[![Documentation](https://docs.rs/nanalogue/badge.svg)](https://docs.rs/nanalogue)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 # Commands
 
 All the commands below have options you can specify on the command line.
