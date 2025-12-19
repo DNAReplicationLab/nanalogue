@@ -29,6 +29,8 @@ jobs:
         run: cargo test
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Cargo clean
+        run: cargo clean
       - name: Generate code coverage
         id: llvm_cov_run
         run: |
