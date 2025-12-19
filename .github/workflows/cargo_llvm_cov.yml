@@ -1,0 +1,35 @@
+name: Cargo LLVM Coverage
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: rustup update stable
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate code coverage
+        id: llvm_cov_run
+        run: |
+          cargo llvm-cov --all-features --workspace --json --summary-only --output-path ./output.json
+          echo "functions=$(jq -r '.data[0].totals.functions.percent' ./output.json | head -c 2)" >> $GITHUB_OUTPUT
+          echo "lines=$(jq -r '.data[0].totals.lines.percent' ./output.json | head -c 2)" >> $GITHUB_OUTPUT
+          echo "regions=$(jq -r '.data[0].totals.regions.percent' ./output.json | head -c 2)" >> $GITHUB_OUTPUT
+          rm ./output.json
+      - name: Generate badge
+        uses: sebymiano/shields-badge-generator@v1.0.4
+        with:
+          label: 'Code coverage'
+          status: ${{ llvm_cov_run.github_info.outputs.regions }}
+          color: 'green'
+          path: '.github/workflows/cargo-llvm-cov-regions.svg'
