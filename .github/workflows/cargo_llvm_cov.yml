@@ -30,6 +30,6 @@ jobs:
         uses: sebymiano/shields-badge-generator@v1.0.4
         with:
           label: 'Code coverage'
-          status: ${{ llvm_cov_run.github_info.outputs.regions }}
+          status: ${{ steps.llvm_cov_run.github_info.outputs.regions }}
           color: 'green'
           path: '.github/workflows/cargo-llvm-cov-regions.svg'
