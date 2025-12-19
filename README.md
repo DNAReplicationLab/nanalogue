@@ -3,10 +3,24 @@
 Nanalogue = *N*ucleic Acid *Analogue*
 
 Nanalogue is a tool to parse or analyse BAM/Mod BAM files with a single-molecule focus.
+
 [![Cargo Build & Test](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/ci.yml/badge.svg)](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/nanalogue.svg)](https://crates.io/crates/nanalogue)
 [![Documentation](https://docs.rs/nanalogue/badge.svg)](https://docs.rs/nanalogue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+# Installation
+
+Run the following command to install or update `nanalogue`.
+
+```bash
+cargo install nanalogue
+```
+
+`cargo` is the rust package manager. If you do not have `cargo`,
+then follow these [instructions](https://doc.rust-lang.org/cargo/getting-started/installation.html)
+to get it. On Linux and macOS systems, the install command is as simple as
+`curl https://sh.rustup.rs -sSf | sh` 
 
 # Commands
 
