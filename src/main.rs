@@ -14,6 +14,9 @@ use std::io;
 /// can test the functionality of `run` easily through our code without
 /// actually running the program on the command line like an external user.
 fn main() {
+    // Initialize SSL certificates for HTTPS support
+    nanalogue_core::init_ssl_certificates();
+
     // we do not want to print `htslib` errors but want to deal with
     // them using our own error handling.
     unsafe {

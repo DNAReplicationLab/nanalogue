@@ -53,6 +53,7 @@ pub fn nanalogue_bam_reader_from_stdin() -> Result<bam::Reader, Error> {
 ///
 /// Returns an error if the BAM data cannot be read.
 pub fn nanalogue_bam_reader_from_url(url: &Url) -> Result<bam::Reader, Error> {
+    crate::init_ssl_certificates();
     Ok(bam::Reader::from_url(url)?)
 }
 
@@ -178,6 +179,7 @@ pub fn nanalogue_indexed_bam_reader_from_url(
     url: &Url,
     fetch_definition: bam::FetchDefinition,
 ) -> Result<bam::IndexedReader, Error> {
+    crate::init_ssl_certificates();
     let mut bam_reader = bam::IndexedReader::from_url(url)?;
     bam_reader.fetch(fetch_definition)?;
     Ok(bam_reader)

@@ -18,7 +18,7 @@ use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpo
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead as _, BufReader};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Once};
 
 // Declare the modules.
 pub mod analysis;
@@ -52,6 +52,47 @@ pub use utils::{
     GenomicRegion, GetDNARestrictive, Intersects, ModChar, OrdPair, PathOrURLOrStdin, ReadState,
     ReadStates, RestrictModCalledStrand, SeqCoordCalls, ThresholdState,
 };
+
+/// Static initialization guard for SSL certificate configuration.
+static SSL_INIT: Once = Once::new();
+
+/// Initialize SSL certificate paths for HTTPS support.
+///
+/// This function automatically detects and configures SSL certificate locations
+/// to enable HTTPS file access through libcurl. It uses the `openssl-probe`
+/// crate to find system CA certificate bundles.
+///
+/// # Usage
+///
+/// ```
+/// use nanalogue_core::init_ssl_certificates;
+/// init_ssl_certificates();
+/// ```
+///
+/// # Why This Is Needed
+///
+/// The statically-compiled libcurl in rust-htslib doesn't know where to find
+/// the system's CA certificate bundle for SSL certificate verification. This
+/// function sets the appropriate environment variables to point to the system's
+/// certificate bundle, enabling secure HTTPS connections.
+pub fn init_ssl_certificates() {
+    SSL_INIT.call_once(|| {
+        // SAFETY: This function probes for SSL certificates and sets environment
+        // variables. It's safe to call once during initialization before any
+        // SSL/TLS operations occur. We're setting these before any SSL/TLS
+        // operations happen, which is the safe usage pattern.
+        unsafe {
+            openssl_probe::init_openssl_env_vars();
+
+            // Also set CURL_CA_BUNDLE if SSL_CERT_FILE was set by openssl-probe.
+            // The statically-compiled libcurl in rust-htslib specifically checks
+            // CURL_CA_BUNDLE, not just SSL_CERT_FILE.
+            if let Ok(cert_file) = std::env::var("SSL_CERT_FILE") {
+                std::env::set_var("CURL_CA_BUNDLE", cert_file);
+            }
+        }
+    });
+}
 
 /// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods` Struct.
 ///

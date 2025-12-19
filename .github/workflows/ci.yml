@@ -21,8 +21,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup rustup
         run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
       - name: Build
         run: cargo build
       - name: Test
@@ -31,18 +29,3 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Cargo clean
         run: cargo clean
-      - name: Generate code coverage
-        id: llvm_cov_run
-        run: |
-          cargo llvm-cov --all-features --workspace --json --summary-only --output-path ./output.json
-          echo "functions=$(jq -r '.data[0].totals.functions.percent' ./output.json | head -c 2)" >> $GITHUB_OUTPUT
-          echo "lines=$(jq -r '.data[0].totals.lines.percent' ./output.json | head -c 2)" >> $GITHUB_OUTPUT
-          echo "regions=$(jq -r '.data[0].totals.regions.percent' ./output.json | head -c 2)" >> $GITHUB_OUTPUT
-          rm ./output.json
-      - name: Generate badge
-        uses: sebymiano/shields-badge-generator@v1.0.4
-        with:
-          label: 'Code coverage'
-          status: ${{ steps.llvm_cov_run.github_info.outputs.regions }}
-          color: 'green'
-          path: '.github/workflows/cargo-llvm-cov-regions.svg'
