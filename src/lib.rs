@@ -87,10 +87,10 @@ pub fn init_ssl_certificates() {
             // Also set CURL_CA_BUNDLE if SSL_CERT_FILE was set by openssl-probe.
             // The statically-compiled libcurl in rust-htslib specifically checks
             // CURL_CA_BUNDLE, not just SSL_CERT_FILE.
-            if let Ok(cert_file) = std::env::var("SSL_CERT_FILE") {
-                if let Err(_) = std::env::var("CURL_CA_BUNDLE") {
-                    std::env::set_var("CURL_CA_BUNDLE", cert_file);
-                }
+            if let Ok(cert_file) = std::env::var("SSL_CERT_FILE")
+                && std::env::var("CURL_CA_BUNDLE").is_err()
+            {
+                std::env::set_var("CURL_CA_BUNDLE", cert_file);
             }
         }
     });
