@@ -8,7 +8,8 @@ readme = "README.md"
 authors = ["Sathish Thiyagarajan <sathish.thiyagarajan@earlham.ac.uk>"]
 repository = "https://github.com/DNAReplicationLab/nanalogue.git"
 categories = ["command-line-utilities", "science::bioinformatics::sequence-analysis", "science::bioinformatics::genomics"]
-keywords = ["modbam", "bam", "dna", "dna_methylation", "rna" ]
+keywords = ["modbam", "bam", "dna", "dna_methylation", "rna"]
+exclude = [".github/", ".gitignore"]
 
 [dependencies]
 fibertools-rs = "0.8.1"
