@@ -8,21 +8,29 @@ on:
 
 jobs:
   coverage:
-    runs-on: ubuntu-slim
-    timeout-minutes: 30
+    runs-on: ubuntu-22.04
     env:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust
+      - name: Update Rust
+        run: rustup update stable && rustup default stable
+      - name: Aggressive cleanup
         run: |
-          curl https://sh.rustup.rs -sSf | sh -s -- -y
-          . "$HOME/.cargo/env"
-          rustup update stable && rustup default stable
+          # Remove Java (JDKs)
+          sudo rm -rf /usr/lib/jvm
+
+          # Remove .NET SDKs
+          sudo rm -rf /usr/share/dotnet
+
+          # Remove Swift toolchain
+          sudo rm -rf /usr/share/swift
+
+          # Remove Android SDKs
+          sudo rm -rf /usr/local/lib/android
       - name: Generate code coverage
         id: llvm_cov_run
         run: |
-          . "$HOME/.cargo/env"
           df -h
           cargo install cargo-llvm-cov
           cargo llvm-cov --all-features --workspace --json --summary-only --output-path ./output.json
