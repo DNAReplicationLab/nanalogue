@@ -16,10 +16,12 @@ jobs:
       - name: Install Rust
         run: |
           curl https://sh.rustup.rs -sSf | sh -s -- -y
+          . "$HOME/.cargo/env"
           rustup update stable && rustup default stable
       - name: Generate code coverage
         id: llvm_cov_run
         run: |
+          df -h
           cargo install cargo-llvm-cov
           cargo llvm-cov --all-features --workspace --json --summary-only --output-path ./output.json
           echo "functions=$(jq -r '.data[0].totals.functions.percent' ./output.json | head -c 2)" >> $GITHUB_OUTPUT
