@@ -21,6 +21,7 @@ jobs:
       - name: Generate code coverage
         id: llvm_cov_run
         run: |
+          . "$HOME/.cargo/env"
           df -h
           cargo install cargo-llvm-cov
           cargo llvm-cov --all-features --workspace --json --summary-only --output-path ./output.json
