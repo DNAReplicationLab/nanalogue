@@ -1195,10 +1195,6 @@ mod stochastic_tests {
         period: usize,
         /// Number of occurences of lowercase bases
         lowercase: usize,
-        /// Number of occurences of 'Z'
-        uppercase_z: usize,
-        /// Number of occurences of 'z'
-        lowercase_z: usize,
     }
 
     impl Counts {
@@ -1213,13 +1209,6 @@ mod stochastic_tests {
                 'A' | 'C' | 'G' | 'T' => {}
                 'a' | 'c' | 'g' | 't' => {
                     self.lowercase += 1;
-                }
-                'z' => {
-                    self.lowercase_z += 1;
-                    self.lowercase += 1;
-                }
-                'Z' => {
-                    self.uppercase_z += 1;
                 }
                 v => {
                     return Err(Error::InvalidSeq(format!(
