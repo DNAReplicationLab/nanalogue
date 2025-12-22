@@ -1,4 +1,4 @@
-name: Cargo LLVM coverage
+name: Code coverage > 92 percent
 
 on:
   workflow_run:
@@ -14,9 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Update Rust
-        run: rustup update stable && rustup default stable
+        run: |
+          rustup update nightly && rustup default nightly
+          # We switch to nightly as we get a report of branch coverage as well.
       - name: Aggressive cleanup
         run: |
+          # Remove unnecessary tools to increase available disk space
           # Remove Java (JDKs)
           sudo rm -rf /usr/lib/jvm
 
@@ -28,20 +31,24 @@ jobs:
 
           # Remove Android SDKs
           sudo rm -rf /usr/local/lib/android
+
+          # print available disk space
+          df -h
       - name: Generate code coverage
         id: llvm_cov_run
         run: |
-          df -h
+          # install code coverage tool and measure coverage
           cargo install cargo-llvm-cov
           cargo llvm-cov --all-features --workspace --json --summary-only --output-path ./output.json
-          echo "functions=$(jq -r '.data[0].totals.functions.percent' ./output.json | head -c 2)" >> $GITHUB_OUTPUT
-          echo "lines=$(jq -r '.data[0].totals.lines.percent' ./output.json | head -c 2)" >> $GITHUB_OUTPUT
-          echo "regions=$(jq -r '.data[0].totals.regions.percent' ./output.json | head -c 2)" >> $GITHUB_OUTPUT
+          functions=$(jq -r '.data[0].totals.functions.percent' ./output.json | head -c 2)
+          lines=$(jq -r '.data[0].totals.lines.percent' ./output.json | head -c 2)
+          regions=$(jq -r '.data[0].totals.regions.percent' ./output.json | head -c 2)
+          branches=$(jq -r '.data[0].totals.branches.percent' ./output.json | head -c 2)
+          echo "function coverage: $functions"
+          echo "lines coverage: $lines"
+          echo "regions coverage: $regions"
+          echo "branches coverage: $branches"
+          if [ "$regions" -le 92 ]; then
+            exit 1;
+          fi;
           rm ./output.json
-      - name: Generate badge
-        uses: sebymiano/shields-badge-generator@v1.0.4
-        with:
-          label: 'Code coverage'
-          status: ${{ steps.llvm_cov_run.outputs.regions }}
-          color: 'green'
-          path: '.github/workflows/cargo-llvm-cov-regions.svg'
