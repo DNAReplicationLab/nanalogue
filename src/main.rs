@@ -8,6 +8,12 @@ use nanalogue_core::commands;
 use rust_htslib::htslib;
 use std::io;
 
+// Avoid musl's default allocator due to lackluster performance
+// https://nickb.dev/blog/default-musl-allocator-considered-harmful-to-performance
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 /// Main function, run the program. All business logic handled by [`commands::run`].
 ///
 /// This separation of function between `main` and [`commands::run`] is so that we

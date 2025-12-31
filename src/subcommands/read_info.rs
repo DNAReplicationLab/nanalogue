@@ -2,7 +2,7 @@
 //!
 //! This module retrieves information about reads
 //! from a BAM file and converts it into a JSON.
-use crate::{CurrRead, Error, InputMods, OptionalTag};
+use crate::{CurrRead, Error, InputMods, OptionalTag, ThresholdState};
 use rust_htslib::bam;
 use std::iter;
 use std::rc::Rc;
@@ -16,13 +16,27 @@ use std::rc::Rc;
 pub fn run<W, D>(
     handle: &mut W,
     bam_records: D,
-    mods: &InputMods<OptionalTag>,
+    mut mods: InputMods<OptionalTag>,
     detailed: Option<bool>,
 ) -> Result<(), Error>
 where
     W: std::io::Write,
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
 {
+    // If the detailed options are not set, then we report a simple mod count.
+    // For this, we set threshold to 128 i.e. 0.5.
+    if detailed.is_none() {
+        match mods.mod_prob_filter {
+            ref mut v @ ThresholdState::GtEq(w) => *v = ThresholdState::GtEq(u8::max(128, w)),
+            ref mut v @ ThresholdState::InvertGtEqLtEq(w) => {
+                *v = ThresholdState::Both((128, w));
+            }
+            ref mut v @ ThresholdState::Both((w, x)) => {
+                *v = ThresholdState::Both((u8::max(128, w), x));
+            }
+        }
+    }
+
     let mut is_first_record_written = vec![false].into_iter().chain(iter::repeat(true));
 
     write!(handle, "[")?;
@@ -36,24 +50,18 @@ where
         } else {
             writeln!(handle)?;
         }
-
-        if let Some(flag) = detailed {
-            let curr_read = CurrRead::default()
-                .try_from_only_alignment(&record)?
-                .set_mod_data_restricted_options(&record, mods)?;
-            write!(
-                handle,
-                "{}",
-                if flag {
-                    serde_json::to_string_pretty(&curr_read)?
-                } else {
-                    serde_json::to_string(&curr_read)?
-                }
-            )?;
-        } else {
-            let curr_read = CurrRead::try_from(record)?;
-            write!(handle, "{curr_read}")?;
-        }
+        let curr_read = CurrRead::default()
+            .try_from_only_alignment(&record)?
+            .set_mod_data_restricted_options(&record, &mods)?;
+        write!(
+            handle,
+            "{}",
+            match detailed {
+                None => curr_read.to_string(),
+                Some(false) => serde_json::to_string(&curr_read)?,
+                Some(true) => serde_json::to_string_pretty(&curr_read)?,
+            }
+        )?;
     }
 
     writeln!(handle, "\n]")?;
@@ -65,7 +73,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nanalogue_bam_reader;
+    use crate::{InputModsBuilder, OrdPair, nanalogue_bam_reader};
     use rust_htslib::bam::Read as _;
     use serde_json::Value;
 
@@ -83,7 +91,7 @@ mod tests {
         run(
             &mut output_buffer,
             records.into_iter(),
-            &InputMods::default(),
+            InputMods::default(),
             None,
         )?;
         let output_json = String::from_utf8(output_buffer)?;
@@ -119,7 +127,7 @@ mod tests {
         run(
             &mut output_buffer,
             records.into_iter(),
-            &InputMods::default(),
+            InputMods::default(),
             None,
         )?;
         let output_json = String::from_utf8(output_buffer)?;
@@ -154,7 +162,7 @@ mod tests {
         run(
             &mut output_buffer,
             records.into_iter(),
-            &InputMods::default(),
+            InputMods::default(),
             None,
         )?;
         let output_json = String::from_utf8(output_buffer)?;
@@ -176,8 +184,11 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn run_with_example_6() -> Result<(), Error> {
+    /// Helper function to test `example_6.sam` with different `InputMods` configurations
+    fn run_example_6_test(
+        mod_options: InputMods<OptionalTag>,
+        expected: &Value,
+    ) -> Result<(), Error> {
         // Collect records from example_6.sam
         let mut reader = nanalogue_bam_reader("./examples/example_6.sam")?;
         let records: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> =
@@ -185,39 +196,142 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(
-            &mut output_buffer,
-            records.into_iter(),
-            &InputMods::default(),
-            None,
-        )?;
+        run(&mut output_buffer, records.into_iter(), mod_options, None)?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
-        let expected = serde_json::json!([
-            {
-                "read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
-                "sequence_length": 8,
-                "contig": "dummyI",
-                "reference_start": 9,
-                "reference_end": 17,
-                "alignment_length": 8,
-                "alignment_type": "primary_forward",
-                "mod_count": "NA"
-            },
-            {
-                "read_id": "fffffff1-10d2-49cb-8ca3-e8d48979001b",
-                "sequence_length": 33,
-                "contig": "dummyII",
-                "reference_start": 3,
-                "reference_end": 36,
-                "alignment_length": 33,
-                "alignment_type": "primary_reverse",
-                "mod_count": "T+T:1;(probabilities >= 0.5020, PHRED base qual >= 0)"
-            }
-        ]);
-        assert_eq!(parsed, expected);
 
+        assert_eq!(parsed, *expected);
         Ok(())
+    }
+
+    #[test]
+    fn run_with_example_6() -> Result<(), Error> {
+        run_example_6_test(
+            InputMods::default(),
+            &serde_json::json!([
+                {
+                    "read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
+                    "sequence_length": 8,
+                    "contig": "dummyI",
+                    "reference_start": 9,
+                    "reference_end": 17,
+                    "alignment_length": 8,
+                    "alignment_type": "primary_forward",
+                    "mod_count": "NA"
+                },
+                {
+                    "read_id": "fffffff1-10d2-49cb-8ca3-e8d48979001b",
+                    "sequence_length": 33,
+                    "contig": "dummyII",
+                    "reference_start": 3,
+                    "reference_end": 36,
+                    "alignment_length": 33,
+                    "alignment_type": "primary_reverse",
+                    "mod_count": "T+T:1;(probabilities >= 0.5020, PHRED base qual >= 0)"
+                }
+            ]),
+        )
+    }
+
+    #[test]
+    fn run_with_example_6_aggressive_filtering_1() -> Result<(), Error> {
+        let mod_options = InputModsBuilder::<OptionalTag>::default()
+            .mod_prob_filter(ThresholdState::GtEq(255))
+            .build()?;
+        run_example_6_test(
+            mod_options,
+            &serde_json::json!([
+                {
+                    "read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
+                    "sequence_length": 8,
+                    "contig": "dummyI",
+                    "reference_start": 9,
+                    "reference_end": 17,
+                    "alignment_length": 8,
+                    "alignment_type": "primary_forward",
+                    "mod_count": "NA"
+                },
+                {
+                    "read_id": "fffffff1-10d2-49cb-8ca3-e8d48979001b",
+                    "sequence_length": 33,
+                    "contig": "dummyII",
+                    "reference_start": 3,
+                    "reference_end": 36,
+                    "alignment_length": 33,
+                    "alignment_type": "primary_reverse",
+                    "mod_count": "T+T:0;(probabilities >= 1.0000, PHRED base qual >= 0)"
+                }
+            ]),
+        )
+    }
+
+    #[test]
+    fn run_with_example_6_aggressive_filtering_2() -> Result<(), Error> {
+        let mod_options = InputModsBuilder::<OptionalTag>::default()
+            .mod_prob_filter(ThresholdState::Both((
+                100,
+                OrdPair::new(200, 220).expect("no error"),
+            )))
+            .build()?;
+        run_example_6_test(
+            mod_options,
+            &serde_json::json!([
+                {
+                    "read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
+                    "sequence_length": 8,
+                    "contig": "dummyI",
+                    "reference_start": 9,
+                    "reference_end": 17,
+                    "alignment_length": 8,
+                    "alignment_type": "primary_forward",
+                    "mod_count": "NA"
+                },
+                {
+                    "read_id": "fffffff1-10d2-49cb-8ca3-e8d48979001b",
+                    "sequence_length": 33,
+                    "contig": "dummyII",
+                    "reference_start": 3,
+                    "reference_end": 36,
+                    "alignment_length": 33,
+                    "alignment_type": "primary_reverse",
+                    "mod_count": "T+T:1;(probabilities >= 0.5020 and (probabilities < 0.7843 or > 0.8627), PHRED base qual >= 0)"
+                }
+            ]),
+        )
+    }
+
+    #[test]
+    fn run_with_example_6_aggressive_filtering_3() -> Result<(), Error> {
+        let mod_options = InputModsBuilder::<OptionalTag>::default()
+            .mod_prob_filter(ThresholdState::InvertGtEqLtEq(
+                OrdPair::new(100, 110).expect("no error"),
+            ))
+            .build()?;
+        run_example_6_test(
+            mod_options,
+            &serde_json::json!([
+                {
+                    "read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
+                    "sequence_length": 8,
+                    "contig": "dummyI",
+                    "reference_start": 9,
+                    "reference_end": 17,
+                    "alignment_length": 8,
+                    "alignment_type": "primary_forward",
+                    "mod_count": "NA"
+                },
+                {
+                    "read_id": "fffffff1-10d2-49cb-8ca3-e8d48979001b",
+                    "sequence_length": 33,
+                    "contig": "dummyII",
+                    "reference_start": 3,
+                    "reference_end": 36,
+                    "alignment_length": 33,
+                    "alignment_type": "primary_reverse",
+                    "mod_count": "T+T:1;(probabilities >= 0.5020 and (probabilities < 0.3922 or > 0.4314), PHRED base qual >= 0)"
+                }
+            ]),
+        )
     }
 
     #[test]
@@ -232,7 +346,7 @@ mod tests {
         run(
             &mut output_buffer,
             records.into_iter(),
-            &InputMods::default(),
+            InputMods::default(),
             Some(true),
         )?;
         let output_json = String::from_utf8(output_buffer)?;
@@ -266,7 +380,7 @@ mod tests {
         run(
             &mut output_buffer,
             records.into_iter(),
-            &InputMods::default(),
+            InputMods::default(),
             Some(false),
         )?;
         let output_json = String::from_utf8(output_buffer)?;

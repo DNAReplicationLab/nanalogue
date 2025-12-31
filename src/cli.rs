@@ -77,7 +77,7 @@ use std::str::FromStr;
 ///     &mut buffer,
 ///     bam_rc_records.rc_records
 ///         .filter(|r| r.as_ref().map_or(true, |v| v.pre_filt(&bam))),
-///     &mods,
+///     mods,
 ///     None,
 /// )?;
 /// assert!(str::from_utf8(buffer.as_slice())?

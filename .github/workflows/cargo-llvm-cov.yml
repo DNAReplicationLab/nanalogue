@@ -39,14 +39,14 @@ jobs:
           # install code coverage tool and measure coverage
           cargo install cargo-llvm-cov
           cargo llvm-cov --all-features --workspace --json --summary-only --output-path ./output.json
-          functions=$(jq -r '.data[0].totals.functions.percent | floor | tostring' ./output.json)
-          lines=$(jq -r '.data[0].totals.lines.percent | floor | tostring' ./output.json)
-          regions=$(jq -r '.data[0].totals.regions.percent | floor | tostring' ./output.json)
-          branches=$(jq -r '(.data[0].totals.branches.percent // "NA") | if . == "NA" then "NA" else (. | floor | tostring) end' ./output.json)
+          functions=$(jq -r '.data[0].totals.functions.percent | round | tostring' ./output.json)
+          lines=$(jq -r '.data[0].totals.lines.percent | round | tostring' ./output.json)
+          regions=$(jq -r '.data[0].totals.regions.percent | round | tostring' ./output.json)
+          branches=$(jq -r '(.data[0].totals.branches.percent // "NA") | if . == "NA" then "NA" else (. | round | tostring) end' ./output.json)
           echo "function coverage: $functions"
           echo "lines coverage: $lines"
           echo "regions coverage: $regions"
-          echo "branches coverage (may not be output if not `nightly`): $branches"
+          echo "branches coverage (may not be output if not nightly): $branches"
           if [ "$regions" -le 92 ]; then
             exit 1;
           fi;

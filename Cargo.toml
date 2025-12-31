@@ -1,6 +1,6 @@
 [package]
 name = "nanalogue"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "BAM/Mod BAM parsing and analysis tool with a single-molecule focus"
 license = "MIT"
@@ -135,6 +135,9 @@ unused_results = "deny"
 [profile.release]
 codegen-units = 1
 lto = "fat"
-opt-level = "z"
+opt-level = 3
 panic = "abort"
 strip = "debuginfo"
+
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = "0.1.48"

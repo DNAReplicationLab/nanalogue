@@ -444,7 +444,7 @@ pos retrieval/mod colouring without seq_region"
             read_info::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
-                &mods,
+                mods,
                 (detailed || detailed_pretty).then_some(detailed_pretty),
             )
         }

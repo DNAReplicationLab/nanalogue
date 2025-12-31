@@ -1,0 +1,20 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.1.2] - 2025-12-31
+
+### Added
+- CI workflows to build and check code
+- Tests to increase coverage to > 92%.
+- Added cargo target `x86_64-unknown-linux-musl`
+
+### Changed
+- Updates cargo packages
+
+### Fixed
+- `https` BAM retrieval
+- `read_info` was not processing mod options when `--detailed` options were absent.
