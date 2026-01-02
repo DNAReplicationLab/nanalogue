@@ -1,4 +1,4 @@
-//! # Cli
+//! # Command line interface (CLI) options, including input processing options
 //!
 //! This file provides some global options in the command line interface.
 use crate::{

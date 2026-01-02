@@ -1,8 +1,77 @@
-//! # Nanalogue Core (Nanalogue = Nucleic Acid Analogue)
+//! # Nanalogue Core
 //!
-//! We process and calculate data associated with DNA molecules, their alignments to
+//! ## Introduction
+//!
+//! Nanalogue = *N*ucleic Acid *Analogue*.
+//! Nanalogue is a tool to parse or analyse BAM/Mod BAM files with a single-molecule focus.
+//!
+//! [![Cargo Build & Test](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/ci.yml/badge.svg)](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/ci.yml)
+//! [![Code test coverage > 92\%](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/cargo-llvm-cov.yml/badge.svg)](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/cargo-llvm-cov.yml)
+//! [![crates.io](https://img.shields.io/crates/v/nanalogue.svg)](https://crates.io/crates/nanalogue)
+//! [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+//!
+//! A common pain point in genomics analyses is that BAM files are information-dense
+//! which makes it difficult to gain insight from them. Nanalogue hopes to make it easy
+//! to extract and process this information, with a particular focus on single-molecule
+//! aspects and DNA/RNA modifications. Despite this focus, some of nanalogue's commands
+//! and functions are quite general and can be applied to almost any BAM file.
+//!
+//! We process and calculate data associated with DNA/RNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous
 //! information.
+//!
+//! Nanalogue is both an executable that can be run from the command line and a library
+//! whose functionality can be used by others writing rust code. The library's functions
+//! are presented here. The executable exposes the modules `subcommands::*`, and a
+//! separate executable `nanalogue_sim_bam` exposes the `simulate_mod_bam` functionality
+//! (see below).
+//!
+//! For developers: if you are looking to make a custom BAM file containing synthetic, simulated
+//! DNA/RNA modification data to develop/test your tool, you may be interested in `nanalogue_sim_bam`.
+//! This is an executable that ships with nanalogue that can create a BAM file according to your
+//! specifications. Please run `nanalogue_sim_bam --help`. If you are a rust developer looking
+//! to use this functionality in your library, please look at the documentation of the module
+//! [`crate::simulate_mod_bam`].
+//!
+//! This documentation is supplemented by a companion [cookbook](https://www.nanalogue.com).
+//!
+//! ## Sample code
+//!
+//! The [`InputBam`] and the [`InputMods`] structs allow us to set input options
+//! for BAM/modBAM calculations. An example is shown below where the [`crate::read_info::run`]
+//! command is called to process data from a BAM file with some input options.
+//!
+//! ```
+//! use nanalogue_core::{BamRcRecords, BamPreFilt, Error, InputBamBuilder, InputModsBuilder,
+//!     OptionalTag, PathOrURLOrStdin, ThresholdState, nanalogue_bam_reader, read_info};
+//!
+//! let mut bam = InputBamBuilder::default()
+//!     .bam_path(PathOrURLOrStdin::Path("./examples/example_1.bam".into()))
+//!     .region("dummyI".into())
+//!     .build()?;
+//! let mut mods = InputModsBuilder::<OptionalTag>::default()
+//!     .mod_prob_filter(ThresholdState::GtEq(0))
+//!     .build()?;
+//!
+//! let mut buffer = Vec::new();
+//! let mut reader = nanalogue_bam_reader(&bam.bam_path.to_string())?;
+//! let bam_rc_records = BamRcRecords::new(&mut reader, &mut bam, &mut mods)?;
+//! read_info::run(
+//!     &mut buffer,
+//!     bam_rc_records.rc_records
+//!         .filter(|r| r.as_ref().map_or(true, |v| v.pre_filt(&bam))),
+//!     mods,
+//!     None,
+//! )?;
+//! assert!(str::from_utf8(buffer.as_slice())?
+//!     .contains("5d10eb9a-aae1-4db8-8ec6-7ebb34d32575"));
+//! # Ok::<(), Error>(())
+//! ```
+//!
+//! If you want to write custom functionality yourself, please familiarize yourself with the
+//! [`crate::read_utils::CurrRead`] struct. This is the centerpiece of our library, which receives
+//! BAM record data, processes the DNA/RNA modification information amongst other pieces of information,
+//! and exposes them for downstream usage.
 
 use bedrs::{Bed3, Coordinates as _};
 use bio::alphabets::dna::revcomp;

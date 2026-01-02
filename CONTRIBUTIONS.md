@@ -5,7 +5,7 @@ Thank you for your interest in contributing to `nanalogue`! This project is larg
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/nanalogue.git`
+2. Clone your fork: `git clone https://github.com/DNAReplicationLab/nanalogue.git`
 3. Create a branch for your changes: `git checkout -b feature/your-feature-name`
 
 ## Development Setup

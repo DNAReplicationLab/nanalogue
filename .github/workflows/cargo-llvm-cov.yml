@@ -1,4 +1,4 @@
-name: Code coverage > 92 percent
+name: Code coverage > 92%
 
 on:
   workflow_run:
