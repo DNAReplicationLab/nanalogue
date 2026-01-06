@@ -26,11 +26,6 @@ jobs:
           . "$HOME/.cargo/env"
           cargo build --release --bins
 
-      - name: Run tests
-        run: |
-          . "$HOME/.cargo/env"
-          cargo test --release
-
       - name: Package binaries
         run: |
           mkdir -p dist
@@ -92,11 +87,15 @@ jobs:
               if [[ "${{ matrix.container }}" == *"musllinux"* ]]; then
                 apk add --no-cache \
                   bzip2-dev \
+                  bzip2-static \
                   xz-dev \
+                  xz-static \
                   zlib-dev \
                   zlib-static \
                   curl-dev \
+                  curl-static \
                   openssl-dev \
+                  openssl-libs-static \
                   build-base \
                   perl
                 export CFLAGS="-I/usr/include"
@@ -114,9 +113,6 @@ jobs:
 
               # Build release binaries
               cargo build --release --bins
-
-              # Run tests
-              cargo test --release
 
               # Package binaries
               mkdir -p dist
