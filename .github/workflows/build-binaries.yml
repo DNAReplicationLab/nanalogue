@@ -1,0 +1,131 @@
+name: Build Release Binaries
+
+on:
+  workflow_dispatch:  # Manual triggering only
+
+jobs:
+  build_macos_binaries:
+    name: Build binaries on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y
+          . "$HOME/.cargo/env"
+          rustup default stable
+
+      - name: Build release binaries
+        run: |
+          . "$HOME/.cargo/env"
+          cargo build --release --bins
+
+      - name: Run tests
+        run: |
+          . "$HOME/.cargo/env"
+          cargo test --release
+
+      - name: Package binaries
+        run: |
+          mkdir -p dist
+          cp target/release/nanalogue dist/nanalogue-macos
+          cp target/release/nanalogue_sim_bam dist/nanalogue_sim_bam-macos
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v6
+        with:
+          name: binaries-${{ matrix.os }}
+          path: dist/*
+
+  build_linux_binaries:
+    name: Build binaries on ${{ matrix.container }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        container:
+          - quay.io/pypa/musllinux_1_2_x86_64
+          - quay.io/pypa/manylinux_2_28_x86_64
+          - quay.io/pypa/manylinux_2_34_x86_64
+          - quay.io/pypa/manylinux2014_x86_64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Determine compatibility tag
+        id: compat
+        run: |
+          if [[ "${{ matrix.container }}" == *"musllinux_1_2"* ]]; then
+            echo "tag=musllinux_1_2" >> $GITHUB_OUTPUT
+          elif [[ "${{ matrix.container }}" == *"manylinux_2_28"* ]]; then
+            echo "tag=manylinux_2_28" >> $GITHUB_OUTPUT
+          elif [[ "${{ matrix.container }}" == *"manylinux_2_34"* ]]; then
+            echo "tag=manylinux_2_34" >> $GITHUB_OUTPUT
+          elif [[ "${{ matrix.container }}" == *"manylinux2014"* ]]; then
+            echo "tag=manylinux2014" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: Unrecognized container: ${{ matrix.container }}"
+            exit 1
+          fi
+
+      - name: Build binaries in container
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            ${{ matrix.container }} \
+            bash -c '
+              set -euo pipefail
+              trap '\''echo "ERROR: Build failed at line $LINENO"; exit 1'\'' ERR
+
+              # Install Rust
+              curl https://sh.rustup.rs -sSf | sh -s -- -y
+              . "$HOME/.cargo/env"
+
+              # Install dependencies based on container type
+              if [[ "${{ matrix.container }}" == *"musllinux"* ]]; then
+                apk add --no-cache \
+                  bzip2-dev \
+                  xz-dev \
+                  zlib-dev \
+                  zlib-static \
+                  curl-dev \
+                  openssl-dev \
+                  build-base \
+                  perl
+                export CFLAGS="-I/usr/include"
+              else
+                yum install -y \
+                  bzip2-devel \
+                  xz-devel \
+                  zlib-devel \
+                  libcurl-devel \
+                  openssl-devel \
+                  perl-IPC-Cmd \
+                  perl-core \
+                  perl-Time-Piece
+              fi
+
+              # Build release binaries
+              cargo build --release --bins
+
+              # Run tests
+              cargo test --release
+
+              # Package binaries
+              mkdir -p dist
+              cp target/release/nanalogue dist/nanalogue-${{ steps.compat.outputs.tag }}
+              cp target/release/nanalogue_sim_bam dist/nanalogue_sim_bam-${{ steps.compat.outputs.tag }}
+            '
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v6
+        with:
+          name: binaries-${{ steps.compat.outputs.tag }}
+          path: ${{ github.workspace }}/dist/*

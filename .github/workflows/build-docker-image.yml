@@ -1,0 +1,42 @@
+name: Build Docker Image
+
+on:
+  workflow_dispatch:  # Manual triggering only
+
+jobs:
+  build_docker_image:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        run: |
+          docker buildx create --use --name builder --driver docker-container
+
+      - name: Build Docker image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag nanalogue:latest \
+            --tag nanalogue:${{ github.sha }} \
+            --load \
+            .
+
+      - name: Test Docker image
+        run: |
+          docker run --rm nanalogue:latest nanalogue --version
+          docker run --rm nanalogue:latest nanalogue_sim_bam --help
+
+      - name: Save Docker image to artifact
+        run: |
+          mkdir -p dist
+          docker save nanalogue:latest | gzip > dist/nanalogue-docker-image.tar.gz
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: docker-image
+          path: dist/nanalogue-docker-image.tar.gz

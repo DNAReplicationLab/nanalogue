@@ -16,6 +16,35 @@ to extract and process this information, with a particular focus on single-molec
 aspects and DNA/RNA modifications. Despite this focus, some of nanalogue's commands are
 quite general and can be applied to almost any BAM file.
 
+We can process any type of DNA/RNA modifications occurring in any pattern (single/multiple mods,
+spatially-isolated/non-isolated etc.). All we require is that the data is stored
+in a BAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
+[specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)).
+
+## Table of Contents
+
+- [Usage and documentation](#usage-and-documentation)
+  - [Simulate BAM files](#simulate-bam-files)
+- [Installation](#installation)
+  - [Using Cargo](#using-cargo)
+  - [Using Docker](#using-docker)
+  - [Pre-built Binaries](#pre-built-binaries)
+    - [GitHub Releases](#github-releases)
+    - [GitHub Actions Artifacts](#github-actions-artifacts)
+- [Commands](#commands)
+  - [`nanalogue read-info`](#nanalogue-read-info)
+  - [`nanalogue read-table-hide-mods`](#nanalogue-read-table-hide-mods)
+  - [`nanalogue read-table-show-mods`](#nanalogue-read-table-show-mods)
+  - [`nanalogue read-stats`](#nanalogue-read-stats)
+  - [`nanalogue find-modified-reads`](#nanalogue-find-modified-reads)
+  - [`nanalogue window-dens`](#nanalogue-window-dens)
+  - [`nanalogue window-grad`](#nanalogue-window-grad)
+- [Python wrapper](#python-wrapper)
+- [Contributing](#contributing)
+- [Security](#security)
+- [Changelog](#changelog)
+- [Acknowledgments](#acknowledgments)
+
 # Usage and documentation
 
 There are three ways to use nanalogue with a pre-existing BAM file:
@@ -42,6 +71,8 @@ to use this functionality in your library, please look at the documentation of t
 
 # Installation
 
+## Using Cargo
+
 Run the following command to install or update `nanalogue` for usage on the command line.
 
 ```bash
@@ -51,7 +82,40 @@ cargo install nanalogue
 `cargo` is the rust package manager. If you do not have `cargo`,
 then follow these [instructions](https://doc.rust-lang.org/cargo/getting-started/installation.html)
 to get it. On Linux and macOS systems, the install command is as simple as
-`curl https://sh.rustup.rs -sSf | sh` 
+`curl https://sh.rustup.rs -sSf | sh`
+
+## Using Docker
+
+You can also use `nanalogue` via Docker:
+
+```bash
+docker pull dockerofsat/nanalogue:latest
+```
+
+## Pre-built Binaries
+
+Pre-built binaries for macOS and Linux are available from two sources:
+
+### GitHub Releases
+
+Official release binaries can be downloaded from the [Releases page](https://github.com/DNAReplicationLab/nanalogue/releases)
+on the Github repository. Each release includes binaries for multiple platforms.
+
+### GitHub Actions Artifacts
+
+Binaries built from the latest code are available as artifacts from the 
+[Build Release Binaries workflow](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/build-binaries.yml)
+from the github repository. To download:
+
+1. Navigate to the workflow runs
+2. Click on a successful workflow run
+3. Scroll to the "Artifacts" section at the bottom
+4. Download the binary artifact for your platform:
+   - `binaries-macos-latest` - macOS binaries
+   - `binaries-musllinux_1_2` - Alpine/musl-based Linux (static binaries)
+   - `binaries-manylinux_2_28` - Modern Linux distributions (glibc 2.28+)
+   - `binaries-manylinux_2_34` - Newer Linux distributions (glibc 2.34+)
+   - `binaries-manylinux2014` - Older Linux distributions (glibc 2.17+, maximum compatibility)
 
 # Commands
 

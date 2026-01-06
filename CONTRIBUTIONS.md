@@ -64,7 +64,7 @@ The project uses extensive clippy lints (see `Cargo.toml` for the full list). Yo
 ### Commit Messages
 
 - Write clear, descriptive commit messages
-- Use present tense ("Add feature" not "Added feature")
+- Use present tense ("adds feature" not "added feature")
 - Reference issue numbers when applicable
 
 ## Pull Request Process

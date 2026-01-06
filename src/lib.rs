@@ -18,7 +18,10 @@
 //!
 //! We process and calculate data associated with DNA/RNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous
-//! information.
+//! information.  We can process any type of DNA/RNA modifications occuring in any pattern
+//! (single/multiple mods, spatially-isolated/non-isolated etc.). All we require is that
+//! the data is stored in a BAM file in the mod BAM format (i.e. using `MM/ML` tags as
+//! laid down in the [specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)).
 //!
 //! Nanalogue is both an executable that can be run from the command line and a library
 //! whose functionality can be used by others writing rust code. The library's functions

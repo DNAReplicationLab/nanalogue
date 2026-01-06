@@ -7,6 +7,7 @@ license = "MIT"
 readme = "README.md"
 authors = ["Sathish Thiyagarajan <sathish.thiyagarajan@earlham.ac.uk>"]
 repository = "https://github.com/DNAReplicationLab/nanalogue.git"
+homepage = "https://www.nanalogue.com"
 categories = ["command-line-utilities", "science::bioinformatics::sequence-analysis", "science::bioinformatics::genomics"]
 keywords = ["modbam", "bam", "dna", "dna_methylation", "rna"]
 exclude = [".github/", ".gitignore"]
