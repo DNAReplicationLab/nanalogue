@@ -43,8 +43,9 @@ pub enum Error {
 
     /// Alignment coordinates (contig/start/end) are invalid.
     #[error(
-        "invalid alignment coordinates (contig/start/end): `{0}` \n\
- If piping in a samtools view command, please include header with -h in samtools. "
+        "invalid alignment coordinates (contig/start/end): `{0}`. \n\
+ In command line tool, you can use `nanalogue peek` to check contig names and contig lengths. \n\
+ In command line tool, if piping in a samtools view command, please include header with -h in samtools. "
     )]
     InvalidAlignCoords(String),
 
@@ -80,8 +81,9 @@ pub enum Error {
 
     /// Some error from the rust htslib library we use to read BAM files
     #[error(
-        "rust_htslib error: `{0}` \nIf you are piping in `samtools view`, \
-error could possibly be due to not including header with `samtools view -h` "
+        "rust_htslib error: `{0}` \n\
+ In command line tool, you can use `nanalogue peek` to check contig names and contig lengths. \n\
+ In command line tool, if piping in a samtools view command, please include header with -h in samtools. "
     )]
     RustHtslibError(#[from] rust_htslib::errors::Error),
 
@@ -165,7 +167,8 @@ error could possibly be due to not including header with `samtools view -h` "
     ZeroSeqLen(String),
 
     /// Genomic region coordinates exceed contig boundaries
-    #[error("invalid region '{region}': position {pos} exceeds contig length {contig_length}")]
+    #[error("invalid region '{region}': position {pos} exceeds contig length {contig_length}\n\
+ In command line tool, you can use `nanalogue peek` to check contig names and contig lengths.")]
     InvalidRegion {
         /// The original region string provided by the user
         region: String,

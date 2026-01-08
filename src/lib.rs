@@ -118,7 +118,9 @@ pub use read_utils::{
     AlignmentInfoBuilder, CurrRead, CurrReadBuilder, ModTableEntryBuilder, curr_reads_to_dataframe,
 };
 pub use simulate_mod_bam::SimulationConfig;
-pub use subcommands::{find_modified_reads, read_info, read_stats, reads_table, window_reads};
+pub use subcommands::{
+    find_modified_reads, peek, read_info, read_stats, reads_table, window_reads,
+};
 pub use utils::{
     AllowedAGCTN, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1, FilterByRefCoords,
     GenomicRegion, GetDNARestrictive, Intersects, ModChar, OrdPair, PathOrURLOrStdin, ReadState,

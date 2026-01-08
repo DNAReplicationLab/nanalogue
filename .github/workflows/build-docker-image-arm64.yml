@@ -1,12 +1,12 @@
-name: Build Docker Image
+name: Build Docker Image (ARM64)
 
 on:
   workflow_dispatch:  # Manual triggering only
 
 jobs:
-  build_docker_image:
-    name: Build Docker image
-    runs-on: ubuntu-latest
+  build_docker_image_arm64:
+    name: Build Docker image (ARM64)
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - name: Checkout code
@@ -19,8 +19,8 @@ jobs:
       - name: Build Docker image
         run: |
           docker buildx build \
-            --platform linux/amd64 \
-            --build-arg RUST_TARGET=x86_64-unknown-linux-musl \
+            --platform linux/arm64 \
+            --build-arg RUST_TARGET=aarch64-unknown-linux-musl \
             --tag nanalogue:latest \
             --tag nanalogue:${{ github.sha }} \
             --load \
@@ -34,10 +34,10 @@ jobs:
       - name: Save Docker image to artifact
         run: |
           mkdir -p dist
-          docker save nanalogue:latest | gzip > dist/nanalogue-docker-image-amd64.tar.gz
+          docker save nanalogue:latest | gzip > dist/nanalogue-docker-image-arm64.tar.gz
 
       - name: Upload Docker image artifact
         uses: actions/upload-artifact@v6
         with:
-          name: docker-image-amd64
-          path: dist/nanalogue-docker-image-amd64.tar.gz
+          name: docker-image-arm64
+          path: dist/nanalogue-docker-image-arm64.tar.gz
