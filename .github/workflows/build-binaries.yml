@@ -40,14 +40,28 @@ jobs:
 
   build_linux_binaries:
     name: Build binaries on ${{ matrix.container }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        container:
-          - quay.io/pypa/musllinux_1_2_x86_64
-          - quay.io/pypa/manylinux_2_28_x86_64
-          - quay.io/pypa/manylinux_2_34_x86_64
-          - quay.io/pypa/manylinux2014_x86_64
+        include:
+          # x86_64 builds
+          - container: quay.io/pypa/musllinux_1_2_x86_64
+            runner: ubuntu-latest
+          - container: quay.io/pypa/manylinux_2_28_x86_64
+            runner: ubuntu-latest
+          - container: quay.io/pypa/manylinux_2_34_x86_64
+            runner: ubuntu-latest
+          - container: quay.io/pypa/manylinux2014_x86_64
+            runner: ubuntu-latest
+          # ARM64 builds
+          - container: quay.io/pypa/musllinux_1_2_aarch64
+            runner: ubuntu-24.04-arm
+          - container: quay.io/pypa/manylinux_2_28_aarch64
+            runner: ubuntu-24.04-arm
+          - container: quay.io/pypa/manylinux_2_34_aarch64
+            runner: ubuntu-24.04-arm
+          - container: quay.io/pypa/manylinux2014_aarch64
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout code
@@ -56,18 +70,28 @@ jobs:
       - name: Determine compatibility tag
         id: compat
         run: |
+          # Determine architecture
+          if [[ "${{ matrix.container }}" == *"aarch64"* ]]; then
+            ARCH="aarch64"
+          else
+            ARCH="x86_64"
+          fi
+
+          # Determine base tag
           if [[ "${{ matrix.container }}" == *"musllinux_1_2"* ]]; then
-            echo "tag=musllinux_1_2" >> $GITHUB_OUTPUT
+            BASE_TAG="musllinux_1_2"
           elif [[ "${{ matrix.container }}" == *"manylinux_2_28"* ]]; then
-            echo "tag=manylinux_2_28" >> $GITHUB_OUTPUT
+            BASE_TAG="manylinux_2_28"
           elif [[ "${{ matrix.container }}" == *"manylinux_2_34"* ]]; then
-            echo "tag=manylinux_2_34" >> $GITHUB_OUTPUT
+            BASE_TAG="manylinux_2_34"
           elif [[ "${{ matrix.container }}" == *"manylinux2014"* ]]; then
-            echo "tag=manylinux2014" >> $GITHUB_OUTPUT
+            BASE_TAG="manylinux2014"
           else
             echo "ERROR: Unrecognized container: ${{ matrix.container }}"
             exit 1
           fi
+
+          echo "tag=${BASE_TAG}_${ARCH}" >> $GITHUB_OUTPUT
 
       - name: Build binaries in container
         run: |
