@@ -39,6 +39,7 @@ in a BAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
   - [`nanalogue find-modified-reads`](#nanalogue-find-modified-reads)
   - [`nanalogue window-dens`](#nanalogue-window-dens)
   - [`nanalogue window-grad`](#nanalogue-window-grad)
+  - [`nanalogue peek`](#nanalogue-peek)
 - [Python wrapper](#python-wrapper)
 - [Contributing](#contributing)
 - [Security](#security)
@@ -276,6 +277,33 @@ dummyI  13      17      read1   0       +       T       +       T       3       
 Output windowed gradients of reads.
 Sample output is similar to the one above but with gradients reported instead of
 mean modification densities in the `win_val` column.
+
+## `nanalogue peek`
+Read the BAM file header and the first few records, and output contig information
+and modification tag information. Sample output follows.
+
+```text
+contigs_and_lengths:
+dummyI  22
+dummyII 48
+dummyIII        76
+
+modifications:
+G-7200
+T+T
+```
+
+If no modifications are found in the first few records, you will see
+
+```text
+contigs_and_lengths:
+dummyI  22
+dummyII 48
+dummyIII        76
+
+modifications:
+None
+```
 
 # Python wrapper
 

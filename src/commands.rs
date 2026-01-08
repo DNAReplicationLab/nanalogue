@@ -6,7 +6,7 @@ use crate::{
     InputWindowing, OptionalTag, OrdPair, PathOrURLOrStdin, RequiredTag, SeqDisplayOptions,
     analysis, find_modified_reads, nanalogue_bam_reader, nanalogue_bam_reader_from_stdin,
     nanalogue_bam_reader_from_url, nanalogue_indexed_bam_reader,
-    nanalogue_indexed_bam_reader_from_url, read_info, read_stats, reads_table, window_reads,
+    nanalogue_indexed_bam_reader_from_url, peek, read_info, read_stats, reads_table, window_reads,
 };
 use clap::{Parser, Subcommand};
 use derive_builder::Builder;
@@ -127,6 +127,11 @@ pub enum Commands {
         /// Input modification options
         #[clap(flatten)]
         mods: InputMods<OptionalTag>,
+    },
+    /// Display BAM file contigs, contig lengths, and mod types from a "peek" at the header and first 100 records
+    Peek {
+        /// Input BAM file (path, URL, or '-' for stdin)
+        bam: PathOrURLOrStdin,
     },
 }
 
@@ -274,6 +279,7 @@ impl Commands {
             | Commands::ReadInfo { bam, .. }
             | Commands::WindowDens { bam, .. }
             | Commands::WindowGrad { bam, .. } => bam,
+            Commands::Peek { bam } => bam.into(),
         }
     }
 }
@@ -625,6 +631,19 @@ pos retrieval/mod colouring without seq_region"
                 win,
                 &mods,
                 analysis::threshold_and_gradient,
+            )
+        }
+        Commands::Peek { bam } => {
+            let mut input_bam: InputBam = bam.into();
+            let bam_rc_records = BamRcRecords::new(
+                &mut bam_reader,
+                &mut input_bam,
+                &mut InputMods::<OptionalTag>::default(),
+            )?;
+            peek::run(
+                &mut handle,
+                &bam_rc_records.header,
+                bam_rc_records.rc_records.take(100),
             )
         }
     }

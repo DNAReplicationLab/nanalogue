@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - A dockerfile based on distroless
 - CI/CD workflows in github to make binaries and docker images.
+- nanalogue `peek` to get (from header) contigs, contig lengths, and (from first 100 records) types of mods present.
 
 ## [0.1.2] - 2026-01-02
 

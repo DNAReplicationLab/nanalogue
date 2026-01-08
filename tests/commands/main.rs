@@ -83,6 +83,13 @@ mod tests {
 
         assert_command_output_matches_file(cli, "./examples/example_1_window_reads");
     }
+
+    #[test]
+    fn run_commands_peek() {
+        let cli = commands::Cli::parse_from(["", "peek", "./examples/example_1.bam"]);
+
+        assert_command_output_matches_file(cli, "./examples/example_1_peek");
+    }
 }
 
 /// Tests for BAM input option retrieval from `Commands` and `FindModReadsSubcommands`

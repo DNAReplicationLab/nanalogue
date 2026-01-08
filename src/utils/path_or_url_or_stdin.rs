@@ -1,7 +1,7 @@
 //! `PathOrURLOrStdin` enum for handling input sources
 //! Represents stdin, file paths, or URLs as input sources
 
-use crate::Error;
+use crate::{Error, InputBam, InputBamBuilder};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
@@ -126,6 +126,18 @@ impl fmt::Display for PathOrURLOrStdin {
             PathOrURLOrStdin::URL(v) => v.to_string(),
         }
         .fmt(f)
+    }
+}
+
+impl From<PathOrURLOrStdin> for InputBam {
+    /// Converts a `PathOrURLOrStdin` into an `InputBam` with default settings.
+    ///
+    /// This creates an `InputBam` with the given BAM path and all other fields set to their defaults.
+    fn from(val: PathOrURLOrStdin) -> Self {
+        InputBamBuilder::default()
+            .bam_path(val)
+            .build()
+            .expect("InputBam builder should not fail with only bam_path set")
     }
 }
 
@@ -282,5 +294,27 @@ mod tests {
     fn display_url() {
         let url = PathOrURLOrStdin::URL(Url::parse("https://example.com/data.bam").unwrap());
         assert_eq!(url.to_string(), "https://example.com/data.bam");
+    }
+
+    #[test]
+    fn from_path_or_url_or_stdin_to_input_bam_stdin() {
+        let input = PathOrURLOrStdin::Stdin;
+        let bam: InputBam = input.into();
+        assert_eq!(bam.bam_path, PathOrURLOrStdin::Stdin);
+    }
+
+    #[test]
+    fn from_path_or_url_or_stdin_to_input_bam_path() {
+        let input = PathOrURLOrStdin::Path("/some/path.bam".into());
+        let bam: InputBam = input.clone().into();
+        assert_eq!(bam.bam_path, input);
+    }
+
+    #[test]
+    fn from_path_or_url_or_stdin_to_input_bam_url() {
+        let url = Url::parse("https://example.com/data.bam").unwrap();
+        let input = PathOrURLOrStdin::URL(url.clone());
+        let bam: InputBam = input.clone().into();
+        assert_eq!(bam.bam_path, input);
     }
 }

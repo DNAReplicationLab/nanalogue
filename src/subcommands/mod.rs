@@ -4,6 +4,7 @@
 //! line program.
 
 pub mod find_modified_reads;
+pub mod peek;
 pub mod read_info;
 pub mod read_stats;
 pub mod reads_table;
