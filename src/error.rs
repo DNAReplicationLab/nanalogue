@@ -167,8 +167,10 @@ pub enum Error {
     ZeroSeqLen(String),
 
     /// Genomic region coordinates exceed contig boundaries
-    #[error("invalid region '{region}': position {pos} exceeds contig length {contig_length}\n\
- In command line tool, you can use `nanalogue peek` to check contig names and contig lengths.")]
+    #[error(
+        "invalid region '{region}': position {pos} exceeds contig length {contig_length}\n\
+ In command line tool, you can use `nanalogue peek` to check contig names and contig lengths."
+    )]
     InvalidRegion {
         /// The original region string provided by the user
         region: String,

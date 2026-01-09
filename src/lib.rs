@@ -176,6 +176,13 @@ pub fn init_ssl_certificates() {
 /// (<https://github.com/fiberseq/fibertools-rs>) which is under the MIT license
 /// (please see their Cargo.toml) to create this function.
 ///
+/// # Tag Variant Support
+///
+/// We support MM/ML (standard) and Mm/Ml (fallback) tag variants, but no other variants.
+/// The specification recommends MM/ML, but we support the Mm/Ml variant as some sequencing
+/// technologies use this capitalization. Other mixed-case variants (e.g., mM/mL) and fully
+/// lowercase variants (mm/ml) are not recognized.
+///
 /// Function should cover almost all mod bam cases, but will fail in the following scenarios:
 /// - If multiple mods are present on the same base e.g. methylation and hydroxymethylation,
 ///   most BAM files the author has come across use the notation MM:Z:C+m,...;C+h,...;,
@@ -316,14 +323,18 @@ where
     // Array to store all the different modifications within the MM tag
     let mut rtn: Vec<BaseMod> = Vec::new();
 
-    let ml_tag: Vec<u8> = get_u8_tag(record, b"ML");
+    let ml_tag: Vec<u8> = if record.aux(b"ML").is_ok() {
+        get_u8_tag(record, b"ML")
+    } else {
+        get_u8_tag(record, b"Ml")
+    };
 
     let mut num_mods_seen: usize = 0;
 
     let is_reverse = record.is_reverse();
 
     // if there is an MM tag iterate over all the regex matches
-    if let Ok(Aux::String(mm_text)) = record.aux(b"MM") {
+    if let Ok(Aux::String(mm_text)) = record.aux(b"MM").or_else(|_| record.aux(b"Mm")) {
         // base qualities; must reverse if rev comp.
         // NOTE this is always equal to number of bases in the sequence, otherwise
         // rust_htslib will throw an error, so we don't have to check this.
@@ -851,278 +862,79 @@ mod mod_parse_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
 
-    /// Tests if Mod BAM modification parsing is alright,
-    /// some of the test cases here may be a repeat of the doctest above.
+    /// Tests if Mod BAM modification parsing is alright with fallback tag support.
+    /// Tests both MM/ML (standard uppercase) and Mm/Ml (fallback lowercase) tag variants.
+    /// Note: Only these specific variants are supported - fully lowercase (mm/ml) and
+    /// other mixed-case variants (e.g., mM/mL) are not recognized.
+    /// Some of the test cases here may be a repeat of the doctest above.
     #[test]
     #[expect(clippy::too_many_lines, reason = "Comprehensive integration test")]
-    fn mod_bam_parsing_from_example_1_bam() -> Result<(), Error> {
-        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-        for (count, record) in reader.records().enumerate() {
-            let r = record?;
-            let BaseMods { base_mods: v } =
-                nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0).unwrap();
-            match count {
-                0 => assert_eq!(
-                    v,
-                    vec![BaseMod {
-                        modified_base: b'T',
-                        strand: '+',
-                        modification_type: 'T',
-                        ranges: Ranges {
-                            annotations: vec![
-                                FiberAnnotation {
-                                    start: 0,
-                                    end: 1,
-                                    length: 1,
-                                    qual: 4,
-                                    reference_start: Some(9),
-                                    reference_end: Some(9),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 3,
-                                    end: 4,
-                                    length: 1,
-                                    qual: 7,
-                                    reference_start: Some(12),
-                                    reference_end: Some(12),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 4,
-                                    end: 5,
-                                    length: 1,
-                                    qual: 9,
-                                    reference_start: Some(13),
-                                    reference_end: Some(13),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 7,
-                                    end: 8,
-                                    length: 1,
-                                    qual: 6,
-                                    reference_start: Some(16),
-                                    reference_end: Some(16),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                            ],
-                            seq_len: 8,
-                            reverse: false,
-                        },
-                        record_is_reverse: false,
-                    }]
-                ),
-                1 => assert_eq!(
-                    v,
-                    vec![BaseMod {
-                        modified_base: b'T',
-                        strand: '+',
-                        modification_type: 'T',
-                        ranges: Ranges {
-                            annotations: vec![
-                                FiberAnnotation {
-                                    start: 3,
-                                    end: 4,
-                                    length: 1,
-                                    qual: 221,
-                                    reference_start: Some(26),
-                                    reference_end: Some(26),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 8,
-                                    end: 9,
-                                    length: 1,
-                                    qual: 242,
-                                    reference_start: Some(31),
-                                    reference_end: Some(31),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 27,
-                                    end: 28,
-                                    length: 1,
-                                    qual: 3,
-                                    reference_start: Some(50),
-                                    reference_end: Some(50),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 39,
-                                    end: 40,
-                                    length: 1,
-                                    qual: 47,
-                                    reference_start: Some(62),
-                                    reference_end: Some(62),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 47,
-                                    end: 48,
-                                    length: 1,
-                                    qual: 239,
-                                    reference_start: Some(70),
-                                    reference_end: Some(70),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                            ],
-                            seq_len: 48,
-                            reverse: false,
-                        },
-                        record_is_reverse: false,
-                    }]
-                ),
-                2 => assert_eq!(
-                    v,
-                    vec![BaseMod {
-                        modified_base: b'T',
-                        strand: '+',
-                        modification_type: 'T',
-                        ranges: Ranges {
-                            annotations: vec![
-                                FiberAnnotation {
-                                    start: 12,
-                                    end: 13,
-                                    length: 1,
-                                    qual: 3,
-                                    reference_start: Some(15),
-                                    reference_end: Some(15),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 13,
-                                    end: 14,
-                                    length: 1,
-                                    qual: 3,
-                                    reference_start: Some(16),
-                                    reference_end: Some(16),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 16,
-                                    end: 17,
-                                    length: 1,
-                                    qual: 4,
-                                    reference_start: Some(19),
-                                    reference_end: Some(19),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 19,
-                                    end: 20,
-                                    length: 1,
-                                    qual: 3,
-                                    reference_start: Some(22),
-                                    reference_end: Some(22),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                                FiberAnnotation {
-                                    start: 20,
-                                    end: 21,
-                                    length: 1,
-                                    qual: 182,
-                                    reference_start: Some(23),
-                                    reference_end: Some(23),
-                                    reference_length: Some(0),
-                                    extra_columns: None,
-                                },
-                            ],
-                            seq_len: 33,
-                            reverse: true,
-                        },
-                        record_is_reverse: true,
-                    }]
-                ),
-                3 => assert_eq!(
-                    v,
-                    vec![
-                        BaseMod {
-                            modified_base: b'G',
-                            strand: '-',
-                            modification_type: '\u{1C20}',
+    fn mod_bam_parsing_from_example_1_compatible_variants() -> Result<(), Error> {
+        for file_path in ["examples/example_1.bam", "examples/example_1.Mm_Ml.bam"] {
+            let mut reader = nanalogue_bam_reader(file_path)?;
+            for (count, record) in reader.records().enumerate() {
+                let r = record?;
+                let BaseMods { base_mods: v } =
+                    nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0).unwrap();
+                match count {
+                    0 => assert_eq!(
+                        v,
+                        vec![BaseMod {
+                            modified_base: b'T',
+                            strand: '+',
+                            modification_type: 'T',
                             ranges: Ranges {
                                 annotations: vec![
                                     FiberAnnotation {
-                                        start: 28,
-                                        end: 29,
+                                        start: 0,
+                                        end: 1,
                                         length: 1,
-                                        qual: 0,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
+                                        qual: 4,
+                                        reference_start: Some(9),
+                                        reference_end: Some(9),
+                                        reference_length: Some(0),
                                         extra_columns: None,
                                     },
                                     FiberAnnotation {
-                                        start: 29,
-                                        end: 30,
+                                        start: 3,
+                                        end: 4,
                                         length: 1,
-                                        qual: 0,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
+                                        qual: 7,
+                                        reference_start: Some(12),
+                                        reference_end: Some(12),
+                                        reference_length: Some(0),
                                         extra_columns: None,
                                     },
                                     FiberAnnotation {
-                                        start: 30,
-                                        end: 31,
+                                        start: 4,
+                                        end: 5,
                                         length: 1,
-                                        qual: 0,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
+                                        qual: 9,
+                                        reference_start: Some(13),
+                                        reference_end: Some(13),
+                                        reference_length: Some(0),
                                         extra_columns: None,
                                     },
                                     FiberAnnotation {
-                                        start: 32,
-                                        end: 33,
+                                        start: 7,
+                                        end: 8,
                                         length: 1,
-                                        qual: 0,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
-                                        extra_columns: None,
-                                    },
-                                    FiberAnnotation {
-                                        start: 43,
-                                        end: 44,
-                                        length: 1,
-                                        qual: 77,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
-                                        extra_columns: None,
-                                    },
-                                    FiberAnnotation {
-                                        start: 44,
-                                        end: 45,
-                                        length: 1,
-                                        qual: 0,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
+                                        qual: 6,
+                                        reference_start: Some(16),
+                                        reference_end: Some(16),
+                                        reference_length: Some(0),
                                         extra_columns: None,
                                     },
                                 ],
-                                seq_len: 48,
+                                seq_len: 8,
                                 reverse: false,
                             },
                             record_is_reverse: false,
-                        },
-                        BaseMod {
+                        }]
+                    ),
+                    1 => assert_eq!(
+                        v,
+                        vec![BaseMod {
                             modified_base: b'T',
                             strand: '+',
                             modification_type: 'T',
@@ -1133,9 +945,9 @@ mod mod_parse_tests {
                                         end: 4,
                                         length: 1,
                                         qual: 221,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
+                                        reference_start: Some(26),
+                                        reference_end: Some(26),
+                                        reference_length: Some(0),
                                         extra_columns: None,
                                     },
                                     FiberAnnotation {
@@ -1143,19 +955,19 @@ mod mod_parse_tests {
                                         end: 9,
                                         length: 1,
                                         qual: 242,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
+                                        reference_start: Some(31),
+                                        reference_end: Some(31),
+                                        reference_length: Some(0),
                                         extra_columns: None,
                                     },
                                     FiberAnnotation {
                                         start: 27,
                                         end: 28,
                                         length: 1,
-                                        qual: 0,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
+                                        qual: 3,
+                                        reference_start: Some(50),
+                                        reference_end: Some(50),
+                                        reference_length: Some(0),
                                         extra_columns: None,
                                     },
                                     FiberAnnotation {
@@ -1163,9 +975,9 @@ mod mod_parse_tests {
                                         end: 40,
                                         length: 1,
                                         qual: 47,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
+                                        reference_start: Some(62),
+                                        reference_end: Some(62),
+                                        reference_length: Some(0),
                                         extra_columns: None,
                                     },
                                     FiberAnnotation {
@@ -1173,9 +985,9 @@ mod mod_parse_tests {
                                         end: 48,
                                         length: 1,
                                         qual: 239,
-                                        reference_start: None,
-                                        reference_end: None,
-                                        reference_length: None,
+                                        reference_start: Some(70),
+                                        reference_end: Some(70),
+                                        reference_length: Some(0),
                                         extra_columns: None,
                                     },
                                 ],
@@ -1183,10 +995,233 @@ mod mod_parse_tests {
                                 reverse: false,
                             },
                             record_is_reverse: false,
-                        }
-                    ]
-                ),
-                _ => {}
+                        }]
+                    ),
+                    2 => assert_eq!(
+                        v,
+                        vec![BaseMod {
+                            modified_base: b'T',
+                            strand: '+',
+                            modification_type: 'T',
+                            ranges: Ranges {
+                                annotations: vec![
+                                    FiberAnnotation {
+                                        start: 12,
+                                        end: 13,
+                                        length: 1,
+                                        qual: 3,
+                                        reference_start: Some(15),
+                                        reference_end: Some(15),
+                                        reference_length: Some(0),
+                                        extra_columns: None,
+                                    },
+                                    FiberAnnotation {
+                                        start: 13,
+                                        end: 14,
+                                        length: 1,
+                                        qual: 3,
+                                        reference_start: Some(16),
+                                        reference_end: Some(16),
+                                        reference_length: Some(0),
+                                        extra_columns: None,
+                                    },
+                                    FiberAnnotation {
+                                        start: 16,
+                                        end: 17,
+                                        length: 1,
+                                        qual: 4,
+                                        reference_start: Some(19),
+                                        reference_end: Some(19),
+                                        reference_length: Some(0),
+                                        extra_columns: None,
+                                    },
+                                    FiberAnnotation {
+                                        start: 19,
+                                        end: 20,
+                                        length: 1,
+                                        qual: 3,
+                                        reference_start: Some(22),
+                                        reference_end: Some(22),
+                                        reference_length: Some(0),
+                                        extra_columns: None,
+                                    },
+                                    FiberAnnotation {
+                                        start: 20,
+                                        end: 21,
+                                        length: 1,
+                                        qual: 182,
+                                        reference_start: Some(23),
+                                        reference_end: Some(23),
+                                        reference_length: Some(0),
+                                        extra_columns: None,
+                                    },
+                                ],
+                                seq_len: 33,
+                                reverse: true,
+                            },
+                            record_is_reverse: true,
+                        }]
+                    ),
+                    3 => assert_eq!(
+                        v,
+                        vec![
+                            BaseMod {
+                                modified_base: b'G',
+                                strand: '-',
+                                modification_type: '\u{1C20}',
+                                ranges: Ranges {
+                                    annotations: vec![
+                                        FiberAnnotation {
+                                            start: 28,
+                                            end: 29,
+                                            length: 1,
+                                            qual: 0,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                        FiberAnnotation {
+                                            start: 29,
+                                            end: 30,
+                                            length: 1,
+                                            qual: 0,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                        FiberAnnotation {
+                                            start: 30,
+                                            end: 31,
+                                            length: 1,
+                                            qual: 0,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                        FiberAnnotation {
+                                            start: 32,
+                                            end: 33,
+                                            length: 1,
+                                            qual: 0,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                        FiberAnnotation {
+                                            start: 43,
+                                            end: 44,
+                                            length: 1,
+                                            qual: 77,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                        FiberAnnotation {
+                                            start: 44,
+                                            end: 45,
+                                            length: 1,
+                                            qual: 0,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                    ],
+                                    seq_len: 48,
+                                    reverse: false,
+                                },
+                                record_is_reverse: false,
+                            },
+                            BaseMod {
+                                modified_base: b'T',
+                                strand: '+',
+                                modification_type: 'T',
+                                ranges: Ranges {
+                                    annotations: vec![
+                                        FiberAnnotation {
+                                            start: 3,
+                                            end: 4,
+                                            length: 1,
+                                            qual: 221,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                        FiberAnnotation {
+                                            start: 8,
+                                            end: 9,
+                                            length: 1,
+                                            qual: 242,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                        FiberAnnotation {
+                                            start: 27,
+                                            end: 28,
+                                            length: 1,
+                                            qual: 0,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                        FiberAnnotation {
+                                            start: 39,
+                                            end: 40,
+                                            length: 1,
+                                            qual: 47,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                        FiberAnnotation {
+                                            start: 47,
+                                            end: 48,
+                                            length: 1,
+                                            qual: 239,
+                                            reference_start: None,
+                                            reference_end: None,
+                                            reference_length: None,
+                                            extra_columns: None,
+                                        },
+                                    ],
+                                    seq_len: 48,
+                                    reverse: false,
+                                },
+                                record_is_reverse: false,
+                            }
+                        ]
+                    ),
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Tests that case variants that are not supported (mixed case or fully lowercase)
+    /// correctly return empty `BaseMods`, since the parser should not find these tags.
+    #[test]
+    fn mod_bam_parsing_from_example_1_failure_variants() -> Result<(), Error> {
+        for file_path in [
+            "examples/example_1.mM_mL.bam",
+            "examples/example_1.mm_ml.bam",
+        ] {
+            let mut reader = nanalogue_bam_reader(file_path)?;
+            for record in reader.records() {
+                let r = record?;
+                let BaseMods { base_mods: v } =
+                    nanalogue_mm_ml_parser(&r, |&_| true, |&_| true, |&_, &_, &_| true, 0).unwrap();
+                assert_eq!(v, vec![], "Expected empty BaseMods for file: {file_path}");
             }
         }
         Ok(())
