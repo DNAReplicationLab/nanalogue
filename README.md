@@ -112,7 +112,7 @@ from the github repository. To download:
 2. Click on a successful workflow run
 3. Scroll to the "Artifacts" section at the bottom
 4. Download the binary artifact for your platform:
-   - `binaries-macos-latest` - macOS binaries
+   - `binaries-macos` - macOS binaries
    - `binaries-musllinux_1_2` - Alpine/musl-based Linux (static binaries)
    - `binaries-manylinux_2_28` - Modern Linux distributions (glibc 2.28+)
    - `binaries-manylinux_2_34` - Newer Linux distributions (glibc 2.34+)

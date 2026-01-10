@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.3] - 2026-01-09
 
 ### Added
-- A dockerfile based on distroless
+- Dockerfiles based on distroless
 - CI/CD workflows in github to make binaries and docker images.
 - nanalogue `peek` to get (from header) contigs, contig lengths, and (from first 100 records) types of mods present.
 - Support for fallback MM/ML tag variants: parser now accepts both standard MM/ML tags and Mm/Ml capitalization variants used by some sequencing technologies.
