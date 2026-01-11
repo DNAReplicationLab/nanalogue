@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-01-11
+
+### Added
+- Github actions to check build without Cargo.lock.
+- Dependabot on Github.
+
+### Changed
+- Updates cargo packages: `cargo install` failing in previous version although `cargo install --locked` worked.
+
 ## [0.1.3] - 2026-01-09
 
 ### Added

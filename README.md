@@ -27,6 +27,7 @@ in a BAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
   - [Simulate BAM files](#simulate-bam-files)
 - [Installation](#installation)
   - [Using Cargo](#using-cargo)
+    - [Cargo locked](#using-cargo-locked)
   - [Using Docker](#using-docker)
   - [Pre-built Binaries](#pre-built-binaries)
     - [GitHub Releases](#github-releases)
@@ -84,6 +85,17 @@ cargo install nanalogue
 then follow these [instructions](https://doc.rust-lang.org/cargo/getting-started/installation.html)
 to get it. On Linux and macOS systems, the install command is as simple as
 `curl https://sh.rustup.rs -sSf | sh`
+
+### Using cargo locked
+
+If the `cargo install` command fails, please also try
+
+```bash
+cargo install nanalogue --locked
+```
+
+This uses the exact versions of dependencies specified in the package's `Cargo.lock` file,
+and fixes install problems due to newer packages.
 
 ## Using Docker
 

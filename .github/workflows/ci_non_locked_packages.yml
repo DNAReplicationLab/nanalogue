@@ -1,0 +1,37 @@
+name: Cargo Build & Test (Non-locked packages)
+
+# Although this test is identical to our normal Cargo build & test,
+# we have to make this separate as opposed to a matrix job because
+# we don't want our badge to be affected.
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test:
+    name: Rust project - latest
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup rustup
+        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+      - name: Delete cargo.lock
+        run: rm Cargo.lock
+      - name: Build
+        run: cargo build
+      - name: Test
+        run: cargo test
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Cargo clean
+        run: cargo clean
