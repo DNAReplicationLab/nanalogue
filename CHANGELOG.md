@@ -10,10 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.15] - 2026-01-17
 
 ### Changed
-- Updated CI workflow to test doc building.
 - Improved struct documentation to reference Builder patterns in `src/simulate_mod_bam.rs`
 - Updated `openssl-probe` to 0.2.0 and switched to `try_init_openssl_env_vars()`
 - Updated `bio` to 3.0.0
+- Fixes `vergen` at "=9.0.6" for `fibertools-rs` building
 
 ### Fixed
 - Fixed mismatch generation bug in `src/simulate_mod_bam.rs`: replaced `partial_shuffle` with `choose_multiple` to preserve position information during base mutations
