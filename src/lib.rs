@@ -152,19 +152,18 @@ static SSL_INIT: Once = Once::new();
 pub fn init_ssl_certificates() {
     SSL_INIT.call_once(|| {
         // SAFETY: This function probes for SSL certificates and sets environment
-        // variables. It's safe to call once during initialization before any
-        // SSL/TLS operations occur. We're setting these before any SSL/TLS
+        // variables. We're setting these before any SSL/TLS
         // operations happen, which is the safe usage pattern.
         unsafe {
-            openssl_probe::init_openssl_env_vars();
-
-            // Also set CURL_CA_BUNDLE if SSL_CERT_FILE was set by openssl-probe.
-            // The statically-compiled libcurl in rust-htslib specifically checks
-            // CURL_CA_BUNDLE, not just SSL_CERT_FILE.
-            if let Ok(cert_file) = std::env::var("SSL_CERT_FILE")
-                && std::env::var("CURL_CA_BUNDLE").is_err()
-            {
-                std::env::set_var("CURL_CA_BUNDLE", cert_file);
+            if openssl_probe::try_init_openssl_env_vars() {
+                // Also set CURL_CA_BUNDLE if SSL_CERT_FILE was set by openssl-probe.
+                // The statically-compiled libcurl in rust-htslib specifically checks
+                // CURL_CA_BUNDLE, not just SSL_CERT_FILE.
+                if let Ok(cert_file) = std::env::var("SSL_CERT_FILE")
+                    && std::env::var("CURL_CA_BUNDLE").is_err()
+                {
+                    std::env::set_var("CURL_CA_BUNDLE", cert_file);
+                }
             }
         }
     });

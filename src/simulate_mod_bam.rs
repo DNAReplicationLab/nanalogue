@@ -105,7 +105,7 @@ use crate::{
 use crate::{write_bam_denovo, write_fasta};
 use derive_builder::Builder;
 use itertools::join;
-use rand::seq::SliceRandom as _;
+use rand::seq::IteratorRandom as _;
 use rand::{Rng, random};
 use rust_htslib::bam;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
@@ -138,7 +138,8 @@ macro_rules! ord_pair_f32_bw0and1 {
 /// Main configuration struct for simulation.
 ///
 /// After construction, you can pass it to [`crate::simulate_mod_bam::run`]
-/// to create a mod BAM file.
+/// to create a mod BAM file. You can build this using [`SimulationConfigBuilder`]
+/// as shown below.
 ///
 /// # Example
 ///
@@ -196,7 +197,8 @@ pub struct SimulationConfig {
 ///
 /// The struct contains parameters which can then be passed to other
 /// functions to construct the actual contig. Also refer to [`SimulationConfig`]
-/// to see how this `struct` can be used.
+/// to see how this `struct` can be used, and [`ContigConfigBuilder`] for how
+/// to build this (as shown below in the examples).
 ///
 /// # Examples
 ///
@@ -263,7 +265,8 @@ pub struct ContigConfig {
 }
 
 /// Configuration for read generation. Also refer to [`SimulationConfig`]
-/// to see how this `struct` can be used.
+/// to see how this `struct` can be used, and to [`ReadConfigBuilder`] for
+/// how to build this (as shown below in the examples).
 ///
 /// # Example 1
 ///
@@ -351,7 +354,8 @@ pub struct ReadConfig {
 }
 
 /// Configuration for modification generation in simulated BAM files.
-/// Also refer to [`SimulationConfig`] to see how this `struct` can be used.
+/// Also refer to [`SimulationConfig`] to see how this `struct` can be used,
+/// and [`ModConfigBuilder`] to see how it can be built as shown below.
 ///
 /// # Example
 ///
@@ -414,7 +418,8 @@ sized windows in builder\".to_owned()))).collect::<Result<Vec<NonZeroU32>,_>>()?
     pub mod_range: Vec<OrdPair<F32Bw0and1>>,
 }
 
-/// Represents a contig with name and sequence
+/// Represents a contig with name and sequence.
+/// Can be built using [`ContigConfigBuilder`] as shown below.
 ///
 /// # Example
 ///
@@ -776,13 +781,19 @@ impl PerfectSeqMatchToNot {
         let mut bases_and_ops: Vec<(u8, u8)> = seq.iter().map(|&base| (base, b'M')).collect();
 
         // Step 2: Apply mismatch (randomly mutate bases, keep 'M' operation)
+        // We use `choose_multiple` on indices to preserve position information,
+        // unlike `partial_shuffle` which would reorder elements and destroy positions.
         if let Some(mismatch_frac) = self.mismatch {
             let num_mismatches =
                 ((bases_and_ops.len() as f32) * mismatch_frac.val()).round() as usize;
 
-            let (to_mutate, _) = bases_and_ops.partial_shuffle(rng, num_mismatches);
+            let indices_to_mutate: Vec<usize> =
+                (0..bases_and_ops.len()).choose_multiple(rng, num_mismatches);
 
-            for item in to_mutate {
+            for idx in indices_to_mutate {
+                let item = bases_and_ops
+                    .get_mut(idx)
+                    .expect("idx is within bounds from choose_multiple");
                 let current_base = item.0;
                 let new_base = match current_base {
                     v @ (b'A' | b'C' | b'G' | b'T') => {
@@ -2186,6 +2197,7 @@ mod read_generation_barcodes {
 #[cfg(test)]
 mod read_generation_with_mods_tests {
     use super::*;
+    use crate::{CurrRead, ThresholdState, curr_reads_to_dataframe};
     use rust_htslib::bam::Read as _;
 
     /// Tests read generation with desired properties but with modifications
@@ -3022,6 +3034,186 @@ mod read_generation_with_mods_tests {
         assert!(
             forward_with_mods > 0,
             "Should have validated some forward reads with modifications"
+        );
+    }
+
+    /// Tests that mismatches affect modification reference positions while preserving mod quality
+    ///
+    /// This test creates two read groups:
+    /// - Group 0: 100% mod probability (quality 255), no mismatches - mods at expected C positions
+    /// - Group 1: 51% mod probability (quality ~130), 100% mismatch - mods at shifted positions
+    ///
+    /// For a "ACGT" repeated contig, C's are at positions 1, 5, 9, 13, ... (form 4n+1).
+    /// On reverse complement, G's become C's at positions 2, 6, 10, 14, ... (form 4n+2).
+    /// With 100% mismatch, positions should be shifted and no longer follow these patterns.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "test requires setup, iteration, and multiple assertions for thorough validation"
+    )]
+    #[test]
+    fn mismatch_mod_check() {
+        let json_str = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100],
+                "repeated_seq": "ACGT"
+            },
+            "reads": [
+                {
+                    "number": 100,
+                    "len_range": [1.0, 1.0],
+                    "mods": [{
+                        "base": "C",
+                        "is_strand_plus": true,
+                        "mod_code": "m",
+                        "win": [1],
+                        "mod_range": [[1.0, 1.0]]
+                    }]
+                },
+                {
+                    "number": 100,
+                    "len_range": [1.0, 1.0],
+                    "mismatch": 1.0,
+                    "mods": [{
+                        "base": "C",
+                        "is_strand_plus": true,
+                        "mod_code": "m",
+                        "win": [1],
+                        "mod_range": [[0.51, 0.51]]
+                    }]
+                }
+            ]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(json_str).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
+
+        let mut bam = bam::Reader::from_path(sim.bam_path()).unwrap();
+        let mut df_collection = Vec::new();
+
+        for k in bam.records() {
+            let record = k.unwrap();
+            let curr_read = CurrRead::default()
+                .try_from_only_alignment(&record)
+                .unwrap()
+                .set_mod_data(&record, ThresholdState::GtEq(0), 0)
+                .unwrap();
+            df_collection.push(curr_read);
+        }
+
+        let df = curr_reads_to_dataframe(df_collection.as_slice()).unwrap();
+
+        let read_id_col = df.column("read_id").unwrap().str().unwrap();
+        let ref_position_col = df.column("ref_position").unwrap().i64().unwrap();
+        let alignment_type_col = df.column("alignment_type").unwrap().str().unwrap();
+        let mod_quality_col = df.column("mod_quality").unwrap().u32().unwrap();
+
+        let mut row_count_0: usize = 0;
+        let mut row_count_1: usize = 0;
+
+        // Violation counters for debugging
+        let mut group0_forward_position_violations: usize = 0;
+        let mut group0_reverse_position_violations: usize = 0;
+        let mut group0_unmapped_position_violations: usize = 0;
+        let mut group0_quality_violations: usize = 0;
+        let mut group1_forward_position_violations: usize = 0;
+        let mut group1_reverse_position_violations: usize = 0;
+        let mut group1_unmapped_position_violations: usize = 0;
+        let mut group1_quality_violations: usize = 0;
+        let mut read_id_violations: usize = 0;
+
+        for i in 0..df.height() {
+            let read_id = read_id_col.get(i).unwrap();
+            let ref_position = ref_position_col.get(i).unwrap();
+            let alignment_type = alignment_type_col.get(i).unwrap();
+            let mod_quality = mod_quality_col.get(i).unwrap();
+
+            if read_id.starts_with("0.") {
+                // Group 0: no mismatch, mod positions should follow 4n+1 (forward) or 4n+2 (reverse)
+                if alignment_type.contains("forward") {
+                    if ref_position % 4 != 1 {
+                        group0_forward_position_violations += 1;
+                    }
+                } else if alignment_type.contains("reverse") {
+                    if ref_position % 4 != 2 {
+                        group0_reverse_position_violations += 1;
+                    }
+                } else {
+                    // unmapped reads should have ref_position of -1
+                    if ref_position != -1 {
+                        group0_unmapped_position_violations += 1;
+                    }
+                }
+                if mod_quality != 255 {
+                    group0_quality_violations += 1;
+                }
+                row_count_0 += 1;
+            } else if read_id.starts_with("1.") {
+                // Group 1: 100% mismatch, mod positions should NOT follow expected patterns
+                if alignment_type.contains("forward") {
+                    if ref_position % 4 == 1 {
+                        group1_forward_position_violations += 1;
+                    }
+                } else if alignment_type.contains("reverse") {
+                    if ref_position % 4 == 2 {
+                        group1_reverse_position_violations += 1;
+                    }
+                } else {
+                    // unmapped reads should have ref_position of -1
+                    if ref_position != -1 {
+                        group1_unmapped_position_violations += 1;
+                    }
+                }
+                if mod_quality != 130 {
+                    group1_quality_violations += 1;
+                }
+                row_count_1 += 1;
+            } else {
+                read_id_violations += 1;
+            }
+        }
+
+        // Assert all violations are zero
+        assert_eq!(
+            group0_forward_position_violations, 0,
+            "Group 0 forward: expected 0 position violations"
+        );
+        assert_eq!(
+            group0_reverse_position_violations, 0,
+            "Group 0 reverse: expected 0 position violations"
+        );
+        assert_eq!(
+            group0_unmapped_position_violations, 0,
+            "Group 0 unmapped: expected 0 position violations"
+        );
+        assert_eq!(
+            group0_quality_violations, 0,
+            "Group 0: expected 0 quality violations"
+        );
+        assert_eq!(
+            group1_forward_position_violations, 0,
+            "Group 1 forward: expected 0 position violations"
+        );
+        assert_eq!(
+            group1_reverse_position_violations, 0,
+            "Group 1 reverse: expected 0 position violations"
+        );
+        assert_eq!(
+            group1_unmapped_position_violations, 0,
+            "Group 1 unmapped: expected 0 position violations"
+        );
+        assert_eq!(
+            group1_quality_violations, 0,
+            "Group 1: expected 0 quality violations"
+        );
+        assert_eq!(read_id_violations, 0, "expected 0 read_id violations");
+        assert!(
+            row_count_0 > 0,
+            "Should have processed some rows from group 0"
+        );
+        assert!(
+            row_count_1 > 0,
+            "Should have processed some rows from group 1"
         );
     }
 }
