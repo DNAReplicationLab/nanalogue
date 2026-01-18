@@ -1,0 +1,38 @@
+[
+{
+	"read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
+	"sequence_length": 8,
+	"contig": "dummyI",
+	"reference_start": 9,
+	"reference_end": 17,
+	"alignment_length": 8,
+	"alignment_type": "primary_forward",
+	"mod_count": "T+T:0;(probabilities >= 0.5020, PHRED base qual >= 0)"
+},
+{
+	"read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
+	"sequence_length": 48,
+	"contig": "dummyIII",
+	"reference_start": 23,
+	"reference_end": 71,
+	"alignment_length": 48,
+	"alignment_type": "primary_forward",
+	"mod_count": "T+T:3;(probabilities >= 0.5020, PHRED base qual >= 0)"
+},
+{
+	"read_id": "fffffff1-10d2-49cb-8ca3-e8d48979001b",
+	"sequence_length": 33,
+	"contig": "dummyII",
+	"reference_start": 3,
+	"reference_end": 36,
+	"alignment_length": 33,
+	"alignment_type": "primary_reverse",
+	"mod_count": "T+T:1;(probabilities >= 0.5020, PHRED base qual >= 0)"
+},
+{
+	"read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
+	"sequence_length": 48,
+	"alignment_type": "unmapped",
+	"mod_count": "G-7200:0;T+T:3;(probabilities >= 0.5020, PHRED base qual >= 0)"
+}
+]

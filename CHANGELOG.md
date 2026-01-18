@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.15] - 2026-01-17
+## [0.1.15] - 2026-01-18
 
 ### Changed
 - Improved struct documentation to reference Builder patterns in `src/simulate_mod_bam.rs`
@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - New test `mismatch_mod_check()` in `src/simulate_mod_bam.rs` to validate that simulated mismatches correctly affect modification reference positions while preserving modification quality
+- Integration tests for `read-stats`, `read-info`, and `window-grad` commands with example fixtures
+- Integration tests for all `find-modified-reads` subcommands using BAM simulation
 
 ## [0.1.4] - 2026-01-11
 
