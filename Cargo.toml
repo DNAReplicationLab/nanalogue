@@ -33,7 +33,7 @@ polars = { version = "0.51", features = ["lazy"] }
 openssl-probe = "0.2"
 
 [build-dependencies]
-vergen = "=9.0.6" # needed for `fibertools-rs`.
+vergen = "=9.1.0" # needed for `fibertools-rs`.
 
 [dev-dependencies]
 indoc = "2.0.6"
