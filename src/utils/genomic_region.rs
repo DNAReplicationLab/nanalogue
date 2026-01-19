@@ -67,6 +67,10 @@ impl GenomicRegion {
     /// # Errors
     /// Returns an error if the contig name is not found in the header,
     /// or if the specified region is invalid (start/end position exceeds contig length).
+    ///
+    /// # Panics
+    /// No panic expected; we've used an `expect` while getting `contig_length`, but we
+    /// have already checked if the contig exists in the previous line.
     pub fn try_to_bed3(self, header: &bam::HeaderView) -> Result<Bed3<i32, u64>, Error> {
         let region_bed = {
             let GenomicRegion((contig_name, coords)) = self;
@@ -76,41 +80,42 @@ impl GenomicRegion {
                     "does {contig_name} exist? failure in `GenomicRegion` -> `Bed3`"
                 )))?
                 .try_into()?;
+            let contig_length = header
+                .target_len(u32::try_from(numeric_contig)?)
+                .expect("no error as we've checked if contig exists");
 
             let (start, end) = if let Some(c) = coords {
                 let start = c.low();
                 let end = c.high();
 
                 // Check if start position exceeds contig length
-                if let Some(contig_length) = header.target_len(u32::try_from(numeric_contig)?) {
-                    if start >= contig_length {
-                        let region_str = if end == u64::MAX {
-                            format!("{contig_name}:{start}-")
-                        } else {
-                            format!("{contig_name}:{start}-{end}")
-                        };
+                if start >= contig_length {
+                    let region_str = if end == u64::MAX {
+                        format!("{contig_name}:{start}-")
+                    } else {
+                        format!("{contig_name}:{start}-{end}")
+                    };
 
-                        return Err(Error::InvalidRegion {
-                            region: region_str,
-                            pos: start,
-                            contig_length,
-                        });
-                    }
-
-                    // Also check end coordinate for closed intervals
-                    if end != u64::MAX && end > contig_length {
-                        let region_str = format!("{contig_name}:{start}-{end}");
-                        return Err(Error::InvalidRegion {
-                            region: region_str,
-                            pos: end,
-                            contig_length,
-                        });
-                    }
+                    return Err(Error::InvalidRegion {
+                        region: region_str,
+                        pos: start,
+                        contig_length,
+                    });
                 }
 
-                (start, end)
+                // Also check end coordinate for closed intervals
+                if end != u64::MAX && end > contig_length {
+                    let region_str = format!("{contig_name}:{start}-{end}");
+                    return Err(Error::InvalidRegion {
+                        region: region_str,
+                        pos: end,
+                        contig_length,
+                    });
+                }
+
+                (start, if end == u64::MAX { contig_length } else { end })
             } else {
-                (u64::MIN, u64::MAX)
+                (0u64, contig_length)
             };
 
             Bed3::<i32, u64>::new(numeric_contig, start, end)
@@ -377,7 +382,7 @@ mod tests {
         // Verify the BED3 record
         assert_eq!(*bed3.chr(), 1); // chr2 should be the second chromosome (index 1)
         assert_eq!(bed3.start(), u64::MIN);
-        assert_eq!(bed3.end(), u64::MAX);
+        assert_eq!(bed3.end(), 242_193_529);
     }
 
     /// Tests error case when start position exceeds contig length
@@ -420,7 +425,7 @@ mod tests {
         // Verify the BED3 record
         assert_eq!(*bed3.chr(), 0);
         assert_eq!(bed3.start(), 1000);
-        assert_eq!(bed3.end(), u64::MAX);
+        assert_eq!(bed3.end(), 248_956_422);
     }
 
     /// Tests `contig()` method with simple contig name

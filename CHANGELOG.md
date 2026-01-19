@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-01-19
+
+### Fixed
+- Fixed `BamPreFilt` so that full region filtering works when whole contig filtering is requested
+- Fixed `GenomicRegion::try_to_bed3` to return actual contig lengths instead of `u64::MAX` for open-ended regions
+
+### Changed
+- Ran `cargo update` to update dependencies
+
 ## [0.1.15] - 2026-01-18
 
 ### Changed

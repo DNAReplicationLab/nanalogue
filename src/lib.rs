@@ -843,14 +843,12 @@ impl BamPreFilt for bam::Record {
         !self.is_unmapped() && (self.tid() == *region.chr()) && {
             let region_start = region.start();
             let region_end = region.end();
-            (region_start == u64::MIN && region_end == u64::MAX) || {
-                let start: u64 = self.pos().try_into().expect("no error");
-                let end: u64 = self.reference_end().try_into().expect("no error");
-                if full_region {
-                    (start..end).contains(&region_start) && (start..=end).contains(&region_end)
-                } else {
-                    (start..end).intersects(&(region_start..region_end))
-                }
+            let start: u64 = self.pos().try_into().expect("no error");
+            let end: u64 = self.reference_end().try_into().expect("no error");
+            if full_region {
+                (start..end).contains(&region_start) && (start..=end).contains(&region_end)
+            } else {
+                (start..end).intersects(&(region_start..region_end))
             }
         }
     }
