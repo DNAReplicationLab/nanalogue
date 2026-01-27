@@ -755,7 +755,8 @@ impl PerfectSeqMatchToNot {
     ///   a cigar like "20S10D..." is not valid as we can just shift the start of the sequence
     ///   and make the cigar "20S...". We will end up in this state if the deletion is right at
     ///   the beginning of the sequence. We may deal with this in the future by shifting the start
-    ///   of the sequence, but we don't want to do this right now.
+    ///   of the sequence, but we don't want to do this right now. A similar problem arises if
+    ///   the deletion is at the end of a sequence.
     ///
     /// # Panics
     /// Panics on number conversion errors (sequence or barcode length overflow)

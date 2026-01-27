@@ -67,7 +67,12 @@ where
         let record = record_result?;
 
         // Convert to CurrRead to extract modification data
-        let curr_read = CurrRead::try_from(record)?;
+        // Skip zero-length sequences (CurrRead::try_from returns Error::ZeroSeqLen)
+        let curr_read = match CurrRead::try_from(record) {
+            Ok(cr) => cr,
+            Err(Error::ZeroSeqLen(_)) => continue,
+            Err(e) => return Err(e),
+        };
         let base_mods = &curr_read.mod_data().0.base_mods;
 
         for base_mod in base_mods {
@@ -297,5 +302,29 @@ mod tests {
         let expected = "contigs_and_lengths:\ncontig_00000\t100\n\nmodifications:\nNone\n";
 
         assert_eq!(output_str, expected);
+    }
+
+    #[test]
+    fn peek_skips_zero_length_reads() {
+        use crate::nanalogue_bam_reader;
+        use rust_htslib::bam::Read as _;
+
+        // example_2_zero_len.sam contains reads with zero-length sequences
+        let mut reader = nanalogue_bam_reader("./examples/example_2_zero_len.sam")
+            .expect("should open SAM file");
+
+        let header = reader.header().clone();
+
+        // Run peek - should not fail on zero-length reads
+        let mut output = Vec::new();
+        run(&mut output, &header, reader.rc_records().take(100)).expect("peek should succeed");
+
+        let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
+
+        // Should show contigs and modifications from non-zero length reads
+        assert!(output_str.contains("contigs_and_lengths:"));
+        assert!(output_str.contains("modifications:"));
+        // The file has dummyI, dummyII, dummyIII contigs
+        assert!(output_str.contains("dummyI"));
     }
 }
