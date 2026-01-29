@@ -87,10 +87,18 @@ curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/in
 ```
 
 The script will prompt you for an install directory (default: `/usr/local/bin`).
-To skip the prompt, set the `NANALOGUE_INSTALL_DIR` environment variable:
+To skip the prompt and use the default directory:
 
 ```bash
-NANALOGUE_INSTALL_DIR=$HOME/.local/bin curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh -s -- -y
+```
+
+To install to a custom directory, set the `NANALOGUE_INSTALL_DIR` environment variable.
+Note that you may need to add the custom directory to your `PATH` for global access.
+In the example below, nanalogue is installed to `$HOME/.local/bin`:
+
+```bash
+export NANALOGUE_INSTALL_DIR=$HOME/.local/bin && curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
 ```
 
 **Dependencies:** The install script requires:

@@ -11,7 +11,7 @@
 #   - Use -y flag to skip the prompt and use the default:
 #     curl -fsSL ... | sh -s -- -y
 #   - Or set the environment variable:
-#     NANALOGUE_INSTALL_DIR=/your/path curl -fsSL ... | sh
+#     export NANALOGUE_INSTALL_DIR=/your/path && curl -fsSL ... | sh
 #
 # Dependencies: curl or wget, unzip, jq, sha256sum or shasum
 
@@ -286,7 +286,7 @@ check_existing_install() {
 
     error "nanalogue is already installed at: $existing_path
   To update it, run:
-    NANALOGUE_INSTALL_DIR=$existing_dir curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh"
+    export NANALOGUE_INSTALL_DIR=$existing_dir && curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh"
 }
 
 install_binary() {
