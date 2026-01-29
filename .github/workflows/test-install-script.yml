@@ -1,0 +1,162 @@
+# Workflow to test the install.sh script across multiple platforms.
+# Verifies that pre-built binaries can be installed correctly.
+
+name: Test Install Script
+
+on:
+  workflow_dispatch:  # Manual trigger
+  schedule:
+    - cron: '0 6 * * 0'  # Weekly on Sunday at 6:00 AM UTC
+  release:
+    types: [published]
+
+jobs:
+  test_macos:
+    name: Test install on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          brew install jq
+
+      - name: Run install script
+        run: |
+          sh install.sh -y
+
+      - name: Verify installation
+        run: |
+          nanalogue --version
+          nanalogue --help
+
+  test_linux_native:
+    name: Test install on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl unzip jq coreutils
+
+      - name: Run install script
+        run: |
+          sh install.sh -y
+
+      - name: Verify installation
+        run: |
+          nanalogue --version
+          nanalogue --help
+
+  test_linux_musl:
+    name: Test install on musl Linux (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - container: alpine:latest
+            runner: ubuntu-latest
+            arch: x86_64
+          - container: alpine:latest
+            runner: ubuntu-24.04-arm
+            arch: aarch64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Test install in Alpine container
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            ${{ matrix.container }} \
+            sh -c '
+              set -e
+
+              # Install dependencies
+              apk add --no-cache curl unzip jq coreutils
+
+              # Run install script with -y for non-interactive default install
+              sh install.sh -y
+
+              # Verify installation
+              nanalogue --version
+              nanalogue --help
+            '
+
+  test_path_handling:
+    name: Test PATH handling
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl unzip jq coreutils
+
+      - name: Install to custom directory
+        run: |
+          mkdir -p "$HOME/nanalogue-test-bin"
+          NANALOGUE_INSTALL_DIR="$HOME/nanalogue-test-bin" sh install.sh -y
+
+      - name: Verify nanalogue fails without PATH
+        run: |
+          # nanalogue should NOT be found since custom dir is not in PATH
+          if command -v nanalogue >/dev/null 2>&1; then
+            echo "FAILURE: nanalogue should not be in PATH"
+            exit 1
+          fi
+          echo "SUCCESS: nanalogue correctly not found in PATH"
+
+      - name: Verify nanalogue succeeds with PATH
+        run: |
+          export PATH="$HOME/nanalogue-test-bin:$PATH"
+          nanalogue --help
+          echo "SUCCESS: nanalogue --help worked after adding to PATH"
+
+  test_windows:
+    name: Test install on Windows (expects Docker message)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Test install script shows Windows message
+        shell: bash
+        run: |
+          # The install script should detect Windows and show Docker instructions
+          # It exits with code 0 after showing the message
+          output=$(sh install.sh 2>&1) || true
+          echo "$output"
+
+          # Verify it mentions Docker as the alternative (case-insensitive)
+          if echo "$output" | grep -qi "docker"; then
+            echo "SUCCESS: Install script correctly detected Windows and suggested Docker"
+          else
+            echo "FAILURE: Install script did not show expected Windows/Docker message"
+            exit 1
+          fi

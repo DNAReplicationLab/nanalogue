@@ -1,6 +1,7 @@
 /target
 cargo.def
 cargo.img
+*.swp
 ignore*
 slurm*
 brainstorming*

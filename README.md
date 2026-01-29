@@ -26,12 +26,13 @@ in a BAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
 - [Usage and documentation](#usage-and-documentation)
   - [Simulate BAM files](#simulate-bam-files)
 - [Installation](#installation)
+  - [Pre-built Binaries](#pre-built-binaries)
+    - [Quick Install Script](#quick-install-script)
+    - [GitHub Releases](#github-releases)
+    - [GitHub Actions Artifacts](#github-actions-artifacts)
   - [Using Cargo](#using-cargo)
     - [Cargo locked](#using-cargo-locked)
   - [Using Docker](#using-docker)
-  - [Pre-built Binaries](#pre-built-binaries)
-    - [GitHub Releases](#github-releases)
-    - [GitHub Actions Artifacts](#github-actions-artifacts)
 - [Commands](#commands)
   - [`nanalogue read-info`](#nanalogue-read-info)
   - [`nanalogue read-table-hide-mods`](#nanalogue-read-table-hide-mods)
@@ -73,6 +74,62 @@ to use this functionality in your library, please look at the documentation of t
 
 # Installation
 
+## Pre-built Binaries
+
+Pre-built binaries for macOS and Linux are available:
+
+### Quick Install Script
+
+The easiest way to install pre-built binaries is using the install script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
+```
+
+The script will prompt you for an install directory (default: `/usr/local/bin`).
+To skip the prompt, set the `NANALOGUE_INSTALL_DIR` environment variable:
+
+```bash
+NANALOGUE_INSTALL_DIR=$HOME/.local/bin curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
+```
+
+**Dependencies:** The install script requires:
+- `curl` or `wget`
+- `unzip`
+- `jq`
+- `sha256sum` or `shasum`
+
+On Debian/Ubuntu, install dependencies with:
+```bash
+sudo apt-get install curl unzip jq coreutils
+```
+
+On macOS, these are typically pre-installed or available via Homebrew:
+```bash
+brew install jq
+```
+
+### GitHub Releases
+
+Official release binaries can be downloaded from the [Releases page](https://github.com/DNAReplicationLab/nanalogue/releases)
+on the Github repository. Each release includes binaries for multiple platforms.
+
+### GitHub Actions Artifacts
+
+Binaries built from the latest code are available as artifacts from the 
+[Build Release Binaries workflow](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/build-binaries.yml)
+from the github repository. To download:
+
+1. Navigate to the workflow runs
+2. Click on a successful workflow run
+3. Scroll to the "Artifacts" section at the bottom
+4. Download the binary artifact for your platform:
+   - `binaries-macos` - macOS binaries
+   - `binaries-musllinux_1_2` - Alpine/musl-based Linux (static binaries)
+   - `binaries-manylinux_2_28` - Modern Linux distributions (glibc 2.28+)
+   - `binaries-manylinux_2_34` - Newer Linux distributions (glibc 2.34+)
+   - `binaries-manylinux2014` - Older Linux distributions (glibc 2.17+, maximum compatibility)
+
 ## Using Cargo
 
 Run the following command to install or update `nanalogue` for usage on the command line.
@@ -104,31 +161,6 @@ You can also use `nanalogue` via Docker:
 ```bash
 docker pull dockerofsat/nanalogue:latest
 ```
-
-## Pre-built Binaries
-
-Pre-built binaries for macOS and Linux are available from two sources:
-
-### GitHub Releases
-
-Official release binaries can be downloaded from the [Releases page](https://github.com/DNAReplicationLab/nanalogue/releases)
-on the Github repository. Each release includes binaries for multiple platforms.
-
-### GitHub Actions Artifacts
-
-Binaries built from the latest code are available as artifacts from the 
-[Build Release Binaries workflow](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/build-binaries.yml)
-from the github repository. To download:
-
-1. Navigate to the workflow runs
-2. Click on a successful workflow run
-3. Scroll to the "Artifacts" section at the bottom
-4. Download the binary artifact for your platform:
-   - `binaries-macos` - macOS binaries
-   - `binaries-musllinux_1_2` - Alpine/musl-based Linux (static binaries)
-   - `binaries-manylinux_2_28` - Modern Linux distributions (glibc 2.28+)
-   - `binaries-manylinux_2_34` - Newer Linux distributions (glibc 2.34+)
-   - `binaries-manylinux2014` - Older Linux distributions (glibc 2.17+, maximum compatibility)
 
 # Commands
 

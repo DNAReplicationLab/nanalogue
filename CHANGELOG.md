@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Install script (`install.sh`) for quick installation of pre-built binaries on macOS and Linux
+
 ### Fixed
 - Fixed `peek` to skip zero-length reads instead of returning an error
 
