@@ -28,8 +28,9 @@ jobs:
           brew install jq
 
       - name: Run install script
-        run: |
-          sh install.sh -y
+        run: sh install.sh -y
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify installation
         run: |
@@ -58,8 +59,9 @@ jobs:
           sudo apt-get install -y curl unzip jq coreutils
 
       - name: Run install script
-        run: |
-          sh install.sh -y
+        run: sh install.sh -y
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify installation
         run: |
@@ -87,6 +89,7 @@ jobs:
       - name: Test install in Alpine container
         run: |
           docker run --rm \
+            -e GITHUB_TOKEN \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
             ${{ matrix.container }} \
@@ -103,6 +106,8 @@ jobs:
               nanalogue --version
               nanalogue --help
             '
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   test_path_handling:
     name: Test PATH handling
@@ -121,6 +126,8 @@ jobs:
         run: |
           mkdir -p "$HOME/nanalogue-test-bin"
           NANALOGUE_INSTALL_DIR="$HOME/nanalogue-test-bin" sh install.sh -y
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify nanalogue fails without PATH
         run: |

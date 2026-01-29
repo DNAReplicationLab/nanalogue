@@ -44,17 +44,35 @@ check_dependencies() {
 
 download() {
     if has_cmd curl; then
-        curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$1" -o "$2"
+        curl -fsSL -H "User-Agent: nanalogue-installer" --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$1" -o "$2"
     else
-        wget -q --tries=3 --waitretry=2 --timeout=20 "$1" -O "$2"
+        wget -q --header="User-Agent: nanalogue-installer" --tries=3 --waitretry=2 --timeout=20 "$1" -O "$2"
     fi
 }
 
 fetch() {
+    url="$1"
+    auth_header=""
+
+    # Add authentication for GitHub API requests when token is available
+    case "$url" in
+        https://api.github.com/*)
+            [ -n "${GITHUB_TOKEN:-}" ] && auth_header="Authorization: Bearer $GITHUB_TOKEN"
+            ;;
+    esac
+
     if has_cmd curl; then
-        curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$1"
+        if [ -n "$auth_header" ]; then
+            curl -fsSL -H "User-Agent: nanalogue-installer" -H "$auth_header" --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$url"
+        else
+            curl -fsSL -H "User-Agent: nanalogue-installer" --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$url"
+        fi
     else
-        wget -qO- --tries=3 --waitretry=2 --timeout=20 "$1"
+        if [ -n "$auth_header" ]; then
+            wget -qO- --header="User-Agent: nanalogue-installer" --header="$auth_header" --tries=3 --waitretry=2 --timeout=20 "$url"
+        else
+            wget -qO- --header="User-Agent: nanalogue-installer" --tries=3 --waitretry=2 --timeout=20 "$url"
+        fi
     fi
 }
 
@@ -71,13 +89,9 @@ validate_json() {
 
 check_github_error() {
     json_file="$1"
-    message=$(jq -r '.message // .error // empty' < "$json_file" 2>/dev/null || true)
-    if [ -z "$message" ]; then
-        message=$(jq -r '.errors[0].message // empty' < "$json_file" 2>/dev/null || true)
-    fi
-    if [ -z "$message" ]; then
-        return 0
-    fi
+    message=$(jq -r '.message // .error // .errors[0].message // empty' < "$json_file" 2>/dev/null || true)
+    [ -z "$message" ] && return 0
+
     docs=$(jq -r '.documentation_url // empty' < "$json_file" 2>/dev/null || true)
     error "GitHub API error: $message${docs:+ (see: $docs)}"
 }
