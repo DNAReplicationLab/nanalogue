@@ -25,7 +25,7 @@ in a BAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
 
 - [Usage and documentation](#usage-and-documentation)
   - [Simulate BAM files](#simulate-bam-files)
-- [Installation](#installation)
+- [Installation and Updates](#installation-and-updates)
   - [Pre-built Binaries](#pre-built-binaries)
     - [Quick Install Script](#quick-install-script)
     - [GitHub Releases](#github-releases)
@@ -72,7 +72,7 @@ specifications. Please run `nanalogue_sim_bam --help`. If you are a rust develop
 to use this functionality in your library, please look at the documentation of the module
 `nanalogue_core::simulate_mod_bam` in the docs.rs link [above](#usage).
 
-# Installation
+# Installation and Updates
 
 ## Pre-built Binaries
 
@@ -80,11 +80,13 @@ Pre-built binaries for macOS and Linux are available:
 
 ### Quick Install Script
 
-The easiest way to install pre-built binaries is using the install script:
+The easiest way to install or update pre-built binaries is using the install script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
 ```
+
+If nanalogue is already installed, running the script again will update it in the directory where it is currently installed.
 
 The script will prompt you for an install directory (default: `/usr/local/bin`).
 To skip the prompt and use the default directory:
@@ -164,11 +166,20 @@ and fixes install problems due to newer packages.
 
 ## Using Docker
 
-You can also use `nanalogue` via Docker:
+You can also use `nanalogue` via Docker. On some systems you may need to use `sudo docker`.
+Run the following command to pull the latest image, or run it again to update to a newer version:
 
 ```bash
 docker pull dockerofsat/nanalogue:latest
 ```
+
+The following command runs `read-stats` on `some_file.bam` in the current working directory:
+
+```bash
+docker run --rm -v $(pwd):$(pwd) -w $(pwd) dockerofsat/nanalogue:latest nanalogue read-stats some_file.bam
+```
+
+You can mount other directories using the `-v` option as needed.
 
 # Commands
 
