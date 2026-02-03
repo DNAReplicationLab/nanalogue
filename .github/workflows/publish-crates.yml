@@ -1,0 +1,31 @@
+# Manually triggered workflow to publish to crates.io
+name: Publish to crates.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (validates package and token without publishing)'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup rustup
+        run: rustup update stable && rustup default stable
+      - name: Validate token
+        run: cargo owner --list --token ${{ secrets.CARGO_SECRET_TOKEN }}
+      - name: Dry run (validate package)
+        if: ${{ inputs.dry_run }}
+        run: cargo publish --dry-run
+      - name: Publish to crates.io
+        if: ${{ !inputs.dry_run }}
+        run: cargo publish --token ${{ secrets.CARGO_SECRET_TOKEN }}

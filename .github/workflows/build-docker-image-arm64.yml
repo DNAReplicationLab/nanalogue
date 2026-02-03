@@ -1,7 +1,8 @@
 name: Build Docker Image (ARM64)
 
 on:
-  workflow_dispatch:  # Manual triggering only
+  workflow_dispatch:  # Manual triggering
+  workflow_call:      # Allow being called by other workflows
 
 jobs:
   build_docker_image_arm64:

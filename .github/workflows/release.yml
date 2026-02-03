@@ -1,0 +1,51 @@
+# Orchestrator workflow that builds all artifacts and uploads them to a GitHub release
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:  # Allow manual triggering for testing
+
+jobs:
+  build-binaries:
+    uses: ./.github/workflows/build-binaries.yml
+
+  build-docker-amd64:
+    uses: ./.github/workflows/build-docker-image.yml
+
+  build-docker-arm64:
+    uses: ./.github/workflows/build-docker-image-arm64.yml
+
+  upload-to-release:
+    name: Upload artifacts to release
+    needs: [build-binaries, build-docker-amd64, build-docker-arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display downloaded artifacts
+        run: ls -laR artifacts
+
+      - name: Show what would be uploaded (with checksums)
+        run: |
+          echo "=== Artifacts that would be uploaded to release ==="
+          echo ""
+          for file in $(find artifacts -type f | sort); do
+            size=$(du -h "$file" | cut -f1)
+            sha256=$(sha256sum "$file" | cut -d' ' -f1)
+            echo "$(basename "$file")"
+            echo "  sha256: $sha256"
+            echo "  size: $size"
+            echo ""
+          done
+
+      - name: Upload artifacts to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*

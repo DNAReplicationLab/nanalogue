@@ -7,13 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-02-03
+
 ### Added
 - Install script (`install.sh`) for quick installation of pre-built binaries on macOS and Linux
+- GitHub workflows for automated release artifact uploads and crates.io publishing
 
 ### Fixed
 - Fixed `peek` to skip zero-length reads instead of returning an error
 
 ### Changed
+- Improved README install, update, and Docker snippets
+- Updated `clap` from 4.5.54 to 4.5.56
+- Updated `openssl-probe` from 0.2.0 to 0.2.1
 - Updated `uuid` from 1.18.1 to 1.20.0
 
 ## [0.1.6] - 2026-01-19

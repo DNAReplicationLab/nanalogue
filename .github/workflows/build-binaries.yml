@@ -1,7 +1,8 @@
 name: Build Release Binaries
 
 on:
-  workflow_dispatch:  # Manual triggering only
+  workflow_dispatch:  # Manual triggering
+  workflow_call:      # Allow being called by other workflows
 
 jobs:
   build_macos_binaries:
