@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- (GitHub workflow, not code) Fixed release workflow to upload artifacts as zip files instead of individual files
+- (GitHub workflow, not code) Fixed publish-crates workflow to use environment variable for cargo registry token
+
 ## [0.1.7] - 2026-02-03
 
 ### Added

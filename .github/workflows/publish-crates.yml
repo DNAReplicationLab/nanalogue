@@ -17,15 +17,17 @@ jobs:
   publish:
     name: Publish to crates.io
     runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_SECRET_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - name: Setup rustup
         run: rustup update stable && rustup default stable
       - name: Validate token
-        run: cargo owner --list --token ${{ secrets.CARGO_SECRET_TOKEN }}
+        run: cargo owner --list
       - name: Dry run (validate package)
         if: ${{ inputs.dry_run }}
         run: cargo publish --dry-run
       - name: Publish to crates.io
         if: ${{ !inputs.dry_run }}
-        run: cargo publish --token ${{ secrets.CARGO_SECRET_TOKEN }}
+        run: cargo publish

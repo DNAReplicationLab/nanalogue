@@ -31,11 +31,24 @@ jobs:
       - name: Display downloaded artifacts
         run: ls -laR artifacts
 
+      - name: Zip artifacts for release
+        run: |
+          mkdir -p release-zips
+          cd artifacts
+          for dir in */; do
+            dirname="${dir%/}"
+            echo "Zipping $dirname..."
+            zip -r "../release-zips/${dirname}.zip" "$dirname"
+          done
+          cd ..
+          echo "=== Created zip files ==="
+          ls -la release-zips/
+
       - name: Show what would be uploaded (with checksums)
         run: |
           echo "=== Artifacts that would be uploaded to release ==="
           echo ""
-          for file in $(find artifacts -type f | sort); do
+          for file in $(find release-zips -type f -name "*.zip" | sort); do
             size=$(du -h "$file" | cut -f1)
             sha256=$(sha256sum "$file" | cut -d' ' -f1)
             echo "$(basename "$file")"
@@ -48,4 +61,4 @@ jobs:
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          files: release-zips/*.zip
