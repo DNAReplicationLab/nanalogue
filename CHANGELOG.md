@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - (GitHub workflow, not code) Fixed release workflow to upload artifacts as zip files instead of individual files
 - (GitHub workflow, not code) Fixed publish-crates workflow to use environment variable for cargo registry token
+- (GitHub workflow, not code) Release workflow now runs all CI tests before building artifacts
+- (GitHub workflow, not code) Release workflow verifies Cargo.toml and Cargo.lock versions match the release tag
+- (GitHub workflow, not code) Install script test now runs after release artifacts are uploaded (instead of racing with them)
 
 ## [0.1.7] - 2026-02-03
 

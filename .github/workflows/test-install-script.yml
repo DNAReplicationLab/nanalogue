@@ -5,10 +5,9 @@ name: Test Install Script
 
 on:
   workflow_dispatch:  # Manual trigger
+  workflow_call:  # Called from release.yml after artifacts are uploaded
   schedule:
     - cron: '0 6 * * 0'  # Weekly on Sunday at 6:00 AM UTC
-  release:
-    types: [published]
 
 jobs:
   test_macos:

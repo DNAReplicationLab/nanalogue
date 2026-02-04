@@ -7,13 +7,43 @@ on:
   workflow_dispatch:  # Allow manual triggering for testing
 
 jobs:
+  version-check:
+    name: Verify version matches release tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install yq
+        run: sudo snap install yq
+      - name: Check versions match tag
+        if: github.event_name == 'release'
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${TAG#v}"
+          TOML_VERSION=$(yq -p toml -oy '.package.version' Cargo.toml)
+          LOCK_VERSION=$(yq -p toml -oy '.package[] | select(.name == "nanalogue") | .version' Cargo.lock)
+          echo "Tag: $TAG_VERSION | Cargo.toml: $TOML_VERSION | Cargo.lock: $LOCK_VERSION"
+          [ "$TOML_VERSION" = "$TAG_VERSION" ] && [ "$LOCK_VERSION" = "$TAG_VERSION" ] || exit 1
+
+  cargo-test:
+    name: Cargo tests (locked)
+    needs: [version-check]
+    uses: ./.github/workflows/ci.yml
+
+  cargo-test-non-locked:
+    name: Cargo tests (non-locked)
+    needs: [version-check]
+    uses: ./.github/workflows/ci_non_locked_packages.yml
+
   build-binaries:
+    needs: [cargo-test, cargo-test-non-locked]
     uses: ./.github/workflows/build-binaries.yml
 
   build-docker-amd64:
+    needs: [cargo-test, cargo-test-non-locked]
     uses: ./.github/workflows/build-docker-image.yml
 
   build-docker-arm64:
+    needs: [cargo-test, cargo-test-non-locked]
     uses: ./.github/workflows/build-docker-image-arm64.yml
 
   upload-to-release:
@@ -62,3 +92,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release-zips/*.zip
+
+  test-install-script:
+    name: Test install script
+    needs: [upload-to-release]
+    if: github.event_name == 'release'
+    uses: ./.github/workflows/test-install-script.yml
+    secrets: inherit
