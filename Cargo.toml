@@ -13,7 +13,7 @@ keywords = ["modbam", "bam", "dna", "dna_methylation", "rna"]
 exclude = [".github/", ".gitignore"]
 
 [dependencies]
-fibertools-rs = "0.8.1"
+fibertools-rs = "0.8.2"
 rust-htslib = "0.46.0"
 clap = { version = "4.5.56", features = ["derive", "wrap_help"] }
 csv = "1.1"
