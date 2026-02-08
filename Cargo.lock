@@ -2649,9 +2649,9 @@ checksum = "835a3dc7d1ec9e75e2b5fb4ba75396837112d2060b03f7d43bc1897c7f7211da"
 
 [[package]]
 name = "fibertools-rs"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43b755a158ad34834e578d54222219eb5146e26dcf1966686113028f889103fd"
+checksum = "8adf2efcb127556dfcc5e37e6a250b9b3762198b772df2d85aec4dba2f93bdee"
 dependencies = [
  "anstyle",
  "anyhow",
