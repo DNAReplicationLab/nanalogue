@@ -9,6 +9,13 @@ on:
         required: true
         default: true
         type: boolean
+  workflow_call:
+    inputs:
+      dry_run:
+        description: 'Dry run (validates package and token without publishing)'
+        required: true
+        type: boolean
+        default: true
 
 env:
   CARGO_TERM_COLOR: always
