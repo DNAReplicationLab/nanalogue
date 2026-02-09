@@ -1,0 +1,141 @@
+name: Push Docker Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.5)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (download, load, tag only - no push)'
+        required: true
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.5)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (download, load, tag only - no push)'
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  push-docker-images:
+    name: Push multi-arch Docker images to Docker Hub
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare version tag
+        id: version
+        run: |
+          TAG="${{ inputs.tag }}"
+          # Remove leading 'v' if present
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Using version: $VERSION"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN MODE - No images will be pushed to Docker Hub"
+          fi
+
+      - name: Download Docker image artifacts from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Download the Docker image zip files from the release
+          gh release download "${{ inputs.tag }}" \
+            --repo ${{ github.repository }} \
+            --pattern "docker-image-*.zip"
+
+          echo "=== Downloaded files ==="
+          ls -lh *.zip
+
+      - name: Unzip Docker images
+        run: |
+          # Unzip the Docker image archives
+          for zipfile in docker-image-*.zip; do
+            echo "Unzipping $zipfile..."
+            unzip "$zipfile"
+          done
+
+          echo "=== Extracted files ==="
+          ls -lh nanalogue-docker-image-*.tar.gz
+
+      - name: Load Docker images
+        run: |
+          echo "Loading arm64 image..."
+          docker load < nanalogue-docker-image-arm64.tar.gz
+
+          echo "Loading amd64 image..."
+          docker load < nanalogue-docker-image-amd64.tar.gz
+
+          echo "=== Loaded images ==="
+          docker images | grep nanalogue
+
+      - name: Tag Docker images
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          docker tag nanalogue:latest dockerofsat/nanalogue:${VERSION}_arm64
+          docker tag nanalogue:latest dockerofsat/nanalogue:${VERSION}_amd64
+
+          echo "=== Tagged images ==="
+          docker images | grep dockerofsat/nanalogue
+
+      - name: Log in to Docker Hub
+        if: inputs.dry_run != true
+        uses: docker/login-action@v3
+        with:
+          username: dockerofsat
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Push Docker images
+        if: inputs.dry_run != true
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          echo "Pushing arm64 image..."
+          docker push dockerofsat/nanalogue:${VERSION}_arm64
+
+          echo "Pushing amd64 image..."
+          docker push dockerofsat/nanalogue:${VERSION}_amd64
+
+      - name: Create and push manifest
+        if: inputs.dry_run != true
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Try to remove existing manifest (ignore errors if it doesn't exist)
+          docker manifest rm dockerofsat/nanalogue:latest 2>/dev/null || true
+
+          echo "Creating manifest..."
+          docker manifest create \
+            dockerofsat/nanalogue:latest \
+            dockerofsat/nanalogue:${VERSION}_arm64 \
+            dockerofsat/nanalogue:${VERSION}_amd64
+
+          echo "Pushing manifest..."
+          docker manifest push dockerofsat/nanalogue:latest
+
+          echo "✅ Successfully pushed multi-arch Docker image!"
+          echo "   dockerofsat/nanalogue:latest"
+          echo "   dockerofsat/nanalogue:${VERSION}_arm64"
+          echo "   dockerofsat/nanalogue:${VERSION}_amd64"
+
+      - name: Dry run summary
+        if: inputs.dry_run == true
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "🔍 DRY RUN COMPLETE"
+          echo ""
+          echo "Images were downloaded, loaded, and tagged but NOT pushed to Docker Hub."
+          echo ""
+          echo "Would have pushed:"
+          echo "   dockerofsat/nanalogue:latest"
+          echo "   dockerofsat/nanalogue:${VERSION}_arm64"
+          echo "   dockerofsat/nanalogue:${VERSION}_amd64"
+          echo ""
+          echo "To actually push these images, run again with dry_run=false"
