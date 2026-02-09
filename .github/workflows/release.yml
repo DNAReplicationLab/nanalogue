@@ -99,3 +99,22 @@ jobs:
     if: github.event_name == 'release'
     uses: ./.github/workflows/test-install-script.yml
     secrets: inherit
+
+  push-docker-images:
+    name: Push Docker images
+    needs: [test-install-script]
+    if: github.event_name == 'release'
+    uses: ./.github/workflows/push-docker-images.yml
+    with:
+      tag: ${{ github.event.release.tag_name }}
+      dry_run: false
+    secrets: inherit
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: [test-install-script]
+    if: github.event_name == 'release'
+    uses: ./.github/workflows/publish-crates.yml
+    with:
+      dry_run: false
+    secrets: inherit
