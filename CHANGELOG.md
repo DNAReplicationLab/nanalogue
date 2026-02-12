@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - (GitHub workflow, not code) Release workflow verifies Cargo.toml and Cargo.lock versions match the release tag
 - (GitHub workflow, not code) Install script test now runs after release artifacts are uploaded (instead of racing with them)
 
+### Changed
+- Updated packages in Cargo.lock
+
 ## [0.1.7] - 2026-02-03
 
 ### Added
