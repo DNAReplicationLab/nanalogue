@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - (GitHub workflow, not code) Release workflow now runs all CI tests before building artifacts
 - (GitHub workflow, not code) Release workflow verifies Cargo.toml and Cargo.lock versions match the release tag
 - (GitHub workflow, not code) Install script test now runs after release artifacts are uploaded (instead of racing with them)
+- (GitHub workflow, not code) Fixed Docker push workflow zip extraction and image tag collision ([`e72e582`](https://github.com/DNAReplicationLab/nanalogue/commit/e72e582))
 
 ### Changed
 - Updated packages in Cargo.lock
