@@ -16,8 +16,9 @@ jobs:
         run: sudo snap install yq
       - name: Check versions match tag
         if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
           TAG_VERSION="${TAG#v}"
           TOML_VERSION=$(yq -p toml -oy '.package.version' Cargo.toml)
           LOCK_VERSION=$(yq -p toml -oy '.package[] | select(.name == "nanalogue") | .version' Cargo.lock)

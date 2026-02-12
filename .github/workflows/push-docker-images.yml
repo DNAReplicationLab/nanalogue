@@ -31,22 +31,25 @@ jobs:
     steps:
       - name: Prepare version tag
         id: version
+        env:
+          TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          TAG="${{ inputs.tag }}"
           # Remove leading 'v' if present
           VERSION="${TAG#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Using version: $VERSION"
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             echo "🔍 DRY RUN MODE - No images will be pushed to Docker Hub"
           fi
 
       - name: Download Docker image artifacts from release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           # Download the Docker image zip files from the release
-          gh release download "${{ inputs.tag }}" \
+          gh release download "$RELEASE_TAG" \
             --repo ${{ github.repository }} \
             --pattern "docker-image-*.zip"
 
@@ -76,9 +79,9 @@ jobs:
           docker images | grep nanalogue
 
       - name: Tag Docker images
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
           docker tag nanalogue:latest dockerofsat/nanalogue:${VERSION}_arm64
           docker tag nanalogue:latest dockerofsat/nanalogue:${VERSION}_amd64
 
@@ -94,9 +97,9 @@ jobs:
 
       - name: Push Docker images
         if: inputs.dry_run != true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
           echo "Pushing arm64 image..."
           docker push dockerofsat/nanalogue:${VERSION}_arm64
 
@@ -105,9 +108,9 @@ jobs:
 
       - name: Create and push manifest
         if: inputs.dry_run != true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
           # Try to remove existing manifest (ignore errors if it doesn't exist)
           docker manifest rm dockerofsat/nanalogue:latest 2>/dev/null || true
 
@@ -127,8 +130,9 @@ jobs:
 
       - name: Dry run summary
         if: inputs.dry_run == true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           echo "🔍 DRY RUN COMPLETE"
           echo ""
           echo "Images were downloaded, loaded, and tagged but NOT pushed to Docker Hub."
