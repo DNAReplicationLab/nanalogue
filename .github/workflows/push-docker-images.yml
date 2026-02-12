@@ -58,31 +58,28 @@ jobs:
 
       - name: Unzip Docker images
         run: |
-          # Unzip the Docker image archives
+          # Unzip the Docker image archives (strip directory structure)
           for zipfile in docker-image-*.zip; do
             echo "Unzipping $zipfile..."
-            unzip "$zipfile"
+            unzip -j "$zipfile"
           done
 
           echo "=== Extracted files ==="
           ls -lh nanalogue-docker-image-*.tar.gz
 
-      - name: Load Docker images
-        run: |
-          echo "Loading arm64 image..."
-          docker load < nanalogue-docker-image-arm64.tar.gz
-
-          echo "Loading amd64 image..."
-          docker load < nanalogue-docker-image-amd64.tar.gz
-
-          echo "=== Loaded images ==="
-          docker images | grep nanalogue
-
-      - name: Tag Docker images
+      - name: Load and tag Docker images
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          # Load and tag each image before loading the next, because both
+          # build workflows save their image as nanalogue:latest and loading
+          # the second would overwrite the first tag.
+          echo "Loading arm64 image..."
+          docker load < nanalogue-docker-image-arm64.tar.gz
           docker tag nanalogue:latest dockerofsat/nanalogue:${VERSION}_arm64
+
+          echo "Loading amd64 image..."
+          docker load < nanalogue-docker-image-amd64.tar.gz
           docker tag nanalogue:latest dockerofsat/nanalogue:${VERSION}_amd64
 
           echo "=== Tagged images ==="
