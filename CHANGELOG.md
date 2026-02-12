@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-02-12
+
 ### Added
+- Optional `--sample-seed` for reproducible read subsampling: hash-based deterministic filtering on read name + seed ([`e8c576f`](https://github.com/DNAReplicationLab/nanalogue/commit/e8c576f3455312b7be1eb81922047319eefae5fb))
+- Optional `seed` field in `SimulationConfig` for reproducible BAM simulation output ([`e8c576f`](https://github.com/DNAReplicationLab/nanalogue/commit/e8c576f3455312b7be1eb81922047319eefae5fb))
 - (GitHub workflow, not code) Docker image push workflow for multi-arch images to Docker Hub ([`7c2388e`](https://github.com/DNAReplicationLab/nanalogue/commit/7c2388e22053248e0089707a26b1cd3d1c14af18))
 - (GitHub workflow, not code) workflow_call trigger for publish-crates so release can invoke it ([`e6f7e2d`](https://github.com/DNAReplicationLab/nanalogue/commit/e6f7e2dab3fae7fd475a3d3b51dc9d43c5617901))
 - (GitHub workflow, not code) Docker push and crate publish wired into release pipeline ([`e9901d2`](https://github.com/DNAReplicationLab/nanalogue/commit/e9901d23608d4fdc246f101e2db111724b6cd1f5))
