@@ -170,7 +170,7 @@ mod tests {
     fn bam_pre_filt_filt_random_subset_panics() {
         let test_obj = TestBamPreFilt;
         let fraction = F32Bw0and1::new(0.5).unwrap();
-        let _: bool = test_obj.filt_random_subset(fraction);
+        let _: bool = test_obj.filt_random_subset(fraction, None);
     }
 
     #[test]

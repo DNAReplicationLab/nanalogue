@@ -105,8 +105,10 @@ use crate::{
 use crate::{write_bam_denovo, write_fasta};
 use derive_builder::Builder;
 use itertools::join;
+use rand::Rng;
+use rand::SeedableRng as _;
+use rand::rngs::StdRng;
 use rand::seq::IteratorRandom as _;
-use rand::{Rng, random};
 use rust_htslib::bam;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
 use serde::{Deserialize, Serialize};
@@ -191,6 +193,10 @@ pub struct SimulationConfig {
     pub contigs: ContigConfig,
     /// Configuration for read generation
     pub reads: Vec<ReadConfig>,
+    /// Seed for reproducible simulation. When set, all random operations
+    /// use a deterministic RNG seeded with this value, producing identical
+    /// output files across runs. If not set, simulation is non-reproducible.
+    pub seed: Option<u64>,
 }
 
 /// Configuration for contig generation
@@ -1309,7 +1315,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
         let start_pos = rng.random_range(0..=(contig_len.saturating_sub(read_len)));
 
         // Extract sequence from contig
-        let random_state: ReadState = random();
+        let random_state: ReadState = rng.random();
         let end_pos = usize::try_from(start_pos.checked_add(read_len).expect("u64 overflow"))
             .expect("number conversion error");
         let (read_seq, cigar) = {
@@ -1368,7 +1374,12 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
         // Create BAM record
         let record = {
             let mut record = bam::Record::new();
-            let qname = format!("{}.{}", read_group, Uuid::new_v4()).into_bytes();
+            let uuid = {
+                let mut bytes = [0u8; 16];
+                rng.fill(&mut bytes);
+                uuid::Builder::from_random_bytes(bytes).into_uuid()
+            };
+            let qname = format!("{read_group}.{uuid}").into_bytes();
             record.unset_flags();
             record.set_flags(u16::from(random_state));
             if random_state == ReadState::Unmapped {
@@ -1425,6 +1436,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 /// //       * Optional "repeated_seq" field can be added to contigs (e.g., "repeated_seq": "ACGT")
 /// //         to create contigs by repeating a sequence instead of random generation.
 /// //       * Optional modifications can be added using the "mods" field
+/// //       * Optional "seed" field can be added (e.g., "seed": 12345) for reproducible output
 /// // Note: The files used below should not exist because they will be created by this function.
 /// //       If they exist, they will be overwritten.
 ///
@@ -1450,22 +1462,39 @@ pub fn run<F>(
 where
     F: AsRef<Path> + ?Sized,
 {
-    let mut rng = rand::rng();
+    if let Some(s) = config.seed {
+        let mut rng = StdRng::seed_from_u64(s);
+        run_inner(config, bam_output_path, fasta_output_path, &mut rng)
+    } else {
+        let mut rng = rand::rng();
+        run_inner(config, bam_output_path, fasta_output_path, &mut rng)
+    }
+}
 
+/// Generates simulated BAM and FASTA files using the provided RNG.
+fn run_inner<F, R: Rng>(
+    config: SimulationConfig,
+    bam_output_path: &F,
+    fasta_output_path: &F,
+    rng: &mut R,
+) -> Result<(), Error>
+where
+    F: AsRef<Path> + ?Sized,
+{
     let contigs = match config.contigs.repeated_seq {
         Some(seq) => generate_contigs_denovo_repeated_seq(
             config.contigs.number,
             config.contigs.len_range,
             &seq,
-            &mut rng,
+            rng,
         ),
-        None => generate_contigs_denovo(config.contigs.number, config.contigs.len_range, &mut rng),
+        None => generate_contigs_denovo(config.contigs.number, config.contigs.len_range, rng),
     };
     let read_groups: Vec<String> = (0..config.reads.len()).map(|k| k.to_string()).collect();
     let reads = {
         let mut temp_reads = Vec::new();
         for k in config.reads.into_iter().zip(read_groups.clone()) {
-            temp_reads.append(&mut generate_reads_denovo(&contigs, &k.0, &k.1, &mut rng)?);
+            temp_reads.append(&mut generate_reads_denovo(&contigs, &k.0, &k.1, rng)?);
         }
         temp_reads.sort_by_key(|k| (k.is_unmapped(), k.tid(), k.pos(), k.is_reverse()));
         temp_reads
@@ -1552,6 +1581,45 @@ mod random_dna_generation_test {
         for base in seq {
             assert!([b'A', b'C', b'G', b'T'].contains(&base));
         }
+    }
+}
+
+#[cfg(test)]
+mod seeded_simulation_tests {
+    use super::*;
+    use rust_htslib::bam::Read as _;
+
+    fn run_seeded_simulation(config_json: &str) -> Result<Vec<bam::Record>, Error> {
+        let config: SimulationConfig = serde_json::from_str(config_json)?;
+        let temp = TempBamSimulation::new(config)?;
+        let mut reader = crate::nanalogue_bam_reader(temp.bam_path())?;
+        reader
+            .records()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Error::from)
+    }
+
+    #[test]
+    fn seeded_simulation_is_reproducible() -> Result<(), Error> {
+        let config_json = r#"{
+          "contigs": { "number": 2, "len_range": [500, 1000],
+                       "repeated_seq": "ATCGAATT" },
+          "reads": [{ "number": 50, "mapq_range": [10, 20],
+                      "base_qual_range": [10, 20], "len_range": [0.2, 0.5],
+                      "mods": [
+                        { "base": "T", "is_strand_plus": true, "mod_code": "T",
+                          "win": [4, 5], "mod_range": [[0.1, 0.2], [0.3, 0.4]] },
+                        { "base": "C", "is_strand_plus": true, "mod_code": "m",
+                          "win": [3], "mod_range": [[0.6, 0.9]] }
+                      ] }],
+          "seed": 12345
+        }"#;
+
+        let run_a = run_seeded_simulation(config_json)?;
+        let run_b = run_seeded_simulation(config_json)?;
+        assert_eq!(run_a, run_b, "same seed must produce identical BAM records");
+
+        Ok(())
     }
 }
 

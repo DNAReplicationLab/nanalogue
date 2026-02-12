@@ -88,7 +88,9 @@ use rand::random;
 use regex::Regex;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
 use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
 use std::fs::File;
+use std::hash::{Hash as _, Hasher as _};
 use std::io::{BufRead as _, BufReader};
 use std::sync::{LazyLock, Once};
 
@@ -693,7 +695,7 @@ pub trait BamPreFilt {
         unimplemented!()
     }
     /// random filtration
-    fn filt_random_subset(&self, _fraction: F32Bw0and1) -> bool {
+    fn filt_random_subset(&self, _fraction: F32Bw0and1, _seed: Option<u64>) -> bool {
         unimplemented!()
     }
     /// filtration by mapq
@@ -751,7 +753,7 @@ pub trait BamPreFilt {
 impl BamPreFilt for bam::Record {
     /// apply default filtration by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
-        self.filt_random_subset(bam_opts.sample_fraction)
+        self.filt_random_subset(bam_opts.sample_fraction, bam_opts.sample_seed)
             & self.filt_by_len(bam_opts.min_seq_len, bam_opts.include_zero_len)
             & self.filt_by_mapq(bam_opts.mapq_filter, bam_opts.exclude_mapq_unavail)
             & {
@@ -824,13 +826,26 @@ impl BamPreFilt for bam::Record {
         states.bam_flags().contains(&self.flags())
     }
     /// random filtration
-    fn filt_random_subset(&self, fraction: F32Bw0and1) -> bool {
+    fn filt_random_subset(&self, fraction: F32Bw0and1, seed: Option<u64>) -> bool {
         match fraction.val() {
             1.0 => true,
             0.0 => false,
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "hash-to-float conversion; sub-ulp precision loss is acceptable for subsampling"
+            )]
             v => {
-                let random_number: f32 = random();
-                random_number < v
+                if let Some(s) = seed {
+                    let mut hasher = DefaultHasher::new();
+                    self.name().hash(&mut hasher);
+                    s.hash(&mut hasher);
+                    let hash = hasher.finish();
+                    // Normalize hash to [0, 1) by dividing by u64::MAX + 1
+                    (hash as f64 / (u64::MAX as f64 + 1.0)) < f64::from(v)
+                } else {
+                    let random_number: f32 = random();
+                    random_number < v
+                }
             }
         }
     }
@@ -1399,6 +1414,25 @@ mod bam_rc_record_tests {
     use rust_htslib::bam::record;
     use rust_htslib::bam::record::{Cigar, CigarString};
 
+    /// Creates 200 BAM records with names `read_0` .. `read_199` and runs
+    /// `filt_random_subset` with fraction 0.5 and the given seed on each,
+    /// returning the per-read pass/fail decisions.
+    fn seeded_subsample_decisions(seed: Option<u64>) -> Vec<bool> {
+        (0..200)
+            .map(|i| {
+                let name = format!("read_{i}");
+                let mut rec = record::Record::new();
+                rec.set(
+                    name.as_bytes(),
+                    Some(&CigarString(vec![Cigar::Match(10)])),
+                    &[b'A'; 10],
+                    &[30; 10],
+                );
+                rec.filt_random_subset(F32Bw0and1::new(0.5).unwrap(), seed)
+            })
+            .collect()
+    }
+
     #[test]
     fn bam_rc_records() {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam").unwrap();
@@ -1791,5 +1825,40 @@ mod bam_rc_record_tests {
         // read_id_set should remain unchanged
         assert!(bam_opts.read_id_list.is_none());
         assert_eq!(bam_opts.read_id_set, Some(read_id_set));
+    }
+
+    #[test]
+    fn seeded_random_retrieval_is_deterministic() {
+        let run_a = seeded_subsample_decisions(Some(42));
+        let run_b = seeded_subsample_decisions(Some(42));
+        assert_eq!(run_a, run_b, "same seed must produce identical results");
+
+        // Different seed should (almost certainly) produce different results
+        let run_c = seeded_subsample_decisions(Some(99));
+        assert_ne!(
+            run_a, run_c,
+            "different seeds should produce different results"
+        );
+    }
+
+    #[test]
+    fn seeded_random_retrieval_produces_correct_statistics() {
+        // With 200 reads and fraction 0.5, the expected count is 100.
+        // Over 1000 different seeds, the mean count should be close to 100.
+        let total_retained: usize = (0..1000u64)
+            .map(|seed| {
+                seeded_subsample_decisions(Some(seed))
+                    .iter()
+                    .filter(|&&b| b)
+                    .count()
+            })
+            .sum();
+
+        // Mean over 1000 seeds: each seed retains ~100 out of 200 reads.
+        // Total expected = 100_000, tolerance ~3% (97_000..=103_000).
+        assert!(
+            (97_000..=103_000).contains(&total_retained),
+            "expected ~100_000 total retained reads across 1000 seeds, got {total_retained}"
+        );
     }
 }

@@ -46,6 +46,7 @@ use std::str::FromStr;
 ///     .read_id("some-id")
 ///     .read_filter("primary_forward,secondary_forward".into())
 ///     .sample_fraction(F32Bw0and1::new(1.0).expect("no error"))
+///     .sample_seed(42u64)
 ///     .mapq_filter(20)
 ///     .exclude_mapq_unavail(true)
 ///     .region("chr4:1000-2000".into())
@@ -214,11 +215,17 @@ pub struct InputBam {
     /// to the specified probability, so due to this, you may not always get
     /// the same number of reads e.g. if you set `-s 0.05` in a file with 1000 reads,
     /// you will get 50 +- sqrt(50) reads.
-    /// NOTE: a new subsample is drawn every time as the seed is not fixed.
-    /// If you want reproducibility, consider piping the output of `samtools view -s`
-    /// to our program.
+    /// By default, a new subsample is drawn every time as the seed is not fixed.
+    /// Set `--sample-seed` to get reproducible subsampling.
     #[clap(short, long, default_value_t = F32Bw0and1::one())]
     pub sample_fraction: F32Bw0and1,
+    /// Seed for reproducible subsampling. When set, the subsampling decision
+    /// for each read is deterministic based on the read name and the seed.
+    /// Different seeds produce different subsets. If not set, subsampling
+    /// is random and non-reproducible (the default behavior).
+    #[clap(long)]
+    #[builder(setter(into, strip_option))]
+    pub sample_seed: Option<u64>,
     /// Exclude reads whose MAPQ (Mapping quality of position) is below this value.
     /// Defaults to zero i.e. do not exclude any read.
     #[clap(long, default_value_t)]
@@ -318,6 +325,7 @@ impl Default for InputBam {
             include_zero_len: false,
             read_filter: None,
             sample_fraction: F32Bw0and1::one(),
+            sample_seed: None,
             mapq_filter: 0,
             exclude_mapq_unavail: false,
             region: None,
