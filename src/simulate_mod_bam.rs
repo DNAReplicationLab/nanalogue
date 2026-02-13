@@ -38,7 +38,8 @@
 //!         "win": [4, 5],
 //!         "mod_range": [[0.1, 0.2], [0.3, 0.4]]
 //!     }]
-//!   }]
+//!   }],
+//!   "seed": 42
 //! }"#;
 //!
 //! // Note: * We generate four contigs `4` with a length chosen randomly from the range `1000-8000`
@@ -85,6 +86,10 @@
 //! //         e.g. if there are three window values and two mod ranges, then
 //! //         windows repeat in cycles of 3 whereas mod ranges will repeat in cycles of 2.
 //! //         You can use such inputs if this is what you want.
+//! //       * "seed" is optional. If set, all random operations (contig generation, read
+//! //         generation, modification placement, etc.) use a deterministic RNG seeded with
+//! //         this value, producing identical output files across runs. If not set, the
+//! //         simulation is non-reproducible.
 //!
 //! // Paths used here must not exist already as these are files created anew.
 //! let config: SimulationConfig = serde_json::from_str(&config_json)?;
@@ -178,10 +183,13 @@ macro_rules! ord_pair_f32_bw0and1 {
 ///     .barcode("AATTG".into())
 ///     .mods(vec![mod_config]);
 ///
-/// // set simulation config, ready to be fed into an appropriate function
+/// // set simulation config, ready to be fed into an appropriate function.
+/// // .seed(42) makes the simulation reproducible; omit it for non-deterministic output.
 /// let sim_config = SimulationConfigBuilder::default()
 ///     .contigs(contig_config)
-///     .reads(vec![read_config1.build()?, read_config2.build()?]).build()?;
+///     .reads(vec![read_config1.build()?, read_config2.build()?])
+///     .seed(42_u64)
+///     .build()?;
 /// # Ok::<(), Error>(())
 /// ```
 #[derive(Builder, Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -196,6 +204,7 @@ pub struct SimulationConfig {
     /// Seed for reproducible simulation. When set, all random operations
     /// use a deterministic RNG seeded with this value, producing identical
     /// output files across runs. If not set, simulation is non-reproducible.
+    #[builder(setter(into, strip_option))]
     pub seed: Option<u64>,
 }
 
