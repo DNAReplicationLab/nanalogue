@@ -1,0 +1,46 @@
+[
+{
+  "alignment_type": "primary_forward",
+  "alignment": {
+    "start": 9,
+    "end": 17,
+    "contig": "dummyI",
+    "contig_id": 0
+  },
+  "mod_table": [
+    {
+      "base": "T",
+      "is_strand_plus": true,
+      "mod_code": "T",
+      "data": [
+        [
+          0,
+          3,
+          0.0,
+          2,
+          9,
+          13
+        ],
+        [
+          2,
+          4,
+          0.0,
+          3,
+          12,
+          14
+        ],
+        [
+          3,
+          7,
+          0.0,
+          32,
+          13,
+          17
+        ]
+      ]
+    }
+  ],
+  "read_id": "read1",
+  "seq_len": 7
+}
+]

@@ -1,0 +1,103 @@
+[
+{
+  "alignment_type": "primary_forward",
+  "alignment": {
+    "start": 9,
+    "end": 17,
+    "contig": "dummyI",
+    "contig_id": 0
+  },
+  "mod_table": [
+    {
+      "base": "T",
+      "is_strand_plus": true,
+      "mod_code": "T",
+      "data": [
+        [0, 4, 0.0, 255, 9, 13],
+        [3, 5, 0.0, 255, 12, 14],
+        [4, 8, 0.0, 255, 13, 17]
+      ]
+    }
+  ],
+  "read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
+  "seq_len": 8
+},
+{
+  "alignment_type": "primary_forward",
+  "alignment": {
+    "start": 23,
+    "end": 71,
+    "contig": "dummyIII",
+    "contig_id": 2
+  },
+  "mod_table": [
+    {
+      "base": "T",
+      "is_strand_plus": true,
+      "mod_code": "T",
+      "data": [
+        [3, 9, 1.0, 255, 26, 32],
+        [8, 28, 0.5, 255, 31, 51],
+        [27, 40, 0.0, 255, 50, 63],
+        [39, 48, 0.5, 255, 62, 71]
+      ]
+    }
+  ],
+  "read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
+  "seq_len": 48
+},
+{
+  "alignment_type": "primary_reverse",
+  "alignment": {
+    "start": 3,
+    "end": 36,
+    "contig": "dummyII",
+    "contig_id": 1
+  },
+  "mod_table": [
+    {
+      "base": "T",
+      "is_strand_plus": true,
+      "mod_code": "T",
+      "data": [
+        [12, 14, 0.0, 255, 15, 17],
+        [13, 17, 0.0, 255, 16, 20],
+        [16, 20, 0.0, 255, 19, 23],
+        [19, 21, 0.5, 255, 22, 24]
+      ]
+    }
+  ],
+  "read_id": "fffffff1-10d2-49cb-8ca3-e8d48979001b",
+  "seq_len": 33
+},
+{
+  "alignment_type": "unmapped",
+  "mod_table": [
+    {
+      "base": "G",
+      "is_strand_plus": false,
+      "mod_code": "7200",
+      "data": [
+        [28, 30, 0.0, 255, -1, -1],
+        [29, 31, 0.0, 255, -1, -1],
+        [30, 33, 0.0, 255, -1, -1],
+        [32, 44, 0.0, 255, -1, -1],
+        [43, 45, 0.0, 255, -1, -1]
+      ]
+    },
+    {
+      "base": "T",
+      "is_strand_plus": true,
+      "mod_code": "T",
+      "data": [
+        [3, 9, 1.0, 255, -1, -1],
+        [8, 28, 0.5, 255, -1, -1],
+        [27, 40, 0.0, 255, -1, -1],
+        [39, 48, 0.5, 255, -1, -1]
+      ]
+    }
+  ],
+  "read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
+  "seq_len": 48
+}
+]

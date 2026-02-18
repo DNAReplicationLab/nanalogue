@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-02-18
+
+### Added
+- JSON output for `window-reads` via `run_json`: per-read structured output with alignment info, modification tables, and windowed data
+- Stochastic tests for `run_json` covering reads with mods, without mods, non-perfectly aligned reads, two modification types, and zero-read edge cases
+
+### Changed
+- Refactored windowing logic in `window_reads` into reusable `compute_windowed_mod_data` function shared by TSV and JSON paths
+- Added `Serialize` and `serde(try_from = "f32")` to `F32AbsValAtMost1` for JSON serialization and safe deserialization
+- Updated packages in Cargo.lock
+
 ## [0.1.8] - 2026-02-12
 
 ### Added

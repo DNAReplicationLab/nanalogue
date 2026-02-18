@@ -9,6 +9,7 @@ use std::str::FromStr;
 
 /// Datatype holding a float (f32) between 0 and 1 (both inclusive) guaranteed at creation.
 #[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "f32")]
 pub struct F32Bw0and1(f32);
 
 impl F32Bw0and1 {

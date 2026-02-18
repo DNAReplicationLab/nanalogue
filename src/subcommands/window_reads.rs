@@ -3,24 +3,250 @@
 //! In this module, we window data along molecules, and then output
 //! these windows
 
-use crate::{CurrRead, Error, F32AbsValAtMost1, InputMods, InputWindowing, ModChar, OptionalTag};
+use crate::{
+    AlignmentInfoBuilder, CurrRead, Error, F32AbsValAtMost1, InputMods, InputWindowing, ModChar,
+    OptionalTag, ReadState,
+};
+use fibertools_rs::utils::basemods::BaseMod;
 use polars::prelude::*;
 use rust_htslib::bam::Record;
+use serde::Serialize;
 use std::rc::Rc;
 
-/// Windowed modification data along molecules
+/// A single modification type's windowed data
+#[derive(Serialize)]
+struct WindowedModTableEntry {
+    /// The canonical base that is modified (e.g. 'C', 'T', 'A', 'G', 'N')
+    base: char,
+    /// Whether the modification strand is the plus strand
+    is_strand_plus: bool,
+    /// The modification code (e.g. 'm' for 5mC, 'T' for `BrdU`)
+    mod_code: ModChar,
+    /// Windowed data: `(win_start, win_end, win_val, mean_base_qual, ref_win_start, ref_win_end)`
+    data: Vec<(i64, i64, F32AbsValAtMost1, u8, i64, i64)>,
+}
+
+/// A single read's windowed modification data for JSON output
+#[derive(Serialize)]
+struct WindowedReadEntry {
+    /// The alignment type/state of this read
+    alignment_type: ReadState,
+    /// Alignment coordinates (absent for unmapped reads)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    alignment: Option<crate::read_utils::AlignmentInfo>,
+    /// Per-modification-type windowed data
+    mod_table: Vec<WindowedModTableEntry>,
+    /// The read identifier (QNAME)
+    read_id: String,
+    /// Basecalled sequence length
+    seq_len: u64,
+}
+
+/// Computes windowed modification data for a single base modification type
 ///
-/// # Errors
-/// Returns an error if BAM record reading, or output writing fails.
-///
-#[expect(
-    clippy::missing_panics_doc,
-    reason = "window slice indexing should not fail due to bounds checking"
-)]
+/// Extracts annotation data from `base_mod`, slides a window of `win_size`
+/// with step `slide_size`, and computes the window value, mean base quality,
+/// and reference coordinate bounds for each window position.
 #[expect(
     clippy::too_many_lines,
     reason = "windowing logic is simple but just takes up many lines"
 )]
+fn compute_windowed_mod_data<F>(
+    base_mod: &BaseMod,
+    base_qual: &[u8],
+    win_size: usize,
+    slide_size: usize,
+    qname: &str,
+    window_function: &F,
+) -> Result<WindowedModTableEntry, Error>
+where
+    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+{
+    // constant to mark windows with basecalled coordinates but no reference coordinates.
+    const INVALID_REF_POS: i64 = -1;
+
+    #[expect(
+        clippy::type_complexity,
+        reason = "I think a tuple of 5 `Vec` is fine if its readable"
+    )]
+    let (mod_data, starts, ends, ref_starts, ref_ends): (
+        Vec<u8>,
+        Vec<i64>,
+        Vec<i64>,
+        Vec<Option<i64>>,
+        Vec<Option<i64>>,
+    ) = base_mod
+        .ranges
+        .annotations
+        .iter()
+        .map(|k| (k.qual, k.start, k.end, k.reference_start, k.reference_end))
+        .collect();
+    let base = base_mod.modified_base as char;
+    let mod_strand = base_mod.strand;
+    let mod_type = ModChar::new(base_mod.modification_type);
+
+    let mut windows: Vec<(i64, i64, F32AbsValAtMost1, u8, i64, i64)> = Vec::new();
+
+    if let Some(v) = mod_data.len().checked_sub(win_size) {
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "a +1 on `ref_win_end`, no overflow as coords << 2^63, complex arithmetic in Q score avg"
+        )]
+        for window_idx in (0..=v).step_by(slide_size) {
+            let win_val = match window_function(
+                mod_data
+                    .get(window_idx..)
+                    .expect("window_idx <= v where v = len - win_size")
+                    .get(0..win_size)
+                    .expect("no error as we've checked data len >= win size"),
+            ) {
+                Ok(val) => val,
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Skipping {win_size} window starting at {qname}:{window_idx} due to error: {e}"
+                    );
+                    continue;
+                }
+            };
+            // there is no way to trigger the errors below as we control how CurrRead is
+            // populated quite strictly. Nevertheless, I am leaving these in for
+            // future-proofing.
+            let win_start = *starts.get(window_idx).expect("window_idx is valid");
+            let win_end = *ends
+                .get(window_idx..)
+                .expect("window_idx <= v where v = len - win_size")
+                .get(0..win_size)
+                .expect("no error as we've checked data len >= win size")
+                .last()
+                .expect("no error as we've checked data len >= win size");
+
+            let ref_win_start = ref_starts
+                .get(window_idx..)
+                .expect("window_idx <= v where v = len - win_size")
+                .get(0..win_size)
+                .expect("no error as we've checked data len >= win size")
+                .iter()
+                .flatten()
+                .min()
+                .copied()
+                .unwrap_or(INVALID_REF_POS);
+            let ref_win_end = ref_ends
+                .get(window_idx..)
+                .expect("window_idx <= v where v = len - win_size")
+                .get(0..win_size)
+                .expect("no error as we've checked data len >= win size")
+                .iter()
+                .flatten()
+                .max()
+                .copied()
+                .map_or(INVALID_REF_POS, |x| x + 1);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "we are forced to do these due to the math itself, of taking a power, avg, and then log"
+            )]
+            let mean_base_qual = {
+                let quals = base_qual
+                    .get(usize::try_from(win_start)?..usize::try_from(win_end)?)
+                    .expect("no error as `win_start`, `win_end` in range");
+                if quals.is_empty() || quals.first() == Some(&255u8) {
+                    // BAM format is such that all values are 255, or values are between
+                    // 0 and 93. So if we see one 255, we can just return 255.
+                    // Empty quals (win_start == win_end) also get 255 as a sentinel.
+                    255u8
+                } else {
+                    // we do an average using the probability of errors,
+                    // and not the Q scores directly.
+                    let quals_min = quals.iter().min().expect("no error");
+                    let data_size = f64::from(i32::try_from(win_end)? - i32::try_from(win_start)?);
+                    let x = quals.iter().fold(0f64, |acc, x| {
+                        acc + (10f64).powf(-0.1f64 * f64::from(x - quals_min))
+                    });
+                    quals_min.saturating_add((-10f64 * f64::log10(x / data_size)).round() as u8)
+                }
+            };
+            windows.push((
+                win_start,
+                win_end,
+                win_val,
+                mean_base_qual,
+                ref_win_start,
+                ref_win_end,
+            ));
+        }
+    }
+
+    Ok(WindowedModTableEntry {
+        base,
+        is_strand_plus: mod_strand == '+',
+        mod_code: mod_type,
+        data: windows,
+    })
+}
+
+/// Windowed modification data along molecules
+///
+/// # Examples
+///
+/// Windowing the first (mapped) and last (unmapped) records from `example_1.bam`
+/// with a window size of 2 and step of 1 using [`threshold_and_mean`](crate::analysis::threshold_and_mean):
+///
+/// ```
+/// use nanalogue_core::{window_reads, InputMods, InputWindowing, OptionalTag};
+/// use nanalogue_core::analysis::threshold_and_mean;
+/// use rust_htslib::bam::{self, Read as _};
+/// use std::rc::Rc;
+///
+/// let mut bam_reader = bam::Reader::from_path("examples/example_1.bam").unwrap();
+/// let records: Vec<Rc<bam::Record>> = bam_reader
+///     .rc_records()
+///     .collect::<Result<Vec<_>, _>>()
+///     .unwrap();
+/// let selected: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = vec![
+///     Ok(Rc::clone(&records[0])),
+///     Ok(Rc::clone(records.last().unwrap())),
+/// ];
+///
+/// let window_options: InputWindowing =
+///     serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+/// let mods: InputMods<OptionalTag> = InputMods::default();
+/// let mut output = Vec::new();
+///
+/// window_reads::run(&mut output, selected, window_options, &mods, |x| {
+///     threshold_and_mean(x).map(Into::into)
+/// })
+/// .unwrap();
+///
+/// let output_str = String::from_utf8(output).unwrap();
+/// let rows: Vec<Vec<&str>> = output_str
+///     .lines()
+///     .map(|line| line.split('\t').collect())
+///     .collect();
+///
+/// // 1 header + 3 mapped windows + 9 unmapped windows = 13 rows
+/// assert_eq!(rows.len(), 13);
+///
+/// // Header
+/// assert_eq!(rows[0], ["#contig", "ref_win_start", "ref_win_end", "read_id", "win_val",
+///     "strand", "base", "mod_strand", "mod_type", "win_start", "win_end", "basecall_qual"]);
+///
+/// // Mapped read (primary_forward on dummyI): 3 windows
+/// //         contig  ref_s ref_e read_id                               val  str  b  ms mt  ws we bq
+/// assert_eq!(rows[1], ["dummyI", "9",  "13", "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575", "0", "+", "T", "+", "T", "0", "4", "255"]);
+/// assert_eq!(rows[2], ["dummyI", "12", "14", "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575", "0", "+", "T", "+", "T", "3", "5", "255"]);
+/// assert_eq!(rows[3], ["dummyI", "13", "17", "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575", "0", "+", "T", "+", "T", "4", "8", "255"]);
+///
+/// // Unmapped read: 5 windows for G/-/7200, then 4 windows for T/+/T
+/// //         contig ref_s ref_e read_id                               val    str b  ms mt     ws   we  bq
+/// assert_eq!(rows[4],  [".", "-1", "-1", "a4f36092-b4d5-47a9-813e-c22c3b477a0c", "0",   ".", "G", "-", "7200", "28", "30", "255"]);
+/// assert_eq!(rows[8],  [".", "-1", "-1", "a4f36092-b4d5-47a9-813e-c22c3b477a0c", "0",   ".", "G", "-", "7200", "43", "45", "255"]);
+/// assert_eq!(rows[9],  [".", "-1", "-1", "a4f36092-b4d5-47a9-813e-c22c3b477a0c", "1",   ".", "T", "+", "T",    "3",  "9",  "255"]);
+/// assert_eq!(rows[12], [".", "-1", "-1", "a4f36092-b4d5-47a9-813e-c22c3b477a0c", "0.5", ".", "T", "+", "T",    "39", "48", "255"]);
+/// ```
+///
+/// # Errors
+/// Returns an error if BAM record reading, or output writing fails.
+///
 pub fn run<W, F, D>(
     handle: &mut W,
     bam_records: D,
@@ -33,9 +259,6 @@ where
     F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
-    // constant to mark windows with basecalled coordinates but no reference coordinates.
-    const INVALID_REF_POS: i64 = -1;
-
     // Get windowing parameters
     let win_size = window_options.win.get();
     let slide_size = window_options.step.get();
@@ -66,110 +289,25 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
         let base_qual = record.qual();
 
         // read and window modification data, then print the output
-        #[expect(
-            clippy::type_complexity,
-            reason = "I think a tuple of 5 `Vec` is fine if its readable"
-        )]
         for base_mod in &curr_read_state.mod_data().0.base_mods {
-            let (mod_data, starts, ends, ref_starts, ref_ends): (
-                Vec<u8>,
-                Vec<i64>,
-                Vec<i64>,
-                Vec<Option<i64>>,
-                Vec<Option<i64>>,
-            ) = base_mod
-                .ranges
-                .annotations
-                .iter()
-                .map(|k| (k.qual, k.start, k.end, k.reference_start, k.reference_end))
-                .collect();
-            let base = base_mod.modified_base as char;
-            let mod_strand = base_mod.strand;
-            let mod_type = ModChar::new(base_mod.modification_type);
-            if let Some(v) = mod_data.len().checked_sub(win_size) {
-                #[expect(
-                    clippy::arithmetic_side_effects,
-                    reason = "a +1 on `ref_win_end`, no overflow as coords << 2^63, complex arithmetic in Q score avg"
-                )]
-                for window_idx in (0..=v).step_by(slide_size) {
-                    let win_val = match window_function(
-                        mod_data
-                            .get(window_idx..)
-                            .expect("window_idx <= v where v = len - win_size")
-                            .get(0..win_size)
-                            .expect("no error as we've checked data len >= win size"),
-                    ) {
-                        Ok(val) => val,
-                        Err(e) => {
-                            eprintln!(
-                                "Warning: Skipping {win_size} window starting at {qname}:{window_idx} due to error: {e}"
-                            );
-                            continue;
-                        }
-                    };
-                    // there is no way to trigger the errors below as we control how CurrRead is
-                    // populated quite strictly. Nevertheless, I am leaving these in for
-                    // future-proofing.
-                    let win_start = starts.get(window_idx).expect("window_idx is valid");
-                    let win_end = ends
-                        .get(window_idx..)
-                        .expect("window_idx <= v where v = len - win_size")
-                        .get(0..win_size)
-                        .expect("no error as we've checked data len >= win size")
-                        .last()
-                        .expect("no error as we've checked data len >= win size");
-
-                    let ref_win_start = ref_starts
-                        .get(window_idx..)
-                        .expect("window_idx <= v where v = len - win_size")
-                        .get(0..win_size)
-                        .expect("no error as we've checked data len >= win size")
-                        .iter()
-                        .flatten()
-                        .min()
-                        .copied()
-                        .unwrap_or(INVALID_REF_POS);
-                    let ref_win_end = ref_ends
-                        .get(window_idx..)
-                        .expect("window_idx <= v where v = len - win_size")
-                        .get(0..win_size)
-                        .expect("no error as we've checked data len >= win size")
-                        .iter()
-                        .flatten()
-                        .max()
-                        .copied()
-                        .map_or(INVALID_REF_POS, |x| x + 1);
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "we are forced to do these due to the math itself, of taking a power, avg, and then log"
-                    )]
-                    let mean_base_qual = {
-                        let quals = base_qual
-                            .get(usize::try_from(*win_start)?..usize::try_from(*win_end)?)
-                            .expect("no error as `win_start`, `win_end` in range");
-                        if quals.first() == Some(&255u8) {
-                            // BAM format is such that all values are 255, or values are between
-                            // 0 and 93. So if we see one 255, we can just return 255
-                            255u8
-                        } else {
-                            // we do an average using the probability of errors,
-                            // and not the Q scores directly.
-                            let quals_min = quals.iter().min().expect("no error");
-                            let data_size =
-                                f64::from(i32::try_from(*win_end)? - i32::try_from(*win_start)?);
-                            let x = quals.iter().fold(0f64, |acc, x| {
-                                acc + (10f64).powf(-0.1f64 * f64::from(x - quals_min))
-                            });
-                            quals_min + ((-10f64 * f64::log10(x / data_size)).round() as u8)
-                        }
-                    };
-                    writeln!(
-                        handle,
-                        "{contig}\t{ref_win_start}\t{ref_win_end}\t{qname}\t{win_val}\t{strand}\t\
-                    {base}\t{mod_strand}\t{mod_type}\t{win_start}\t{win_end}\t{mean_base_qual}",
-                    )?;
-                }
+            let result = compute_windowed_mod_data(
+                base_mod,
+                base_qual,
+                win_size,
+                slide_size,
+                qname,
+                &window_function,
+            )?;
+            let mod_strand = if result.is_strand_plus { '+' } else { '-' };
+            for &(win_start, win_end, win_val, mean_base_qual, ref_win_start, ref_win_end) in
+                &result.data
+            {
+                writeln!(
+                    handle,
+                    "{contig}\t{ref_win_start}\t{ref_win_end}\t{qname}\t{win_val}\t{strand}\t\
+                    {}\t{mod_strand}\t{}\t{win_start}\t{win_end}\t{mean_base_qual}",
+                    result.base, result.mod_code,
+                )?;
             }
         }
     }
@@ -242,6 +380,186 @@ where
         .finish()?;
 
     Ok(df)
+}
+
+/// Windowed modification data along molecules, output as JSON
+///
+/// Produces the same windowed data as [`run`] but serializes each read as a
+/// JSON object with alignment info and a `mod_table` whose `data` entries
+/// contain `[win_start, win_end, win_val, mean_base_qual, ref_win_start, ref_win_end]`.
+///
+/// # Examples
+///
+/// Windowing the first (mapped) and last (unmapped) records from `example_1.bam`
+/// with a window size of 2 and step of 1 using [`threshold_and_mean`](crate::analysis::threshold_and_mean):
+///
+/// ```
+/// use nanalogue_core::{window_reads, InputMods, InputWindowing, OptionalTag};
+/// use nanalogue_core::analysis::threshold_and_mean;
+/// use rust_htslib::bam::{self, Read as _};
+/// use std::rc::Rc;
+///
+/// let mut bam_reader = bam::Reader::from_path("examples/example_1.bam").unwrap();
+/// let records: Vec<Rc<bam::Record>> = bam_reader
+///     .rc_records()
+///     .collect::<Result<Vec<_>, _>>()
+///     .unwrap();
+/// let selected: Vec<Result<Rc<bam::Record>, rust_htslib::errors::Error>> = vec![
+///     Ok(Rc::clone(&records[0])),
+///     Ok(Rc::clone(records.last().unwrap())),
+/// ];
+///
+/// let window_options: InputWindowing =
+///     serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+/// let mods: InputMods<OptionalTag> = InputMods::default();
+/// let mut output = Vec::new();
+///
+/// window_reads::run_json(&mut output, selected, window_options, &mods, |x| {
+///     threshold_and_mean(x).map(Into::into)
+/// })
+/// .unwrap();
+///
+/// let output_str = String::from_utf8(output).unwrap();
+/// let parsed: Vec<serde_json::Value> = serde_json::from_str(&output_str).unwrap();
+/// assert_eq!(parsed.len(), 2);
+///
+/// // Mapped read (primary_forward on dummyI): 1 mod type, 3 windows
+/// assert_eq!(parsed[0], serde_json::json!({
+///     "alignment_type": "primary_forward",
+///     "alignment": { "start": 9, "end": 17, "contig": "dummyI", "contig_id": 0 },
+///     "read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
+///     "seq_len": 8,
+///     "mod_table": [{
+///         "base": "T", "is_strand_plus": true, "mod_code": "T",
+///         "data": [
+///             [0, 4, 0.0, 255, 9,  13],
+///             [3, 5, 0.0, 255, 12, 14],
+///             [4, 8, 0.0, 255, 13, 17],
+///         ]
+///     }]
+/// }));
+///
+/// // Unmapped read: 2 mod types (G/-/7200 with 5 windows, T/+/T with 4 windows)
+/// assert_eq!(parsed[1], serde_json::json!({
+///     "alignment_type": "unmapped",
+///     "read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
+///     "seq_len": 48,
+///     "mod_table": [
+///         {
+///             "base": "G", "is_strand_plus": false, "mod_code": "7200",
+///             "data": [
+///                 [28, 30, 0.0, 255, -1, -1],
+///                 [29, 31, 0.0, 255, -1, -1],
+///                 [30, 33, 0.0, 255, -1, -1],
+///                 [32, 44, 0.0, 255, -1, -1],
+///                 [43, 45, 0.0, 255, -1, -1],
+///             ]
+///         },
+///         {
+///             "base": "T", "is_strand_plus": true, "mod_code": "T",
+///             "data": [
+///                 [3,  9,  1.0, 255, -1, -1],
+///                 [8,  28, 0.5, 255, -1, -1],
+///                 [27, 40, 0.0, 255, -1, -1],
+///                 [39, 48, 0.5, 255, -1, -1],
+///             ]
+///         }
+///     ]
+/// }));
+/// ```
+///
+/// # Errors
+/// Returns an error if BAM record reading, or output writing fails.
+///
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "iterator `.next()` on repeat should not fail"
+)]
+pub fn run_json<W, F, D>(
+    handle: &mut W,
+    bam_records: D,
+    window_options: InputWindowing,
+    mods: &InputMods<OptionalTag>,
+    window_function: F,
+) -> Result<(), Error>
+where
+    W: std::io::Write,
+    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+    D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
+{
+    // Get windowing parameters
+    let win_size = window_options.win.get();
+    let slide_size = window_options.step.get();
+
+    let mut is_first_record_written = vec![false].into_iter().chain(std::iter::repeat(true));
+
+    write!(handle, "[")?;
+
+    // Go record by record in the BAM file,
+    for r in bam_records {
+        // read records
+        let record = r?;
+
+        // set data in records
+        let curr_read_state = CurrRead::default()
+            .try_from_only_alignment(&record)?
+            .set_mod_data_restricted_options(&record, mods)?;
+        let qname = curr_read_state.read_id().to_owned();
+        let read_state = curr_read_state.read_state();
+        let base_qual = record.qual();
+        let seq_len = curr_read_state.seq_len()?;
+
+        // Build alignment info for mapped reads
+        let alignment = if read_state.is_unmapped() {
+            None
+        } else {
+            let (contig_id, start) = curr_read_state.contig_id_and_start()?;
+            let align_len = curr_read_state.align_len()?;
+            let end = start
+                .checked_add(align_len)
+                .ok_or(Error::Arithmetic("alignment end overflow".to_owned()))?;
+            Some(
+                AlignmentInfoBuilder::default()
+                    .start(start)
+                    .end(end)
+                    .contig(curr_read_state.contig_name()?.to_owned())
+                    .contig_id(contig_id)
+                    .build()?,
+            )
+        };
+
+        // read and window modification data
+        let mut mod_table: Vec<WindowedModTableEntry> = Vec::new();
+        for base_mod in &curr_read_state.mod_data().0.base_mods {
+            mod_table.push(compute_windowed_mod_data(
+                base_mod,
+                base_qual,
+                win_size,
+                slide_size,
+                &qname,
+                &window_function,
+            )?);
+        }
+
+        let entry = WindowedReadEntry {
+            alignment_type: read_state,
+            alignment,
+            mod_table,
+            read_id: qname,
+            seq_len,
+        };
+
+        if is_first_record_written.next().expect("no error") {
+            writeln!(handle, ",")?;
+        } else {
+            writeln!(handle)?;
+        }
+        write!(handle, "{}", serde_json::to_string(&entry)?)?;
+    }
+
+    writeln!(handle, "\n]")?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -327,6 +645,119 @@ mod tests {
             None,
             "./examples/example_7_window_reads",
         )
+    }
+
+    #[test]
+    fn window_reads_json_example_7() -> Result<(), Error> {
+        let mut output = Vec::new();
+        let mut bam_reader = bam::Reader::from_path("./examples/example_7.sam")?;
+        let bam_records = bam_reader.rc_records();
+        let window_options: InputWindowing =
+            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+        let mods = InputMods::default();
+
+        run_json(&mut output, bam_records, window_options, &mods, |x| {
+            threshold_and_mean(x).map(Into::into)
+        })?;
+
+        let output_str = String::from_utf8(output)?;
+        let parsed_output: serde_json::Value = serde_json::from_str(&output_str)?;
+        let expected_output = std::fs::read_to_string("./examples/example_7_window_reads_json")?;
+        let parsed_expected: serde_json::Value = serde_json::from_str(&expected_output)?;
+
+        assert_eq!(
+            parsed_output, parsed_expected,
+            "Windowed JSON output should match expected file"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn window_reads_json_example_1() -> Result<(), Error> {
+        let mut output = Vec::new();
+        let mut bam_reader = bam::Reader::from_path("./examples/example_1.bam")?;
+        let bam_records = bam_reader.rc_records();
+        let window_options: InputWindowing =
+            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+        let mods = InputMods::default();
+
+        run_json(&mut output, bam_records, window_options, &mods, |x| {
+            threshold_and_mean(x).map(Into::into)
+        })?;
+
+        let output_str = String::from_utf8(output)?;
+        let parsed_output: serde_json::Value = serde_json::from_str(&output_str)?;
+        let expected_output = std::fs::read_to_string("./examples/example_1_window_reads_json")?;
+        let parsed_expected: serde_json::Value = serde_json::from_str(&expected_output)?;
+
+        assert_eq!(
+            parsed_output, parsed_expected,
+            "Windowed JSON output should match expected file"
+        );
+
+        Ok(())
+    }
+
+    /// Helper to run `run_json` with `threshold_and_gradient` on a SAM/BAM file
+    fn run_json_grad(input: &str, win: usize, step: usize) -> Result<String, Error> {
+        let mut output = Vec::new();
+        let mut bam_reader = bam::Reader::from_path(input)?;
+        let bam_records = bam_reader.rc_records();
+        let window_options: InputWindowing =
+            serde_json::from_str(&format!("{{\"win\": {win}, \"step\": {step}}}"))?;
+        let mods = InputMods::default();
+
+        run_json(
+            &mut output,
+            bam_records,
+            window_options,
+            &mods,
+            crate::analysis::threshold_and_gradient,
+        )?;
+
+        Ok(String::from_utf8(output)?)
+    }
+
+    /// Helper to compare JSON output with expected file (parsed comparison)
+    fn assert_json_matches_file(actual_json: &str, expected_path: &str) {
+        let parsed_actual: serde_json::Value =
+            serde_json::from_str(actual_json).expect("parse actual JSON");
+        let expected_str = std::fs::read_to_string(expected_path).expect("read expected JSON file");
+        let parsed_expected: serde_json::Value =
+            serde_json::from_str(&expected_str).expect("parse expected JSON");
+        assert_eq!(
+            parsed_actual, parsed_expected,
+            "JSON output should match expected file {expected_path}"
+        );
+    }
+
+    #[test]
+    fn window_grad_json_example_10_win_10_step_1() -> Result<(), Error> {
+        let output = run_json_grad("./examples/example_10.sam", 10, 1)?;
+        assert_json_matches_file(&output, "./examples/example_10_win_grad_json_win_10_step_1");
+        Ok(())
+    }
+
+    #[test]
+    fn window_grad_json_example_10_win_20_step_2() -> Result<(), Error> {
+        let output = run_json_grad("./examples/example_10.sam", 20, 2)?;
+        assert_json_matches_file(&output, "./examples/example_10_win_grad_json_win_20_step_2");
+        Ok(())
+    }
+
+    #[test]
+    fn window_grad_json_example_11_win_10_step_1() -> Result<(), Error> {
+        let output = run_json_grad("./examples/example_11.sam", 10, 1)?;
+        assert_json_matches_file(&output, "./examples/example_11_win_grad_json_win_10_step_1");
+        Ok(())
+    }
+
+    #[test]
+    fn window_grad_json_example_11_win_20_step_2() -> Result<(), Error> {
+        let output = run_json_grad("./examples/example_11.sam", 20, 2)?;
+        assert_json_matches_file(&output, "./examples/example_11_win_grad_json_win_20_step_2");
+        Ok(())
     }
 }
 
@@ -704,6 +1135,418 @@ mod stochastic_tests {
                     .checked_div(count_c_ref_window_size.into())
                     .unwrap()
             )
+        );
+
+        Ok(())
+    }
+
+    /// Helper to run JSON window analysis with `threshold_and_mean` aggregation function
+    fn run_json_window_analysis_with_threshold(
+        sim: &TempBamSimulation,
+        win: usize,
+        step: usize,
+    ) -> Result<Vec<serde_json::Value>, Error> {
+        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
+        let bam_records = bam_reader.rc_records();
+
+        let window_options: InputWindowing =
+            serde_json::from_str(&format!("{{\"win\": {win}, \"step\": {step}}}"))?;
+        let mods = InputMods::default();
+
+        let mut output = Vec::new();
+        run_json(&mut output, bam_records, window_options, &mods, |x| {
+            analysis::threshold_and_mean(x).map(Into::into)
+        })?;
+
+        let output_str = String::from_utf8(output)?;
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&output_str)?;
+        Ok(parsed)
+    }
+
+    /// Test that `run_json` produces an empty array for BAM files with no modification data
+    #[test]
+    fn run_json_empty_for_no_mods() -> Result<(), Error> {
+        let config_json = r#"{
+            "contigs": {
+                "number": 2,
+                "len_range": [100, 200]
+            },
+            "reads": [{
+                "number": 100,
+                "mapq_range": [10, 20],
+                "base_qual_range": [10, 20],
+                "len_range": [0.1, 0.8]
+            }]
+        }"#;
+
+        let sim = create_test_simulation(config_json)?;
+        let entries = run_json_window_analysis_with_threshold(&sim, 2, 1)?;
+
+        // One JSON record per BAM read
+        assert_eq!(entries.len(), 100, "should have one JSON record per read");
+
+        // Each read still appears in the JSON output, but mod_table.data should be empty
+        for entry in &entries {
+            let mod_table = entry["mod_table"].as_array().unwrap();
+            for mod_entry in mod_table {
+                let data = mod_entry["data"].as_array().unwrap();
+                assert_eq!(
+                    data.len(),
+                    0,
+                    "mod_table data should be empty for reads with no modifications"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Test that `run_json` produces entries with modification data
+    #[test]
+    fn run_json_with_mods() -> Result<(), Error> {
+        let config_json = r#"{
+            "contigs": {
+                "number": 4,
+                "len_range": [100, 200]
+            },
+            "reads": [{
+                "number": 1000,
+                "mapq_range": [10, 20],
+                "base_qual_range": [20, 30],
+                "len_range": [0.1, 0.8],
+                "mods": [{
+                    "base": "T",
+                    "is_strand_plus": true,
+                    "mod_code": "T",
+                    "win": [4],
+                    "mod_range": [[0.1, 0.2]]
+                }]
+            }]
+        }"#;
+
+        let sim = create_test_simulation(config_json)?;
+        let entries = run_json_window_analysis_with_threshold(&sim, 2, 1)?;
+
+        // One JSON record per BAM read
+        assert_eq!(entries.len(), 1000, "should have one JSON record per read");
+
+        let mut total_windows = 0usize;
+        for entry in &entries {
+            let mod_table = entry["mod_table"].as_array().unwrap();
+            for mod_entry in mod_table {
+                let data = mod_entry["data"].as_array().unwrap();
+                for window in data {
+                    total_windows += 1;
+                    let win_val = window[2].as_f64().unwrap();
+                    #[expect(
+                        clippy::float_cmp,
+                        reason = "exact 0.0 comparison is safe for thresholded-then-meaned low-probability mods"
+                    )]
+                    {
+                        assert_eq!(
+                            win_val, 0.0,
+                            "win_val should be 0.0 for low mod probability"
+                        );
+                    }
+                    let basecall_qual = window[3].as_u64().unwrap();
+                    assert!(
+                        (20..=30).contains(&basecall_qual),
+                        "basecall_qual should be in range 20..=30"
+                    );
+                }
+            }
+        }
+
+        assert!(
+            total_windows > 0,
+            "Should have at least one window across all reads"
+        );
+
+        Ok(())
+    }
+
+    /// Test that `run_json` works with non-perfectly aligned reads (deletions, insertions, mismatches)
+    #[test]
+    fn run_json_with_mods_and_non_perfectly_aligned_reads() -> Result<(), Error> {
+        let config_json = r#"{
+            "contigs": {
+                "number": 4,
+                "len_range": [100000, 200000]
+            },
+            "reads": [{
+                "number": 100,
+                "mapq_range": [10, 20],
+                "base_qual_range": [30, 40],
+                "len_range": [0.1, 0.8],
+                "delete": [0.5, 0.7],
+                "insert_middle": "ATCGAATTGGAA",
+                "mismatch": 0.2,
+                "mods": [{
+                    "base": "C",
+                    "is_strand_plus": false,
+                    "mod_code": "m",
+                    "win": [4],
+                    "mod_range": [[0.2, 0.8]]
+                }]
+            }]
+        }"#;
+
+        let sim = create_test_simulation(config_json)?;
+        let entries = run_json_window_analysis_with_threshold(&sim, 200, 100)?;
+
+        // One JSON record per BAM read
+        assert_eq!(entries.len(), 100, "should have one JSON record per read");
+
+        let mut total_windows = 0usize;
+        for entry in &entries {
+            let mod_table = entry["mod_table"].as_array().unwrap();
+            for mod_entry in mod_table {
+                let data = mod_entry["data"].as_array().unwrap();
+                for window in data {
+                    total_windows += 1;
+                    let win_val = window[2].as_f64().unwrap();
+                    assert!(
+                        (0.2..=0.8).contains(&win_val),
+                        "win_val {win_val} should be in range 0.2..=0.8"
+                    );
+                    let basecall_qual = window[3].as_u64().unwrap();
+                    assert!(
+                        (30..=40).contains(&basecall_qual),
+                        "basecall_qual should be in range 30..=40"
+                    );
+                }
+            }
+        }
+
+        assert!(
+            total_windows > 0,
+            "Should have at least one window across all reads"
+        );
+
+        Ok(())
+    }
+
+    /// Test that `run_json` works with two types of mod reads and validates statistics per group
+    #[test]
+    #[expect(clippy::too_many_lines, reason = "test with too many lines is ok")]
+    fn run_json_with_two_types_of_mod_reads() -> Result<(), Error> {
+        let config_json = r#"{
+            "contigs": {
+                "number": 4,
+                "len_range": [10000, 20000]
+            },
+            "reads": [
+                {
+                    "number": 100,
+                    "mapq_range": [10, 20],
+                    "base_qual_range": [30, 40],
+                    "len_range": [0.1, 0.8],
+                    "mods": [
+                        {
+                            "base": "C",
+                            "is_strand_plus": false,
+                            "mod_code": "m",
+                            "win": [4],
+                            "mod_range": [[0.2, 0.4]]
+                        },
+                        {
+                            "base": "N",
+                            "is_strand_plus": true,
+                            "mod_code": "N",
+                            "win": [4],
+                            "mod_range": [[0.6, 0.8]]
+                        }
+                    ]
+                },
+                {
+                    "number": 100,
+                    "mapq_range": [10, 20],
+                    "base_qual_range": [10, 20],
+                    "len_range": [0.5, 0.6]
+                }
+            ]
+        }"#;
+
+        let sim = create_test_simulation(config_json)?;
+        let entries = run_json_window_analysis_with_threshold(&sim, 200, 100)?;
+
+        // One JSON record per BAM read (100 with mods + 100 without)
+        assert_eq!(entries.len(), 200, "should have one JSON record per read");
+
+        let mut previous_win_start: Option<i64> = None;
+        let mut previous_win_end: Option<i64> = None;
+
+        let mut sum_c_read_window_size: u64 = 0;
+        let mut sum_c_ref_window_size: i64 = 0;
+        let mut count_c_read_window_size: u32 = 0;
+        let mut count_c_ref_window_size: u32 = 0;
+
+        for entry in &entries {
+            let read_id = entry["read_id"].as_str().unwrap();
+            let mod_table = entry["mod_table"].as_array().unwrap();
+
+            for mod_entry in mod_table {
+                let base = mod_entry["base"].as_str().unwrap();
+                let is_strand_plus = mod_entry["is_strand_plus"].as_bool().unwrap();
+                let mod_code = &mod_entry["mod_code"];
+                let data = mod_entry["data"].as_array().unwrap();
+
+                for window in data {
+                    let win_start = window[0].as_i64().unwrap();
+                    let win_end = window[1].as_i64().unwrap();
+                    let win_val = window[2].as_f64().unwrap();
+                    let basecall_qual = window[3].as_u64().unwrap();
+                    let ref_win_start = window[4].as_i64().unwrap();
+                    let ref_win_end = window[5].as_i64().unwrap();
+
+                    assert!(
+                        read_id.starts_with("0."),
+                        "only 1st read group comes through, 2nd read group has no mods"
+                    );
+                    assert!(
+                        (30..=40).contains(&basecall_qual),
+                        "base call quals are 30 to 40"
+                    );
+
+                    if mod_code == "N" {
+                        assert!(is_strand_plus);
+                        assert_eq!(base, "N");
+                        assert_eq!(
+                            win_end - win_start,
+                            200,
+                            "N mod should produce 200 bp windows"
+                        );
+                        #[expect(
+                            clippy::float_cmp,
+                            reason = "exact 1.0 comparison is safe for thresholded high-probability mods"
+                        )]
+                        {
+                            assert_eq!(win_val, 1.0);
+                        }
+
+                        if ref_win_end > -1 && ref_win_start > -1 {
+                            assert_eq!(
+                                ref_win_end - ref_win_start,
+                                200,
+                                "N mod should produce 200 bp windows on ref on mapped reads"
+                            );
+                        }
+
+                        // check sliding window consistency
+                        match (previous_win_start, previous_win_end) {
+                            (Some(s), Some(e)) if win_start != 0 => {
+                                assert_eq!(win_end - e, 100, "100 bp sliding window on N mod");
+                                assert_eq!(win_start - s, 100, "100 bp sliding window on N mod");
+                            }
+                            _ => {}
+                        }
+                        previous_win_start = Some(win_start);
+                        previous_win_end = Some(win_end);
+                    } else if mod_code == "m" {
+                        assert!(!is_strand_plus);
+                        assert_eq!(base, "C");
+                        #[expect(
+                            clippy::float_cmp,
+                            reason = "exact 0.0 comparison is safe for thresholded low-probability mods"
+                        )]
+                        {
+                            assert_eq!(win_val, 0.0);
+                        }
+
+                        count_c_read_window_size += 1;
+                        #[expect(
+                            clippy::cast_sign_loss,
+                            reason = "window coordinates are non-negative and small"
+                        )]
+                        {
+                            sum_c_read_window_size += (win_end - win_start) as u64;
+                        }
+
+                        if ref_win_end > -1 && ref_win_start > -1 {
+                            sum_c_ref_window_size += ref_win_end - ref_win_start;
+                            count_c_ref_window_size += 1;
+                        }
+                    } else {
+                        unreachable!("Only N or m mods are present!");
+                    }
+                }
+            }
+        }
+
+        // Tolerate some spread around 800 (200 base windows with 25% chance of each base = 800).
+        assert!(
+            (700..=900).contains(
+                &sum_c_read_window_size
+                    .checked_div(count_c_read_window_size.into())
+                    .unwrap()
+            )
+        );
+        assert!(
+            (700..=900).contains(
+                &sum_c_ref_window_size
+                    .checked_div(count_c_ref_window_size.into())
+                    .unwrap()
+            )
+        );
+
+        Ok(())
+    }
+
+    /// Test that `run` (TSV) outputs only the header line when there are zero reads
+    #[test]
+    fn run_tsv_header_only_for_zero_reads() -> Result<(), Error> {
+        let config_json = r#"{
+            "contigs": {
+                "number": 2,
+                "len_range": [100, 200]
+            },
+            "reads": []
+        }"#;
+
+        let sim = create_test_simulation(config_json)?;
+        let mut output = Vec::new();
+        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
+        let bam_records = bam_reader.rc_records();
+        let window_options: InputWindowing =
+            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+        let mods = InputMods::default();
+
+        run(&mut output, bam_records, window_options, &mods, |x| {
+            analysis::threshold_and_mean(x).map(Into::into)
+        })?;
+
+        let output_str = String::from_utf8(output)?;
+        let lines: Vec<&str> = output_str.lines().collect();
+        assert_eq!(lines.len(), 1, "should only have the header line");
+        assert!(
+            lines
+                .first()
+                .expect("already asserted len == 1")
+                .starts_with("#contig"),
+            "the single line should be the header"
+        );
+
+        Ok(())
+    }
+
+    /// Test that `run_json` outputs an empty JSON array when there are zero reads
+    #[test]
+    fn run_json_empty_array_for_zero_reads() -> Result<(), Error> {
+        let config_json = r#"{
+            "contigs": {
+                "number": 2,
+                "len_range": [100, 200]
+            },
+            "reads": []
+        }"#;
+
+        let sim = create_test_simulation(config_json)?;
+        let entries = run_json_window_analysis_with_threshold(&sim, 2, 1)?;
+
+        assert_eq!(
+            entries.len(),
+            0,
+            "should have zero JSON records for zero reads"
         );
 
         Ok(())

@@ -2,11 +2,13 @@
 //! Ensures floating-point values are within valid range at construction
 
 use crate::Error;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
 /// Datatype holding a float (f32) between -1 and 1 (both inclusive) guaranteed at creation.
-#[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Default, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "f32")]
 pub struct F32AbsValAtMost1(f32);
 
 impl F32AbsValAtMost1 {
