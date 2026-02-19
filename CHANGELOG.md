@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- (GitHub workflow, not code) CI workflow to test sister packages (pynanalogue, nanalogue-node) against current commit using Cargo's `[patch.crates-io]` mechanism
+
 ## [0.1.9] - 2026-02-18
 
 ### Added

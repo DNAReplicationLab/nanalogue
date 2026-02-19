@@ -1,0 +1,121 @@
+# Tests downstream packages (pynanalogue, nanalogue-node) against the current
+# nanalogue commit using Cargo's [patch.crates-io] mechanism. Non-blocking:
+# failures surface as warnings but do not prevent merges.
+
+name: Test Sister Packages
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test-pynanalogue:
+    name: pynanalogue (Rust + Python)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Determine nanalogue repo and commit SHA
+        id: source
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "repo=${{ github.event.pull_request.head.repo.clone_url }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "repo=https://github.com/${{ github.repository }}.git" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout pynanalogue
+        uses: actions/checkout@v6
+        with:
+          repository: DNAReplicationLab/pynanalogue
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Patch Cargo.toml to use nanalogue from this commit
+        run: |
+          printf '\n[patch.crates-io]\nnanalogue = { git = "%s", rev = "%s" }\n' \
+            "${{ steps.source.outputs.repo }}" "${{ steps.source.outputs.sha }}" >> Cargo.toml
+
+      - name: Remove Cargo.lock to re-resolve dependencies
+        run: rm -f Cargo.lock
+
+      - name: Cargo test
+        run: cargo test --verbose
+
+      - name: Install maturin and test dependencies
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install maturin pytest pytest-cov pytest-benchmark
+
+      - name: Build and install pynanalogue
+        run: |
+          . .venv/bin/activate
+          maturin develop --release
+
+      - name: Run Python tests
+        run: |
+          . .venv/bin/activate
+          pytest tests/ -v
+
+  test-nanalogue-node:
+    name: nanalogue-node (Rust + Node.js)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Determine nanalogue repo and commit SHA
+        id: source
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "repo=${{ github.event.pull_request.head.repo.clone_url }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "repo=https://github.com/${{ github.repository }}.git" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout nanalogue-node
+        uses: actions/checkout@v6
+        with:
+          repository: sathish-t/nanalogue-node
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Patch Cargo.toml to use nanalogue from this commit
+        run: |
+          printf '\n[patch.crates-io]\nnanalogue = { git = "%s", rev = "%s" }\n' \
+            "${{ steps.source.outputs.repo }}" "${{ steps.source.outputs.sha }}" >> Cargo.toml
+
+      - name: Remove Cargo.lock to re-resolve dependencies
+        run: rm -f Cargo.lock
+
+      - name: Cargo test
+        run: cargo test --verbose
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build native module
+        run: npm run build
+
+      - name: Run Node.js tests
+        run: npm test
