@@ -34,7 +34,7 @@ jobs:
           cp target/release/nanalogue_sim_bam dist/nanalogue_sim_bam-macos
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.os }}
           path: dist/*
@@ -146,7 +146,7 @@ jobs:
             '
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ steps.compat.outputs.tag }}
           path: ${{ github.workspace }}/dist/*

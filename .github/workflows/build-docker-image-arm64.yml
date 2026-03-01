@@ -38,7 +38,7 @@ jobs:
           docker save nanalogue:latest | gzip > dist/nanalogue-docker-image-arm64.tar.gz
 
       - name: Upload Docker image artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: docker-image-arm64
           path: dist/nanalogue-docker-image-arm64.tar.gz
