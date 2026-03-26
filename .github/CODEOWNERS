@@ -1,0 +1,12 @@
+# Security-sensitive files require explicit maintainer approval.
+# Requires "Require review from Code Owners" enabled in branch protection.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Install script - runs on user machines via curl|sh
+install.sh @DNAReplicationLab/maintainers
+
+# CI/CD workflows - control build/release pipeline
+.github/workflows/ @DNAReplicationLab/maintainers
+
+# This file itself
+.github/CODEOWNERS @DNAReplicationLab/maintainers
