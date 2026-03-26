@@ -3,10 +3,10 @@
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Install script - runs on user machines via curl|sh
-install.sh @DNAReplicationLab/maintainers
+install.sh @DNAReplicationLab @sathish-t
 
 # CI/CD workflows - control build/release pipeline
-.github/workflows/ @DNAReplicationLab/maintainers
+.github/workflows/ @DNAReplicationLab @sathish-t
 
 # This file itself
-.github/CODEOWNERS @DNAReplicationLab/maintainers
+.github/CODEOWNERS @DNAReplicationLab @sathish-t
