@@ -7,8 +7,6 @@ name: Cargo Build & Test (Non-locked packages)
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_call:  # Allow calling from release.yml
 
 env:
