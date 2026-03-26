@@ -5,6 +5,10 @@
 name: Guard install.sh
 
 on:
+  push:
+    paths:
+      - 'install.sh'
+      - '.github/install-sh.sha256'
   pull_request:
     paths:
       - 'install.sh'
@@ -16,6 +20,7 @@ permissions:
 jobs:
   require-acknowledgement:
     name: Require explicit acknowledgement
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
