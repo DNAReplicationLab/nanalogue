@@ -1062,7 +1062,7 @@ genomic coordinates are far smaller than ~2^63"
             let mut read = self.set_mod_data_restricted(
                 record,
                 mod_options.mod_prob_filter(),
-                |x| w == 0 || (w..l.checked_sub(w).unwrap_or_default()).contains(x),
+                |x| w == 0 || (w..l.saturating_sub(w)).contains(x),
                 |_, &s, &t| {
                     mod_options.tag().is_none_or(|x| x == t)
                         && mod_options.mod_strand().is_none_or(|v| s == char::from(v))
