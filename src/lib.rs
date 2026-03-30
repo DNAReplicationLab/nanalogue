@@ -76,14 +76,12 @@
 //! BAM record data, processes the DNA/RNA modification information amongst other pieces of information,
 //! and exposes them for downstream usage.
 
+use crate::fibertools_types::{
+    BaseMod, BaseMods, FiberAnnotation, Ranges, convert_seq_uppercase, get_u8_tag,
+};
 use bedrs::{Bed3, Coordinates as _};
 use bio::alphabets::dna::revcomp;
 use bio_types::sequence::SequenceRead as _;
-use fibertools_rs::utils::{
-    bamannotations::{FiberAnnotation, Ranges},
-    basemods::{BaseMod, BaseMods},
-    bio_io::{convert_seq_uppercase, get_u8_tag},
-};
 use rand::random;
 use regex::Regex;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
@@ -99,6 +97,7 @@ pub mod analysis;
 pub mod cli;
 pub mod commands;
 pub mod error;
+pub mod fibertools_types;
 pub mod file_utils;
 pub mod read_utils;
 pub mod simulate_mod_bam;
@@ -206,8 +205,7 @@ pub fn init_ssl_certificates() {
 /// ```
 /// use nanalogue_core::{Error, nanalogue_bam_reader, nanalogue_mm_ml_parser};
 /// use rust_htslib::bam::Read;
-/// use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
-/// use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
+/// use nanalogue_core::fibertools_types::{BaseMods, BaseMod, FiberAnnotation, Ranges};
 /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
 /// let mut count = 0;
 /// for record in reader.records(){
