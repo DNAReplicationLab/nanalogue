@@ -1294,8 +1294,7 @@ where
                 writeln!(
                     output_string,
                     "\t\"reference_end\": {},",
-                    w.checked_add(x)
-                        .expect("numeric overflow in calculating reference_end")
+                    w.checked_add(x).ok_or(fmt::Error)?
                 )?;
                 writeln!(output_string, "\t\"alignment_length\": {x},")?;
             }
@@ -1987,6 +1986,12 @@ fn reconstruct_base_mods(
 ) -> Result<BaseMods, Error> {
     let mut base_mods = Vec::new();
 
+    // Validate seq_len fits in i64 before entering any loop, to prevent
+    // downstream arithmetic on coordinates that silently exceed i64::MAX.
+    let seq_len_i64: i64 = seq_len
+        .try_into()
+        .map_err(|_err| Error::InvalidSeqLength(String::from("seq_len exceeds i64::MAX")))?;
+
     for entry in mod_table {
         let annotations = {
             let mut annotations = Vec::<FiberAnnotation>::with_capacity(entry.data.len());
@@ -1994,7 +1999,7 @@ fn reconstruct_base_mods(
 
             #[expect(
                 clippy::arithmetic_side_effects,
-                reason = "overflow errors not possible as genomic coordinates << 2^64"
+                reason = "overflow errors not possible: seq_len validated to fit i64 above, and genomic coordinates << 2^63"
             )]
             for &(start, ref_start, qual) in &entry.data {
                 // Check that sequence coordinates are in range [prev_start + 1, seq_len)
@@ -2016,9 +2021,14 @@ ascending needed even if reversed read)!",
                     }
                 };
                 let start_i64 = i64::try_from(start)?;
+                let end_i64 = start_i64.checked_add(1).ok_or_else(|| {
+                    Error::InvalidModCoords(String::from(
+                        "start coordinate overflow when computing annotation end",
+                    ))
+                })?;
                 annotations.push(FiberAnnotation {
                     start: start_i64,
-                    end: start_i64 + 1,
+                    end: end_i64,
                     length: 1,
                     qual,
                     reference_start: ref_start_after_check,
@@ -2030,7 +2040,7 @@ ascending needed even if reversed read)!",
             annotations
         };
 
-        let ranges = Ranges::from_annotations(annotations, seq_len.try_into()?, is_reverse);
+        let ranges = Ranges::from_annotations(annotations, seq_len_i64, is_reverse);
 
         let strand = if entry.is_strand_plus { '+' } else { '-' };
 
