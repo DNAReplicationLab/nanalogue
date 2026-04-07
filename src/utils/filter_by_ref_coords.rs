@@ -1,8 +1,8 @@
 //! `FilterByRefCoords` trait for filtering by coordinates on the reference genome
 //! Provides interface for coordinate-based filtering operations
 
+use crate::fibertools_types::Ranges;
 use crate::{Error, Intersects as _, OrdPair};
-use fibertools_rs::utils::bamannotations::Ranges;
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, cmp::max, fmt};
 
@@ -169,7 +169,7 @@ impl FilterByRefCoords for Ranges {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fibertools_rs::utils::bamannotations::FiberAnnotation;
+    use crate::fibertools_types::FiberAnnotation;
 
     #[test]
     fn direct_ranges_filter_by_ref_pos() {

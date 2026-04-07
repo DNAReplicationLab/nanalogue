@@ -46,10 +46,10 @@ where
 {
     // 1. Display contigs
     writeln!(handle, "contigs_and_lengths:")?;
+    let target_names = header.target_names();
     for tid in 0..header.target_count() {
         let name = std::str::from_utf8(
-            header
-                .target_names()
+            target_names
                 .get(tid as usize)
                 .ok_or_else(|| Error::InvalidSeqLength(format!("tid {tid} out of bounds")))?,
         )?;

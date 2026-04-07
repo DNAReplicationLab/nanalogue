@@ -2,6 +2,7 @@
 //! and the mod information in the BAM file using a parser implemented in
 //! another module.
 
+use crate::fibertools_types::{BaseMod, BaseMods, FiberAnnotation, Ranges};
 use crate::{
     AllowedAGCTN, Contains as _, Error, F32Bw0and1, FilterByRefCoords, InputModOptions,
     InputRegionOptions, InputWindowing, ModChar, ReadState, ThresholdState, nanalogue_mm_ml_parser,
@@ -10,10 +11,6 @@ use bedrs::prelude::{Intersect as _, StrandedBed3};
 use bedrs::{Bed3, Coordinates as _, Strand};
 use bio_types::genome::AbstractInterval as _;
 use derive_builder::Builder;
-use fibertools_rs::utils::{
-    bamannotations::{FiberAnnotation, Ranges},
-    basemods::{BaseMod, BaseMods},
-};
 use polars::{df, prelude::DataFrame};
 use rust_htslib::{bam::ext::BamRecordExtensions as _, bam::record::Record};
 use serde::{Deserialize, Serialize};

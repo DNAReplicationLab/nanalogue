@@ -39,6 +39,13 @@ fn main() {
     // call the run function and get the result
     match commands::run(cli, handle) {
         Ok(()) => {}
+        // Broken pipe is normal when piping to tools like `head`;
+        // exit silently with the conventional SIGPIPE exit code.
+        Err(nanalogue_core::Error::InputOutputError(e))
+            if e.kind() == io::ErrorKind::BrokenPipe =>
+        {
+            std::process::exit(141);
+        }
         Err(e) => {
             eprintln!("Error during execution: {e}");
             std::process::exit(1);
