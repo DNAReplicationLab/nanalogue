@@ -1,18 +1,15 @@
 //! # Vendored types from fibertools-rs
 //!
-//! This module contains data structures and helper functions originally from
-//! [fibertools-rs](https://github.com/fiberseq/fibertools-rs) (v0.8.2),
-//! licensed under the MIT license. We vendor only the small subset of types
+//! This module contains data structures and helper functions adapted from the
+//! published crate [`fibertools-rs` v0.8.2](https://crates.io/crates/fibertools-rs).
+//! The published crate metadata declares the MIT license. We vendor only the
+//! small subset of types
 //! we use (`FiberAnnotation`, `FiberAnnotations`/`Ranges`, `BaseMod`,
 //! `BaseMods`, `convert_seq_uppercase`, `get_u8_tag`) so that our crate
-//! avoids compiling the full fibertools-rs dependency (whose build script
-//! generates ML model code from ONNX files).
+//! avoids compiling the full fibertools-rs dependency and its heavy build
+//! script.
 //!
-//! fibertools-rs is listed as an **optional** dependency in our `Cargo.toml`
-//! to preserve the credit/attribution link on crates.io, but it is **not**
-//! compiled during normal builds.
-//!
-//! Full credit to Mitchell R. Vollger and contributors for the original code.
+//! See `THIRD_PARTY_NOTICES.md` for the full upstream license text.
 
 use rust_htslib::bam::record::Aux;
 
@@ -294,5 +291,4 @@ mod tests {
         assert!(annotations.reference_ends().is_empty());
         assert!(annotations.reference_lengths().is_empty());
     }
-
 }

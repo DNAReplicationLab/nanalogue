@@ -13,10 +13,6 @@ keywords = ["modbam", "bam", "dna", "dna_methylation", "rna"]
 exclude = [".github/", ".gitignore"]
 
 [dependencies]
-# Listed as optional to preserve the credit/attribution link on crates.io.
-# We vendor the small subset of types we use (see src/fibertools_types.rs)
-# to avoid compiling the full crate and its heavy build script.
-fibertools-rs = { version = "0.8.2", optional = true }
 rust-htslib = "0.46.0"
 clap = { version = "4.5.57", features = ["derive", "wrap_help"] }
 csv = "1.1"

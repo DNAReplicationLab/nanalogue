@@ -170,11 +170,12 @@ pub fn init_ssl_certificates() {
     });
 }
 
-/// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods` Struct.
+/// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods` struct.
 ///
-/// We are copying and modifying code from the fibertools-rs repository
-/// (<https://github.com/fiberseq/fibertools-rs>) which is under the MIT license
-/// (please see their Cargo.toml) to create this function.
+/// Portions of this implementation are adapted from the published crate
+/// `fibertools-rs` v0.8.2 (<https://crates.io/crates/fibertools-rs>), whose
+/// published crate metadata declares the MIT license. See
+/// `THIRD_PARTY_NOTICES.md` for the full license text we rely on.
 ///
 /// # Tag Variant Support
 ///
