@@ -105,7 +105,8 @@
 //! ```
 
 use crate::{
-    AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, ModChar, OrdPair, ReadState,
+    AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, ModChar, OrdPair,
+    ReadState, complement, revcomp,
 };
 use crate::{write_bam_denovo, write_fasta};
 use derive_builder::Builder;
@@ -1120,15 +1121,12 @@ pub fn add_barcode(read_seq: &[u8], barcode: DNARestrictive, read_state: ReadSta
         | ReadState::SupplementaryFwd
         | ReadState::Unmapped => {
             // Forward/Unmapped: barcode + read_seq + reverse_complement(barcode)
-            let revcomp_bc = bio::alphabets::dna::revcomp(bc_bytes);
+            let revcomp_bc = revcomp(bc_bytes);
             [bc_bytes, read_seq, &revcomp_bc[..]].concat()
         }
         ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
             // Reverse: complement(barcode) + read_seq + reverse(barcode)
-            let comp_bc: Vec<u8> = bc_bytes
-                .iter()
-                .map(|&b| bio::alphabets::dna::complement(b))
-                .collect();
+            let comp_bc: Vec<u8> = bc_bytes.iter().map(|&b| complement(b)).collect();
             let rev_bc: Vec<u8> = bc_bytes.iter().copied().rev().collect();
             [&comp_bc[..], read_seq, &rev_bc[..]].concat()
         }
@@ -1370,7 +1368,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
                 }
                 '-' => {
                     seq = DNARestrictive::from_str(
-                        str::from_utf8(&bio::alphabets::dna::revcomp(&read_seq)).expect("no error"),
+                        str::from_utf8(&revcomp(&read_seq)).expect("no error"),
                     )
                     .expect("no error");
                     &seq

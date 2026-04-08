@@ -80,7 +80,6 @@ use crate::fibertools_types::{
     BaseMod, BaseMods, FiberAnnotation, Ranges, convert_seq_uppercase, get_u8_tag,
 };
 use bedrs::{Bed3, Coordinates as _};
-use bio::alphabets::dna::revcomp;
 use bio_types::sequence::SequenceRead as _;
 use rand::random;
 use regex::Regex;
@@ -125,7 +124,7 @@ pub use subcommands::{
 pub use utils::{
     AllowedAGCTN, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1, FilterByRefCoords,
     GenomicRegion, GetDNARestrictive, Intersects, ModChar, OrdPair, PathOrURLOrStdin, ReadState,
-    ReadStates, RestrictModCalledStrand, SeqCoordCalls, ThresholdState,
+    ReadStates, RestrictModCalledStrand, SeqCoordCalls, ThresholdState, complement, revcomp,
 };
 
 /// Static initialization guard for SSL certificate configuration.
@@ -1583,6 +1582,8 @@ mod bam_rc_record_tests {
                 &vec![50; seq_len],
             );
             record.unset_flags();
+            record.set_tid(0);
+            record.set_pos(0);
             record.set_flags(loop {
                 let random_state: ReadState = random();
                 match random_state {
@@ -1714,6 +1715,7 @@ mod bam_rc_record_tests {
             );
 
             // Set tid and position, contig chosen from a random set of two.
+            record.unset_unmapped();
             let tid = i32::from(random::<bool>());
             record.set_tid(tid);
             record.set_pos(i64::try_from(start_pos).unwrap());
