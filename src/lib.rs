@@ -76,9 +76,6 @@
 //! BAM record data, processes the DNA/RNA modification information amongst other pieces of information,
 //! and exposes them for downstream usage.
 
-use crate::fibertools_types::{
-    BaseMod, BaseMods, FiberAnnotation, Ranges, convert_seq_uppercase, get_u8_tag,
-};
 use bedrs::{Bed3, Coordinates as _};
 use bio_types::sequence::SequenceRead as _;
 use rand::random;
@@ -96,7 +93,6 @@ pub mod analysis;
 pub mod cli;
 pub mod commands;
 pub mod error;
-pub mod fibertools_types;
 pub mod file_utils;
 pub mod read_utils;
 pub mod simulate_mod_bam;
@@ -122,9 +118,10 @@ pub use subcommands::{
     find_modified_reads, peek, read_info, read_stats, reads_table, window_reads,
 };
 pub use utils::{
-    AllowedAGCTN, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1, FilterByRefCoords,
-    GenomicRegion, GetDNARestrictive, Intersects, ModChar, OrdPair, PathOrURLOrStdin, ReadState,
-    ReadStates, RestrictModCalledStrand, SeqCoordCalls, ThresholdState, complement, revcomp,
+    AllowedAGCTN, BaseMod, BaseMods, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1,
+    FiberAnnotation, FilterByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
+    OrdPair, PathOrURLOrStdin, Ranges, ReadState, ReadStates, RestrictModCalledStrand,
+    SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase, get_u8_tag, revcomp,
 };
 
 /// Static initialization guard for SSL certificate configuration.
@@ -203,9 +200,8 @@ pub fn init_ssl_certificates() {
 /// We are using an example mod BAM file which has very short reads and very few
 /// modified positions, and just examining two reads in it below.
 /// ```
-/// use nanalogue_core::{Error, nanalogue_bam_reader, nanalogue_mm_ml_parser};
+/// use nanalogue_core::{BaseMod, BaseMods, Error, FiberAnnotation, nanalogue_bam_reader, nanalogue_mm_ml_parser, Ranges};
 /// use rust_htslib::bam::Read;
-/// use nanalogue_core::fibertools_types::{BaseMods, BaseMod, FiberAnnotation, Ranges};
 /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
 /// let mut count = 0;
 /// for record in reader.records(){

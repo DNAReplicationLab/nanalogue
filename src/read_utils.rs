@@ -2,10 +2,10 @@
 //! and the mod information in the BAM file using a parser implemented in
 //! another module.
 
-use crate::fibertools_types::{BaseMod, BaseMods, FiberAnnotation, Ranges};
 use crate::{
-    AllowedAGCTN, Contains as _, Error, F32Bw0and1, FilterByRefCoords, InputModOptions,
-    InputRegionOptions, InputWindowing, ModChar, ReadState, ThresholdState, nanalogue_mm_ml_parser,
+    AllowedAGCTN, BaseMod, BaseMods, Contains as _, Error, F32Bw0and1, FiberAnnotation,
+    FilterByRefCoords, InputModOptions, InputRegionOptions, InputWindowing, ModChar, Ranges,
+    ReadState, ThresholdState, nanalogue_mm_ml_parser,
 };
 use bedrs::prelude::{Intersect as _, StrandedBed3};
 use bedrs::{Bed3, Coordinates as _, Strand};

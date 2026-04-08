@@ -3,7 +3,7 @@
 //! In this module, we window data along molecules, and then output
 //! these windows
 
-use crate::fibertools_types::BaseMod;
+use crate::BaseMod;
 use crate::{
     AlignmentInfoBuilder, CurrRead, Error, F32AbsValAtMost1, InputMods, InputWindowing, ModChar,
     OptionalTag, ReadState,

@@ -165,7 +165,7 @@ pub struct BaseMods {
 /// # Examples
 ///
 /// ```
-/// use nanalogue_core::fibertools_types::convert_seq_uppercase;
+/// use nanalogue_core::convert_seq_uppercase;
 /// let input = vec![b'a', b'c', b'g', b't', b'n', b'A', b'='];
 /// let output = convert_seq_uppercase(input);
 /// assert_eq!(output, vec![b'A', b'C', b'G', b'T', b'N', b'A', b'=']);
@@ -192,7 +192,7 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
 /// # Examples
 ///
 /// ```
-/// use nanalogue_core::fibertools_types::get_u8_tag;
+/// use nanalogue_core::get_u8_tag;
 /// use rust_htslib::bam::Record;
 /// let record = Record::new();
 /// assert_eq!(get_u8_tag(&record, b"ML"), Vec::<u8>::new());
