@@ -31,9 +31,6 @@ derive_builder = "0.20.2"
 polars = { version = "0.51", features = ["lazy"] }
 openssl-probe = "0.2"
 
-[dev-dependencies]
-indoc = "2.0.6"
-
 [lib]
 name = "nanalogue_core" 
 path = "src/lib.rs"

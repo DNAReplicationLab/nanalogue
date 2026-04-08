@@ -2352,7 +2352,6 @@ mod test_error_handling {
 mod test_serde {
     use super::*;
     use crate::nanalogue_bam_reader;
-    use indoc::indoc;
     use rust_htslib::bam::Read as _;
 
     #[test]
@@ -2368,7 +2367,7 @@ mod test_serde {
 
         let actual_json: serde_json::Value = serde_json::to_value(&curr_read)?;
 
-        let expected_json_str = indoc! {r#"
+        let expected_json_str = r#"
             {
               "alignment_type": "primary_forward",
               "alignment": {
@@ -2392,7 +2391,7 @@ mod test_serde {
               ],
               "read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
               "seq_len": 8
-            }"#};
+            }"#;
 
         let expected_json: serde_json::Value = serde_json::from_str(expected_json_str)?;
 
@@ -2432,9 +2431,9 @@ mod test_serde {
 
     #[test]
     fn blank_json_record_roundtrip() -> Result<(), Error> {
-        let json_str = indoc! {r"
+        let json_str = r"
             {
-            }"};
+            }";
 
         // Deserialize JSON to CurrRead
         let curr_read: CurrRead<AlignAndModData> = serde_json::from_str(json_str)?;
@@ -2471,7 +2470,7 @@ mod test_serde {
 
         let actual_json: serde_json::Value = serde_json::to_value(&curr_read)?;
 
-        let expected_json_str = indoc! {r#"
+        let expected_json_str = r#"
             {
               "alignment_type": "unmapped",
               "mod_table": [
@@ -2503,7 +2502,7 @@ mod test_serde {
               ],
               "read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
               "seq_len": 48
-            }"#};
+            }"#;
 
         let expected_json: serde_json::Value = serde_json::from_str(expected_json_str)?;
 

@@ -175,8 +175,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use indoc::indoc;
     use rust_htslib::bam::Read as _;
+
+    fn strip_newline_indent(s: &str) -> String {
+        s.replace("\n        ", "\n")
+    }
 
     #[test]
     fn read_stats_example_1() -> Result<(), Error> {
@@ -191,22 +194,25 @@ mod tests {
 
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
 
-        let expected_output = indoc! {"key\tvalue
-        n_primary_alignments\t3
-        n_secondary_alignments\t0
-        n_supplementary_alignments\t0
-        n_unmapped_reads\t1
-        n_reversed_reads\t1
-        align_len_mean\t29
-        align_len_max\t48
-        align_len_min\t8
-        align_len_median\t8
-        align_len_n50\t48
-        seq_len_mean\t34
-        seq_len_max\t48
-        seq_len_min\t8
-        seq_len_median\t33
-        seq_len_n50\t48\n"};
+        let expected_output = strip_newline_indent(
+            r"key	value
+        n_primary_alignments	3
+        n_secondary_alignments	0
+        n_supplementary_alignments	0
+        n_unmapped_reads	1
+        n_reversed_reads	1
+        align_len_mean	29
+        align_len_max	48
+        align_len_min	8
+        align_len_median	8
+        align_len_n50	48
+        seq_len_mean	34
+        seq_len_max	48
+        seq_len_min	8
+        seq_len_median	33
+        seq_len_n50	48
+",
+        );
 
         assert_eq!(output_str, expected_output);
         Ok(())
@@ -225,22 +231,25 @@ mod tests {
 
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
 
-        let expected_output = indoc! {"key\tvalue
-        n_primary_alignments\t6
-        n_secondary_alignments\t2
-        n_supplementary_alignments\t2
-        n_unmapped_reads\t0
-        n_reversed_reads\t3
-        align_len_mean\t12
-        align_len_max\t20
-        align_len_min\t6
-        align_len_median\t12
-        align_len_n50\t15
-        seq_len_mean\t12
-        seq_len_max\t20
-        seq_len_min\t6
-        seq_len_median\t12
-        seq_len_n50\t15\n"};
+        let expected_output = strip_newline_indent(
+            r"key	value
+        n_primary_alignments	6
+        n_secondary_alignments	2
+        n_supplementary_alignments	2
+        n_unmapped_reads	0
+        n_reversed_reads	3
+        align_len_mean	12
+        align_len_max	20
+        align_len_min	6
+        align_len_median	12
+        align_len_n50	15
+        seq_len_mean	12
+        seq_len_max	20
+        seq_len_min	6
+        seq_len_median	12
+        seq_len_n50	15
+",
+        );
 
         assert_eq!(output_str, expected_output);
         Ok(())

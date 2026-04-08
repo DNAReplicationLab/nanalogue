@@ -869,13 +869,12 @@ mod tests {
 #[cfg(test)]
 mod test_curr_read_align_and_mod_data {
     use super::*;
-    use indoc::indoc;
     use nanalogue_core::read_utils::AlignAndModData;
     use nanalogue_core::{F32Bw0and1, InputWindowing};
 
     #[test]
     fn windowed_mod_data_restricted() -> Result<(), Error> {
-        let input_json = indoc! {r#"
+        let input_json = r#"
             {
               "alignment_type": "primary_forward",
               "alignment": {
@@ -914,7 +913,7 @@ mod test_curr_read_align_and_mod_data {
               ],
               "read_id": "test_read_123",
               "seq_len": 10
-            }"#};
+            }"#;
 
         let curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
         let win_options: InputWindowing = serde_json::from_str(r#"{"win": 3, "step": 2}"#)?;

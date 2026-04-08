@@ -240,7 +240,6 @@ impl TryFrom<(String, (u64, u64))> for GenomicRegion {
 mod tests {
     use super::*;
     use bedrs::Coordinates as _;
-    use indoc::indoc;
 
     /// Tests comprehensive `GenomicRegion` parsing
     #[expect(
@@ -343,13 +342,14 @@ mod tests {
     /// Creates a sample BAM header for testing
     fn create_test_header() -> bam::HeaderView {
         bam::HeaderView::from_bytes(
-            indoc! {b"@HD\tVN:1.6\tSO:coordinate
-            @SQ\tSN:chr1\tLN:248956422
-            @SQ\tSN:chr2\tLN:242193529
-            @SQ\tSN:chrX\tLN:156040895
-            @PG\tID:test\tPN:test"
-            }
-            .as_ref(),
+            concat!(
+                "@HD\tVN:1.6\tSO:coordinate\n",
+                "@SQ\tSN:chr1\tLN:248956422\n",
+                "@SQ\tSN:chr2\tLN:242193529\n",
+                "@SQ\tSN:chrX\tLN:156040895\n",
+                "@PG\tID:test\tPN:test"
+            )
+            .as_bytes(),
         )
     }
 

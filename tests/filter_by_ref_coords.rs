@@ -1,7 +1,6 @@
 //! Integration tests for `FilterByRefCoords` functionality
 //! Tests focus on filtering reads by reference coordinates
 
-use indoc::indoc;
 use nanalogue_core::{CurrRead, FilterByRefCoords as _, read_utils::AlignAndModData};
 
 #[cfg(test)]
@@ -11,7 +10,7 @@ mod tests {
     #[test]
     fn ranges_filter_by_ref_coords_via_curr_read() {
         // Input JSON with modification data spanning reference positions 10-30
-        let input_json = indoc! {r#"
+        let input_json = r#"
         {
           "alignment_type": "primary_forward",
           "alignment": {
@@ -43,10 +42,10 @@ mod tests {
             }
           ],
           "seq_len": 8
-        }"#};
+        }"#;
 
         // Expected JSON after filtering for range 15-25
-        let expected_json = indoc! {r#"
+        let expected_json = r#"
         {
           "alignment_type": "primary_forward",
           "alignment": {
@@ -72,7 +71,7 @@ mod tests {
             }
           ],
           "seq_len": 8
-        }"#};
+        }"#;
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
@@ -86,7 +85,7 @@ mod tests {
     #[test]
     fn ranges_filter_no_overlap_1() {
         // Input JSON with modification data
-        let input_json = indoc! {r#"
+        let input_json = r#"
         {
           "alignment_type": "primary_forward",
           "alignment": {
@@ -105,10 +104,10 @@ mod tests {
             }
           ],
           "seq_len": 3
-        }"#};
+        }"#;
 
         // Expected JSON after filtering with no overlap (26-60)
-        let expected_json = indoc! {r#"
+        let expected_json = r#"
         {
           "alignment_type": "primary_forward",
           "alignment": {
@@ -124,7 +123,7 @@ mod tests {
             }
           ],
           "seq_len": 3
-        }"#};
+        }"#;
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
@@ -138,7 +137,7 @@ mod tests {
     #[test]
     fn ranges_filter_no_overlap_2() {
         // Input JSON with modification data (same as test_1)
-        let input_json = indoc! {r#"
+        let input_json = r#"
         {
           "alignment_type": "primary_forward",
           "alignment": {
@@ -157,10 +156,10 @@ mod tests {
             }
           ],
           "seq_len": 3
-        }"#};
+        }"#;
 
         // Expected JSON after filtering with no overlap (0-15)
-        let expected_json = indoc! {r#"
+        let expected_json = r#"
         {
           "alignment_type": "primary_forward",
           "alignment": {
@@ -175,7 +174,7 @@ mod tests {
             }
           ],
           "seq_len": 3
-        }"#};
+        }"#;
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
@@ -189,7 +188,7 @@ mod tests {
     #[test]
     fn ranges_filter_partial_overlap() {
         // Input JSON with modification data
-        let input_json = indoc! {r#"
+        let input_json = r#"
         {
           "alignment_type": "primary_forward",
           "alignment": {
@@ -211,10 +210,10 @@ mod tests {
             }
           ],
           "seq_len": 6
-        }"#};
+        }"#;
 
         // Expected JSON after filtering for range 20-30
-        let expected_json = indoc! {r#"
+        let expected_json = r#"
         {
           "alignment_type": "primary_forward",
           "alignment": {
@@ -232,7 +231,7 @@ mod tests {
             }
           ],
           "seq_len": 6
-        }"#};
+        }"#;
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
@@ -246,7 +245,7 @@ mod tests {
     #[test]
     fn ranges_filter_reverse_strand() {
         // Input JSON with reverse strand modification data
-        let input_json = indoc! {r#"
+        let input_json = r#"
         {
           "alignment_type": "primary_reverse",
           "alignment": {
@@ -267,10 +266,10 @@ mod tests {
             }
           ],
           "seq_len": 5
-        }"#};
+        }"#;
 
         // Expected JSON after filtering for range 20-30
-        let expected_json = indoc! {r#"
+        let expected_json = r#"
         {
           "alignment_type": "primary_reverse",
           "alignment": {
@@ -288,7 +287,7 @@ mod tests {
             }
           ],
           "seq_len": 5
-        }"#};
+        }"#;
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
