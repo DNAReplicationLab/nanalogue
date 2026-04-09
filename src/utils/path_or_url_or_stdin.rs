@@ -148,9 +148,9 @@ impl From<PathOrURLOrStdin> for InputBam {
 )]
 mod tests {
     use super::*;
+    use crate::uuid;
     use std::fs::File;
     use std::io::Write as _;
-    use uuid::Uuid;
 
     #[test]
     fn from_str_parses_stdin() {
@@ -192,7 +192,7 @@ mod tests {
     fn from_str_parses_existing_path() {
         // Create a temporary file with a random UUID name in platform temp directory
         let temp_dir = std::env::temp_dir();
-        let temp_filename = temp_dir.join(format!("nanalogue_test_{}.txt", Uuid::new_v4()));
+        let temp_filename = temp_dir.join(format!("nanalogue_test_{}.txt", uuid::v4_random()));
         {
             let mut file = File::create(&temp_filename).expect("should create temp file");
             file.write_all(b"test content")
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn from_str_accepts_nonexistent_path() {
         // Use a random UUID to ensure the path doesn't exist
-        let nonexistent_path = format!("/nonexistent/path/to/{}.txt", Uuid::new_v4());
+        let nonexistent_path = format!("/nonexistent/path/to/{}.txt", uuid::v4_random());
         let result =
             PathOrURLOrStdin::from_str(&nonexistent_path).expect("should accept nonexistent path");
         assert!(

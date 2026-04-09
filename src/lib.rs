@@ -117,6 +117,7 @@ pub use simulate_mod_bam::SimulationConfig;
 pub use subcommands::{
     find_modified_reads, peek, read_info, read_stats, reads_table, window_reads,
 };
+pub use utils::uuid;
 pub use utils::{
     AllowedAGCTN, BaseMod, BaseMods, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1,
     FiberAnnotation, FilterByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,

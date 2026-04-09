@@ -13,8 +13,7 @@
 //! shown below are optional; please read the comments following it.
 //!
 //! ```
-//! use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam::run};
-//! use uuid::Uuid;
+//! use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam::run, uuid};
 //!
 //! let config_json = r#"{
 //!   "contigs": {
@@ -94,8 +93,8 @@
 //! // Paths used here must not exist already as these are files created anew.
 //! let config: SimulationConfig = serde_json::from_str(&config_json)?;
 //! let temp_dir = std::env::temp_dir();
-//! let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
-//! let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
+//! let bam_path = temp_dir.join(format!("{}.bam", uuid::v4_random()));
+//! let fasta_path = temp_dir.join(format!("{}.fa", uuid::v4_random()));
 //! let bai_path = bam_path.with_extension("bam.bai");
 //! run(config, &bam_path, &fasta_path)?;
 //! std::fs::remove_file(&bam_path)?;
@@ -106,7 +105,7 @@
 
 use crate::{
     AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, ModChar, OrdPair,
-    ReadState, complement, revcomp,
+    ReadState, complement, revcomp, uuid,
 };
 use crate::{write_bam_denovo, write_fasta};
 use derive_builder::Builder;
@@ -123,7 +122,6 @@ use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::RangeInclusive;
 use std::path::Path;
 use std::str::FromStr as _;
-use uuid::Uuid;
 
 /// We need a shorthand for this for a one-liner we use
 /// in a macro provided by `derive_builder`.
@@ -1384,7 +1382,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             let uuid = {
                 let mut bytes = [0u8; 16];
                 rng.fill(&mut bytes);
-                uuid::Builder::from_random_bytes(bytes).into_uuid()
+                uuid::v4_from_bytes(bytes)
             };
             let qname = format!("{read_group}.{uuid}").into_bytes();
             record.unset_flags();
@@ -1421,8 +1419,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 /// # Example
 ///
 /// ```
-/// use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam::run};
-/// use uuid::Uuid;
+/// use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam::run, uuid};
 ///
 /// let config_json = r#"{
 ///   "contigs": {
@@ -1449,8 +1446,8 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 ///
 /// let config: SimulationConfig = serde_json::from_str(&config_json)?;
 /// let temp_dir = std::env::temp_dir();
-/// let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
-/// let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
+/// let bam_path = temp_dir.join(format!("{}.bam", uuid::v4_random()));
+/// let fasta_path = temp_dir.join(format!("{}.fa", uuid::v4_random()));
 /// let bai_path = bam_path.with_extension("bam.bai");
 /// run(config, &bam_path, &fasta_path)?;
 /// std::fs::remove_file(&bam_path)?;
@@ -1543,8 +1540,8 @@ impl TempBamSimulation {
     /// Returns an error if the simulation run fails
     pub fn new(config: SimulationConfig) -> Result<Self, Error> {
         let temp_dir = std::env::temp_dir();
-        let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
-        let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
+        let bam_path = temp_dir.join(format!("{}.bam", uuid::v4_random()));
+        let fasta_path = temp_dir.join(format!("{}.fa", uuid::v4_random()));
 
         run(config, &bam_path, &fasta_path)?;
 
@@ -1678,8 +1675,9 @@ mod read_generation_no_mods_tests {
 
             // check read name, must be "ph.UUID"
             assert_eq!(read.qname().get(0..3).unwrap(), *b"ph.");
-            let _: Uuid =
-                Uuid::parse_str(str::from_utf8(read.qname().get(3..).unwrap()).unwrap()).unwrap();
+            assert!(uuid::is_valid_v4(
+                str::from_utf8(read.qname().get(3..).unwrap()).unwrap()
+            ));
         }
     }
 
@@ -1701,8 +1699,8 @@ mod read_generation_no_mods_tests {
 
         // create files with random names and check for existence
         let temp_dir = std::env::temp_dir();
-        let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
-        let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
+        let bam_path = temp_dir.join(format!("{}.bam", uuid::v4_random()));
+        let fasta_path = temp_dir.join(format!("{}.fa", uuid::v4_random()));
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
         run(config, &bam_path, &fasta_path).unwrap();
@@ -1823,8 +1821,8 @@ mod read_generation_no_mods_tests {
     fn run_empty_reads_error() {
         let invalid_json = r#"{ "reads": [] }"#; // Empty reads array
         let temp_dir = std::env::temp_dir();
-        let bam_path = temp_dir.join(format!("{}.bam", Uuid::new_v4()));
-        let fasta_path = temp_dir.join(format!("{}.fa", Uuid::new_v4()));
+        let bam_path = temp_dir.join(format!("{}.bam", uuid::v4_random()));
+        let fasta_path = temp_dir.join(format!("{}.fa", uuid::v4_random()));
 
         let config: SimulationConfig = serde_json::from_str(invalid_json).unwrap();
         let result = run(config, &bam_path, &fasta_path);
@@ -1904,7 +1902,7 @@ mod read_generation_no_mods_tests {
 
                 // Verify the second part is a valid UUID
                 assert!(
-                    Uuid::parse_str(uuid_part).is_ok(),
+                    uuid::is_valid_v4(uuid_part),
                     "Read name should contain a valid UUID after the dot"
                 );
 

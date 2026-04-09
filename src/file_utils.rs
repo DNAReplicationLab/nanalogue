@@ -193,17 +193,16 @@ pub fn nanalogue_indexed_bam_reader_from_url(
 /// # Examples
 ///
 /// ```
-/// use nanalogue_core::{DNARestrictive, Error, file_utils::write_fasta};
+/// use nanalogue_core::{DNARestrictive, Error, file_utils::write_fasta, uuid};
 /// use std::fs;
 /// use std::str::FromStr;
-/// use uuid::Uuid;
 ///
 /// let contigs = vec![
 ///     ("seq1".to_string(), DNARestrictive::from_str("ACGTACGT").expect("no error")),
 ///     ("seq2".to_string(), DNARestrictive::from_str("TGCATGCA").expect("no error")),
 /// ];
 ///
-/// let temp_path = std::env::temp_dir().join(format!("{}.fa", Uuid::new_v4()));
+/// let temp_path = std::env::temp_dir().join(format!("{}.fa", uuid::v4_random()));
 /// write_fasta(contigs, &temp_path)?;
 ///
 /// let content = fs::read_to_string(&temp_path)?;
@@ -247,17 +246,20 @@ where
 /// # Examples
 ///
 /// ```
-/// use nanalogue_core::{Error, file_utils::{write_bam_denovo, nanalogue_bam_reader}};
+/// use nanalogue_core::{
+///     Error,
+///     file_utils::{nanalogue_bam_reader, write_bam_denovo},
+///     uuid,
+/// };
 /// use rust_htslib::bam;
 /// use rust_htslib::bam::Read;
-/// use uuid::Uuid;
 ///
 /// let contigs = vec![("chr1".to_string(), 1000)];
 /// let read_groups = vec!["rg1".to_string()];
 /// let comments = vec!["test comment".to_string()];
 /// let reads: Vec<bam::Record> = vec![];
 ///
-/// let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+/// let temp_path = std::env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
 /// write_bam_denovo(reads, contigs, read_groups, comments, &temp_path)?;
 ///
 /// // Verify the file was created and can be read
@@ -337,10 +339,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DNARestrictive;
+    use crate::{DNARestrictive, uuid};
     use rust_htslib::bam::Read as _;
     use std::str::FromStr as _;
-    use uuid::Uuid;
 
     /// Tests writing to a fasta file and check its contents
     #[test]
@@ -356,7 +357,7 @@ mod tests {
             ),
         ];
 
-        let temp_path = std::env::temp_dir().join(format!("{}.fa", Uuid::new_v4()));
+        let temp_path = std::env::temp_dir().join(format!("{}.fa", uuid::v4_random()));
         write_fasta(contigs, &temp_path).expect("no error");
 
         let content = std::fs::read_to_string(&temp_path).expect("no error");
@@ -451,7 +452,7 @@ mod tests {
         let comments = vec!["test comment".to_string()];
         let reads: Vec<bam::Record> = vec![];
 
-        let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+        let temp_path = std::env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
         match write_bam_denovo(reads, contigs, read_groups, comments, &temp_path) {
             Ok(()) => (),
             Err(e) => panic!("Failed to write BAM file: {e:?}"),
@@ -487,7 +488,7 @@ mod tests {
 
         let reads = vec![read1, read2]; // Unsorted: tid 1 before tid 0
 
-        let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+        let temp_path = std::env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
         let result = write_bam_denovo(reads, contigs, read_groups, comments, &temp_path);
 
         let err = result.unwrap_err();
@@ -522,7 +523,7 @@ mod tests {
 
         let reads = vec![read1, read2];
 
-        let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+        let temp_path = std::env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
         match write_bam_denovo(reads, contigs, read_groups, comments, &temp_path) {
             Ok(()) => (),
             Err(e) => panic!("Failed to write BAM file: {e:?}"),
@@ -552,7 +553,7 @@ mod tests {
         ];
         let reads: Vec<bam::Record> = vec![];
 
-        let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+        let temp_path = std::env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
         match write_bam_denovo(reads, contigs, read_groups, comments, &temp_path) {
             Ok(()) => (),
             Err(e) => panic!("Failed to write BAM file: {e:?}"),
@@ -584,7 +585,7 @@ mod tests {
 
         let reads = vec![read];
 
-        let temp_path = std::env::temp_dir().join(format!("{}.bam", Uuid::new_v4()));
+        let temp_path = std::env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
         match write_bam_denovo(reads, contigs, read_groups, comments, &temp_path) {
             Ok(()) => (),
             Err(e) => panic!("Failed to write BAM file: {e:?}"),

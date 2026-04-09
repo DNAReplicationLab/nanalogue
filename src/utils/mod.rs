@@ -19,6 +19,7 @@ pub mod read_state;
 pub mod read_states;
 pub mod restrict_mod_called_strand;
 pub mod threshold_state;
+pub mod uuid;
 
 // Re-export public utility types and functions to expose the utils API
 pub use allowed_agctn::*;
