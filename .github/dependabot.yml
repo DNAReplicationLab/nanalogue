@@ -9,6 +9,8 @@ updates:
     labels:
       - "dependencies"
       - "rust"
+    cooldown:
+      default-days: 7
 
   # Monitor GitHub Actions
   - package-ecosystem: "github-actions"
@@ -19,3 +21,5 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    cooldown:
+      default-days: 7

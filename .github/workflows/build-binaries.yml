@@ -8,6 +8,8 @@ jobs:
   build_macos_binaries:
     name: Build binaries on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       matrix:
         os: [macos-latest, macos-15-intel]
@@ -15,6 +17,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
         run: |
@@ -42,6 +46,8 @@ jobs:
   build_linux_binaries:
     name: Build binaries on ${{ matrix.container }}
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -67,6 +73,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Determine compatibility tag
         id: compat
@@ -92,11 +100,12 @@ jobs:
             exit 1
           fi
 
-          echo "tag=${BASE_TAG}_${ARCH}" >> $GITHUB_OUTPUT
+          echo "COMPAT_TAG=${BASE_TAG}_${ARCH}" >> $GITHUB_ENV
 
       - name: Build binaries in container
         run: |
           docker run --rm \
+            -e COMPAT_TAG \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
             ${{ matrix.container }} \
@@ -141,8 +150,9 @@ jobs:
 
               # Package binaries
               mkdir -p dist
-              cp target/release/nanalogue dist/nanalogue-${{ steps.compat.outputs.tag }}
-              cp target/release/nanalogue_sim_bam dist/nanalogue_sim_bam-${{ steps.compat.outputs.tag }}
+              tag="$COMPAT_TAG"
+              cp target/release/nanalogue "dist/nanalogue-${tag}"
+              cp target/release/nanalogue_sim_bam "dist/nanalogue_sim_bam-${tag}"
             '
 
       - name: Upload binaries

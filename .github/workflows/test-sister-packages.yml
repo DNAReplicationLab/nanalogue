@@ -4,6 +4,9 @@
 
 name: Test Sister Packages
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: ["main"]
@@ -19,22 +22,30 @@ jobs:
     steps:
       - name: Determine nanalogue repo and commit SHA
         id: source
+        env:
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_REPO: ${{ github.event.pull_request.head.repo.clone_url }}
+          GIT_SHA: ${{ github.sha }}
+          GIT_REPO: https://github.com/${{ github.repository }}.git
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-            echo "repo=${{ github.event.pull_request.head.repo.clone_url }}" >> "$GITHUB_OUTPUT"
+            echo "sha=$PR_SHA" >> "$GITHUB_OUTPUT"
+            echo "repo=$PR_REPO" >> "$GITHUB_OUTPUT"
           else
-            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-            echo "repo=https://github.com/${{ github.repository }}.git" >> "$GITHUB_OUTPUT"
+            echo "sha=$GIT_SHA" >> "$GITHUB_OUTPUT"
+            echo "repo=$GIT_REPO" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout pynanalogue
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: DNAReplicationLab/pynanalogue
+          persist-credentials: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        run: |
+          rustup update stable
+          rustup default stable
 
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -42,9 +53,12 @@ jobs:
           python-version: "3.12"
 
       - name: Patch Cargo.toml to use nanalogue from this commit
+        env:
+          SOURCE_REPO: ${{ steps.source.outputs.repo }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           printf '\n[patch.crates-io]\nnanalogue = { git = "%s", rev = "%s" }\n' \
-            "${{ steps.source.outputs.repo }}" "${{ steps.source.outputs.sha }}" >> Cargo.toml
+            "$SOURCE_REPO" "$SOURCE_SHA" >> Cargo.toml
 
       - name: Remove Cargo.lock to re-resolve dependencies
         run: rm -f Cargo.lock
@@ -75,22 +89,30 @@ jobs:
     steps:
       - name: Determine nanalogue repo and commit SHA
         id: source
+        env:
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_REPO: ${{ github.event.pull_request.head.repo.clone_url }}
+          GIT_SHA: ${{ github.sha }}
+          GIT_REPO: https://github.com/${{ github.repository }}.git
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-            echo "repo=${{ github.event.pull_request.head.repo.clone_url }}" >> "$GITHUB_OUTPUT"
+            echo "sha=$PR_SHA" >> "$GITHUB_OUTPUT"
+            echo "repo=$PR_REPO" >> "$GITHUB_OUTPUT"
           else
-            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-            echo "repo=https://github.com/${{ github.repository }}.git" >> "$GITHUB_OUTPUT"
+            echo "sha=$GIT_SHA" >> "$GITHUB_OUTPUT"
+            echo "repo=$GIT_REPO" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout nanalogue-node
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: sathish-t/nanalogue-node
+          persist-credentials: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        run: |
+          rustup update stable
+          rustup default stable
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -98,9 +120,12 @@ jobs:
           node-version: "22"
 
       - name: Patch Cargo.toml to use nanalogue from this commit
+        env:
+          SOURCE_REPO: ${{ steps.source.outputs.repo }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           printf '\n[patch.crates-io]\nnanalogue = { git = "%s", rev = "%s" }\n' \
-            "${{ steps.source.outputs.repo }}" "${{ steps.source.outputs.sha }}" >> Cargo.toml
+            "$SOURCE_REPO" "$SOURCE_SHA" >> Cargo.toml
 
       - name: Remove Cargo.lock to re-resolve dependencies
         run: rm -f Cargo.lock
