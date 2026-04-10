@@ -28,6 +28,9 @@ jobs:
   push-docker-images:
     name: Push multi-arch Docker images to Docker Hub
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment: docker-hub
     steps:
       - name: Prepare version tag
         id: version

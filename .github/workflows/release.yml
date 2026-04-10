@@ -1,6 +1,9 @@
 # Orchestrator workflow that builds all artifacts and uploads them to a GitHub release
 name: Release
 
+permissions:
+  contents: read
+
 on:
   release:
     types: [published]
@@ -12,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Install yq
         run: sudo snap install yq
       - name: Check versions match tag
@@ -90,16 +95,17 @@ jobs:
 
       - name: Upload artifacts to release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
-        with:
-          files: release-zips/*.zip
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$TAG" release-zips/*.zip --clobber
 
   test-install-script:
     name: Test install script
     needs: [upload-to-release]
     if: github.event_name == 'release'
     uses: ./.github/workflows/test-install-script.yml
-    secrets: inherit
 
   push-docker-images:
     name: Push Docker images
@@ -109,7 +115,6 @@ jobs:
     with:
       tag: ${{ github.event.release.tag_name }}
       dry_run: false
-    secrets: inherit
 
   publish-crates:
     name: Publish to crates.io
@@ -118,4 +123,3 @@ jobs:
     uses: ./.github/workflows/publish-crates.yml
     with:
       dry_run: false
-    secrets: inherit
