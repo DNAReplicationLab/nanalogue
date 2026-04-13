@@ -4,7 +4,7 @@
 
 use crate::{
     AllowedAGCTN, BaseMod, BaseMods, Contains as _, Error, F32Bw0and1, FiberAnnotation,
-    FilterByRefCoords, InputModOptions, InputRegionOptions, InputWindowing, ModChar, Ranges,
+    FilterModsByRefCoords, InputModOptions, InputRegionOptions, InputWindowing, ModChar, Ranges,
     ReadState, ThresholdState, nanalogue_mm_ml_parser,
 };
 use bedrs::prelude::{Intersect as _, StrandedBed3};
@@ -682,6 +682,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     }
     /// Returns read sequence overlapping with a genomic region
     ///
+    /// Insertions are included as ordinary bases and deletions are represented as `.`;
+    /// Sequence bytes returned from the BAM record remain in their usual uppercase form.
+    ///
     /// # Errors
     /// If getting sequence coordinates from reference coordinates fails, see
     /// [`CurrRead::seq_and_qual_on_ref_coords`]
@@ -1068,13 +1071,13 @@ genomic coordinates are far smaller than ~2^63"
             )?;
             if let Some(v) = interval {
                 match v.start.cmp(&v.end) {
-                    Ordering::Less => read.filter_by_ref_pos(
+                    Ordering::Less => read.filter_mods_by_ref_pos(
                         i64::try_from(v.start)
                             .expect("no error as genomic coordinates far less than ~2^63"),
                         i64::try_from(v.end)
                             .expect("no error as genomic coordinates far less than ~2^63"),
                     )?,
-                    Ordering::Equal => read.filter_by_ref_pos(i64::MAX - 1, i64::MAX)?,
+                    Ordering::Equal => read.filter_mods_by_ref_pos(i64::MAX - 1, i64::MAX)?,
                     Ordering::Greater => {
                         unreachable!("`bedrs` should not allow malformed intervals!")
                     }
@@ -1403,12 +1406,12 @@ impl TryFrom<Rc<Record>> for CurrRead<AlignAndModData> {
 
 /// Implements filter by reference coordinates for our `CurrRead`.
 /// This only filters modification data.
-impl FilterByRefCoords for CurrRead<AlignAndModData> {
+impl FilterModsByRefCoords for CurrRead<AlignAndModData> {
     /// filters modification data by reference position i.e. all pos such that
     /// start <= pos < end are retained. does not use contig in filtering.
-    fn filter_by_ref_pos(&mut self, start: i64, end: i64) -> Result<(), Error> {
+    fn filter_mods_by_ref_pos(&mut self, start: i64, end: i64) -> Result<(), Error> {
         for k in &mut self.mods.0.base_mods {
-            k.ranges.filter_by_ref_pos(start, end)?;
+            k.ranges.filter_mods_by_ref_pos(start, end)?;
         }
         Ok(())
     }

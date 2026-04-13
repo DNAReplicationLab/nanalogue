@@ -120,7 +120,7 @@ pub use subcommands::{
 pub use utils::uuid;
 pub use utils::{
     AllowedAGCTN, BaseMod, BaseMods, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1,
-    FiberAnnotation, FilterByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
+    FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
     OrdPair, PathOrURLOrStdin, Ranges, ReadState, ReadStates, RestrictModCalledStrand,
     SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase, get_u8_tag, revcomp,
 };

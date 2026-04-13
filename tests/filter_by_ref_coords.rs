@@ -1,7 +1,7 @@
-//! Integration tests for `FilterByRefCoords` functionality
+//! Integration tests for `FilterModsByRefCoords` functionality
 //! Tests focus on filtering reads by reference coordinates
 
-use nanalogue_core::{CurrRead, FilterByRefCoords as _, read_utils::AlignAndModData};
+use nanalogue_core::{CurrRead, FilterModsByRefCoords as _, read_utils::AlignAndModData};
 
 #[cfg(test)]
 mod tests {
@@ -75,7 +75,7 @@ mod tests {
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
-        curr_read.filter_by_ref_pos(15, 25).unwrap();
+        curr_read.filter_mods_by_ref_pos(15, 25).unwrap();
 
         let expected_curr_read: CurrRead<AlignAndModData> =
             serde_json::from_str(expected_json).unwrap();
@@ -127,7 +127,7 @@ mod tests {
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
-        curr_read.filter_by_ref_pos(26, 60).unwrap();
+        curr_read.filter_mods_by_ref_pos(26, 60).unwrap();
 
         let expected_curr_read: CurrRead<AlignAndModData> =
             serde_json::from_str(expected_json).unwrap();
@@ -178,7 +178,7 @@ mod tests {
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
-        curr_read.filter_by_ref_pos(0, 15).unwrap();
+        curr_read.filter_mods_by_ref_pos(0, 15).unwrap();
 
         let expected_curr_read: CurrRead<AlignAndModData> =
             serde_json::from_str(expected_json).unwrap();
@@ -235,7 +235,7 @@ mod tests {
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
-        curr_read.filter_by_ref_pos(20, 30).unwrap();
+        curr_read.filter_mods_by_ref_pos(20, 30).unwrap();
 
         let expected_curr_read: CurrRead<AlignAndModData> =
             serde_json::from_str(expected_json).unwrap();
@@ -291,7 +291,7 @@ mod tests {
 
         // Deserialize input, apply filter, and compare with expected
         let mut curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json).unwrap();
-        curr_read.filter_by_ref_pos(20, 30).unwrap();
+        curr_read.filter_mods_by_ref_pos(20, 30).unwrap();
 
         let expected_curr_read: CurrRead<AlignAndModData> =
             serde_json::from_str(expected_json).unwrap();

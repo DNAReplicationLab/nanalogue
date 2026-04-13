@@ -8,8 +8,9 @@ permissions:
   contents: read
 
 on:
-  push:
-    branches: ["main"]
+  schedule:
+    - cron: '0 6 */3 * *'
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always

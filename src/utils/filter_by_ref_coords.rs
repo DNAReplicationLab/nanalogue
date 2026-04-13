@@ -1,4 +1,4 @@
-//! `FilterByRefCoords` trait for filtering by coordinates on the reference genome
+//! `FilterModsByRefCoords` trait for filtering by coordinates on the reference genome
 //! Provides interface for coordinate-based filtering operations
 
 use crate::{Error, Intersects as _, OrdPair, Ranges};
@@ -96,13 +96,13 @@ impl PartialOrd for WindowState {
 }
 
 /// Implements filter by coordinates on the reference genome.
-pub trait FilterByRefCoords {
+pub trait FilterModsByRefCoords {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
     ///
     /// # Errors
     /// Up to the user to set errors accordingly
-    fn filter_by_ref_pos(&mut self, _: i64, _: i64) -> Result<(), Error> {
+    fn filter_mods_by_ref_pos(&mut self, _: i64, _: i64) -> Result<(), Error> {
         unimplemented!()
     }
 }
@@ -111,10 +111,10 @@ pub trait FilterByRefCoords {
 /// struct that contains our modification information.
 /// NOTE: Ranges does not contain contig information, so we cannot
 /// filter by that here.
-impl FilterByRefCoords for Ranges {
+impl FilterModsByRefCoords for Ranges {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
-    fn filter_by_ref_pos(&mut self, start: i64, end: i64) -> Result<(), Error> {
+    fn filter_mods_by_ref_pos(&mut self, start: i64, end: i64) -> Result<(), Error> {
         let genomic_interval = format!("{start}-{end}");
         let interval = OrdPair::<u64>::from_interval(&genomic_interval)?;
 
@@ -171,7 +171,7 @@ mod tests {
     use crate::FiberAnnotation;
 
     #[test]
-    fn direct_ranges_filter_by_ref_pos() {
+    fn direct_ranges_filter_mods_by_ref_pos() {
         // Create a Ranges object with multiple ranges
         // All vectors have the same length as required
         let mut ranges = Ranges {
@@ -223,7 +223,7 @@ mod tests {
         };
 
         // Filter ranges to keep only those overlapping with reference region 18-32
-        ranges.filter_by_ref_pos(18, 32).unwrap();
+        ranges.filter_mods_by_ref_pos(18, 32).unwrap();
 
         // Verify that only the ranges that overlap with [18, 32) are kept
         // Should keep ranges [20-25] and [30-35] (indexes 1 and 2)
@@ -243,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn ranges_filter_by_ref_pos_no_overlap() {
+    fn ranges_filter_mods_by_ref_pos_no_overlap() {
         // Create a Ranges object with ranges that don't overlap the target region
         let mut ranges = Ranges {
             annotations: vec![
@@ -293,7 +293,7 @@ mod tests {
         };
 
         // Filter ranges for region [30, 50) - none should match
-        ranges.filter_by_ref_pos(30, 50).unwrap();
+        ranges.filter_mods_by_ref_pos(30, 50).unwrap();
 
         // Verify that all ranges were filtered out
         assert_eq!(ranges.annotations.len(), 0);
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn ranges_filter_by_ref_pos_with_none_values() {
+    fn ranges_filter_mods_by_ref_pos_with_none_values() {
         // Create a Ranges object with some None values
         let mut ranges = Ranges {
             annotations: vec![
@@ -355,7 +355,7 @@ mod tests {
 
         // Filter ranges to keep only those overlapping with reference region 18-22
         // Only the range at index 1 should be kept
-        ranges.filter_by_ref_pos(18, 22).unwrap();
+        ranges.filter_mods_by_ref_pos(18, 22).unwrap();
 
         // Verify that only the range that overlaps with [18, 22) is kept
         assert_eq!(ranges.annotations.len(), 1);
@@ -369,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn ranges_filter_by_ref_pos_with_none_values_2() {
+    fn ranges_filter_mods_by_ref_pos_with_none_values_2() {
         // Create a Ranges object with some None values
         let mut ranges = Ranges {
             annotations: vec![
@@ -429,7 +429,7 @@ mod tests {
         };
 
         // Filter ranges to keep only those overlapping with reference region 18-22
-        ranges.filter_by_ref_pos(18, 22).unwrap();
+        ranges.filter_mods_by_ref_pos(18, 22).unwrap();
 
         // Verify that only the ranges that overlaps with [18, 22) are kept
         assert_eq!(ranges.annotations.len(), 3);
@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "OrdPairConversion")]
-    fn ranges_filter_by_ref_pos_with_start_equals_end() {
+    fn ranges_filter_mods_by_ref_pos_with_start_equals_end() {
         // Test the edge case where start == end.
         // As this is a 0-bp interval, we should just get an error.
         let mut ranges = Ranges {
@@ -495,7 +495,7 @@ mod tests {
         };
 
         // Filter with start == end (e.g., [25, 25))
-        ranges.filter_by_ref_pos(25, 25).unwrap();
+        ranges.filter_mods_by_ref_pos(25, 25).unwrap();
     }
 
     #[test]
@@ -530,7 +530,7 @@ mod tests {
         };
 
         // This should panic because start (30) > end (25)
-        ranges.filter_by_ref_pos(0, 50).unwrap();
+        ranges.filter_mods_by_ref_pos(0, 50).unwrap();
     }
 
     #[test]
@@ -565,7 +565,7 @@ mod tests {
         };
 
         // This should panic because start values are not strictly increasing
-        ranges.filter_by_ref_pos(0, 50).unwrap();
+        ranges.filter_mods_by_ref_pos(0, 50).unwrap();
     }
 
     #[test]
@@ -600,7 +600,7 @@ mod tests {
         };
 
         // This should panic because starts are decreasing
-        ranges.filter_by_ref_pos(0, 50).unwrap();
+        ranges.filter_mods_by_ref_pos(0, 50).unwrap();
     }
 
     #[test]
@@ -635,11 +635,11 @@ mod tests {
         };
 
         // This should panic because start (14) < previous_end (15)
-        ranges.filter_by_ref_pos(0, 50).unwrap();
+        ranges.filter_mods_by_ref_pos(0, 50).unwrap();
     }
 
     #[test]
-    fn ranges_filter_by_ref_pos_first_few_entries_none() {
+    fn ranges_filter_mods_by_ref_pos_first_few_entries_none() {
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
@@ -677,7 +677,7 @@ mod tests {
             reverse: false,
         };
 
-        ranges.filter_by_ref_pos(40, 61).unwrap();
+        ranges.filter_mods_by_ref_pos(40, 61).unwrap();
 
         // Verify that only one point comes through
         assert_eq!(ranges.annotations.len(), 1);

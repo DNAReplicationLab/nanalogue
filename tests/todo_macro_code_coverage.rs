@@ -5,7 +5,7 @@ use bedrs::prelude::Bed3;
 use nanalogue_core::{
     BamPreFilt, F32Bw0and1, ReadStates,
     cli::{InputModOptions, InputRegionOptions, TagState},
-    utils::FilterByRefCoords,
+    utils::FilterModsByRefCoords,
 };
 use std::collections::HashSet;
 
@@ -27,11 +27,11 @@ struct TestInputRegionOptions;
 
 impl InputRegionOptions for TestInputRegionOptions {}
 
-/// Test struct that uses `FilterByRefCoords` default implementation
+/// Test struct that uses `FilterModsByRefCoords` default implementation
 #[derive(Debug, Default)]
-struct TestFilterByRefCoords;
+struct TestFilterModsByRefCoords;
 
-impl FilterByRefCoords for TestFilterByRefCoords {}
+impl FilterModsByRefCoords for TestFilterModsByRefCoords {}
 
 /// Test struct that uses `BamPreFilt` default implementation
 #[derive(Debug, Default)]
@@ -115,9 +115,9 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "not implemented")]
-    fn filter_by_ref_coords_filter_by_ref_pos_panics() {
-        let mut test_obj = TestFilterByRefCoords;
-        test_obj.filter_by_ref_pos(0, 100).unwrap();
+    fn filter_by_ref_coords_filter_mods_by_ref_pos_panics() {
+        let mut test_obj = TestFilterModsByRefCoords;
+        test_obj.filter_mods_by_ref_pos(0, 100).unwrap();
     }
 
     #[test]
