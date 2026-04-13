@@ -12,6 +12,10 @@ on:
     - cron: '0 6 */3 * *'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -20,16 +24,20 @@ jobs:
     name: pynanalogue (Rust + Python)
     runs-on: ubuntu-latest
     continue-on-error: true
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-pynanalogue
+      cancel-in-progress: true
     steps:
       - name: Determine nanalogue repo and commit SHA
         id: source
         env:
+          EVENT_NAME: ${{ github.event_name }}
           PR_SHA: ${{ github.event.pull_request.head.sha }}
           PR_REPO: ${{ github.event.pull_request.head.repo.clone_url }}
           GIT_SHA: ${{ github.sha }}
           GIT_REPO: https://github.com/${{ github.repository }}.git
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ]; then
             echo "sha=$PR_SHA" >> "$GITHUB_OUTPUT"
             echo "repo=$PR_REPO" >> "$GITHUB_OUTPUT"
           else
@@ -87,16 +95,20 @@ jobs:
     name: nanalogue-node (Rust + Node.js)
     runs-on: ubuntu-latest
     continue-on-error: true
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-node
+      cancel-in-progress: true
     steps:
       - name: Determine nanalogue repo and commit SHA
         id: source
         env:
+          EVENT_NAME: ${{ github.event_name }}
           PR_SHA: ${{ github.event.pull_request.head.sha }}
           PR_REPO: ${{ github.event.pull_request.head.repo.clone_url }}
           GIT_SHA: ${{ github.sha }}
           GIT_REPO: https://github.com/${{ github.repository }}.git
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ]; then
             echo "sha=$PR_SHA" >> "$GITHUB_OUTPUT"
             echo "repo=$PR_REPO" >> "$GITHUB_OUTPUT"
           else

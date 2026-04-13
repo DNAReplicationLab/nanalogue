@@ -12,6 +12,10 @@ on:
   schedule:
     - cron: '0 6 * * 0'  # Weekly on Sunday at 6:00 AM UTC
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test_macos:
     name: Test install on ${{ matrix.os }}
@@ -95,12 +99,16 @@ jobs:
           persist-credentials: false
 
       - name: Test install in Alpine container
+        env:
+          WORKSPACE: ${{ github.workspace }}
+          CONTAINER: ${{ matrix.container }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           docker run --rm \
             -e GITHUB_TOKEN \
-            -v ${{ github.workspace }}:/workspace \
+            -v "$WORKSPACE":/workspace \
             -w /workspace \
-            ${{ matrix.container }} \
+            "$CONTAINER" \
             sh -c '
               set -e
 
@@ -114,8 +122,6 @@ jobs:
               nanalogue --version
               nanalogue --help
             '
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   test_path_handling:
     name: Test PATH handling

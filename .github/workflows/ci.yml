@@ -3,6 +3,10 @@ name: Cargo Build & Test
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [ "main" ]
@@ -13,6 +17,9 @@ env:
 
 jobs:
   build_and_test:
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.toolchain }}
+      cancel-in-progress: true
     name: Rust project - latest
     runs-on: ubuntu-latest
     strategy:
@@ -24,7 +31,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup rustup
-        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+        run: rustup update "$TOOLCHAIN" && rustup default "$TOOLCHAIN"
       - name: Build
         run: cargo build
       - name: Test
@@ -35,6 +44,9 @@ jobs:
         run: cargo clean
 
   dependency_security:
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-security
+      cancel-in-progress: true
     name: Dependency security checks
     runs-on: ubuntu-latest
     steps:

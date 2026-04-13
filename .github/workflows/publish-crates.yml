@@ -21,10 +21,17 @@ env:
   CARGO_TERM_COLOR: always
 
 permissions:
-  id-token: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   publish:
+    permissions:
+      contents: read
+      id-token: write # crates.io trusted publishing requires OIDC.
     name: Publish to crates.io
     runs-on: ubuntu-latest
     environment: crates-io

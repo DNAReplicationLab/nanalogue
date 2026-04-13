@@ -1,5 +1,8 @@
 name: Push Docker Images
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:
@@ -23,6 +26,10 @@ on:
         required: true
         type: boolean
         default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   push-docker-images:
@@ -50,10 +57,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           # Download the Docker image zip files from the release
           gh release download "$RELEASE_TAG" \
-            --repo ${{ github.repository }} \
+            --repo "$REPOSITORY" \
             --pattern "docker-image-*.zip"
 
           echo "=== Downloaded files ==="

@@ -4,6 +4,10 @@ name: Release
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   release:
     types: [published]
@@ -57,7 +61,7 @@ jobs:
     needs: [build-binaries, build-docker-amd64, build-docker-arm64]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Required to upload release assets to the GitHub release.
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

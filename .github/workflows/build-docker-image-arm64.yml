@@ -1,8 +1,15 @@
 name: Build Docker Image (ARM64)
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:  # Manual triggering
   workflow_call:      # Allow being called by other workflows
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build_docker_image_arm64:
@@ -22,12 +29,14 @@ jobs:
           docker buildx create --use --name builder --driver docker-container
 
       - name: Build Docker image
+        env:
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           docker buildx build \
             --platform linux/arm64 \
             --build-arg RUST_TARGET=aarch64-unknown-linux-musl \
             --tag nanalogue:latest \
-            --tag nanalogue:${{ github.sha }} \
+            --tag nanalogue:"$IMAGE_TAG" \
             --load \
             .
 
