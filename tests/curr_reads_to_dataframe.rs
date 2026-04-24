@@ -17,8 +17,8 @@ mod tests {
 
         // No modifications means DataFrame should be empty
         assert_eq!(df.height(), 0);
-        // But should still have all 13 columns
-        assert_eq!(df.width(), 13);
+        // But should still have all 14 columns
+        assert_eq!(df.width(), 14);
 
         Ok(())
     }
@@ -34,7 +34,7 @@ mod tests {
 
         // No modifications means DataFrame should be empty
         assert_eq!(df.height(), 0);
-        assert_eq!(df.width(), 13);
+        assert_eq!(df.width(), 14);
 
         Ok(())
     }
@@ -59,7 +59,7 @@ mod tests {
 
         // No modifications means DataFrame should be empty
         assert_eq!(df.height(), 0);
-        assert_eq!(df.width(), 13);
+        assert_eq!(df.width(), 14);
 
         Ok(())
     }
@@ -77,6 +77,7 @@ mod tests {
         let read = CurrReadBuilder::default()
             .read_id("some_read".into())
             .seq_len(40)
+            .mapq(44)
             .alignment_type(ReadState::PrimaryFwd)
             .alignment(
                 AlignmentInfoBuilder::default()
@@ -93,7 +94,7 @@ mod tests {
 
         // Two modification data points
         assert_eq!(df.height(), 2);
-        assert_eq!(df.width(), 13);
+        assert_eq!(df.width(), 14);
 
         // Verify read-level fields
         let read_id_col = df.column("read_id")?.str()?;
@@ -103,6 +104,10 @@ mod tests {
         let seq_len_col = df.column("seq_len")?.u64()?;
         assert_eq!(seq_len_col.get(0), Some(40));
         assert_eq!(seq_len_col.get(1), Some(40));
+
+        let mapq_col = df.column("mapq")?.u32()?;
+        assert_eq!(mapq_col.get(0), Some(44));
+        assert_eq!(mapq_col.get(1), Some(44));
 
         let alignment_type_col = df.column("alignment_type")?.str()?;
         assert_eq!(alignment_type_col.get(0), Some("primary_forward"));
@@ -190,7 +195,7 @@ mod tests {
 
         // Four modification data points total (2 from each mod type)
         assert_eq!(df.height(), 4);
-        assert_eq!(df.width(), 13);
+        assert_eq!(df.width(), 14);
 
         // Verify read-level fields (should be same for all rows)
         let read_id_col = df.column("read_id")?.str()?;
@@ -282,7 +287,7 @@ mod tests {
 
         // Four modification data points total
         assert_eq!(df.height(), 4);
-        assert_eq!(df.width(), 13);
+        assert_eq!(df.width(), 14);
 
         // Verify read-level fields
         let read_id_col = df.column("read_id")?.str()?;

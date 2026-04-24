@@ -136,6 +136,7 @@ mod tests {
             {
                 "read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
                 "sequence_length": 48,
+                "mapq": 0,
                 "alignment_type": "unmapped",
                 "mod_count": "G-7200:0;T+T:3;(probabilities >= 0.5020, PHRED base qual >= 0)"
             }
