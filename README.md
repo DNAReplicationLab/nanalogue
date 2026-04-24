@@ -192,13 +192,14 @@ a specific mapping type (`--read-filter`), filter modification data suitably
 (`--mod-prob-filter`) etc.
 
 ## `nanalogue read-info`
-Prints information about reads in JSON. A sample output snippet follows.
+Prints information about reads in JSON, including BAM mapping quality (`mapq`). A sample output snippet follows.
 
 ```json
 [
 {
         "read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
         "sequence_length": 48,
+        "mapq": 255,
         "contig": "dummyIII",
         "reference_start": 23,
         "reference_end": 71,
@@ -208,9 +209,11 @@ Prints information about reads in JSON. A sample output snippet follows.
 }
 ]
 ```
+Please note that a `mapq` of 255 means that the mapping quality is unavailable,
+and a `mod_count` of "NA" means modifications are not present.
 
 With options like `--detailed` and `--detailed-pretty`, the modification information in the BAM file
-is converted to a more-usable JSON format. A sample output snippet follows.
+is converted to a more-usable JSON format; this detailed output also includes `mapq`. A sample output snippet follows.
 
 ```json
 [
@@ -257,6 +260,7 @@ is converted to a more-usable JSON format. A sample output snippet follows.
     }
   ],
   "read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
+  "mapq": 255,
   "seq_len": 48
 }
 ]

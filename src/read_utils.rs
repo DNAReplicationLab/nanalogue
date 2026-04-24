@@ -1292,9 +1292,7 @@ where
             writeln!(output_string, "\t\"sequence_length\": {v},")?;
         }
 
-        if self.mapq != 255 {
-            writeln!(output_string, "\t\"mapq\": {},", self.mapq)?;
-        }
+        writeln!(output_string, "\t\"mapq\": {},", self.mapq)?;
 
         if let Some((v, w)) = self.contig_id_and_start {
             let num_str = &v.to_string();
