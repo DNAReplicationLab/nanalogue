@@ -11,7 +11,7 @@ use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
-use std::collections::btree_map::{Entry, Iter, IterMut, Keys, Values, ValuesMut};
+use std::collections::btree_map::{Iter, IterMut};
 use std::fmt;
 use std::ops::Index;
 
@@ -153,7 +153,8 @@ impl TryFrom<Aux<'_>> for SimpleAux {
 /// Owned map of BAM auxiliary tags keyed by their two-byte names.
 ///
 /// `ReadField` wraps a `BTreeMap<[u8; 2], SimpleAux>` and preserves sorted key
-/// order.
+/// order. The inner map is `pub` and can be accessed directly via `.0` for any
+/// `BTreeMap` operations not covered by `ReadField`'s own methods.
 ///
 /// # Examples
 ///
@@ -164,7 +165,7 @@ impl TryFrom<Aux<'_>> for SimpleAux {
 /// assert_eq!(read_field.insert(*b"ts", 1i64), None);
 /// assert_eq!(read_field.insert(*b"ul", "hello"), None);
 ///
-/// assert_eq!(read_field.get(&b"ts"[..]), Some(&SimpleAux::I64(1)));
+/// assert_eq!(read_field.0.get(&b"ts"[..]), Some(&SimpleAux::I64(1)));
 /// assert_eq!(read_field[&b"ul"[..]], SimpleAux::String(String::from("hello")));
 /// assert_eq!(serde_json::to_string(&read_field)?, r#"{"ts":1,"ul":"hello"}"#);
 /// # Ok::<(), serde_json::Error>(())
@@ -224,7 +225,7 @@ impl ReadField {
     /// let mut read_field = ReadField::new();
     ///
     /// assert_eq!(read_field.insert(*b"ts", 1i64), None);
-    /// assert_eq!(read_field.len(), 1);
+    /// assert_eq!(read_field.0.len(), 1);
     /// ```
     #[must_use]
     pub const fn new() -> Self {
@@ -244,7 +245,7 @@ impl ReadField {
     /// assert_eq!(read_field.insert(*b"ts", "updated"), Some(SimpleAux::I64(1)));
     ///
     /// assert_eq!(
-    ///     read_field.get(&b"ul"[..]),
+    ///     read_field.0.get(&b"ul"[..]),
     ///     Some(&SimpleAux::String(String::from("hello")))
     /// );
     /// ```
@@ -256,297 +257,22 @@ impl ReadField {
         self.0.insert(key, value.into())
     }
 
-    /// Clears the map, removing all elements.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::ReadField;
-    ///
-    /// let mut read_field = ReadField::default();
-    /// let _previous = read_field.insert(*b"ts", 1i64);
-    /// read_field.clear();
-    /// assert!(read_field.is_empty());
-    /// ```
-    pub fn clear(&mut self) {
-        self.0.clear();
-    }
-
-    /// Returns the number of elements in the map.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::ReadField;
-    ///
-    /// let mut read_field = ReadField::default();
-    /// assert_eq!(read_field.len(), 0);
-    /// let _previous = read_field.insert(*b"ts", 1i64);
-    /// assert_eq!(read_field.len(), 1);
-    /// ```
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Returns `true` if the map contains no elements.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::ReadField;
-    ///
-    /// let mut read_field = ReadField::default();
-    /// assert!(read_field.is_empty());
-    /// let _previous = read_field.insert(*b"ts", 1i64);
-    /// assert!(!read_field.is_empty());
-    /// ```
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// Returns `true` if the map contains a value for the specified key.
-    ///
-    /// The key may be any borrowed form of the map's key type, but the ordering
-    /// on the borrowed form must match the ordering on the key type.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::ReadField;
-    ///
-    /// let mut read_field = ReadField::default();
-    /// let _previous = read_field.insert(*b"ts", 1i64);
-    /// assert!(read_field.contains_key(&b"ts"[..]));
-    /// assert!(!read_field.contains_key(&b"ul"[..]));
-    /// ```
-    #[must_use]
-    pub fn contains_key<Q>(&self, key: &Q) -> bool
-    where
-        [u8; 2]: Borrow<Q> + Ord,
-        Q: Ord + ?Sized,
-    {
-        self.0.contains_key(key)
-    }
-
-    /// Returns a reference to the value corresponding to the key.
-    ///
-    /// The key may be any borrowed form of the map's key type, but the ordering
-    /// on the borrowed form must match the ordering on the key type.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::{ReadField, SimpleAux};
-    ///
-    /// let mut read_field = ReadField::new();
-    /// assert_eq!(read_field.insert(*b"ts", 1i64), None);
-    /// assert_eq!(read_field.get(&b"ts"[..]), Some(&SimpleAux::I64(1)));
-    /// assert_eq!(read_field.get(&b"ul"[..]), None);
-    /// ```
-    #[must_use]
-    pub fn get<Q>(&self, key: &Q) -> Option<&SimpleAux>
-    where
-        [u8; 2]: Borrow<Q> + Ord,
-        Q: Ord + ?Sized,
-    {
-        self.0.get(key)
-    }
-
-    /// Returns the key-value pair corresponding to the supplied key.
-    ///
-    /// This can be useful for getting a reference to the stored key value from
-    /// a borrowed lookup key, or for getting a key reference with the same
-    /// lifetime as the collection.
-    ///
-    /// The supplied key may be any borrowed form of the map's key type, but the
-    /// ordering on the borrowed form must match the ordering on the key type.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::{ReadField, SimpleAux};
-    ///
-    /// let mut read_field = ReadField::new();
-    /// assert_eq!(read_field.insert(*b"ts", 1i64), None);
-    /// assert_eq!(
-    ///     read_field.get_key_value(&b"ts"[..]),
-    ///     Some((&*b"ts", &SimpleAux::I64(1))),
-    /// );
-    /// assert_eq!(read_field.get_key_value(&b"ul"[..]), None);
-    /// ```
-    #[must_use]
-    pub fn get_key_value<Q>(&self, key: &Q) -> Option<(&[u8; 2], &SimpleAux)>
-    where
-        [u8; 2]: Borrow<Q> + Ord,
-        Q: Ord + ?Sized,
-    {
-        self.0.get_key_value(key)
-    }
-
-    /// Returns a mutable reference to the value corresponding to the key.
-    ///
-    /// The key may be any borrowed form of the map's key type, but the ordering
-    /// on the borrowed form must match the ordering on the key type.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::{ReadField, SimpleAux};
-    ///
-    /// let mut read_field = ReadField::new();
-    /// assert_eq!(read_field.insert(*b"ts", 1i64), None);
-    /// if let Some(value) = read_field.get_mut(&b"ts"[..]) {
-    ///     *value = SimpleAux::I64(2);
-    /// }
-    /// assert_eq!(read_field[&b"ts"[..]], SimpleAux::I64(2));
-    /// ```
-    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut SimpleAux>
-    where
-        [u8; 2]: Borrow<Q> + Ord,
-        Q: Ord + ?Sized,
-    {
-        self.0.get_mut(key)
-    }
-
     /// Gets an iterator over the entries of the map, sorted by key.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::{ReadField, SimpleAux};
-    ///
-    /// let mut read_field = ReadField::new();
-    /// assert_eq!(read_field.insert(*b"cc", "c"), None);
-    /// assert_eq!(read_field.insert(*b"bb", "b"), None);
-    /// assert_eq!(read_field.insert(*b"aa", "a"), None);
-    ///
-    /// let first = read_field.iter().next();
-    /// assert_eq!(first, Some((&*b"aa", &SimpleAux::String(String::from("a")))));
-    /// ```
+    /// Required alongside the `IntoIterator for &ReadField` impl so that
+    /// `read_field.iter()` and `for x in &read_field` are equivalent, per Rust
+    /// convention.
     pub fn iter(&self) -> Iter<'_, [u8; 2], SimpleAux> {
         self.0.iter()
     }
 
     /// Gets a mutable iterator over the entries of the map, sorted by key.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::{ReadField, SimpleAux};
-    ///
-    /// let mut read_field = ReadField::from([(*b"aa", 1i64), (*b"bb", 2i64), (*b"cc", 3i64)]);
-    ///
-    /// for (key, value) in read_field.iter_mut() {
-    ///     if key != b"aa" {
-    ///         *value = match value.clone() {
-    ///             SimpleAux::I64(n) => SimpleAux::I64(n + 10),
-    ///             other => other,
-    ///         };
-    ///     }
-    /// }
-    ///
-    /// assert_eq!(read_field[&b"aa"[..]], SimpleAux::I64(1));
-    /// assert_eq!(read_field[&b"bb"[..]], SimpleAux::I64(12));
-    /// assert_eq!(read_field[&b"cc"[..]], SimpleAux::I64(13));
-    /// ```
+    /// Required alongside the `IntoIterator for &mut ReadField` impl so that
+    /// `read_field.iter_mut()` and `for x in &mut read_field` are equivalent,
+    /// per Rust convention.
     pub fn iter_mut(&mut self) -> IterMut<'_, [u8; 2], SimpleAux> {
         self.0.iter_mut()
-    }
-
-    /// Gets an iterator over the keys of the map, in sorted order.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::ReadField;
-    ///
-    /// let mut read_field = ReadField::new();
-    /// assert_eq!(read_field.insert(*b"bb", "b"), None);
-    /// assert_eq!(read_field.insert(*b"aa", "a"), None);
-    ///
-    /// let keys: Vec<[u8; 2]> = read_field.keys().copied().collect();
-    /// assert_eq!(keys, [*b"aa", *b"bb"]);
-    /// ```
-    pub fn keys(&self) -> Keys<'_, [u8; 2], SimpleAux> {
-        self.0.keys()
-    }
-
-    /// Gets the given key's corresponding entry in the map for in-place
-    /// manipulation.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::{ReadField, SimpleAux};
-    ///
-    /// let mut counts = ReadField::default();
-    ///
-    /// for tag in [*b"ts", *b"ul", *b"ts"] {
-    ///     counts
-    ///         .entry(tag)
-    ///         .and_modify(|value| {
-    ///             if let SimpleAux::I64(curr) = value {
-    ///                 *curr += 1;
-    ///             }
-    ///         })
-    ///         .or_insert(SimpleAux::I64(1));
-    /// }
-    ///
-    /// assert_eq!(counts[&b"ts"[..]], SimpleAux::I64(2));
-    /// assert_eq!(counts[&b"ul"[..]], SimpleAux::I64(1));
-    /// ```
-    pub fn entry(&mut self, key: [u8; 2]) -> Entry<'_, [u8; 2], SimpleAux> {
-        self.0.entry(key)
-    }
-
-    /// Gets an iterator over the values of the map, in order by key.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::{ReadField, SimpleAux};
-    ///
-    /// let mut read_field = ReadField::default();
-    /// let _previous = read_field.insert(*b"ts", "hello");
-    /// let _previous = read_field.insert(*b"ul", "goodbye");
-    ///
-    /// let values: Vec<SimpleAux> = read_field.values().cloned().collect();
-    /// assert_eq!(values, [SimpleAux::String(String::from("hello")), SimpleAux::String(String::from("goodbye"))]);
-    /// ```
-    pub fn values(&self) -> Values<'_, [u8; 2], SimpleAux> {
-        self.0.values()
-    }
-
-    /// Gets a mutable iterator over the values of the map, in order by key.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use nanalogue_core::{ReadField, SimpleAux};
-    ///
-    /// let mut read_field = ReadField::default();
-    /// let _previous = read_field.insert(*b"ts", String::from("hello"));
-    /// let _previous = read_field.insert(*b"ul", String::from("goodbye"));
-    ///
-    /// for value in read_field.values_mut() {
-    ///     if let SimpleAux::String(text) = value {
-    ///         text.push('!');
-    ///     }
-    /// }
-    ///
-    /// let values: Vec<SimpleAux> = read_field.values().cloned().collect();
-    /// assert_eq!(
-    ///     values,
-    ///     [
-    ///         SimpleAux::String(String::from("hello!")),
-    ///         SimpleAux::String(String::from("goodbye!")),
-    ///     ]
-    /// );
-    /// ```
-    pub fn values_mut(&mut self) -> ValuesMut<'_, [u8; 2], SimpleAux> {
-        self.0.values_mut()
     }
 }
 
@@ -607,7 +333,7 @@ impl<'a> IntoIterator for &'a ReadField {
     type IntoIter = Iter<'a, [u8; 2], SimpleAux>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+        self.0.iter()
     }
 }
 
@@ -616,7 +342,7 @@ impl<'a> IntoIterator for &'a mut ReadField {
     type IntoIter = IterMut<'a, [u8; 2], SimpleAux>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.iter_mut()
+        self.0.iter_mut()
     }
 }
 
@@ -777,24 +503,24 @@ mod tests {
         let mut read_field = ReadField::default();
         read_field.extend([(*b"ts", 1i64), (*b"ul", 2i64)]);
 
-        assert_eq!(read_field.get(&b"ts"[..]), Some(&SimpleAux::I64(1)));
-        assert_eq!(read_field.get(&b"ul"[..]), Some(&SimpleAux::I64(2)));
+        assert_eq!(read_field.0.get(&b"ts"[..]), Some(&SimpleAux::I64(1)));
+        assert_eq!(read_field.0.get(&b"ul"[..]), Some(&SimpleAux::I64(2)));
     }
 
     #[test]
     fn read_field_clear_len_and_is_empty() {
         let mut read_field = ReadField::default();
-        assert!(read_field.is_empty());
-        assert_eq!(read_field.len(), 0);
+        assert!(read_field.0.is_empty());
+        assert_eq!(read_field.0.len(), 0);
 
         assert_eq!(read_field.insert(*b"ts", 1i64), None);
         assert_eq!(read_field.insert(*b"ul", 2i64), None);
-        assert!(!read_field.is_empty());
-        assert_eq!(read_field.len(), 2);
+        assert!(!read_field.0.is_empty());
+        assert_eq!(read_field.0.len(), 2);
 
-        read_field.clear();
-        assert!(read_field.is_empty());
-        assert_eq!(read_field.len(), 0);
+        read_field.0.clear();
+        assert!(read_field.0.is_empty());
+        assert_eq!(read_field.0.len(), 0);
     }
 
     #[test]
@@ -803,6 +529,7 @@ mod tests {
 
         for tag in [*b"ts", *b"ul", *b"ts"] {
             let _value = read_field
+                .0
                 .entry(tag)
                 .and_modify(|value| {
                     if let &mut SimpleAux::I64(ref mut curr) = value {
@@ -812,24 +539,25 @@ mod tests {
                 .or_insert(SimpleAux::I64(1));
         }
 
-        assert!(read_field.contains_key(&b"ts"[..]));
-        assert!(read_field.contains_key(&b"ul"[..]));
-        assert!(!read_field.contains_key(&b"db"[..]));
-        assert_eq!(read_field.get(&b"ts"[..]), Some(&SimpleAux::I64(2)));
-        assert_eq!(read_field.get(&b"db"[..]), None);
+        assert!(read_field.0.contains_key(&b"ts"[..]));
+        assert!(read_field.0.contains_key(&b"ul"[..]));
+        assert!(!read_field.0.contains_key(&b"db"[..]));
+        assert_eq!(read_field.0.get(&b"ts"[..]), Some(&SimpleAux::I64(2)));
+        assert_eq!(read_field.0.get(&b"db"[..]), None);
         assert_eq!(
-            read_field.get_key_value(&b"ul"[..]),
+            read_field.0.get_key_value(&b"ul"[..]),
             Some((b"ul", &SimpleAux::I64(1)))
         );
 
         let value = read_field
+            .0
             .get_mut(&b"ul"[..])
             .expect("`ul` tag should exist in test setup");
         *value = SimpleAux::String(String::from("updated"));
 
-        assert_eq!(read_field.get(&b"ts"[..]), Some(&SimpleAux::I64(2)));
+        assert_eq!(read_field.0.get(&b"ts"[..]), Some(&SimpleAux::I64(2)));
         assert_eq!(
-            read_field.get(&b"ul"[..]),
+            read_field.0.get(&b"ul"[..]),
             Some(&SimpleAux::String(String::from("updated")))
         );
     }
@@ -852,10 +580,10 @@ mod tests {
             ]
         );
 
-        let keys: Vec<[u8; 2]> = read_field.keys().copied().collect();
+        let keys: Vec<[u8; 2]> = read_field.0.keys().copied().collect();
         assert_eq!(keys, [*b"ts", *b"ul"]);
 
-        let values_before: Vec<SimpleAux> = read_field.values().cloned().collect();
+        let values_before: Vec<SimpleAux> = read_field.0.values().cloned().collect();
         assert_eq!(
             values_before,
             [
@@ -870,13 +598,13 @@ mod tests {
             }
         });
 
-        for value in read_field.values_mut() {
+        for value in read_field.0.values_mut() {
             if let &mut SimpleAux::String(ref mut text) = value {
                 text.push('!');
             }
         }
 
-        let values_after: Vec<SimpleAux> = read_field.values().cloned().collect();
+        let values_after: Vec<SimpleAux> = read_field.0.values().cloned().collect();
         assert_eq!(
             values_after,
             [
@@ -895,9 +623,9 @@ mod tests {
         let mut read_field = ReadField::default();
         read_field.extend(entries.iter().map(|entry| (&entry.0, &entry.1)));
 
-        assert_eq!(read_field.get(&b"ts"[..]), Some(&SimpleAux::I64(1)));
+        assert_eq!(read_field.0.get(&b"ts"[..]), Some(&SimpleAux::I64(1)));
         assert_eq!(
-            read_field.get(&b"ul"[..]),
+            read_field.0.get(&b"ul"[..]),
             Some(&SimpleAux::String("blah".to_owned()))
         );
     }
@@ -928,8 +656,8 @@ mod tests {
         let mut read_field = ReadField::default();
         read_field.extend([(*b"ts", 1.5f64), (*b"ul", 2.5f64)]);
 
-        assert_eq!(read_field.get(&b"ts"[..]), Some(&SimpleAux::Double(1.5)));
-        assert_eq!(read_field.get(&b"ul"[..]), Some(&SimpleAux::Double(2.5)));
+        assert_eq!(read_field.0.get(&b"ts"[..]), Some(&SimpleAux::Double(1.5)));
+        assert_eq!(read_field.0.get(&b"ul"[..]), Some(&SimpleAux::Double(2.5)));
     }
 
     #[test]
@@ -1001,5 +729,21 @@ mod tests {
         let result: Result<ReadField, serde_json::Error> =
             serde_json::from_str(r#"{"ts":1.11,"ts":"blah"}"#);
         let _: serde_json::Error = result.unwrap_err();
+    }
+
+    #[test]
+    fn read_field_index_returns_value_for_present_key() {
+        let mut read_field = ReadField::new();
+        assert_eq!(read_field.insert(*b"ts", 1i64), None);
+        assert_eq!(read_field.insert(*b"ul", "hello"), None);
+        assert_eq!(read_field[&b"ts"[..]], SimpleAux::I64(1));
+        assert_eq!(read_field[&b"ul"[..]], SimpleAux::String(String::from("hello")));
+    }
+
+    #[test]
+    #[should_panic(expected = "ReadField index key is expected to exist")]
+    fn read_field_index_panics_for_absent_key() {
+        let read_field = ReadField::from([(*b"ts", 1i64)]);
+        let _ = read_field[&b"ul"[..]];
     }
 }
