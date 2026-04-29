@@ -16,6 +16,23 @@ use std::fmt;
 use std::ops::Index;
 
 /// Owned representation of simple BAM auxiliary tag values.
+///
+/// `SimpleAux` is intentionally limited to scalar BAM aux values that map
+/// cleanly to common serialized forms.
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::SimpleAux;
+///
+/// assert_eq!(serde_json::to_string(&SimpleAux::I64(1))?, "1");
+/// assert_eq!(serde_json::to_string(&SimpleAux::Double(1.25))?, "1.25");
+/// assert_eq!(
+///     serde_json::to_string(&SimpleAux::String(String::from("x")))?,
+///     r#""x""#
+/// );
+/// # Ok::<(), serde_json::Error>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[expect(
     clippy::exhaustive_enums,
@@ -55,6 +72,17 @@ impl From<&str> for SimpleAux {
     }
 }
 
+/// Formats the contained scalar value without adding JSON quoting.
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::SimpleAux;
+///
+/// assert_eq!(SimpleAux::I64(1).to_string(), "1");
+/// assert_eq!(SimpleAux::Double(1.25).to_string(), "1.25");
+/// assert_eq!(SimpleAux::String(String::from("x")).to_string(), "x");
+/// ```
 impl fmt::Display for SimpleAux {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.clone() {
@@ -65,6 +93,32 @@ impl fmt::Display for SimpleAux {
     }
 }
 
+/// Converts supported `rust-htslib` BAM aux values into owned `SimpleAux`
+/// values.
+///
+/// Conversion policy:
+/// - `Aux::Char` becomes `SimpleAux::String`
+/// - integer-valued aux variants become `SimpleAux::I64`
+/// - floating-point aux variants become `SimpleAux::Double`
+/// - `Aux::String` becomes `SimpleAux::String`
+/// - array-valued aux tags are rejected
+/// - `Aux::HexByteArray` is rejected
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::{Error, SimpleAux};
+/// use rust_htslib::bam::record::Aux;
+///
+/// assert_eq!(SimpleAux::try_from(Aux::Char(b'A'))?, SimpleAux::String(String::from("A")));
+/// assert_eq!(SimpleAux::try_from(Aux::I32(-7))?, SimpleAux::I64(-7));
+/// assert_eq!(SimpleAux::try_from(Aux::Double(1.5))?, SimpleAux::Double(1.5));
+/// assert!(matches!(
+///     SimpleAux::try_from(Aux::HexByteArray("CAFE")),
+///     Err(Error::NotImplemented(_))
+/// ));
+/// # Ok::<(), Error>(())
+/// ```
 impl TryFrom<Aux<'_>> for SimpleAux {
     type Error = Error;
 
@@ -97,6 +151,59 @@ impl TryFrom<Aux<'_>> for SimpleAux {
 }
 
 /// Owned map of BAM auxiliary tags keyed by their two-byte names.
+///
+/// `ReadField` wraps a `BTreeMap<[u8; 2], SimpleAux>` and preserves sorted key
+/// order.
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::{ReadField, SimpleAux};
+///
+/// let mut read_field = ReadField::new();
+/// assert_eq!(read_field.insert(*b"ts", 1i64), None);
+/// assert_eq!(read_field.insert(*b"ul", "hello"), None);
+///
+/// assert_eq!(read_field.get(&b"ts"[..]), Some(&SimpleAux::I64(1)));
+/// assert_eq!(read_field[&b"ul"[..]], SimpleAux::String(String::from("hello")));
+/// assert_eq!(serde_json::to_string(&read_field)?, r#"{"ts":1,"ul":"hello"}"#);
+/// # Ok::<(), serde_json::Error>(())
+/// ```
+///
+/// Additional ergonomic construction and bulk-update patterns:
+///
+/// ```
+/// use nanalogue_core::{ReadField, SimpleAux};
+///
+/// let from_array = ReadField::from([(*b"ts", 1i64), (*b"ul", 2i64)]);
+/// let from_iter = [(*b"ts", 1i64), (*b"ul", 2i64)]
+///     .into_iter()
+///     .collect::<ReadField>();
+///
+/// let mut extended = ReadField::new();
+/// extended.extend([(*b"ts", 1i64), (*b"ul", 2i64)]);
+///
+/// let borrowed_entries = [
+///     (*b"ts", SimpleAux::I64(1)),
+///     (*b"ul", SimpleAux::I64(2)),
+/// ];
+/// let mut extended_by_ref = ReadField::new();
+/// extended_by_ref.extend(borrowed_entries.iter().map(|entry| (&entry.0, &entry.1)));
+///
+/// assert_eq!(from_array, from_iter);
+/// assert_eq!(from_iter, extended);
+/// assert_eq!(extended, extended_by_ref);
+/// ```
+///
+/// Indexing is supported for borrowed keys, but like `BTreeMap` indexing it
+/// will panic if the key is absent.
+///
+/// ```
+/// use nanalogue_core::{ReadField, SimpleAux};
+///
+/// let read_field = ReadField::from([(*b"ts", 1i64)]);
+/// assert_eq!(read_field[&b"ts"[..]], SimpleAux::I64(1));
+/// ```
 #[derive(Debug, Clone, PartialEq, Default)]
 #[expect(
     clippy::exhaustive_structs,
@@ -131,9 +238,15 @@ impl ReadField {
     /// ```
     /// use nanalogue_core::{ReadField, SimpleAux};
     ///
-    /// let mut read_field = ReadField::default();
+    /// let mut read_field = ReadField::new();
     /// assert_eq!(read_field.insert(*b"ts", 1i64), None);
+    /// assert_eq!(read_field.insert(*b"ul", "hello"), None);
     /// assert_eq!(read_field.insert(*b"ts", "updated"), Some(SimpleAux::I64(1)));
+    ///
+    /// assert_eq!(
+    ///     read_field.get(&b"ul"[..]),
+    ///     Some(&SimpleAux::String(String::from("hello")))
+    /// );
     /// ```
     #[must_use]
     pub fn insert<U>(&mut self, key: [u8; 2], value: U) -> Option<SimpleAux>
@@ -437,6 +550,8 @@ impl ReadField {
     }
 }
 
+/// Extends a `ReadField` from borrowed key-value pairs by copying the two-byte
+/// tag and cloning the `SimpleAux` value.
 impl<'a> Extend<(&'a [u8; 2], &'a SimpleAux)> for ReadField {
     fn extend<T: IntoIterator<Item = (&'a [u8; 2], &'a SimpleAux)>>(&mut self, iter: T) {
         self.0
@@ -444,6 +559,8 @@ impl<'a> Extend<(&'a [u8; 2], &'a SimpleAux)> for ReadField {
     }
 }
 
+/// Extends a `ReadField` from owned key-value pairs, converting each value via
+/// `Into<SimpleAux>`.
 impl<U> Extend<([u8; 2], U)> for ReadField
 where
     U: Into<SimpleAux>,
@@ -454,6 +571,8 @@ where
     }
 }
 
+/// Builds a `ReadField` from an array of owned key-value pairs, converting
+/// values via `Into<SimpleAux>`.
 impl<U, const N: usize> From<[([u8; 2], U); N]> for ReadField
 where
     U: Into<SimpleAux>,
@@ -468,6 +587,8 @@ where
     }
 }
 
+/// Collects owned key-value pairs into a `ReadField`, converting values via
+/// `Into<SimpleAux>`.
 impl<U> FromIterator<([u8; 2], U)> for ReadField
 where
     U: Into<SimpleAux>,
@@ -499,6 +620,9 @@ impl<'a> IntoIterator for &'a mut ReadField {
     }
 }
 
+/// Supports `read_field[&key]` lookups for borrowed key forms.
+///
+/// Like `BTreeMap` indexing, this panics if the key is not present.
 impl<Q> Index<&Q> for ReadField
 where
     [u8; 2]: Borrow<Q> + Ord,
