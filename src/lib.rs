@@ -121,8 +121,9 @@ pub use utils::uuid;
 pub use utils::{
     AllowedAGCTN, BaseMod, BaseMods, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1,
     FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
-    OrdPair, PathOrURLOrStdin, Ranges, ReadState, ReadStates, RestrictModCalledStrand,
-    SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase, get_u8_tag, revcomp,
+    OrdPair, PathOrURLOrStdin, Ranges, ReadField, ReadState, ReadStates, RestrictModCalledStrand,
+    SeqCoordCalls, SimpleAux, ThresholdState, complement, convert_seq_uppercase, get_u8_tag,
+    revcomp,
 };
 
 /// Static initialization guard for SSL certificate configuration.
