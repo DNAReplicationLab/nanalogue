@@ -1,0 +1,28 @@
+--- a/vendor/hts-sys-2.2.0/build.rs
++++ b/vendor/hts-sys-2.2.0/build.rs
+@@ -263,22 +263,9 @@
+     cfg.file("wrapper.c");
+     cfg.compile("hts");
+ 
+-    // If bindgen is enabled, use it
+-    #[cfg(feature = "bindgen")]
+-    {
+-        bindgen::Builder::default()
+-            .header("wrapper.h")
+-            .generate_comments(false)
+-            .blocklist_function("strtold")
+-            .blocklist_type("max_align_t")
+-            .generate()
+-            .expect("Unable to generate bindings.")
+-            .write_to_file(out.join("bindings.rs"))
+-            .expect("Could not write bindings.");
+-    }
+-
+-    // If no bindgen, use pre-built bindings
+-    #[cfg(not(feature = "bindgen"))]
++    // Use the shipped pre-built bindings instead of regenerating them with
++    // bindgen. Newer libclang versions can produce opaque bindings for the
++    // HTSlib headers, which breaks rust-htslib's field access.
+     if target_os == "macos" {
+         fs::copy("osx_prebuilt_bindings.rs", out.join("bindings.rs"))
+             .expect("couldn't copy prebuilt bindings");

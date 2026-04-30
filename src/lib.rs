@@ -454,8 +454,7 @@ when usize is 64-bit as genomic sequences are not that long"
                     && (min_qual > 0).then(|| {
                         base_qual
                             .get(cur_seq_idx)
-                            .filter(|&x| *x >= min_qual && *x != 255u8)
-                            .is_some()
+                            .is_some_and(|x| *x >= min_qual && *x != 255u8)
                     }) != Some(false);
                 if cur_mod_idx < mod_dists.len()
                     && dist_from_last_mod_base

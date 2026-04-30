@@ -45,6 +45,7 @@ in a BAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
 - [Python wrapper](#python-wrapper)
 - [Contributing](#contributing)
 - [Security](#security)
+- [Third-Party Notices](#third-party-notices)
 - [Changelog](#changelog)
 - [Acknowledgments](#acknowledgments)
 
@@ -381,6 +382,14 @@ for guidelines on how to contribute to this project.
 # Security
 
 For security concerns and vulnerability reporting, please see [SECURITY.md](SECURITY.md).
+
+# Third-Party Notices
+
+This repository vendors a small number of third-party crates to keep the build
+reproducible and to work around toolchain-specific issues in the HTSlib Rust
+bindings. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the full
+list of vendored crates, their local paths, their license files, and the patch
+files that show the exact changes from upstream.
 
 # Changelog
 

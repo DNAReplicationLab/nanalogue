@@ -37,10 +37,14 @@ mod tests {
     #[test]
     fn set_read_state_example_3() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_3.bam")?;
-        let mut count = 1; // NOTE that we start the counter from 1 here
+        // NOTE that we start the counter from 1 here
         // as reads are called 001, 002, ..., 010 here.
         // so it is easier for us to read code when counter starts from 1.
-        for record in reader.records() {
+        for (count, record) in reader
+            .records()
+            .enumerate()
+            .map(|(count, record)| (count + 1, record))
+        {
             let r = record?;
             let curr_read = CurrRead::default().set_read_state_and_id(&r)?;
             match count {
@@ -52,7 +56,6 @@ mod tests {
                 9 => assert_eq!(curr_read.read_state(), ReadState::SupplementaryRev),
                 _ => unreachable!(),
             }
-            count += 1;
         }
         Ok(())
     }

@@ -88,12 +88,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(
-            &mut output_buffer,
-            records.into_iter(),
-            InputMods::default(),
-            None,
-        )?;
+        run(&mut output_buffer, records, InputMods::default(), None)?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -124,12 +119,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(
-            &mut output_buffer,
-            records.into_iter(),
-            InputMods::default(),
-            None,
-        )?;
+        run(&mut output_buffer, records, InputMods::default(), None)?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -159,12 +149,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(
-            &mut output_buffer,
-            records.into_iter(),
-            InputMods::default(),
-            None,
-        )?;
+        run(&mut output_buffer, records, InputMods::default(), None)?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
         let expected = serde_json::json!([
@@ -196,7 +181,7 @@ mod tests {
 
         // Gets an output from the function and compares with expected
         let mut output_buffer = Vec::new();
-        run(&mut output_buffer, records.into_iter(), mod_options, None)?;
+        run(&mut output_buffer, records, mod_options, None)?;
         let output_json = String::from_utf8(output_buffer)?;
         let parsed: Value = serde_json::from_str(&output_json)?;
 
@@ -345,7 +330,7 @@ mod tests {
         let mut output_buffer = Vec::new();
         run(
             &mut output_buffer,
-            records.into_iter(),
+            records,
             InputMods::default(),
             Some(true),
         )?;
@@ -379,7 +364,7 @@ mod tests {
         let mut output_buffer = Vec::new();
         run(
             &mut output_buffer,
-            records.into_iter(),
+            records,
             InputMods::default(),
             Some(false),
         )?;
