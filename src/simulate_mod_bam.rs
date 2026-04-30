@@ -111,6 +111,7 @@ use crate::{write_bam_denovo, write_fasta};
 use derive_builder::Builder;
 use itertools::join;
 use rand::Rng;
+use rand::RngExt as _;
 use rand::SeedableRng as _;
 use rand::rngs::StdRng;
 use rand::seq::IteratorRandom as _;
@@ -803,7 +804,7 @@ impl PerfectSeqMatchToNot {
                 ((bases_and_ops.len() as f32) * mismatch_frac.val()).round() as usize;
 
             let indices_to_mutate: Vec<usize> =
-                (0..bases_and_ops.len()).choose_multiple(rng, num_mismatches);
+                (0..bases_and_ops.len()).sample(rng, num_mismatches);
 
             for idx in indices_to_mutate {
                 let item = bases_and_ops

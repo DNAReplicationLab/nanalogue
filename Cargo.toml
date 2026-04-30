@@ -22,7 +22,7 @@ regex = "=1.12.3"
 bio-types = "=1.0.4"
 bedrs = { version = "=0.2.26", features = [ "serde" ] }
 thiserror = "=2.0.18"
-rand = "=0.9.3"
+rand = "=0.10.1"
 itertools = "=0.14.0"
 url = { version = "=2.5.8", features = [ "serde" ] }
 derive_builder = "=0.20.2"
