@@ -139,7 +139,11 @@ where
                 .flatten()
                 .max()
                 .copied()
-                .map_or(INVALID_REF_POS, |x| x + 1);
+                .map_or(Ok(INVALID_REF_POS), |x| {
+                    x.checked_add(1).ok_or_else(|| {
+                        Error::Arithmetic("overflow computing ref_win_end".to_owned())
+                    })
+                })?;
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,

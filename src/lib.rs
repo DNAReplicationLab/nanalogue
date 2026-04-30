@@ -420,18 +420,16 @@ where
 
             // declare vectors with an approximate with_capacity
             let (mut modified_positions, mut modified_probabilities) = {
-                #[expect(
-                    clippy::arithmetic_side_effects,
-                    reason = "in rare chance of overflow, vectors are initially missized but will be resized anyway \
-as they are populated. This will result in a small performance hit but we are ok as this will probably never happen \
-when usize is 64-bit as genomic sequences are not that long"
-                )]
                 let mod_data_len_approx = if is_implicit {
                     // In implicit mode, there may be any number of bases
                     // after the MM data is over, which must be assumed as unmodified.
                     // So we cannot know the exact length of the data before actually
                     // parsing it, and this is just a lower bound of the length.
-                    mod_dists.len() + mod_dists.iter().sum::<usize>()
+                    mod_dists
+                        .iter()
+                        .copied()
+                        .try_fold(mod_dists.len(), usize::checked_add)
+                        .unwrap_or(mod_dists.len())
                 } else {
                     mod_dists.len()
                 };
