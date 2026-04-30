@@ -3,8 +3,6 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[cfg(feature = "serde")]
-use bindgen;
 use fs_utils::copy::copy_directory;
 use glob::glob;
 
@@ -97,11 +95,8 @@ fn main() {
 
     let want_static = cfg!(feature = "static") || env::var("HTS_STATIC").is_ok();
 
-    if want_static {
-        cfg.warnings(false).static_flag(true).pic(true);
-    } else {
-        cfg.warnings(false).static_flag(false).pic(true);
-    }
+    let _ = want_static;
+    cfg.warnings(false).pic(true);
 
     if let Ok(z_inc) = env::var("DEP_Z_INCLUDE") {
         cfg.include(z_inc);

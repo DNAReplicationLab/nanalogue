@@ -9983,14 +9983,12 @@ impl BGZF {
     }
     #[inline]
     pub fn compress_level(&self) -> ::std::os::raw::c_int {
-        unsafe { ::std::mem::transmute(self._bitfield_1.get(20usize, 9u8) as u32) }
+        u32::cast_signed(self._bitfield_1.get(20usize, 9u8) as u32)
     }
     #[inline]
     pub fn set_compress_level(&mut self, val: ::std::os::raw::c_int) {
-        unsafe {
-            let val: u32 = ::std::mem::transmute(val);
-            self._bitfield_1.set(20usize, 9u8, val as u64)
-        }
+        let val: u32 = i32::cast_unsigned(val);
+        self._bitfield_1.set(20usize, 9u8, val as u64)
     }
     #[inline]
     pub fn last_block_eof(&self) -> ::std::os::raw::c_uint {
@@ -10060,7 +10058,7 @@ impl BGZF {
             is_be as u64
         });
         __bindgen_bitfield_unit.set(20usize, 9u8, {
-            let compress_level: u32 = unsafe { ::std::mem::transmute(compress_level) };
+            let compress_level: u32 = i32::cast_unsigned(compress_level);
             compress_level as u64
         });
         __bindgen_bitfield_unit.set(29usize, 1u8, {
