@@ -4,17 +4,29 @@ on:
   workflow_dispatch:  # Manual triggering
   workflow_call:      # Allow being called by other workflows
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build_macos_binaries:
     name: Build binaries on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       matrix:
         os: [macos-latest, macos-15-intel]
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
 
       - name: Setup Rust
         run: |
@@ -34,7 +46,7 @@ jobs:
           cp target/release/nanalogue_sim_bam dist/nanalogue_sim_bam-macos
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: binaries-${{ matrix.os }}
           path: dist/*
@@ -42,6 +54,8 @@ jobs:
   build_linux_binaries:
     name: Build binaries on ${{ matrix.container }}
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -66,40 +80,52 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
 
       - name: Determine compatibility tag
         id: compat
+        env:
+          CONTAINER: ${{ matrix.container }}
         run: |
           # Determine architecture
-          if [[ "${{ matrix.container }}" == *"aarch64"* ]]; then
+          if [[ "$CONTAINER" == *"aarch64"* ]]; then
             ARCH="aarch64"
           else
             ARCH="x86_64"
           fi
 
           # Determine base tag
-          if [[ "${{ matrix.container }}" == *"musllinux_1_2"* ]]; then
+          if [[ "$CONTAINER" == *"musllinux_1_2"* ]]; then
             BASE_TAG="musllinux_1_2"
-          elif [[ "${{ matrix.container }}" == *"manylinux_2_28"* ]]; then
+          elif [[ "$CONTAINER" == *"manylinux_2_28"* ]]; then
             BASE_TAG="manylinux_2_28"
-          elif [[ "${{ matrix.container }}" == *"manylinux_2_34"* ]]; then
+          elif [[ "$CONTAINER" == *"manylinux_2_34"* ]]; then
             BASE_TAG="manylinux_2_34"
-          elif [[ "${{ matrix.container }}" == *"manylinux2014"* ]]; then
+          elif [[ "$CONTAINER" == *"manylinux2014"* ]]; then
             BASE_TAG="manylinux2014"
           else
-            echo "ERROR: Unrecognized container: ${{ matrix.container }}"
+            echo "ERROR: Unrecognized container: $CONTAINER"
             exit 1
           fi
 
-          echo "tag=${BASE_TAG}_${ARCH}" >> $GITHUB_OUTPUT
+          COMPAT_TAG="${BASE_TAG}_${ARCH}"
+          echo "tag=$COMPAT_TAG" >> "$GITHUB_OUTPUT"
+          echo "COMPAT_TAG=$COMPAT_TAG" >> "$GITHUB_ENV"
 
       - name: Build binaries in container
+        env:
+          CONTAINER: ${{ matrix.container }}
+          WORKSPACE: ${{ github.workspace }}
         run: |
           docker run --rm \
-            -v ${{ github.workspace }}:/workspace \
+            -e COMPAT_TAG \
+            -e CONTAINER \
+            -v "$WORKSPACE":/workspace \
             -w /workspace \
-            ${{ matrix.container }} \
+            "$CONTAINER" \
             bash -c '
               set -euo pipefail
               trap '\''echo "ERROR: Build failed at line $LINENO"; exit 1'\'' ERR
@@ -109,7 +135,7 @@ jobs:
               . "$HOME/.cargo/env"
 
               # Install dependencies based on container type
-              if [[ "${{ matrix.container }}" == *"musllinux"* ]]; then
+              if [[ "$CONTAINER" == *"musllinux"* ]]; then
                 apk add --no-cache \
                   bzip2-dev \
                   bzip2-static \
@@ -141,12 +167,15 @@ jobs:
 
               # Package binaries
               mkdir -p dist
-              cp target/release/nanalogue dist/nanalogue-${{ steps.compat.outputs.tag }}
-              cp target/release/nanalogue_sim_bam dist/nanalogue_sim_bam-${{ steps.compat.outputs.tag }}
+              tag="$COMPAT_TAG"
+              cp target/release/nanalogue "dist/nanalogue-${tag}"
+              cp target/release/nanalogue_sim_bam "dist/nanalogue_sim_bam-${tag}"
             '
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v6
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: binaries-${{ steps.compat.outputs.tag }}
-          path: ${{ github.workspace }}/dist/*
+          path: ${{ env.WORKSPACE }}/dist/*

@@ -1,0 +1,3 @@
+[submodule "vendor/hts-sys-2.2.0/htslib"]
+	path = vendor/hts-sys-2.2.0/htslib
+	url = https://github.com/samtools/htslib.git

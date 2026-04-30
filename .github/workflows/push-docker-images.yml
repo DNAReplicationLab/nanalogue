@@ -1,5 +1,8 @@
 name: Push Docker Images
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:
@@ -24,10 +27,17 @@ on:
         type: boolean
         default: true
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   push-docker-images:
     name: Push multi-arch Docker images to Docker Hub
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment: docker-hub
     steps:
       - name: Prepare version tag
         id: version
@@ -47,10 +57,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           # Download the Docker image zip files from the release
           gh release download "$RELEASE_TAG" \
-            --repo ${{ github.repository }} \
+            --repo "$REPOSITORY" \
             --pattern "docker-image-*.zip"
 
           echo "=== Downloaded files ==="
@@ -87,7 +98,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: inputs.dry_run != true
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: dockerofsat
           password: ${{ secrets.DOCKER_HUB_TOKEN }}

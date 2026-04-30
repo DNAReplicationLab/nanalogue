@@ -51,15 +51,15 @@ fn run(cli: &Cli) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nanalogue_core::uuid;
     use std::env;
     use std::fs;
-    use uuid::Uuid;
 
     /// Test that the run function successfully creates BAM, BAI, and FASTA files from valid JSON config
     #[test]
     fn run_creates_output_files() {
         // Create temporary directory for test files
-        let temp_path = env::temp_dir().join(format!("nanalogue_test_{}", Uuid::new_v4()));
+        let temp_path = env::temp_dir().join(format!("nanalogue_test_{}", uuid::v4_random()));
         fs::create_dir_all(&temp_path).expect("failed to create temp dir");
 
         // Create JSON configuration file
@@ -128,7 +128,7 @@ mod tests {
     /// Test that the run function returns an error with invalid JSON
     #[test]
     fn run_fails_with_invalid_json() {
-        let temp_path = env::temp_dir().join(format!("nanalogue_test_{}", Uuid::new_v4()));
+        let temp_path = env::temp_dir().join(format!("nanalogue_test_{}", uuid::v4_random()));
         fs::create_dir_all(&temp_path).expect("failed to create temp dir");
 
         // Create invalid JSON file
@@ -155,7 +155,7 @@ mod tests {
     /// Test that the run function returns an error when JSON file doesn't exist
     #[test]
     fn run_fails_with_missing_json_file() {
-        let temp_path = env::temp_dir().join(format!("nanalogue_test_{}", Uuid::new_v4()));
+        let temp_path = env::temp_dir().join(format!("nanalogue_test_{}", uuid::v4_random()));
         fs::create_dir_all(&temp_path).expect("failed to create temp dir");
 
         let cli = Cli {

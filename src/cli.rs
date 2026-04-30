@@ -17,7 +17,10 @@ use std::str::FromStr;
 /// Options to parse the input bam file and the filters that should be applied to the bam file.
 ///
 /// This struct is parsed to create command line arguments and then passed to many functions.
-/// We have copied and edited a similar struct from the fibertools-rs repository.
+/// This type is adapted from a similar struct in the published crate
+/// `fibertools-rs` v0.8.2 (<https://crates.io/crates/fibertools-rs>), whose
+/// published crate metadata declares the MIT license. See
+/// `THIRD_PARTY_NOTICES.md` for the full license text we rely on.
 /// You can build this through [`InputBamBuilder`].
 /// In CLI mode, `clap` populates this struct.
 /// This and the [`InputMods`] struct are used to set almost all input options
@@ -940,7 +943,6 @@ mod input_mods_required_tag_tests {
 mod input_bam_tests {
     use super::*;
     use bedrs::Coordinates as _;
-    use indoc::indoc;
 
     #[test]
     fn input_bam_is_full_overlap() {
@@ -984,8 +986,13 @@ mod input_bam_tests {
     fn input_bam_convert_region_to_bed3_none() {
         let mut input_bam = InputBam::default();
 
-        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
-        @SQ\tSN:chr1\tLN:248956422\n"});
+        let header_view = bam::HeaderView::from_bytes(
+            concat!(
+                "@HD\tVN:1.6\tSO:coordinate\n",
+                "@SQ\tSN:chr1\tLN:248956422\n"
+            )
+            .as_bytes(),
+        );
 
         input_bam.convert_region_to_bed3(header_view).unwrap();
         assert!(input_bam.region_bed3.is_none());
@@ -998,9 +1005,14 @@ mod input_bam_tests {
             ..Default::default()
         };
 
-        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
-                @SQ\tSN:chr1\tLN:3000
-                @SQ\tSN:chr2\tLN:4000\n"});
+        let header_view = bam::HeaderView::from_bytes(
+            concat!(
+                "@HD\tVN:1.6\tSO:coordinate\n",
+                "@SQ\tSN:chr1\tLN:3000\n",
+                "@SQ\tSN:chr2\tLN:4000\n"
+            )
+            .as_bytes(),
+        );
 
         input_bam.convert_region_to_bed3(header_view).unwrap();
         assert!(input_bam.region_bed3.is_some());
@@ -1018,9 +1030,14 @@ mod input_bam_tests {
             region: Some(GenomicRegion::from_str("chr2:4400-4600").expect("no error")),
             ..Default::default()
         };
-        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
-                @SQ\tSN:chr1\tLN:3000
-                @SQ\tSN:chr2\tLN:4000\n"});
+        let header_view = bam::HeaderView::from_bytes(
+            concat!(
+                "@HD\tVN:1.6\tSO:coordinate\n",
+                "@SQ\tSN:chr1\tLN:3000\n",
+                "@SQ\tSN:chr2\tLN:4000\n"
+            )
+            .as_bytes(),
+        );
 
         input_bam.convert_region_to_bed3(header_view).unwrap();
     }
@@ -1032,9 +1049,14 @@ mod input_bam_tests {
             region: Some(GenomicRegion::from_str("chr2:4600-").expect("no error")),
             ..Default::default()
         };
-        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
-                @SQ\tSN:chr1\tLN:3000
-                @SQ\tSN:chr2\tLN:4000\n"});
+        let header_view = bam::HeaderView::from_bytes(
+            concat!(
+                "@HD\tVN:1.6\tSO:coordinate\n",
+                "@SQ\tSN:chr1\tLN:3000\n",
+                "@SQ\tSN:chr2\tLN:4000\n"
+            )
+            .as_bytes(),
+        );
 
         input_bam.convert_region_to_bed3(header_view).unwrap();
     }
@@ -1046,9 +1068,14 @@ mod input_bam_tests {
             region: Some(GenomicRegion::from_str("chr3:1000-2000").expect("no error")),
             ..Default::default()
         };
-        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
-                @SQ\tSN:chr1\tLN:3000
-                @SQ\tSN:chr2\tLN:4000\n"});
+        let header_view = bam::HeaderView::from_bytes(
+            concat!(
+                "@HD\tVN:1.6\tSO:coordinate\n",
+                "@SQ\tSN:chr1\tLN:3000\n",
+                "@SQ\tSN:chr2\tLN:4000\n"
+            )
+            .as_bytes(),
+        );
 
         input_bam.convert_region_to_bed3(header_view).unwrap();
     }
@@ -1062,9 +1089,14 @@ mod input_bam_tests {
             ..Default::default()
         };
 
-        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
-                @SQ\tSN:chr1\tLN:3000
-                @SQ\tSN:chr2\tLN:4000\n"});
+        let header_view = bam::HeaderView::from_bytes(
+            concat!(
+                "@HD\tVN:1.6\tSO:coordinate\n",
+                "@SQ\tSN:chr1\tLN:3000\n",
+                "@SQ\tSN:chr2\tLN:4000\n"
+            )
+            .as_bytes(),
+        );
 
         input_bam.convert_region_to_bed3(header_view).unwrap();
 
@@ -1086,9 +1118,14 @@ mod input_bam_tests {
             ..Default::default()
         };
 
-        let header_view = bam::HeaderView::from_bytes(indoc! {b"@HD\tVN:1.6\tSO:coordinate
-                @SQ\tSN:chr1\tLN:3000
-                @SQ\tSN:chr2\tLN:4000\n"});
+        let header_view = bam::HeaderView::from_bytes(
+            concat!(
+                "@HD\tVN:1.6\tSO:coordinate\n",
+                "@SQ\tSN:chr1\tLN:3000\n",
+                "@SQ\tSN:chr2\tLN:4000\n"
+            )
+            .as_bytes(),
+        );
 
         input_bam.convert_region_to_bed3(header_view).unwrap();
     }

@@ -2,8 +2,8 @@
 //! `BaseMods` struct into essentially an array of length = sequence length where every
 //! entry is a `Vec` of `u8` containing modification probability per mod.
 
+use crate::BaseMods;
 use crate::{Error, ModChar};
-use fibertools_rs::utils::basemods::BaseMods;
 
 /// Holds mod calls for every position along a sequence
 /// (irrespective of whether every position has an associated mod call).
@@ -33,8 +33,7 @@ impl SeqCoordCalls {
     ///
     /// ```
     /// # use nanalogue_core::utils::basemods_to_seq_coord_calls::SeqCoordCalls;
-    /// # use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
-    /// # use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
+    /// # use nanalogue_core::{BaseMod, BaseMods, FiberAnnotation, Ranges};
     /// // Given BaseMods with T+ at position 0 (qual=100) and C+m at position 2 (qual=200)
     /// // for a sequence of length 5:
     /// let base_mods = BaseMods {
@@ -102,8 +101,7 @@ impl SeqCoordCalls {
     /// ```
     /// # use nanalogue_core::utils::basemods_to_seq_coord_calls::SeqCoordCalls;
     /// # use nanalogue_core::ModChar;
-    /// # use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
-    /// # use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
+    /// # use nanalogue_core::{BaseMod, BaseMods, FiberAnnotation, Ranges};
     /// // Given BaseMods with T+ and C+m modifications:
     /// let base_mods = BaseMods {
     ///     base_mods: vec![
@@ -165,8 +163,7 @@ impl SeqCoordCalls {
     ///
     /// ```
     /// # use nanalogue_core::utils::basemods_to_seq_coord_calls::SeqCoordCalls;
-    /// # use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
-    /// # use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
+    /// # use nanalogue_core::{BaseMod, BaseMods, FiberAnnotation, Ranges};
     /// // Given BaseMods with T+ at position 0 (qual=100) and C+m at position 2 (qual=200):
     /// let base_mods = BaseMods {
     ///     base_mods: vec![
@@ -239,8 +236,7 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
     ///
     /// ```
     /// # use nanalogue_core::utils::basemods_to_seq_coord_calls::SeqCoordCalls;
-    /// # use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
-    /// # use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
+    /// # use nanalogue_core::{BaseMod, BaseMods, FiberAnnotation, Ranges};
     /// // Create BaseMods with multiple modification types (T+ and C+m):
     /// let base_mods = BaseMods {
     ///     base_mods: vec![
@@ -353,8 +349,8 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
-    use fibertools_rs::utils::basemods::BaseMod;
+
+    use crate::{BaseMod, FiberAnnotation, Ranges};
 
     #[test]
     fn seq_coord_calls_from_basemods_example_1() -> Result<(), Error> {

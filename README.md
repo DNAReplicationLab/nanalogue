@@ -45,6 +45,7 @@ in a BAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
 - [Python wrapper](#python-wrapper)
 - [Contributing](#contributing)
 - [Security](#security)
+- [Third-Party Notices](#third-party-notices)
 - [Changelog](#changelog)
 - [Acknowledgments](#acknowledgments)
 
@@ -163,6 +164,13 @@ cargo install nanalogue --locked
 
 This uses the exact versions of dependencies specified in the package's `Cargo.lock` file,
 and fixes install problems due to newer packages.
+
+If you are building from a Git checkout instead of an installed crate, make sure
+Git submodules are initialized so the vendored HTSlib source is available:
+
+```bash
+git submodule update --init --recursive
+```
 
 ## Using Docker
 
@@ -381,6 +389,14 @@ for guidelines on how to contribute to this project.
 # Security
 
 For security concerns and vulnerability reporting, please see [SECURITY.md](SECURITY.md).
+
+# Third-Party Notices
+
+This repository vendors a small number of third-party crates to keep the build
+reproducible and to work around toolchain-specific issues in the HTSlib Rust
+bindings. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the full
+list of vendored crates, their local paths, their license files, and the patch
+files that show the exact changes from upstream.
 
 # Changelog
 

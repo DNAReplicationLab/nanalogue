@@ -3,10 +3,12 @@
 
 pub mod allowed_agctn;
 pub mod basemods_to_seq_coord_calls;
+pub mod complement;
 pub mod contains;
 pub mod dna_restrictive;
 pub mod f32_abs_val_at_most1;
 pub mod f32_bw0and1;
+pub mod fibertools_types;
 pub mod filter_by_ref_coords;
 pub mod genomic_region;
 pub mod intersects;
@@ -17,14 +19,17 @@ pub mod read_state;
 pub mod read_states;
 pub mod restrict_mod_called_strand;
 pub mod threshold_state;
+pub mod uuid;
 
 // Re-export public utility types and functions to expose the utils API
 pub use allowed_agctn::*;
 pub use basemods_to_seq_coord_calls::*;
+pub use complement::*;
 pub use contains::*;
 pub use dna_restrictive::*;
 pub use f32_abs_val_at_most1::*;
 pub use f32_bw0and1::*;
+pub use fibertools_types::*;
 pub use filter_by_ref_coords::*;
 pub use genomic_region::*;
 pub use intersects::*;

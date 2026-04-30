@@ -37,10 +37,14 @@ mod tests {
     #[test]
     fn set_read_state_example_3() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_3.bam")?;
-        let mut count = 1; // NOTE that we start the counter from 1 here
+        // NOTE that we start the counter from 1 here
         // as reads are called 001, 002, ..., 010 here.
         // so it is easier for us to read code when counter starts from 1.
-        for record in reader.records() {
+        for (count, record) in reader
+            .records()
+            .enumerate()
+            .map(|(count, record)| (count + 1, record))
+        {
             let r = record?;
             let curr_read = CurrRead::default().set_read_state_and_id(&r)?;
             match count {
@@ -52,7 +56,6 @@ mod tests {
                 9 => assert_eq!(curr_read.read_state(), ReadState::SupplementaryRev),
                 _ => unreachable!(),
             }
-            count += 1;
         }
         Ok(())
     }
@@ -869,13 +872,12 @@ mod tests {
 #[cfg(test)]
 mod test_curr_read_align_and_mod_data {
     use super::*;
-    use indoc::indoc;
     use nanalogue_core::read_utils::AlignAndModData;
     use nanalogue_core::{F32Bw0and1, InputWindowing};
 
     #[test]
     fn windowed_mod_data_restricted() -> Result<(), Error> {
-        let input_json = indoc! {r#"
+        let input_json = r#"
             {
               "alignment_type": "primary_forward",
               "alignment": {
@@ -914,7 +916,7 @@ mod test_curr_read_align_and_mod_data {
               ],
               "read_id": "test_read_123",
               "seq_len": 10
-            }"#};
+            }"#;
 
         let curr_read: CurrRead<AlignAndModData> = serde_json::from_str(input_json)?;
         let win_options: InputWindowing = serde_json::from_str(r#"{"win": 3, "step": 2}"#)?;

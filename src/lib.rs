@@ -77,13 +77,7 @@
 //! and exposes them for downstream usage.
 
 use bedrs::{Bed3, Coordinates as _};
-use bio::alphabets::dna::revcomp;
 use bio_types::sequence::SequenceRead as _;
-use fibertools_rs::utils::{
-    bamannotations::{FiberAnnotation, Ranges},
-    basemods::{BaseMod, BaseMods},
-    bio_io::{convert_seq_uppercase, get_u8_tag},
-};
 use rand::random;
 use regex::Regex;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
@@ -123,10 +117,12 @@ pub use simulate_mod_bam::SimulationConfig;
 pub use subcommands::{
     find_modified_reads, peek, read_info, read_stats, reads_table, window_reads,
 };
+pub use utils::uuid;
 pub use utils::{
-    AllowedAGCTN, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1, FilterByRefCoords,
-    GenomicRegion, GetDNARestrictive, Intersects, ModChar, OrdPair, PathOrURLOrStdin, ReadState,
-    ReadStates, RestrictModCalledStrand, SeqCoordCalls, ThresholdState,
+    AllowedAGCTN, BaseMod, BaseMods, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1,
+    FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
+    OrdPair, PathOrURLOrStdin, Ranges, ReadState, ReadStates, RestrictModCalledStrand,
+    SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase, get_u8_tag, revcomp,
 };
 
 /// Static initialization guard for SSL certificate configuration.
@@ -171,11 +167,12 @@ pub fn init_ssl_certificates() {
     });
 }
 
-/// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods` Struct.
+/// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods` struct.
 ///
-/// We are copying and modifying code from the fibertools-rs repository
-/// (<https://github.com/fiberseq/fibertools-rs>) which is under the MIT license
-/// (please see their Cargo.toml) to create this function.
+/// Portions of this implementation are adapted from the published crate
+/// `fibertools-rs` v0.8.2 (<https://crates.io/crates/fibertools-rs>), whose
+/// published crate metadata declares the MIT license. See
+/// `THIRD_PARTY_NOTICES.md` for the full license text we rely on.
 ///
 /// # Tag Variant Support
 ///
@@ -204,10 +201,8 @@ pub fn init_ssl_certificates() {
 /// We are using an example mod BAM file which has very short reads and very few
 /// modified positions, and just examining two reads in it below.
 /// ```
-/// use nanalogue_core::{Error, nanalogue_bam_reader, nanalogue_mm_ml_parser};
+/// use nanalogue_core::{BaseMod, BaseMods, Error, FiberAnnotation, nanalogue_bam_reader, nanalogue_mm_ml_parser, Ranges};
 /// use rust_htslib::bam::Read;
-/// use fibertools_rs::utils::basemods::{BaseMods, BaseMod};
-/// use fibertools_rs::utils::bamannotations::{FiberAnnotation, Ranges};
 /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
 /// let mut count = 0;
 /// for record in reader.records(){
@@ -459,8 +454,7 @@ when usize is 64-bit as genomic sequences are not that long"
                     && (min_qual > 0).then(|| {
                         base_qual
                             .get(cur_seq_idx)
-                            .filter(|&x| *x >= min_qual && *x != 255u8)
-                            .is_some()
+                            .is_some_and(|x| *x >= min_qual && *x != 255u8)
                     }) != Some(false);
                 if cur_mod_idx < mod_dists.len()
                     && dist_from_last_mod_base
@@ -1584,6 +1578,8 @@ mod bam_rc_record_tests {
                 &vec![50; seq_len],
             );
             record.unset_flags();
+            record.set_tid(0);
+            record.set_pos(0);
             record.set_flags(loop {
                 let random_state: ReadState = random();
                 match random_state {
@@ -1715,6 +1711,7 @@ mod bam_rc_record_tests {
             );
 
             // Set tid and position, contig chosen from a random set of two.
+            record.unset_unmapped();
             let tid = i32::from(random::<bool>());
             record.set_tid(tid);
             record.set_pos(i64::try_from(start_pos).unwrap());

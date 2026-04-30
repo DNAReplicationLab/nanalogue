@@ -1,0 +1,80 @@
+//! DNA complement and reverse-complement helpers.
+//!
+//! This module includes code adapted from the `bio` crate's DNA alphabet
+//! utilities. See `THIRD_PARTY_NOTICES.md` for the upstream license text.
+
+use std::array;
+use std::borrow::Borrow;
+use std::sync::LazyLock;
+
+/// Complement lookup table adapted from the `bio` crate's DNA alphabet helpers.
+static COMPLEMENT: LazyLock<[u8; 256]> = LazyLock::new(|| {
+    let mut comp = array::from_fn(|v| u8::try_from(v).expect("array indices 0..=255 fit in u8"));
+    b"AGCTYRWSKMDVHBN"
+        .iter()
+        .zip(b"TCGARYWSMKHBDVN".iter())
+        .for_each(|(&a, &b)| {
+            *comp
+                .get_mut(a as usize)
+                .expect("ASCII nucleotide bytes are valid lookup indices") = b;
+            *comp
+                .get_mut(a as usize + 32)
+                .expect("ASCII lowercase nucleotide bytes are valid lookup indices") = b + 32;
+        });
+    comp
+});
+
+/// Return the DNA complement of a byte while preserving `bio`'s permissive behavior.
+///
+/// Unknown bytes are returned unchanged. IUPAC ambiguity codes and lowercase
+/// bases are supported.
+///
+/// # Panics
+///
+/// Panics only if a `u8` fails to index the 256-byte lookup table, which is
+/// impossible.
+#[inline]
+#[must_use]
+pub fn complement(a: u8) -> u8 {
+    COMPLEMENT
+        .get(a as usize)
+        .copied()
+        .expect("u8 values always index into the 256-byte complement table")
+}
+
+/// Return the reverse complement of an input byte sequence.
+#[must_use]
+pub fn revcomp<C, T>(text: T) -> Vec<u8>
+where
+    C: Borrow<u8>,
+    T: IntoIterator<Item = C>,
+    T::IntoIter: DoubleEndedIterator,
+{
+    text.into_iter()
+        .rev()
+        .map(|a| complement(*a.borrow()))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn complement_preserves_iupac_behavior() {
+        assert_eq!(complement(b'A'), b'T');
+        assert_eq!(complement(b'c'), b'g');
+        assert_eq!(complement(b'N'), b'N');
+        assert_eq!(complement(b'Y'), b'R');
+        assert_eq!(complement(b's'), b's');
+        assert_eq!(complement(b'='), b'=');
+        assert_eq!(complement(b'X'), b'X');
+    }
+
+    #[test]
+    fn revcomp_preserves_iupac_behavior() {
+        assert_eq!(revcomp(b"ACGTN"), b"NACGT");
+        assert_eq!(revcomp(b"GaTtaCA"), b"TGtaAtC");
+        assert_eq!(revcomp(b"AGCTYRWSKMDVHBN"), b"NVDBHKMSWYRAGCT");
+    }
+}

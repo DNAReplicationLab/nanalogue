@@ -1,29 +1,43 @@
 name: Build Docker Image (ARM64)
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:  # Manual triggering
   workflow_call:      # Allow being called by other workflows
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build_docker_image_arm64:
     name: Build Docker image (ARM64)
     runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
 
       - name: Set up Docker Buildx
         run: |
           docker buildx create --use --name builder --driver docker-container
 
       - name: Build Docker image
+        env:
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           docker buildx build \
             --platform linux/arm64 \
             --build-arg RUST_TARGET=aarch64-unknown-linux-musl \
             --tag nanalogue:latest \
-            --tag nanalogue:${{ github.sha }} \
+            --tag nanalogue:"$IMAGE_TAG" \
             --load \
             .
 
@@ -38,7 +52,7 @@ jobs:
           docker save nanalogue:latest | gzip > dist/nanalogue-docker-image-arm64.tar.gz
 
       - name: Upload Docker image artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-image-arm64
           path: dist/nanalogue-docker-image-arm64.tar.gz

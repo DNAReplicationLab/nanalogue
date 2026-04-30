@@ -3,6 +3,7 @@
 
 use crate::Error;
 use rand::Rng;
+use rand::RngExt as _;
 use rand::distr::{Distribution, StandardUniform};
 use serde::{Deserialize, Serialize};
 use std::fmt;

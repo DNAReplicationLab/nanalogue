@@ -1,6 +1,13 @@
 # Orchestrator workflow that builds all artifacts and uploads them to a GitHub release
 name: Release
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   release:
     types: [published]
@@ -11,7 +18,10 @@ jobs:
     name: Verify version matches release tag
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
       - name: Install yq
         run: sudo snap install yq
       - name: Check versions match tag
@@ -52,10 +62,10 @@ jobs:
     needs: [build-binaries, build-docker-amd64, build-docker-arm64]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Required to upload release assets to the GitHub release.
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           path: artifacts
 
@@ -90,16 +100,17 @@ jobs:
 
       - name: Upload artifacts to release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release-zips/*.zip
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$TAG" release-zips/*.zip --clobber
 
   test-install-script:
     name: Test install script
     needs: [upload-to-release]
     if: github.event_name == 'release'
     uses: ./.github/workflows/test-install-script.yml
-    secrets: inherit
 
   push-docker-images:
     name: Push Docker images
@@ -109,7 +120,6 @@ jobs:
     with:
       tag: ${{ github.event.release.tag_name }}
       dry_run: false
-    secrets: inherit
 
   publish-crates:
     name: Publish to crates.io
@@ -118,4 +128,3 @@ jobs:
     uses: ./.github/workflows/publish-crates.yml
     with:
       dry_run: false
-    secrets: inherit
