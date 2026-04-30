@@ -6,7 +6,8 @@ This project includes code adapted from third-party open source software.
 
 Two crates are vendored locally to keep the build reproducible and to avoid
 regenerating incompatible HTSlib bindings with the current toolchain. The
-exact deltas from upstream are recorded in `third_party/patches/`:
+HTSlib source tree is kept as a Git submodule so its provenance is explicit.
+The exact deltas from upstream are recorded in `third_party/patches/`:
 
 - `third_party/patches/hts-sys-2.2.0.patch`
 - `third_party/patches/rust-htslib-1.0.0.patch`
@@ -15,6 +16,8 @@ The vendored crates are:
 
 - `hts-sys` v2.2.0
   - Local path: `vendor/hts-sys-2.2.0/`
+  - Bundled HTSlib submodule path: `vendor/hts-sys-2.2.0/htslib/`
+  - HTSlib commit pinned by the submodule: `6a7d33abc6cae840023868ccdd946d0d8759f259` (HTSlib 1.19.1)
 - `rust-htslib` v1.0.0
   - Local path: `vendor/rust-htslib-1.0.0/`
 
@@ -27,6 +30,10 @@ The respective license files are stored under each vendored crate directory:
 
 - `vendor/hts-sys-2.2.0/LICENSE.md`
 - `vendor/rust-htslib-1.0.0/LICENSE.md`
+
+The HTSlib submodule also carries its upstream license in:
+
+- `vendor/hts-sys-2.2.0/htslib/LICENSE`
 
 ## fibertools-rs
 

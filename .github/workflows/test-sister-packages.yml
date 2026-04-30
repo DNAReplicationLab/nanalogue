@@ -50,6 +50,7 @@ jobs:
         with:
           repository: DNAReplicationLab/pynanalogue
           persist-credentials: false
+          submodules: recursive
 
       - name: Setup Rust
         run: |
@@ -121,6 +122,7 @@ jobs:
         with:
           repository: sathish-t/nanalogue-node
           persist-credentials: false
+          submodules: recursive
 
       - name: Setup Rust
         run: |

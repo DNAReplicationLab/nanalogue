@@ -165,6 +165,13 @@ cargo install nanalogue --locked
 This uses the exact versions of dependencies specified in the package's `Cargo.lock` file,
 and fixes install problems due to newer packages.
 
+If you are building from a Git checkout instead of an installed crate, make sure
+Git submodules are initialized so the vendored HTSlib source is available:
+
+```bash
+git submodule update --init --recursive
+```
+
 ## Using Docker
 
 You can also use `nanalogue` via Docker. On some systems you may need to use `sudo docker`.
