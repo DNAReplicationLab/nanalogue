@@ -1,0 +1,143 @@
+--- a/vendor/rust-htslib-1.0.0/src/bam/record.rs
++++ b/vendor/rust-htslib-1.0.0/src/bam/record.rs
+@@ -160,10 +160,14 @@
+         sam_copy.extend(sam);
+         sam_copy.push(0);
+ 
++        let sam_copy_len: u64 = sam_copy
++            .len()
++            .try_into()
++            .expect("SAM record length must fit into u64");
+         let mut sam_string = htslib::kstring_t {
+             s: sam_copy.as_ptr() as *mut c_char,
+-            l: sam_copy.len(),
+-            m: sam_copy.len(),
++            l: sam_copy_len,
++            m: sam_copy_len,
+         };
+ 
+         let succ = unsafe {
+@@ -296,12 +300,12 @@
+ 
+     /// Get insert size.
+     pub fn insert_size(&self) -> i64 {
+-        self.inner().core.isize_
++        self.inner().core.isize
+     }
+ 
+     /// Set insert size.
+     pub fn set_insert_size(&mut self, insert_size: i64) {
+-        self.inner_mut().core.isize_ = insert_size;
++        self.inner_mut().core.isize = insert_size;
+     }
+ 
+     fn qname_capacity(&self) -> usize {
+--- a/vendor/rust-htslib-1.0.0/src/bam/mod.rs
++++ b/vendor/rust-htslib-1.0.0/src/bam/mod.rs
+@@ -1119,10 +1119,17 @@
+             );
+ 
+             //println!("{}", str::from_utf8(&header_string).unwrap());
+-            let rec = htslib::sam_hdr_parse(l_text + 1, text as *const c_char);
++            let rec = htslib::sam_hdr_parse(
++                (l_text + 1)
++                    .try_into()
++                    .expect("header length must fit into u64"),
++                text as *const c_char,
++            );
+ 
+             (*rec).text = text as *mut c_char;
+-            (*rec).l_text = l_text;
++            (*rec).l_text = l_text
++                .try_into()
++                .expect("header length must fit into u64");
+             rec
+         };
+ 
+@@ -1389,9 +1396,16 @@
+                 header_string.len(),
+             );
+ 
+-            let rec = htslib::sam_hdr_parse(l_text + 1, text as *const c_char);
++            let rec = htslib::sam_hdr_parse(
++                (l_text + 1)
++                    .try_into()
++                    .expect("header length must fit into u64"),
++                text as *const c_char,
++            );
+             (*rec).text = text as *mut c_char;
+-            (*rec).l_text = l_text;
++            (*rec).l_text = l_text
++                .try_into()
++                .expect("header length must fit into u64");
+             rec
+         };
+ 
+--- a/vendor/rust-htslib-1.0.0/src/bcf/record.rs
++++ b/vendor/rust-htslib-1.0.0/src/bcf/record.rs
+@@ -4,6 +4,7 @@
+ // except according to those terms.
+ 
+ use std::borrow::{Borrow, BorrowMut};
++use std::convert::TryInto;
+ use std::fmt;
+ use std::marker::PhantomData;
+ use std::ops::Deref;
+@@ -1093,7 +1094,14 @@
+     }
+ 
+     pub fn remove_alleles(&mut self, remove: &[bool]) -> Result<()> {
+-        let rm_set = unsafe { htslib::kbs_init(remove.len()) };
++        let rm_set = unsafe {
++            htslib::kbs_init(
++                remove
++                    .len()
++                    .try_into()
++                    .expect("bitset size must fit into u64"),
++            )
++        };
+ 
+         for (i, &r) in remove.iter().enumerate() {
+             if r {
+--- a/vendor/rust-htslib-1.0.0/src/bgzf/mod.rs
++++ b/vendor/rust-htslib-1.0.0/src/bgzf/mod.rs
+@@ -7,6 +7,7 @@
+ //! Module for working with bgzipped file.
+ //!
+ 
++use std::convert::TryInto;
+ use std::ffi;
+ use std::path::Path;
+ use url::Url;
+@@ -118,7 +119,13 @@
+ impl std::io::Read for Reader {
+     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+         let nbytes = unsafe {
+-            htslib::bgzf_read(self.inner, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
++            htslib::bgzf_read(
++                self.inner,
++                buf.as_mut_ptr() as *mut libc::c_void,
++                buf.len()
++                    .try_into()
++                    .expect("buffer length must fit into u64"),
++            )
+         };
+         if nbytes < 0 {
+             Err(std::io::Error::other("Can not read"))
+@@ -263,7 +270,15 @@
+ impl std::io::Write for Writer {
+     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+         let nbytes =
+-            unsafe { htslib::bgzf_write(self.inner, buf.as_ptr() as *mut libc::c_void, buf.len()) };
++            unsafe {
++                htslib::bgzf_write(
++                    self.inner,
++                    buf.as_ptr() as *mut libc::c_void,
++                    buf.len()
++                        .try_into()
++                        .expect("buffer length must fit into u64"),
++                )
++            };
+         if nbytes < 0 {
+             Err(std::io::Error::other("Can not write"))
+         } else {

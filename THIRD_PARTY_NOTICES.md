@@ -2,6 +2,32 @@
 
 This project includes code adapted from third-party open source software.
 
+## Vendored HTSlib-related crates
+
+Two crates are vendored locally to keep the build reproducible and to avoid
+regenerating incompatible HTSlib bindings with the current toolchain. The
+exact deltas from upstream are recorded in `third_party/patches/`:
+
+- `third_party/patches/hts-sys-2.2.0.patch`
+- `third_party/patches/rust-htslib-1.0.0.patch`
+
+The vendored crates are:
+
+- `hts-sys` v2.2.0
+  - Local path: `vendor/hts-sys-2.2.0/`
+- `rust-htslib` v1.0.0
+  - Local path: `vendor/rust-htslib-1.0.0/`
+
+These crates are vendored because the current Rust/clang/libclang environment
+produces bindings that are not compatible with upstream `rust-htslib` as
+published on crates.io. The vendored copies pin the known-good prebuilt
+bindings path and the small compatibility fixes required for this repository.
+
+The respective license files are stored under each vendored crate directory:
+
+- `vendor/hts-sys-2.2.0/LICENSE.md`
+- `vendor/rust-htslib-1.0.0/LICENSE.md`
+
 ## fibertools-rs
 
 Portions of this project are adapted from the published crate `fibertools-rs` v0.8.2.
