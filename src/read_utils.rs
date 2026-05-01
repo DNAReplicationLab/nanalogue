@@ -906,12 +906,14 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         // Initialize coord calculation.
         // We don't know how long the subset will be, we initialize with a guess
         // of 2 * interval size
-        #[expect(
-            clippy::arithmetic_side_effects,
-            reason = "genomic coordinates far less than i64::MAX (approx (2^64-1)/2)"
-        )]
-        let mut s: Vec<Option<(bool, usize)>> =
-            Vec::with_capacity(usize::try_from(2 * (interval.end - interval.start))?);
+        let window_size = interval
+            .end
+            .checked_sub(interval.start)
+            .ok_or_else(|| Error::Arithmetic(String::from("interval end before start")))?;
+        let s_capacity = window_size
+            .checked_mul(2)
+            .ok_or_else(|| Error::Arithmetic(String::from("interval size overflow")))?;
+        let mut s: Vec<Option<(bool, usize)>> = Vec::with_capacity(usize::try_from(s_capacity)?);
 
         // we may have to trim the sequence if we hit a bunch of unaligned base
         // pairs right at the end e.g. a softclip.
@@ -1844,17 +1846,15 @@ impl TryFrom<CurrRead<AlignAndModData>> for CurrReadBuilder {
     fn try_from(curr_read: CurrRead<AlignAndModData>) -> Result<Self, Self::Error> {
         let alignment_type = curr_read.read_state();
 
-        #[expect(
-            clippy::arithmetic_side_effects,
-            reason = "u64 variables won't overflow with genomic coords (<2^64-1)"
-        )]
         let alignment = if curr_read.read_state().is_unmapped() {
             None
         } else {
             let (contig_id, start) = curr_read.contig_id_and_start()?;
             let align_len = curr_read.align_len()?;
             let contig = curr_read.contig_name()?.to_string();
-            let end = start + align_len;
+            let end = start
+                .checked_add(align_len)
+                .ok_or_else(|| Error::InvalidAlignCoords(String::from("alignment end overflow")))?;
 
             Some(AlignmentInfo {
                 start,
@@ -1997,10 +1997,6 @@ fn reconstruct_base_mods(
             let mut annotations = Vec::<FiberAnnotation>::with_capacity(entry.data.len());
             let mut valid_range = 0..seq_len;
 
-            #[expect(
-                clippy::arithmetic_side_effects,
-                reason = "overflow errors not possible: seq_len validated to fit i64 above, and genomic coordinates << 2^63"
-            )]
             for &(start, ref_start, qual) in &entry.data {
                 // Check that sequence coordinates are in range [prev_start + 1, seq_len)
                 if !valid_range.contains(&start) {
@@ -2009,7 +2005,9 @@ fn reconstruct_base_mods(
 ascending needed even if reversed read)!",
                     )));
                 }
-                valid_range = start + 1..seq_len;
+                valid_range = start.checked_add(1).ok_or_else(|| {
+                    Error::InvalidModCoords(String::from("read coordinate overflow"))
+                })?..seq_len;
 
                 let ref_start_after_check = match (ref_start, ref_range.contains(&ref_start)) {
                     (-1, _) => None,
@@ -2175,10 +2173,6 @@ ascending needed even if reversed read)!",
 /// # Errors
 /// Returns nanalogue `Error` if `DataFrame` construction fails or if
 /// data extraction from `CurrRead` fails
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "start + alen cannot overflow as genomic coordinates are far below u64::MAX"
-)]
 pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<DataFrame, Error> {
     // Vectors to hold column data
     let mut read_ids: Vec<String> = Vec::new();
@@ -2218,7 +2212,11 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
                 (
                     Some(cid),
                     Some(start),
-                    Some(start + alen),
+                    Some(
+                        start
+                            .checked_add(alen)
+                            .ok_or(Error::Arithmetic("alignment end overflow".to_owned()))?,
+                    ),
                     Some(cname.to_string()),
                 )
             } else {
@@ -2280,6 +2278,7 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
 #[cfg(test)]
 mod test_error_handling {
     use super::*;
+    use std::marker::PhantomData;
 
     #[test]
     fn set_read_state_not_implemented_error() {
@@ -2358,6 +2357,24 @@ mod test_error_handling {
 
         // This should succeed since all combinations are unique
         let _: BaseMods = reconstruct_base_mods(&mod_entries, false, 0..i64::MAX, 10).unwrap();
+    }
+
+    #[test]
+    fn curr_reads_to_dataframe_alignment_end_overflow_errors() {
+        let curr_read = CurrRead {
+            state: ReadState::PrimaryFwd,
+            read_id: "overflow_read".to_owned(),
+            seq_len: Some(1),
+            align_len: Some(1),
+            mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
+            contig_id_and_start: Some((0, u64::MAX)),
+            contig_name: Some("chr1".to_owned()),
+            mod_base_qual_thres: 0,
+            marker: PhantomData,
+        };
+
+        let err = curr_reads_to_dataframe(&[curr_read]).unwrap_err();
+        assert!(matches!(err, Error::Arithmetic(_)));
     }
 }
 

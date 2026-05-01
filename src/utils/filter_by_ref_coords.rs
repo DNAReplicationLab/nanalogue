@@ -44,10 +44,6 @@ impl WindowState {
 
     /// Intersects with a genomic region
     #[must_use]
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "genomic coords << 2^64, so overflow on `lo + 1` unlikely"
-    )]
     pub fn intersects(&self, interval: OrdPair<u64>) -> bool {
         match *self {
             WindowState(None) => false,
@@ -61,7 +57,7 @@ impl WindowState {
                 let lo = v.low();
                 let hi = v.high();
 
-                (interval.low()..interval.high()).intersects(&(lo..max(lo + 1, hi)))
+                (interval.low()..interval.high()).intersects(&(lo..max(lo.saturating_add(1), hi)))
             }
         }
     }
@@ -823,6 +819,14 @@ mod window_state_tests {
         // 0-bp window at position 15 should be treated as 1-bp window [15, 16)
         let ws = WindowState::new(Some(15), Some(15)).unwrap();
         let interval = OrdPair::new(20, 30).unwrap();
+        assert!(!ws.intersects(interval));
+    }
+
+    /// Tests `WindowState::intersects` does not panic at `u64::MAX`
+    #[test]
+    fn window_state_intersects_u64_max_zero_bp_window() {
+        let ws = WindowState(Some(OrdPair::new(u64::MAX, u64::MAX).unwrap()));
+        let interval = OrdPair::new(u64::MAX - 1, u64::MAX).unwrap();
         assert!(!ws.intersects(interval));
     }
 
