@@ -1237,6 +1237,8 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 
 /// Generates reads that align to contigs
 ///
+/// Generates simulated reads from contigs using the provided configuration.
+///
 /// # Example
 ///
 /// Here we generate a contig, specify read properties, and ask for them to be generated.
@@ -1272,7 +1274,6 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 /// if parameters are such that zero read lengths are produced,
 /// or if BAM record creation fails, such as when making RG, MM, or ML tags.
 #[expect(
-    clippy::missing_panics_doc,
     clippy::too_many_lines,
     reason = "number conversion errors or mis-generation of DNA bases are unlikely \
     as we generate DNA sequences ourselves here, and genomic data are unlikely \
@@ -1297,10 +1298,14 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
     for _ in 0..read_config.number.get() {
         // Select a random contig
         let contig_idx = rng.random_range(0..contigs.len());
-        let contig = contigs
-            .get(contig_idx)
-            .expect("contig_idx is within contigs range");
-        let contig_len = contig.get_dna_restrictive().get().len() as u64;
+        let contig = contigs.get(contig_idx).ok_or_else(|| {
+            Error::InvalidState(format!(
+                "random contig index {contig_idx} out of bounds for {} contigs",
+                contigs.len()
+            ))
+        })?;
+        let contig_seq = contig.get_dna_restrictive().get();
+        let contig_len = contig_seq.len();
 
         // Calculate read length as fraction of contig length
         #[expect(
@@ -1314,7 +1319,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
         let read_len = ((rng
             .random_range(read_config.len_range.low().val()..=read_config.len_range.high().val())
             * contig_len as f32)
-            .trunc() as u64)
+            .trunc() as usize)
             .min(contig_len);
 
         // Set starting position
@@ -1322,15 +1327,19 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 
         // Extract sequence from contig
         let random_state: ReadState = rng.random();
-        let end_pos = usize::try_from(start_pos.checked_add(read_len).expect("u64 overflow"))
-            .expect("number conversion error");
+        let end_pos = start_pos.checked_add(read_len).ok_or_else(|| {
+            Error::Arithmetic(format!(
+                "start position {start_pos} plus read length {read_len} overflows usize"
+            ))
+        })?;
         let (read_seq, cigar) = {
-            let start_idx = usize::try_from(start_pos).expect("number conversion error");
-            let temp_seq = contig
-                .get_dna_restrictive()
-                .get()
-                .get(start_idx..end_pos)
-                .expect("start_idx and end_pos are within contig bounds")
+            let temp_seq = contig_seq
+                .get(start_pos..end_pos)
+                .ok_or_else(|| {
+                    Error::InvalidState(format!(
+                        "generated read slice {start_pos}..{end_pos} out of bounds for contig length {contig_len}"
+                    ))
+                })?
                 .to_vec();
             let mut builder = PerfectSeqMatchToNot::seq(temp_seq)?;
             if let Some(barcode) = read_config.barcode.clone() {
@@ -1361,15 +1370,18 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             &read_config.mods,
             match random_state.strand() {
                 '.' | '+' => {
-                    seq = DNARestrictive::from_str(str::from_utf8(&read_seq).expect("no error"))
-                        .expect("no error");
+                    let read_seq_str = str::from_utf8(&read_seq).map_err(|_err| {
+                        Error::InvalidSeq("generated sequence was not valid UTF-8".to_owned())
+                    })?;
+                    seq = DNARestrictive::from_str(read_seq_str)?;
                     &seq
                 }
                 '-' => {
-                    seq = DNARestrictive::from_str(
-                        str::from_utf8(&revcomp(&read_seq)).expect("no error"),
-                    )
-                    .expect("no error");
+                    let revcomp_seq = revcomp(&read_seq);
+                    let revcomp_seq_str = str::from_utf8(&revcomp_seq).map_err(|_err| {
+                        Error::InvalidSeq("generated sequence was not valid UTF-8".to_owned())
+                    })?;
+                    seq = DNARestrictive::from_str(revcomp_seq_str)?;
                     &seq
                 }
                 _ => unreachable!("`strand` is supposed to return one of +/-/."),
@@ -1397,8 +1409,14 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
                 let mapq = rng.random_range(RangeInclusive::from(read_config.mapq_range));
                 record.set(&qname, cigar.as_ref(), &read_seq, &qual);
                 record.set_mapq(mapq);
-                record.set_tid(i32::try_from(contig_idx).expect("number conversion error"));
-                record.set_pos(i64::try_from(start_pos).expect("number conversion error"));
+                record.set_tid(i32::try_from(contig_idx).map_err(|_err| {
+                    Error::InvalidState(format!(
+                        "random contig index {contig_idx} exceeds i32 capacity"
+                    ))
+                })?);
+                record.set_pos(i64::try_from(start_pos).map_err(|_err| {
+                    Error::InvalidState(format!("start position {start_pos} exceeds i64 capacity"))
+                })?);
             }
             record.set_mpos(-1);
             record.set_mtid(-1);

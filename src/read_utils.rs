@@ -886,18 +886,29 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         record: &Record,
         region: &Bed3<i32, u64>,
     ) -> Result<Vec<Option<(bool, usize)>>, Error> {
-        #[expect(
-            clippy::missing_panics_doc,
-            reason = "genomic coordinates are far less than (2^64-1)/2 i.e. u64->i64 should be ok"
-        )]
         let interval = {
-            region
-                .intersect(&StrandedBed3::<i32, u64>::try_from(self)?)
-                .and_then(|v| {
-                    let start = i64::try_from(v.start()).expect("genomic coordinates << 2^63");
-                    let end = i64::try_from(v.end()).expect("genomic coordinates << 2^63");
-                    (start < end).then_some(start..end)
-                })
+            let intersected_region = region.intersect(&StrandedBed3::<i32, u64>::try_from(self)?);
+            let Some(v) = intersected_region else {
+                return Err(Error::UnavailableData(
+                    "coord-retrieval: region does not intersect with read".to_owned(),
+                ));
+            };
+            let start = i64::try_from(v.start()).map_err(|_err| {
+                Error::InvalidAlignCoords(format!(
+                    "coord-retrieval: region start {} exceeds i64 range while intersecting with read_id: {}",
+                    v.start(),
+                    self.read_id()
+                ))
+            })?;
+            let end = i64::try_from(v.end()).map_err(|_err| {
+                Error::InvalidAlignCoords(format!(
+                    "coord-retrieval: region end {} exceeds i64 range while intersecting with read_id: {}",
+                    v.end(),
+                    self.read_id()
+                ))
+            })?;
+            (start < end)
+                .then_some(start..end)
                 .ok_or(Error::UnavailableData(
                     "coord-retrieval: region does not intersect with read".to_owned(),
                 ))
@@ -948,10 +959,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         }
 
         // if last few bp in sequence are all unmapped, we remove them here.
-        for _ in 0..trim_end_bp {
-            let Some(_) = s.pop() else {
-                unreachable!("trim_end_bp cannot exceed length of s")
-            };
+        let trim_end_bp_usize = usize::try_from(trim_end_bp).unwrap_or(usize::MAX);
+        for _ in 0..trim_end_bp_usize.min(s.len()) {
+            let _: Option<Option<(bool, usize)>> = s.pop();
         }
 
         // Trim excess allocated capacity and return
@@ -1033,18 +1043,18 @@ impl CurrRead<OnlyAlignDataComplete> {
     /// # Errors
     /// If a region filter is specified and we fail to convert current instance to Bed,
     /// and if parsing the MM/ML BAM tags fails (presumably because they are malformed).
-    #[expect(
-        clippy::missing_panics_doc,
-        reason = "integer conversions (u64->usize, u64->i64) are expected to not fail as \
-genomic coordinates are far smaller than ~2^63"
-    )]
     pub fn set_mod_data_restricted_options<S: InputModOptions + InputRegionOptions>(
         self,
         record: &Record,
         mod_options: &S,
     ) -> Result<CurrRead<AlignAndModData>, Error> {
-        let l = usize::try_from(self.seq_len().expect("no error"))
-            .expect("bit conversion errors unlikely");
+        let read_id = self.read_id().to_owned();
+        let seq_len = self.seq_len()?;
+        let l = usize::try_from(seq_len).map_err(|_err| {
+            Error::InvalidSeqLength(format!(
+                "sequence length {seq_len} exceeds platform usize capacity, read_id: {read_id}"
+            ))
+        })?;
         let w = mod_options.trim_read_ends_mod();
         let interval = if let Some(bed3) = mod_options.region_filter().as_ref() {
             let stranded_bed3 = StrandedBed3::<i32, u64>::try_from(&self)?;
@@ -1074,10 +1084,18 @@ genomic coordinates are far smaller than ~2^63"
             if let Some(v) = interval {
                 match v.start.cmp(&v.end) {
                     Ordering::Less => read.filter_mods_by_ref_pos(
-                        i64::try_from(v.start)
-                            .expect("no error as genomic coordinates far less than ~2^63"),
-                        i64::try_from(v.end)
-                            .expect("no error as genomic coordinates far less than ~2^63"),
+                        i64::try_from(v.start).map_err(|_err| {
+                            Error::InvalidAlignCoords(format!(
+                                "region start {} exceeds i64 range while filtering read_id: {}",
+                                v.start, read_id
+                            ))
+                        })?,
+                        i64::try_from(v.end).map_err(|_err| {
+                            Error::InvalidAlignCoords(format!(
+                                "region end {} exceeds i64 range while filtering read_id: {}",
+                                v.end, read_id
+                            ))
+                        })?,
                     )?,
                     Ordering::Equal => read.filter_mods_by_ref_pos(i64::MAX - 1, i64::MAX)?,
                     Ordering::Greater => {
@@ -2357,6 +2375,28 @@ mod test_error_handling {
 
         // This should succeed since all combinations are unique
         let _: BaseMods = reconstruct_base_mods(&mod_entries, false, 0..i64::MAX, 10).unwrap();
+    }
+
+    #[test]
+    fn seq_coords_from_ref_coords_overflowing_region_errors() {
+        let curr_read: CurrRead<OnlyAlignDataComplete> = CurrRead {
+            state: ReadState::PrimaryFwd,
+            read_id: "overflow_read".to_owned(),
+            seq_len: Some(1),
+            align_len: Some(1),
+            mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
+            contig_id_and_start: Some((0, i64::MAX as u64)),
+            contig_name: Some("chr1".to_owned()),
+            mod_base_qual_thres: 0,
+            marker: PhantomData,
+        };
+        let record = Record::new();
+        let region = Bed3::new(0, i64::MAX as u64, i64::MAX as u64 + 1);
+
+        let err = curr_read
+            .seq_coords_from_ref_coords(&record, &region)
+            .unwrap_err();
+        assert!(matches!(err, Error::InvalidAlignCoords(_)));
     }
 
     #[test]

@@ -4,7 +4,6 @@
 //! from a BAM file and converts it into a JSON.
 use crate::{CurrRead, Error, InputMods, OptionalTag, ThresholdState};
 use rust_htslib::bam;
-use std::iter;
 use std::rc::Rc;
 
 /// Gets information on reads and prints it to standard output
@@ -12,7 +11,6 @@ use std::rc::Rc;
 ///
 /// # Errors
 /// Returns an error if BAM record reading, parsing, or writing to output fails.
-#[expect(clippy::missing_panics_doc, reason = "no error expected here")]
 pub fn run<W, D>(
     handle: &mut W,
     bam_records: D,
@@ -37,7 +35,7 @@ where
         }
     }
 
-    let mut is_first_record_written = vec![false].into_iter().chain(iter::repeat(true));
+    let mut is_first_record_not_written = true;
 
     write!(handle, "[")?;
 
@@ -45,10 +43,11 @@ where
     for k in bam_records {
         let record = k?;
 
-        if is_first_record_written.next().expect("no error") {
-            writeln!(handle, ",")?;
-        } else {
+        if is_first_record_not_written {
             writeln!(handle)?;
+            is_first_record_not_written = false;
+        } else {
+            writeln!(handle, ",")?;
         }
         let curr_read = CurrRead::default()
             .try_from_only_alignment(&record)?
@@ -76,6 +75,20 @@ mod tests {
     use crate::{InputModsBuilder, OrdPair, nanalogue_bam_reader};
     use rust_htslib::bam::Read as _;
     use serde_json::Value;
+
+    #[test]
+    fn run_with_no_records_outputs_empty_array() -> Result<(), Error> {
+        let mut output_buffer = Vec::new();
+        run(
+            &mut output_buffer,
+            std::iter::empty::<Result<Rc<bam::Record>, rust_htslib::errors::Error>>(),
+            InputMods::default(),
+            None,
+        )?;
+
+        assert_eq!(String::from_utf8(output_buffer)?, "[\n]\n");
+        Ok(())
+    }
 
     #[test]
     fn run_with_example_2_zero_len() -> Result<(), Error> {
