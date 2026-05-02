@@ -2437,6 +2437,7 @@ mod test_error_handling {
         let curr_read: CurrRead<OnlyAlignDataComplete> = CurrRead {
             state: ReadState::PrimaryFwd,
             read_id: "overflow_read".to_owned(),
+            mapq: 255,
             seq_len: Some(1),
             align_len: Some(1),
             mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
@@ -2459,6 +2460,7 @@ mod test_error_handling {
         let curr_read = CurrRead {
             state: ReadState::PrimaryFwd,
             read_id: "overflow_read".to_owned(),
+            mapq: 255,
             seq_len: Some(1),
             align_len: Some(1),
             mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
