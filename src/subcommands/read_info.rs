@@ -112,6 +112,7 @@ mod tests {
                 "reference_start": 23,
                 "reference_end": 71,
                 "alignment_length": 48,
+                "mapq": 255,
                 "alignment_type": "primary_forward",
                 "mod_count": "NA"
             }
@@ -139,6 +140,7 @@ mod tests {
             {
                 "read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
                 "sequence_length": 48,
+                "mapq": 0,
                 "alignment_type": "unmapped",
                 "mod_count": "G-7200:0;T+T:3;(probabilities >= 0.5020, PHRED base qual >= 0)"
             }
@@ -173,6 +175,7 @@ mod tests {
                 "reference_start": 9,
                 "reference_end": 17,
                 "alignment_length": 8,
+                "mapq": 255,
                 "alignment_type": "primary_forward",
                 "mod_count": "T+T:0;(probabilities >= 0.5020, PHRED base qual >= 0)"
             }
@@ -214,6 +217,7 @@ mod tests {
                     "reference_start": 9,
                     "reference_end": 17,
                     "alignment_length": 8,
+                    "mapq": 255,
                     "alignment_type": "primary_forward",
                     "mod_count": "NA"
                 },
@@ -224,6 +228,7 @@ mod tests {
                     "reference_start": 3,
                     "reference_end": 36,
                     "alignment_length": 33,
+                    "mapq": 255,
                     "alignment_type": "primary_reverse",
                     "mod_count": "T+T:1;(probabilities >= 0.5020, PHRED base qual >= 0)"
                 }
@@ -246,6 +251,7 @@ mod tests {
                     "reference_start": 9,
                     "reference_end": 17,
                     "alignment_length": 8,
+                    "mapq": 255,
                     "alignment_type": "primary_forward",
                     "mod_count": "NA"
                 },
@@ -256,6 +262,7 @@ mod tests {
                     "reference_start": 3,
                     "reference_end": 36,
                     "alignment_length": 33,
+                    "mapq": 255,
                     "alignment_type": "primary_reverse",
                     "mod_count": "T+T:0;(probabilities >= 1.0000, PHRED base qual >= 0)"
                 }
@@ -281,6 +288,7 @@ mod tests {
                     "reference_start": 9,
                     "reference_end": 17,
                     "alignment_length": 8,
+                    "mapq": 255,
                     "alignment_type": "primary_forward",
                     "mod_count": "NA"
                 },
@@ -291,6 +299,7 @@ mod tests {
                     "reference_start": 3,
                     "reference_end": 36,
                     "alignment_length": 33,
+                    "mapq": 255,
                     "alignment_type": "primary_reverse",
                     "mod_count": "T+T:1;(probabilities >= 0.5020 and (probabilities < 0.7843 or > 0.8627), PHRED base qual >= 0)"
                 }
@@ -315,6 +324,7 @@ mod tests {
                     "reference_start": 9,
                     "reference_end": 17,
                     "alignment_length": 8,
+                    "mapq": 255,
                     "alignment_type": "primary_forward",
                     "mod_count": "NA"
                 },
@@ -325,6 +335,7 @@ mod tests {
                     "reference_start": 3,
                     "reference_end": 36,
                     "alignment_length": 33,
+                    "mapq": 255,
                     "alignment_type": "primary_reverse",
                     "mod_count": "T+T:1;(probabilities >= 0.5020 and (probabilities < 0.3922 or > 0.4314), PHRED base qual >= 0)"
                 }

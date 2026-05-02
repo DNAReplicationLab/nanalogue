@@ -93,6 +93,9 @@ pub struct CurrRead<S: CurrReadState> {
     /// Read ID of molecule, also called query name in some contexts.
     read_id: String,
 
+    /// Alignment quality / BAM MAPQ. A value of 255 indicates unavailable.
+    mapq: u8,
+
     /// Length of the stored sequence in a BAM file. This is usually the basecalled sequence.
     seq_len: Option<u64>,
 
@@ -126,6 +129,7 @@ impl Default for CurrRead<NoData> {
         CurrRead::<NoData> {
             state: ReadState::PrimaryFwd,
             read_id: String::new(),
+            mapq: 255,
             seq_len: None,
             align_len: None,
             mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
@@ -217,6 +221,7 @@ impl CurrRead<NoData> {
         Ok(CurrRead::<OnlyAlignData> {
             state,
             read_id,
+            mapq: record.mapq(),
             seq_len: None,
             align_len: None,
             mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
@@ -295,6 +300,7 @@ impl CurrRead<NoData> {
         let CurrRead::<OnlyAlignData> {
             state,
             read_id,
+            mapq,
             seq_len,
             align_len,
             contig_id_and_start,
@@ -304,6 +310,7 @@ impl CurrRead<NoData> {
         Ok(CurrRead::<OnlyAlignDataComplete> {
             state,
             read_id,
+            mapq,
             seq_len,
             align_len,
             mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
@@ -320,6 +327,11 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     #[must_use]
     pub fn read_state(&self) -> ReadState {
         self.state
+    }
+    /// gets alignment quality / BAM MAPQ
+    #[must_use]
+    pub fn mapq(&self) -> u8 {
+        self.mapq
     }
     /// set length of sequence from BAM record
     ///
@@ -989,6 +1001,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         Ok(CurrRead::<AlignAndModData> {
             state: self.state,
             read_id: self.read_id,
+            mapq: self.mapq,
             seq_len: self.seq_len,
             align_len: self.align_len,
             mods: (result, mod_thres),
@@ -1025,6 +1038,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         Ok(CurrRead::<AlignAndModData> {
             state: self.state,
             read_id: self.read_id,
+            mapq: self.mapq,
             seq_len: self.seq_len,
             align_len: self.align_len,
             mods: (result, mod_thres),
@@ -1298,6 +1312,8 @@ where
             writeln!(output_string, "\t\"sequence_length\": {v},")?;
         }
 
+        writeln!(output_string, "\t\"mapq\": {},", self.mapq)?;
+
         if let Some((v, w)) = self.contig_id_and_start {
             let num_str = &v.to_string();
             writeln!(
@@ -1538,6 +1554,7 @@ impl FilterModsByRefCoords for CurrRead<AlignAndModData> {
 /// let read = CurrReadBuilder::default()
 ///     .read_id("some_read".into())
 ///     .seq_len(40)
+///     .mapq(50)
 ///     .alignment_type(ReadState::PrimaryFwd)
 ///     .alignment(AlignmentInfoBuilder::default()
 ///         .start(10)
@@ -1751,6 +1768,8 @@ pub struct CurrReadBuilder {
     mod_table: Vec<ModTableEntry>,
     /// Read identifier
     read_id: String,
+    /// Alignment quality / BAM MAPQ. A value of 255 indicates unavailable.
+    mapq: u8,
     /// Sequence length
     seq_len: u64,
 }
@@ -1762,6 +1781,7 @@ impl Default for CurrReadBuilder {
             alignment: None,
             mod_table: Vec::new(),
             read_id: String::new(),
+            mapq: 255,
             seq_len: 0,
         }
     }
@@ -1831,6 +1851,12 @@ impl CurrReadBuilder {
         self.read_id = value;
         self
     }
+    /// Sets alignment quality / BAM MAPQ
+    #[must_use]
+    pub fn mapq(mut self, value: u8) -> Self {
+        self.mapq = value;
+        self
+    }
     /// Sets sequence length
     #[must_use]
     pub fn seq_len(mut self, value: u64) -> Self {
@@ -1885,6 +1911,7 @@ impl TryFrom<CurrRead<AlignAndModData>> for CurrReadBuilder {
         let mod_table = condense_base_mods(&curr_read.mod_data().0)?;
 
         let read_id = curr_read.read_id().to_string();
+        let mapq = curr_read.mapq();
         let seq_len = curr_read.seq_len()?;
 
         Ok(CurrReadBuilder {
@@ -1892,6 +1919,7 @@ impl TryFrom<CurrRead<AlignAndModData>> for CurrReadBuilder {
             alignment,
             mod_table,
             read_id,
+            mapq,
             seq_len,
         })
     }
@@ -1957,6 +1985,7 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
         Ok(CurrRead {
             state: serialized.alignment_type,
             read_id: serialized.read_id,
+            mapq: serialized.mapq,
             seq_len: Some(serialized.seq_len),
             align_len,
             mods: (base_mods, ThresholdState::GtEq(0)), // Default threshold
@@ -2112,6 +2141,7 @@ ascending needed even if reversed read)!",
 /// let read = CurrReadBuilder::default()
 ///     .read_id("test_read".into())
 ///     .seq_len(40)
+///     .mapq(44)
 ///     .alignment_type(ReadState::PrimaryFwd)
 ///     .alignment(AlignmentInfoBuilder::default()
 ///         .start(10)
@@ -2127,7 +2157,7 @@ ascending needed even if reversed read)!",
 ///
 /// // Verify DataFrame structure
 /// assert_eq!(df.height(), 2); // Two modification data points
-/// assert_eq!(df.width(), 13); // 13 columns
+/// assert_eq!(df.width(), 14); // 14 columns
 ///
 /// // Check read-level fields (repeated across both rows)
 /// let read_id_col = df.column("read_id")?.str()?;
@@ -2137,6 +2167,10 @@ ascending needed even if reversed read)!",
 /// let seq_len_col = df.column("seq_len")?.u64()?;
 /// assert_eq!(seq_len_col.get(0), Some(40));
 /// assert_eq!(seq_len_col.get(1), Some(40));
+///
+/// let mapq_col = df.column("mapq")?.u32()?;
+/// assert_eq!(mapq_col.get(0), Some(44));
+/// assert_eq!(mapq_col.get(1), Some(44));
 ///
 /// let alignment_type_col = df.column("alignment_type")?.str()?;
 /// assert_eq!(alignment_type_col.get(0), Some("primary_forward"));
@@ -2195,6 +2229,7 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
     // Vectors to hold column data
     let mut read_ids: Vec<String> = Vec::new();
     let mut seq_lens: Vec<Option<u64>> = Vec::new();
+    let mut mapqs: Vec<u32> = Vec::new();
     let mut alignment_types: Vec<String> = Vec::new();
 
     // Alignment info columns
@@ -2218,6 +2253,7 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
         // Extract read-level information
         let read_id = read.read_id();
         let seq_len = read.seq_len().ok();
+        let mapq = u32::from(read.mapq());
         let alignment_type = read.read_state();
 
         // Extract alignment information (may be None for unmapped reads)
@@ -2252,6 +2288,7 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
                 // Add read-level fields (repeated)
                 read_ids.push(read_id.to_string());
                 seq_lens.push(seq_len);
+                mapqs.push(mapq);
                 alignment_types.push(alignment_type.to_string());
 
                 // Add alignment fields (repeated, may be None)
@@ -2277,6 +2314,7 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
     let df = df! {
         "read_id" => read_ids,
         "seq_len" => seq_lens,
+        "mapq" => mapqs,
         "alignment_type" => alignment_types,
         "align_start" => align_starts,
         "align_end" => align_ends,
@@ -2291,6 +2329,23 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
     }?;
 
     Ok(df)
+}
+
+#[cfg(test)]
+mod test_defaults {
+    use super::*;
+
+    #[test]
+    fn curr_read_default_mapq_is_255() {
+        let curr_read = CurrRead::<NoData>::default();
+        assert_eq!(curr_read.mapq, 255);
+    }
+
+    #[test]
+    fn curr_read_builder_default_mapq_is_255() {
+        let curr_read_builder = CurrReadBuilder::default();
+        assert_eq!(curr_read_builder.mapq, 255);
+    }
 }
 
 #[cfg(test)]
@@ -2460,6 +2515,7 @@ mod test_serde {
                 }
               ],
               "read_id": "5d10eb9a-aae1-4db8-8ec6-7ebb34d32575",
+              "mapq": 255,
               "seq_len": 8
             }"#;
 
@@ -2571,6 +2627,7 @@ mod test_serde {
                 }
               ],
               "read_id": "a4f36092-b4d5-47a9-813e-c22c3b477a0c",
+              "mapq": 0,
               "seq_len": 48
             }"#;
 
