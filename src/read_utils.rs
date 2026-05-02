@@ -330,7 +330,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     }
     /// gets alignment quality / BAM MAPQ
     #[must_use]
-    pub fn align_qual(&self) -> u8 {
+    pub fn mapq(&self) -> u8 {
         self.mapq
     }
     /// set length of sequence from BAM record
@@ -1894,7 +1894,7 @@ impl TryFrom<CurrRead<AlignAndModData>> for CurrReadBuilder {
         let mod_table = condense_base_mods(&curr_read.mod_data().0)?;
 
         let read_id = curr_read.read_id().to_string();
-        let mapq = curr_read.align_qual();
+        let mapq = curr_read.mapq();
         let seq_len = curr_read.seq_len()?;
 
         Ok(CurrReadBuilder {
@@ -2231,7 +2231,7 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
         // Extract read-level information
         let read_id = read.read_id();
         let seq_len = read.seq_len().ok();
-        let mapq = u32::from(read.align_qual());
+        let mapq = u32::from(read.mapq());
         let alignment_type = read.read_state();
 
         // Extract alignment information (may be None for unmapped reads)
@@ -2303,6 +2303,23 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
     }?;
 
     Ok(df)
+}
+
+#[cfg(test)]
+mod test_defaults {
+    use super::*;
+
+    #[test]
+    fn curr_read_default_mapq_is_255() {
+        let curr_read = CurrRead::<NoData>::default();
+        assert_eq!(curr_read.mapq, 255);
+    }
+
+    #[test]
+    fn curr_read_builder_default_mapq_is_255() {
+        let curr_read_builder = CurrReadBuilder::default();
+        assert_eq!(curr_read_builder.mapq, 255);
+    }
 }
 
 #[cfg(test)]
