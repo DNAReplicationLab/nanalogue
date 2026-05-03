@@ -1,7 +1,7 @@
-//! # Gets information on one read id
+//! # Gets information on read ids
 //!
 //! This module retrieves information about reads
-//! from a BAM file and converts it into a JSON.
+//! from a BAM file and converts it into JSON.
 use crate::{CurrRead, Error, InputMods, OptionalTag, ThresholdState};
 use rust_htslib::bam;
 use std::rc::Rc;
