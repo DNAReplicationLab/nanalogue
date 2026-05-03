@@ -27,7 +27,7 @@ const result = spawnSync(
   [
     '-y',
     '-p',
-    '@mariozechner/pi-coding-agent@0.72.1',
+    '@mariozechner/pi-coding-agent@0.70.2',
     'pi',
     '--mode',
     'json',
