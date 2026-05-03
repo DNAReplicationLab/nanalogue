@@ -19,7 +19,6 @@ jobs:
     environment: weekly-doc-review
     permissions:
       contents: write # required to commit and push the generated review branch
-      pull-requests: write # required to open a pull request for the review findings
 
     steps:
       - name: Checkout repository
@@ -51,22 +50,14 @@ jobs:
             echo "has_changes=false" >>"$GITHUB_OUTPUT"
           fi
 
-      - name: Open pull request when changes exist
+      - name: Push documentation branch when changes exist
         if: steps.changes.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BASE_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
 
-          branch="bot/weekly-doc-review"
-          body_file="/tmp/weekly-doc-review-pr-body.md"
-
-          printf '%s\n' \
-            'Automated weekly documentation review changes.' \
-            '' \
-            'The audit script updated repository files to improve documentation.' \
-            >"$body_file"
+          branch="bot/weekly-doc-review-${GITHUB_RUN_ID}"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -85,17 +76,4 @@ jobs:
           fi
           git commit -m "Updates documentation via weekly audit"
           gh auth setup-git
-          git push --force-with-lease --set-upstream origin "$branch"
-
-          pr_number="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
-          if [ -n "$pr_number" ]; then
-            gh pr edit "$pr_number" \
-              --title "docs: weekly documentation audit" \
-              --body-file "$body_file"
-          else
-            gh pr create \
-              --title "docs: weekly documentation audit" \
-              --body-file "$body_file" \
-              --head "$branch" \
-              --base "$BASE_BRANCH"
-          fi
+          git push --set-upstream origin "$branch"
