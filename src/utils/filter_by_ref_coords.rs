@@ -98,9 +98,7 @@ pub trait FilterModsByRefCoords {
     ///
     /// # Errors
     /// Up to the user to set errors accordingly
-    fn filter_mods_by_ref_pos(&mut self, _: i64, _: i64) -> Result<(), Error> {
-        unimplemented!()
-    }
+    fn filter_mods_by_ref_pos(&mut self, _: i64, _: i64) -> Result<(), Error>;
 }
 
 /// Implements filter by reference coordinates for the Ranges

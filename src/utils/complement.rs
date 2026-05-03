@@ -72,6 +72,16 @@ mod tests {
     }
 
     #[test]
+    fn complement_table_has_all_u8_entries() {
+        let table = &*COMPLEMENT;
+        assert_eq!(table.len(), usize::from(u8::MAX) + 1);
+
+        for byte in u8::MIN..=u8::MAX {
+            assert!(table.get(usize::from(byte)).is_some());
+        }
+    }
+
+    #[test]
     fn revcomp_preserves_iupac_behavior() {
         assert_eq!(revcomp(b"ACGTN"), b"NACGT");
         assert_eq!(revcomp(b"GaTtaCA"), b"TGtaAtC");

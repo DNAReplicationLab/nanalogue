@@ -399,9 +399,7 @@ impl FromStr for RequiredTag {
 /// Trait that returns a modification tag
 pub trait TagState {
     /// Returns the modification tag of the tag state in an option
-    fn tag(&self) -> Option<ModChar> {
-        unimplemented!();
-    }
+    fn tag(&self) -> Option<ModChar>;
 }
 
 impl TagState for OptionalTag {
@@ -619,41 +617,25 @@ impl<S: TagState + Args + FromArgMatches + Default> Default for InputMods<S> {
 /// Retrieves options for modification input
 pub trait InputModOptions {
     /// retrieves tag
-    fn tag(&self) -> Option<ModChar> {
-        unimplemented!()
-    }
+    fn tag(&self) -> Option<ModChar>;
     /// retrieves option to set basecalled strand or opposite in mod retrieval
-    fn mod_strand(&self) -> Option<RestrictModCalledStrand> {
-        unimplemented!()
-    }
+    fn mod_strand(&self) -> Option<RestrictModCalledStrand>;
     /// returns probability filter
-    fn mod_prob_filter(&self) -> ThresholdState {
-        unimplemented!()
-    }
+    fn mod_prob_filter(&self) -> ThresholdState;
     /// returns read end trimming
-    fn trim_read_ends_mod(&self) -> usize {
-        unimplemented!()
-    }
+    fn trim_read_ends_mod(&self) -> usize;
     /// returns threshold for filtering base PHRED quality
-    fn base_qual_filter_mod(&self) -> u8 {
-        unimplemented!()
-    }
+    fn base_qual_filter_mod(&self) -> u8;
 }
 
 /// Retrieves options for region
 pub trait InputRegionOptions {
     /// returns region requested
-    fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
-        unimplemented!()
-    }
+    fn region_filter(&self) -> &Option<Bed3<i32, u64>>;
     /// returns region requested but region in genomic string format
-    fn region_filter_genomic_string(&self) -> Option<GenomicRegion> {
-        unimplemented!()
-    }
+    fn region_filter_genomic_string(&self) -> Option<GenomicRegion>;
     /// sets region requested
-    fn set_region_filter(&mut self, _value: Option<Bed3<i32, u64>>) {
-        unimplemented!()
-    }
+    fn set_region_filter(&mut self, _value: Option<Bed3<i32, u64>>);
     /// returns true if full overlap with region is requested as opposed to
     /// only partial overlap. defaults to false.
     fn is_full_overlap(&self) -> bool {
@@ -1128,6 +1110,37 @@ mod input_bam_tests {
         );
 
         input_bam.convert_region_to_bed3(header_view).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod input_region_options_tests {
+    use super::*;
+
+    #[derive(Debug, Default)]
+    struct TestInputRegionOptions {
+        region_filter: Option<Bed3<i32, u64>>,
+        region_filter_genomic_string: Option<GenomicRegion>,
+    }
+
+    impl InputRegionOptions for TestInputRegionOptions {
+        fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
+            &self.region_filter
+        }
+
+        fn region_filter_genomic_string(&self) -> Option<GenomicRegion> {
+            self.region_filter_genomic_string.clone()
+        }
+
+        fn set_region_filter(&mut self, value: Option<Bed3<i32, u64>>) {
+            self.region_filter = value;
+        }
+    }
+
+    #[test]
+    fn input_region_options_is_full_overlap_false() {
+        let test_obj = TestInputRegionOptions::default();
+        assert!(!test_obj.is_full_overlap());
     }
 }
 

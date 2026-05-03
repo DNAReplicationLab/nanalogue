@@ -437,19 +437,13 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                     let st = record.pos();
                     let en = record.reference_end();
                     if en > st && st >= 0 {
-                        #[expect(
-                            clippy::arithmetic_side_effects,
-                            reason = "en > st && st >= 0 guarantee no i64 overflows"
-                        )]
-                        #[expect(
-                            clippy::missing_panics_doc,
-                            reason = "en > st && st >= 0 guarantee no panic"
-                        )]
-                        Ok(Some(
-                            (en - st)
-                                .try_into()
-                                .expect("en>st && st>=0 guarantee no problems i64->u64"),
-                        ))
+                        let align_len: u64 = en
+                            .checked_sub(st)
+                            .ok_or(Error::InvalidState(String::from(
+                                "unreachable overflow in align len calculation",
+                            )))?
+                            .try_into()?;
+                        Ok(Some(align_len))
                     } else {
                         Err(Error::InvalidAlignLength(format!(
                             "in `set_align_len`, start: {st}, end: {en} invalid! i.e. en <= st or st < 0, read_id: {}",
@@ -964,9 +958,11 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                     s.push(None);
                     trim_end_bp = 0;
                 }
-                [None, None] => unreachable!(
-                    "impossible to find bases that are neither on the read nor on the reference"
-                ),
+                [None, None] => {
+                    return Err(Error::InvalidState(String::from(
+                        "impossible: bases found that are neither on the read nor on the reference",
+                    )));
+                }
             }
         }
 
@@ -1113,7 +1109,9 @@ impl CurrRead<OnlyAlignDataComplete> {
                     )?,
                     Ordering::Equal => read.filter_mods_by_ref_pos(i64::MAX - 1, i64::MAX)?,
                     Ordering::Greater => {
-                        unreachable!("`bedrs` should not allow malformed intervals!")
+                        return Err(Error::InvalidState(String::from(
+                            "`bedrs` should not allow malformed intervals!",
+                        )));
                     }
                 }
             }
@@ -1399,7 +1397,9 @@ impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for Strand
             ('-', Some(al), Some((cg, st))) => {
                 Ok(StrandedBed3::new(cg, st, st + al, Strand::Reverse))
             }
-            (_, _, _) => unreachable!("strand should be +/-/., so we should never reach this"),
+            (_, _, _) => Err(Error::InvalidState(String::from(
+                "strand should be +/-/., so we should never reach this",
+            ))),
         }
     }
 }
