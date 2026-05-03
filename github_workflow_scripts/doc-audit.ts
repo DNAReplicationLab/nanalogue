@@ -36,7 +36,6 @@ const result = spawnSync(
     '--model',
     model,
     '--no-session',
-    '--no-config',
     '--no-extensions',
     '--no-skills',
     '--no-prompt-templates',
