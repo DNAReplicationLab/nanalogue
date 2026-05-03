@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const repoRoot = path.resolve(__dirname, '..');
@@ -13,6 +14,12 @@ if (!apiKey) {
 }
 
 const model = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
+const outputPath = '/tmp/doc-audit.jsonl';
+if (fs.existsSync(outputPath)) {
+  console.error(`Refusing to overwrite existing JSONL log: ${outputPath}`);
+  process.exit(1);
+}
+const outputFd = fs.openSync(outputPath, 'w');
 const prompt = [
   'You are auditing this repository for documentation problems.',
   'Review README files, Markdown docs, Rust doc comments, and workflow comments for stale claims, broken instructions, mismatched examples, missing warnings, and inconsistencies with the code.',
@@ -52,10 +59,12 @@ const result = spawnSync(
       OPENAI_API_KEY: apiKey,
       OPENAI_MODEL: model,
     },
-    stdio: 'inherit',
+    stdio: ['ignore', outputFd, 'inherit'],
     shell: false,
   },
 );
+
+fs.closeSync(outputFd);
 
 if (result.error) {
   console.error(result.error);
