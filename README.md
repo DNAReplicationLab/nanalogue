@@ -71,7 +71,7 @@ DNA/RNA modification data to develop/test your tool, you may be interested in `n
 This is an executable that ships with nanalogue that can create a BAM file according to your
 specifications. Please run `nanalogue_sim_bam --help`. If you are a rust developer looking
 to use this functionality in your library, please look at the documentation of the module
-`nanalogue_core::simulate_mod_bam` in the docs.rs link [above](#usage).
+`nanalogue_core::simulate_mod_bam` in the docs.rs link [above](#usage-and-documentation).
 
 # Installation and Updates
 
@@ -283,9 +283,9 @@ A sample output snippet follows.
 
 ```text
 read_id align_length    sequence_length_template        alignment_type
-a4f36092-b4d5-47a9-813e-c22c3b477a0c    48, 0   46      primary_forward, unmapped
-5d10eb9a-aae1-4db8-8ec6-7ebb34d32575    8       6       primary_forward
-fffffff1-10d2-49cb-8ca3-e8d48979001b    33      38      primary_reverse
+a4f36092-b4d5-47a9-813e-c22c3b477a0c    48, 0   48      primary_forward, unmapped
+5d10eb9a-aae1-4db8-8ec6-7ebb34d32575    8       8       primary_forward
+fffffff1-10d2-49cb-8ca3-e8d48979001b    33      33      primary_reverse
 ```
 
 ## `nanalogue read-table-show-mods`
@@ -298,9 +298,9 @@ have outputs like "NA". A sample output snippet follows.
 ```text
 # mod-unmod threshold is 0.5
 read_id align_length    sequence_length_template        alignment_type  mod_count
-a4f36092-b4d5-47a9-813e-c22c3b477a0c    48, 0   48      primary_forward, unmapped       T:3, T:3;232486:0
-5d10eb9a-aae1-4db8-8ec6-7ebb34d32575    8       8       primary_forward T:0
+a4f36092-b4d5-47a9-813e-c22c3b477a0c    48, 0   48      primary_forward, unmapped       T:3, T:3;7200:0
 fffffff1-10d2-49cb-8ca3-e8d48979001b    33      33      primary_reverse T:1
+5d10eb9a-aae1-4db8-8ec6-7ebb34d32575    8       8       primary_forward T:0
 ```
 
 ## `nanalogue read-stats`
@@ -354,7 +354,7 @@ Sample output is similar to the one above but with gradients reported instead of
 mean modification densities in the `win_val` column.
 
 ## `nanalogue peek`
-Read the BAM file header and the first few records, and output contig information
+Read the BAM file header and the first 100 records, and output contig information
 and modification tag information. Sample output follows.
 
 ```text
@@ -368,7 +368,7 @@ G-7200
 T+T
 ```
 
-If no modifications are found in the first few records, you will see
+If no modifications are found in the first 100 records, you will see
 
 ```text
 contigs_and_lengths:
