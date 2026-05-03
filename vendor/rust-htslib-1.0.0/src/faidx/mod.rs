@@ -163,7 +163,7 @@ impl Reader {
         seq_len as u64
     }
 
-    /// Returns a Result<Vector<String>> for all seq names.
+    /// Returns a `Result<Vector<String>>` for all seq names.
     /// # Errors
     ///
     /// * `errors::Error::FaidxBadSeqName` - missing sequence name for sequence id.

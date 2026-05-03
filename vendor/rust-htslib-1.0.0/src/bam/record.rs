@@ -1858,7 +1858,7 @@ impl Seq<'_> {
     }
 
     /// Obtain decoded base without performing bounds checking.
-    /// Use index based access seq()[i], for checked, safe access.
+    /// Use index based access `seq()[i]` for checked, safe access.
     /// Complexity: O(1).
     ///
     /// # Safety
@@ -2563,7 +2563,7 @@ impl BaseModificationState<'_> {
     /// the base modification was called on, whether the tag uses implicit mode
     /// and the ascii code for the canonical base.
     /// If there are multiple modifications with the same code this will return the data
-    /// for the first mod.  See https://github.com/samtools/htslib/issues/1635
+    /// for the first mod. See <https://github.com/samtools/htslib/issues/1635>
     pub fn query_type(&self, code: i32) -> Result<BaseModificationMetadata> {
         unsafe {
             let mut strand: i32 = 0;
