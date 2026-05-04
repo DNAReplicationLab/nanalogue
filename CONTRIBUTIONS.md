@@ -45,7 +45,7 @@ The project uses extensive clippy lints (see `Cargo.toml` for the full list). Yo
 - Follow Rust naming conventions and idioms
 - Add documentation comments (`///`) for public APIs
 - Include inline comments for complex logic
-- All code files should start with a brief 2-line comment explaining what the file does
+- All code files should start with a brief comment explaining what the file does
 - Match the style and formatting of surrounding code for consistency
 
 ### Testing
