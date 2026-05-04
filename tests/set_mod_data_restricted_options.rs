@@ -89,6 +89,14 @@ impl InputRegionOptions for MockModOptions {
     fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
         &self.region_filter
     }
+
+    fn region_filter_genomic_string(&self) -> Option<nanalogue_core::GenomicRegion> {
+        None
+    }
+
+    fn set_region_filter(&mut self, value: Option<Bed3<i32, u64>>) {
+        self.region_filter = value;
+    }
 }
 
 #[cfg(test)]

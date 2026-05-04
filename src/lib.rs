@@ -663,41 +663,23 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
 /// Trait that performs filtration
 pub trait BamPreFilt {
     /// apply default filtration
-    fn pre_filt(&self, _bam_opts: &InputBam) -> bool {
-        unimplemented!()
-    }
+    fn pre_filt(&self, _bam_opts: &InputBam) -> bool;
     /// filtration by length
-    fn filt_by_len(&self, _min_seq_len: u64, _include_zero_len: bool) -> bool {
-        unimplemented!()
-    }
+    fn filt_by_len(&self, _min_seq_len: u64, _include_zero_len: bool) -> bool;
     /// filtration by alignment length
-    fn filt_by_align_len(&self, _min_align_len: i64) -> bool {
-        unimplemented!()
-    }
+    fn filt_by_align_len(&self, _min_align_len: i64) -> bool;
     /// filtration by read id
-    fn filt_by_read_id(&self, _read_id: &str) -> bool {
-        unimplemented!()
-    }
+    fn filt_by_read_id(&self, _read_id: &str) -> bool;
     /// filtration by read id set
-    fn filt_by_read_id_set(&self, _read_id_set: &HashSet<String>) -> bool {
-        unimplemented!()
-    }
+    fn filt_by_read_id_set(&self, _read_id_set: &HashSet<String>) -> bool;
     /// filtration using flags
-    fn filt_by_bitwise_or_flags(&self, _states: &ReadStates) -> bool {
-        unimplemented!()
-    }
+    fn filt_by_bitwise_or_flags(&self, _states: &ReadStates) -> bool;
     /// random filtration
-    fn filt_random_subset(&self, _fraction: F32Bw0and1, _seed: Option<u64>) -> bool {
-        unimplemented!()
-    }
+    fn filt_random_subset(&self, _fraction: F32Bw0and1, _seed: Option<u64>) -> bool;
     /// filtration by mapq
-    fn filt_by_mapq(&self, _min_mapq: u8, _exclude_mapq_unavail: bool) -> bool {
-        unimplemented!()
-    }
+    fn filt_by_mapq(&self, _min_mapq: u8, _exclude_mapq_unavail: bool) -> bool;
     /// filtration by region
-    fn filt_by_region(&self, _region: &Bed3<i32, u64>, _full_region: bool) -> bool {
-        unimplemented!()
-    }
+    fn filt_by_region(&self, _region: &Bed3<i32, u64>, _full_region: bool) -> bool;
 }
 
 /// Trait that performs filtration on `rust_htslib` Record
