@@ -134,12 +134,13 @@ from the github repository. To download:
 1. Navigate to the workflow runs
 2. Click on a successful workflow run
 3. Scroll to the "Artifacts" section at the bottom
-4. Download the binary artifact for your platform:
-   - `binaries-macos` - macOS binaries
-   - `binaries-musllinux_1_2` - Alpine/musl-based Linux (static binaries)
-   - `binaries-manylinux_2_28` - Modern Linux distributions (glibc 2.28+)
-   - `binaries-manylinux_2_34` - Newer Linux distributions (glibc 2.34+)
-   - `binaries-manylinux2014` - Older Linux distributions (glibc 2.17+, maximum compatibility)
+4. Download the binary artifact for your platform. The Linux artifact names include an architecture suffix (`x86_64` or `aarch64`):
+   - `binaries-macos-latest` - macOS Apple Silicon binaries
+   - `binaries-macos-15-intel` - macOS Intel binaries
+   - `binaries-musllinux_1_2_<arch>` - Alpine/musl-based Linux (static binaries)
+   - `binaries-manylinux_2_28_<arch>` - Modern Linux distributions (glibc 2.28+)
+   - `binaries-manylinux_2_34_<arch>` - Newer Linux distributions (glibc 2.34+)
+   - `binaries-manylinux2014_<arch>` - Older Linux distributions (glibc 2.17+, maximum compatibility)
 
 ## Using Cargo
 
