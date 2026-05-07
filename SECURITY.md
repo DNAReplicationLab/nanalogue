@@ -50,7 +50,7 @@ When processing BAM files:
 
 This package relies on:
 - `rust-htslib` - for BAM file I/O
-- `fibertools-rs` - for mod BAM parsing
+- `fibertools-rs` - source of adapted mod BAM parsing logic; see THIRD_PARTY_NOTICES.md
 - `bio` and `bio-types` - for bioinformatics operations
 - Various other Rust crates for data processing
 

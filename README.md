@@ -16,10 +16,11 @@ to extract and process this information, with a particular focus on single-molec
 aspects and DNA/RNA modifications. Despite this focus, some of nanalogue's commands are
 quite general and can be applied to almost any BAM file.
 
-We can process any type of DNA/RNA modifications occurring in any pattern (single/multiple mods,
+We can process many types of DNA/RNA modifications occurring in any pattern (single/multiple mods,
 spatially-isolated/non-isolated etc.). All we require is that the data is stored
 in a BAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
-[specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)).
+[specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)). We currently support standard `MM/ML` and fallback `Mm/Ml`
+tag variants; other mixed-case or lowercase variants are not recognized.
 
 ## Table of Contents
 
