@@ -81,6 +81,13 @@ jobs:
           fi
 
           git add -u
+
+          workflow_files="$(git diff --cached --name-only -- '.github/workflows/' || true)"
+          if [ -n "$workflow_files" ]; then
+            printf '%s\n' "Refusing to push workflow file changes from the doc audit:" "$workflow_files"
+            exit 1
+          fi
+
           if git diff --cached --quiet; then
             echo "No tracked documentation changes to commit."
             exit 0
