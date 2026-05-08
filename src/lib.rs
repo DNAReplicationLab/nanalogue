@@ -24,8 +24,8 @@
 //! laid down in the [specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)).
 //!
 //! Nanalogue is both an executable that can be run from the command line and a library
-//! whose functionality can be used by others writing rust code. The library's functions
-//! are presented here. The executable exposes the modules `subcommands::*`, and a
+//! whose functionality can be used by others writing Rust code. The library's functions
+//! are presented here. The command-line executable uses the modules in `subcommands::*`, and a
 //! separate executable `nanalogue_sim_bam` exposes the `simulate_mod_bam` functionality
 //! (see below).
 //!

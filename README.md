@@ -54,13 +54,13 @@ tag variants; other mixed-case or lowercase variants are not recognized.
 
 There are three ways to use nanalogue with a pre-existing BAM file:
 - as a tool on the command line
-- as a rust library
-- as a python library
+- as a Rust library
+- via the Python wrapper, which is still in development
 
 This note is largely about command line usage.
-Please refer to the documentation in [docs.rs](https://docs.rs/nanalogue),
-or look at this [section](#python-wrapper) for usage as a rust
-and a python library respectively.
+Please refer to the documentation in [docs.rs](https://docs.rs/nanalogue)
+for Rust usage, or look at this [section](#python-wrapper) for the in-development
+Python wrapper.
 
 In addition to these resources, we are developing a
 companion cookbook [here](https://www.nanalogue.com).
@@ -88,7 +88,7 @@ The easiest way to install or update pre-built binaries is using the install scr
 curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
 ```
 
-If nanalogue is already installed, running the script again will update it in the directory where it is currently installed.
+If nanalogue is already installed in the same directory, running the script again will update it there. Otherwise, set `NANALOGUE_INSTALL_DIR` to the existing install directory before rerunning the script.
 
 The script will prompt you for an install directory (default: `/usr/local/bin`).
 To skip the prompt and use the default directory:
