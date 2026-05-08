@@ -43,7 +43,6 @@ tag variants; other mixed-case or lowercase variants are not recognized.
   - [`nanalogue window-dens`](#nanalogue-window-dens)
   - [`nanalogue window-grad`](#nanalogue-window-grad)
   - [`nanalogue peek`](#nanalogue-peek)
-- [Python wrapper](#python-wrapper)
 - [Contributing](#contributing)
 - [Security](#security)
 - [Third-Party Notices](#third-party-notices)
@@ -52,15 +51,16 @@ tag variants; other mixed-case or lowercase variants are not recognized.
 
 # Usage and documentation
 
-There are three ways to use nanalogue with a pre-existing BAM file:
+There are several ways to use nanalogue with a BAM/CRAM resource:
 - as a tool on the command line
-- as a rust library
-- as a python library
+- as a Rust [library](https://crates.io/crates/nanalogue) with documentation [here](https://docs.rs/nanalogue)
+- using the Python wrapper: [pynanalogue](https://github.com/DNAReplicationLab/pynanalogue)
+- using the TypeScript binding:
+  [nanalogue-node](https://github.com/sathish-t/nanalogue-node)
+- as a GUI with AI chat features:
+  [nanalogue-gui](https://github.com/sathish-t/nanalogue-gui)
 
-This note is largely about command line usage.
-Please refer to the documentation in [docs.rs](https://docs.rs/nanalogue),
-or look at this [section](#python-wrapper) for usage as a rust
-and a python library respectively.
+The Rust library and command-line tools are the most mature among these.
 
 In addition to these resources, we are developing a
 companion cookbook [here](https://www.nanalogue.com).
@@ -88,8 +88,6 @@ The easiest way to install or update pre-built binaries is using the install scr
 curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
 ```
 
-If nanalogue is already installed, running the script again will update it in the directory where it is currently installed.
-
 The script will prompt you for an install directory (default: `/usr/local/bin`).
 To skip the prompt and use the default directory:
 
@@ -104,7 +102,6 @@ In the example below, nanalogue is installed to `$HOME/.local/bin`:
 ```bash
 export NANALOGUE_INSTALL_DIR=$HOME/.local/bin && curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
 ```
-
 **Dependencies:** The install script requires:
 - `curl` or `wget`
 - `unzip`
@@ -120,6 +117,12 @@ On macOS, these are typically pre-installed or available via Homebrew:
 ```bash
 brew install jq
 ```
+
+#### If you are updating
+
+If you already installed nanalogue using the curl command above and want to update it,
+set `NANALOGUE_INSTALL_DIR` to the existing install directory before rerunning the script,
+or choose the same directory where you did your previous install at the prompt.
 
 ### GitHub Releases
 
@@ -381,11 +384,6 @@ dummyIII        76
 modifications:
 None
 ```
-
-# Python wrapper
-
-A python wrapper of some of these commands `pynanalogue` is in development
-[here](https://github.com/DNAReplicationLab/pynanalogue).
 
 # Contributing
 
