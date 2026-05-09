@@ -327,4 +327,66 @@ mod tests {
         // The file has dummyI, dummyII, dummyIII contigs
         assert!(output_str.contains("dummyI"));
     }
+
+    /// Exercises the remote URL code path end-to-end against a public
+    /// `PacBio` dataset. Mirrors what the `nanalogue peek <https-url>` CLI
+    /// invocation does, so the saved expected output was produced by running:
+    ///
+    /// ```text
+    /// ./target/debug/nanalogue peek \
+    ///     https://downloads.pacbcloud.com/public/dataset/\
+    ///     HG002-CpG-methylation-202202/HG002.GRCh38.haplotagged.bam
+    /// ```
+    ///
+    /// Marked `#[ignore]` because it (a) requires network access, so it would
+    /// break offline / restricted CI runs, and (b) calls
+    /// `init_ssl_certificates`, whose contract is that no other threads are
+    /// running. Run explicitly and serially with:
+    ///
+    /// ```text
+    /// cargo test -- --ignored --test-threads=1 peek_remote_pacbio
+    /// ```
+    ///
+    /// If the upstream file is removed, the expected output file under
+    /// `examples/` will need to be regenerated against a replacement dataset.
+    #[test]
+    #[ignore = "requires network and serial execution; run with `cargo test -- --ignored --test-threads=1`"]
+    fn peek_remote_pacbio_hg002_grch38() {
+        use crate::nanalogue_bam_reader_from_url;
+        use rust_htslib::bam::Read as _;
+        use std::fs;
+        use url::Url;
+
+        // SAFETY: caller must run this test with `--test-threads=1` (see the
+        // doc comment above), so no other test thread is touching the
+        // process environment while we set the SSL-related variables. The
+        // `Once` guard inside `init_ssl_certificates` makes any subsequent
+        // invocation a no-op.
+        unsafe {
+            crate::init_ssl_certificates();
+        }
+
+        let url = Url::parse(
+            "https://downloads.pacbcloud.com/public/dataset/\
+             HG002-CpG-methylation-202202/HG002.GRCh38.haplotagged.bam",
+        )
+        .expect("static URL should parse");
+
+        let mut reader = nanalogue_bam_reader_from_url(&url)
+            .expect("should open remote BAM (requires network access)");
+        let header = reader.header().clone();
+
+        let mut output = Vec::new();
+        run(&mut output, &header, reader.rc_records().take(100)).expect("peek should succeed");
+
+        let expected = fs::read_to_string(
+            "examples/pacbio_HG002_GRCh38_haplotagged_CpG_meth_202202_remote_peek",
+        )
+        .expect("should read expected output file");
+
+        assert_eq!(
+            String::from_utf8(output).expect("output should be valid UTF-8"),
+            expected,
+        );
+    }
 }

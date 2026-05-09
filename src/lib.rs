@@ -132,13 +132,22 @@ static SSL_INIT: Once = Once::new();
 ///
 /// This function automatically detects and configures SSL certificate locations
 /// to enable HTTPS file access through libcurl. It uses the `openssl-probe`
-/// crate to find system CA certificate bundles.
+/// crate to find system CA certificate bundles directly, rather than going
+/// through the `SSL_CERT_FILE` environment variable.
+///
+/// # Safety
+///
+/// Mutates the process environment via `std::env::set_var`, which is not
+/// thread-safe with concurrent reads from C code (e.g. libcurl's `getenv`).
+/// The caller must ensure no other threads exist at the time of the call. In
+/// practice, call this as the first statement of `main` and only from `main`.
 ///
 /// # Usage
 ///
-/// ```
+/// ```no_run
 /// use nanalogue_core::init_ssl_certificates;
-/// init_ssl_certificates();
+/// // SAFETY: called from the top of `main`, before any threads spawn.
+/// unsafe { init_ssl_certificates(); }
 /// ```
 ///
 /// # Why This Is Needed
@@ -146,22 +155,30 @@ static SSL_INIT: Once = Once::new();
 /// The statically-compiled libcurl in rust-htslib doesn't know where to find
 /// the system's CA certificate bundle for SSL certificate verification. This
 /// function sets the appropriate environment variables to point to the system's
-/// certificate bundle, enabling secure HTTPS connections.
-pub fn init_ssl_certificates() {
+/// certificate bundle, enabling HTTPS connections.
+pub unsafe fn init_ssl_certificates() {
     SSL_INIT.call_once(|| {
-        // SAFETY: This function probes for SSL certificates and sets environment
-        // variables. We're setting these before any SSL/TLS
-        // operations happen, which is the safe usage pattern.
+        let probe = openssl_probe::probe();
+        // SAFETY: Caller guarantees no other threads have been spawned, so no
+        // concurrent `getenv` can race with these `setenv` calls. Pre-existing
+        // values are preserved.
         unsafe {
-            if openssl_probe::try_init_openssl_env_vars() {
-                // Also set CURL_CA_BUNDLE if SSL_CERT_FILE was set by openssl-probe.
-                // The statically-compiled libcurl in rust-htslib specifically checks
-                // CURL_CA_BUNDLE, not just SSL_CERT_FILE.
-                if let Ok(cert_file) = std::env::var("SSL_CERT_FILE")
-                    && std::env::var("CURL_CA_BUNDLE").is_err()
-                {
+            if let Some(cert_file) = probe.cert_file.as_deref() {
+                if std::env::var_os("SSL_CERT_FILE").is_none() {
+                    std::env::set_var("SSL_CERT_FILE", cert_file);
+                }
+                // libcurl statically linked into rust-htslib checks
+                // CURL_CA_BUNDLE rather than SSL_CERT_FILE. Use the probed
+                // path directly so the value comes from the filesystem probe.
+                if std::env::var_os("CURL_CA_BUNDLE").is_none() {
                     std::env::set_var("CURL_CA_BUNDLE", cert_file);
                 }
+            }
+            if !probe.cert_dir.is_empty()
+                && std::env::var_os("SSL_CERT_DIR").is_none()
+                && let Ok(joined) = std::env::join_paths(&probe.cert_dir)
+            {
+                std::env::set_var("SSL_CERT_DIR", joined);
             }
         }
     });
