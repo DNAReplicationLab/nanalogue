@@ -49,11 +49,22 @@ pub fn nanalogue_bam_reader_from_stdin() -> Result<bam::Reader, Error> {
 /// We are not writing tests for this function as we have to rely on an external URL,
 /// which may be unreliable.
 ///
+/// # SSL setup
+///
+/// For HTTPS URLs, libcurl needs to know where the system CA bundle lives.
+/// Library callers have two options:
+///
+/// - Set `SSL_CERT_FILE` (and optionally `CURL_CA_BUNDLE` / `SSL_CERT_DIR`) in
+///   the process environment before running the program. No call into this
+///   crate is needed in that case.
+/// - Otherwise, invoke [`crate::init_ssl_certificates`] once at program
+///   startup, before any threads are spawned, to auto-detect and populate
+///   those variables. The binaries shipped with this crate already do this.
+///
 /// # Errors
 ///
 /// Returns an error if the BAM data cannot be read.
 pub fn nanalogue_bam_reader_from_url(url: &Url) -> Result<bam::Reader, Error> {
-    crate::init_ssl_certificates();
     Ok(bam::Reader::from_url(url)?)
 }
 
@@ -172,6 +183,18 @@ where
 /// We are not writing tests for this function as we have to rely on an external URL,
 /// which may be unreliable.
 ///
+/// # SSL setup
+///
+/// For HTTPS URLs, libcurl needs to know where the system CA bundle lives.
+/// Library callers have two options:
+///
+/// - Set `SSL_CERT_FILE` (and optionally `CURL_CA_BUNDLE` / `SSL_CERT_DIR`) in
+///   the process environment before running the program. No call into this
+///   crate is needed in that case.
+/// - Otherwise, invoke [`crate::init_ssl_certificates`] once at program
+///   startup, before any threads are spawned, to auto-detect and populate
+///   those variables. The binaries shipped with this crate already do this.
+///
 /// # Errors
 ///
 /// Returns an error if the BAM data cannot be read.
@@ -179,7 +202,6 @@ pub fn nanalogue_indexed_bam_reader_from_url(
     url: &Url,
     fetch_definition: bam::FetchDefinition,
 ) -> Result<bam::IndexedReader, Error> {
-    crate::init_ssl_certificates();
     let mut bam_reader = bam::IndexedReader::from_url(url)?;
     bam_reader.fetch(fetch_definition)?;
     Ok(bam_reader)

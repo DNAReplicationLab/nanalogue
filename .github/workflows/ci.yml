@@ -39,6 +39,8 @@ jobs:
         run: cargo build
       - name: Test
         run: cargo test
+      - name: Test remote URL access
+        run: cargo test -- --ignored --test-threads=1 peek_remote_pacbio
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Cargo clean

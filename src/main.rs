@@ -20,8 +20,11 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// can test the functionality of `run` easily through our code without
 /// actually running the program on the command line like an external user.
 fn main() {
-    // Initialize SSL certificates for HTTPS support
-    nanalogue_core::init_ssl_certificates();
+    // SAFETY: first statement in `main`, before any threads are spawned, so
+    // mutating the process environment cannot race with libcurl's `getenv`.
+    unsafe {
+        nanalogue_core::init_ssl_certificates();
+    }
 
     // we do not want to print `htslib` errors but want to deal with
     // them using our own error handling.
