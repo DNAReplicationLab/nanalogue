@@ -408,8 +408,12 @@ where
                 .split(',')
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .map(|s| s.parse().unwrap())
-                .collect();
+                .map(|s| {
+                    s.parse::<usize>().map_err(|e| {
+                        Error::InvalidModCoords(format!("invalid MM distance `{s}`: {e}"))
+                    })
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
 
             // do we include bases with zero probabilities?
             let is_include_zero_prob = filter_mod_prob(&0);
@@ -832,8 +836,12 @@ impl BamPreFilt for bam::Record {
         !self.is_unmapped() && (self.tid() == *region.chr()) && {
             let region_start = region.start();
             let region_end = region.end();
-            let start: u64 = self.pos().try_into().expect("no error");
-            let end: u64 = self.reference_end().try_into().expect("no error");
+            let Ok(start): Result<u64, _> = self.pos().try_into() else {
+                return false;
+            };
+            let Ok(end): Result<u64, _> = self.reference_end().try_into() else {
+                return false;
+            };
             if full_region {
                 (start..end).contains(&region_start) && (start..=end).contains(&region_end)
             } else {
@@ -1240,6 +1248,14 @@ mod mod_parse_tests {
     }
 
     #[test]
+    fn nanalogue_mm_ml_parser_rejects_overflowing_mm_distances() {
+        let mm_value = "T+T,18446744073709551616;";
+        let ml_values = Vec::from([100u8]);
+        let result = create_test_record_and_parse(mm_value, &ml_values);
+        assert!(matches!(result, Err(Error::InvalidModCoords(_))));
+    }
+
+    #[test]
     #[should_panic(expected = "InvalidDuplicates")]
     fn nanalogue_mm_ml_parser_detects_duplicates() {
         // Two T+ modifications with same strand and modification_type
@@ -1632,6 +1648,20 @@ mod bam_rc_record_tests {
         let max_count = expected_count + tolerance;
 
         assert!(count_retained >= min_count && count_retained <= max_count);
+    }
+
+    #[test]
+    fn filt_by_region_handles_negative_positions_without_panicking() {
+        let mut record = record::Record::new();
+        let cigar = CigarString(vec![Cigar::Match(1)]);
+        record.set(b"read", Some(&cigar), b"A", &[255]);
+        record.unset_unmapped();
+        record.set_tid(0);
+        record.set_pos(-1);
+
+        let bam_opts: InputBam = serde_json::from_str(r#"{"region_bed3":[0,0,10]}"#).unwrap();
+
+        assert!(!record.pre_filt(&bam_opts));
     }
 
     #[test]
