@@ -815,10 +815,6 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Ok::<(), Error>(())
     /// ```
     #[expect(
-        clippy::indexing_slicing,
-        reason = "qual, seq same len and coords will not exceed these"
-    )]
-    #[expect(
         clippy::type_complexity,
         reason = "not complex enough, I think types will make this less clear"
     )]
@@ -827,13 +823,32 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
         record: &Record,
         region: &Bed3<i32, u64>,
     ) -> Result<Vec<Option<(bool, u8, u8)>>, Error> {
-        let seq = record.seq();
+        let seq = record.seq().as_bytes();
         let qual = record.qual();
-        Ok(self
-            .seq_coords_from_ref_coords(record, region)?
+
+        self.seq_coords_from_ref_coords(record, region)?
             .into_iter()
-            .map(|x| x.map(|y| (y.0, seq[y.1], qual[y.1])))
-            .collect::<Vec<Option<(bool, u8, u8)>>>())
+            .map(|x| {
+                x.map(|y| {
+                    let seq_base = *seq.get(y.1).ok_or_else(|| {
+                        Error::UnavailableData(format!(
+                            "sequence coordinate {} is out of bounds for sequence length {}",
+                            y.1,
+                            seq.len()
+                        ))
+                    })?;
+                    let qual_base = *qual.get(y.1).ok_or_else(|| {
+                        Error::UnavailableData(format!(
+                            "quality coordinate {} is out of bounds for quality length {}",
+                            y.1,
+                            qual.len()
+                        ))
+                    })?;
+                    Ok((y.0, seq_base, qual_base))
+                })
+                .transpose()
+            })
+            .collect::<Result<Vec<Option<(bool, u8, u8)>>, Error>>()
     }
     /// Extract sequence coordinates corresponding to a region on the reference genome.
     ///
@@ -2351,6 +2366,8 @@ mod test_defaults {
 #[cfg(test)]
 mod test_error_handling {
     use super::*;
+    use crate::nanalogue_bam_reader;
+    use rust_htslib::bam::Read as _;
     use std::marker::PhantomData;
 
     #[test]
@@ -2430,6 +2447,31 @@ mod test_error_handling {
 
         // This should succeed since all combinations are unique
         let _: BaseMods = reconstruct_base_mods(&mod_entries, false, 0..i64::MAX, 10).unwrap();
+    }
+
+    #[test]
+    fn seq_and_qual_on_ref_coords_handles_missing_qual_as_placeholder_bytes() -> Result<(), Error> {
+        let mut reader = nanalogue_bam_reader("examples/example_6.sam")?;
+        let record = reader.records().next().unwrap()?;
+        let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
+        let (contig_id, start) = curr_read.contig_id_and_start()?;
+        let region = Bed3::new(contig_id, start, start + 8);
+
+        let seq_subset = curr_read.seq_and_qual_on_ref_coords(&record, &region)?;
+        assert_eq!(
+            seq_subset,
+            [
+                Some((true, b'T', 255)),
+                Some((true, b'C', 255)),
+                Some((true, b'G', 255)),
+                Some((true, b'T', 255)),
+                Some((true, b'T', 255)),
+                Some((true, b'T', 255)),
+                Some((true, b'C', 255)),
+                Some((true, b'T', 255)),
+            ]
+        );
+        Ok(())
     }
 
     #[test]
