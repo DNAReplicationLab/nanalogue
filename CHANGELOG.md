@@ -8,7 +8,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- (GitHub workflow, not code) CI workflow to test sister packages (pynanalogue, nanalogue-node) against current commit using Cargo's `[patch.crates-io]` mechanism
+- `CurrRead` now exposes mapping quality (`mapq`) in library output, the
+  `Display` implementation, and the `read-info` subcommand; `read-info` also
+  reports when MAPQ is unavailable
+- Remote BAM retrieval coverage now includes a dedicated test plus CI
+  execution for remote URL handling
+- (GitHub workflow, not code) CI workflow to test sister packages
+  (pynanalogue, nanalogue-node) against current commit using Cargo's
+  `[patch.crates-io]` mechanism
+- (GitHub workflow, not code) Weekly documentation audit automation plus
+  follow-up workflow hardening to better constrain automated doc updates
+- (Project tooling, not code) Repository guardrails including git hooks and
+  install-script integrity checks
+
+### Changed
+- Vendored HTSlib, selected `rust-htslib` support code,
+  fibertools-derived types, DNA complement helpers, and UUID helpers to reduce
+  external dependency surface and improve build provenance
+- Renamed reference-coordinate filtering APIs from
+  `FilterByRefCoords`/`filter_by_ref_pos` to
+  `FilterModsByRefCoords`/`filter_mods_by_ref_pos`
+- Hardened dependency and workflow safety by pinning GitHub Actions to commit
+  SHAs, tightening dependency safety checks, and applying additional workflow
+  cleanups from zizmor reviews
+- Hoisted `target_names()` out of the `peek` loop for lower repeated
+  overhead, and silence broken-pipe exits instead of surfacing them as errors
+- Refined documentation and README links, naming, and usage details through
+  repeated doc audit passes
+
+### Fixed
+- Removed multiple panic paths across BAM parsing, read processing,
+  simulation code, and missing-quality handling; also tightened trait
+  contracts and broader error handling
+- Fixed HTSlib and rand compatibility issues encountered during vendoring and
+  toolchain updates, including follow-up warning cleanups
+- Made libcurl/OpenSSL environment variable initialization safer and
+  tightened the SSL initialization contract for remote access paths
+- Fixed an unlikely `i64` overflow path in `read_utils`
 
 ## [0.1.9] - 2026-02-18
 
