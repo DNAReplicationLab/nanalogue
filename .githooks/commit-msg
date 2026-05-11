@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Validates the commit message format:
+#   1. First line must be < 50 characters.
+#   2. First line must start with an allowed third-person present-tense verb.
+#
+# To add a verb, append it to ALLOWED_VERBS below (keep the list sorted).
+
+ALLOWED_VERBS=(
+  accepts
+  adds
+  adjusts
+  allows
+  applies
+  bumps
+  changes
+  cleans
+  clears
+  converts
+  corrects
+  creates
+  deletes
+  deprecates
+  disables
+  displays
+  documents
+  drops
+  enables
+  enforces
+  excludes
+  expands
+  exports
+  exposes
+  extends
+  extracts
+  fixes
+  gates
+  generates
+  guards
+  handles
+  hides
+  ignores
+  improves
+  initialises
+  initializes
+  inlines
+  lifts
+  limits
+  links
+  mentions
+  merges
+  migrates
+  moves
+  notes
+  pins
+  ports
+  refactors
+  refreshes
+  removes
+  renames
+  replaces
+  resolves
+  respects
+  restricts
+  returns
+  reverts
+  rewrites
+  scales
+  sets
+  simplifies
+  skips
+  splits
+  standardises
+  standardizes
+  strips
+  supports
+  surfaces
+  switches
+  syncs
+  threads
+  tightens
+  truncates
+  unifies
+  updates
+  upgrades
+  uses
+  validates
+  widens
+  wires
+  wraps
+)
+
+COMMIT_MSG_FILE="$1"
+FIRST_LINE="$(head -1 "$COMMIT_MSG_FILE")"
+
+# --- Rule 1: length ---
+LENGTH="${#FIRST_LINE}"
+if [ "$LENGTH" -ge 50 ]; then
+  echo "commit-msg: first line is ${LENGTH} characters — must be < 50" >&2
+  exit 1
+fi
+
+# --- Rule 2: allowed verb (case-insensitive) ---
+FIRST_WORD="$(echo "$FIRST_LINE" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+
+for verb in "${ALLOWED_VERBS[@]}"; do
+  if [ "$FIRST_WORD" = "$verb" ]; then
+    exit 0
+  fi
+done
+
+echo "commit-msg: first word \"${FIRST_WORD}\" is not an allowed verb." >&2
+echo "  First line must start with a third-person present-tense verb, e.g.:" >&2
+echo "  adds  fixes  updates  removes  refactors  moves  renames ..." >&2
+echo "  To add a new verb, append it to ALLOWED_VERBS in .githooks/commit-msg." >&2
+exit 1

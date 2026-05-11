@@ -1,4 +1,5 @@
 /target
+.pi*
 cargo.def
 cargo.img
 *.swp
