@@ -5,7 +5,10 @@ use crate::{Error, Intersects as _, OrdPair, Ranges};
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, cmp::max, fmt};
 
-/// Categorizes the types of windows into two possibilities
+/// Categorizes the types of windows into two possibilities.
+///
+/// `OrdPair<u64>`'s checked `Deserialize` enforces `start <= end` for the
+/// inner pair on every serde input source.
 #[derive(Clone, Copy, Default, Debug, Serialize, Deserialize)]
 pub struct WindowState(Option<OrdPair<u64>>);
 
@@ -944,5 +947,22 @@ mod window_state_tests {
         let ws1 = WindowState::new(Some(15), Some(20)).unwrap();
         let ws2 = WindowState::new(Some(10), Some(30)).unwrap();
         assert_eq!(ws1.partial_cmp(&ws2), None);
+    }
+
+    /// `WindowState` deserialization must enforce the `low <= high` invariant
+    /// (delegated to the validated `OrdPair<u64>` deserializer).
+    #[test]
+    fn window_state_deserialize_rejects_wrong_order() {
+        let bad: Result<WindowState, _> = serde_json::from_str(r#"{"low":200,"high":100}"#);
+        let _: serde_json::Error = bad.unwrap_err();
+    }
+
+    /// A valid `WindowState` round-trips through serde.
+    #[test]
+    fn window_state_deserialize_accepts_valid() {
+        let ws = WindowState::new(Some(10), Some(20)).expect("should construct");
+        let json = serde_json::to_string(&ws).expect("should serialize");
+        let back: WindowState = serde_json::from_str(&json).expect("should deserialize");
+        assert_eq!(ws, back);
     }
 }

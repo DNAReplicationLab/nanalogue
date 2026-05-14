@@ -406,11 +406,7 @@ where
                 .expect("no error");
 
             // get modification type
-            let modification_type: ModChar = cap
-                .get(5)
-                .map_or("", |m| m.as_str())
-                .parse()
-                .expect("no error");
+            let modification_type: ModChar = cap.get(5).map_or("", |m| m.as_str()).parse()?;
 
             let is_implicit = match cap.get(6).map_or("", |m| m.as_str()).as_bytes() {
                 b"" | b"." => true,
@@ -818,7 +814,12 @@ impl BamPreFilt for bam::Record {
     }
     /// filtration by flag list
     fn filt_by_bitwise_or_flags(&self, states: &ReadStates) -> bool {
-        states.bam_flags().contains(&self.flags())
+        /// Union of all bits ever emitted by `From<ReadState> for u16`:
+        /// unmapped (`0x4`), reverse (`0x10`), secondary (`0x100`),
+        /// supplementary (`0x800`).
+        const KNOWN_BITS: u16 = 0x4 | 0x10 | 0x100 | 0x800;
+        let masked = self.flags() & KNOWN_BITS;
+        states.bam_flags().contains(&masked)
     }
     /// random filtration
     fn filt_random_subset(&self, fraction: F32Bw0and1, seed: Option<u64>) -> bool {
@@ -1665,6 +1666,27 @@ mod bam_rc_record_tests {
         let max_count = expected_count + tolerance;
 
         assert!(count_retained >= min_count && count_retained <= max_count);
+    }
+
+    /// Records carrying SAM-spec-reserved flag bits (`0x1000`, `0x2000`,
+    /// `0x4000`, `0x8000`) on top of an otherwise canonical alignment
+    /// state must still be kept by `--read-filter <state>`.
+    #[test]
+    fn filt_by_bitwise_or_flags_masks_reserved_bits() {
+        let bam_opts: InputBam =
+            serde_json::from_str("{\"read_filter\": [0], \"include_zero_len\": true}")
+                .expect("InputBam should deserialize");
+
+        for reserved in [0x1000u16, 0x2000, 0x4000, 0x8000] {
+            let mut rec = record::Record::new();
+            let cigar = CigarString(vec![Cigar::Match(1)]);
+            rec.set(b"r", Some(&cigar), b"A", &[255]);
+            rec.set_flags(reserved);
+            assert!(
+                rec.pre_filt(&bam_opts),
+                "record with FLAG=0|{reserved:#x} should pass --read-filter primary_forward",
+            );
+        }
     }
 
     #[test]

@@ -41,6 +41,7 @@ use url::Url;
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[non_exhaustive]
+#[serde(try_from = "PathOrURLOrStdinShadow")]
 pub enum PathOrURLOrStdin {
     /// Standard input
     #[default]
@@ -49,6 +50,62 @@ pub enum PathOrURLOrStdin {
     Path(PathBuf),
     /// A URL
     URL(Url),
+}
+
+/// Schemes accepted by the URL variant. Kept in sync with the equivalent
+/// list in `FromStr::from_str` to ensure JSON deserialization cannot
+/// produce a `URL(_)` variant containing a non-allow-listed scheme such as
+/// `file://` (which `hts_open` would happily dereference as a local file).
+const ALLOWED_NETWORK_SCHEMES: &[&str] = &["http", "https", "ftp"];
+
+/// Shadow type used solely by serde to validate `PathOrURLOrStdin`
+/// deserialization. Routes the raw payload through the same allow-list /
+/// stdin-marker checks as [`PathOrURLOrStdin::from_str`].
+#[derive(Deserialize)]
+#[expect(
+    clippy::upper_case_acronyms,
+    reason = "Shadow enum must preserve the public URL variant name for serde compatibility"
+)]
+enum PathOrURLOrStdinShadow {
+    /// Standard input
+    Stdin,
+    /// A local file path
+    Path(PathBuf),
+    /// A URL
+    URL(Url),
+}
+
+impl TryFrom<PathOrURLOrStdinShadow> for PathOrURLOrStdin {
+    type Error = Error;
+
+    fn try_from(value: PathOrURLOrStdinShadow) -> Result<Self, Self::Error> {
+        match value {
+            PathOrURLOrStdinShadow::Stdin => Ok(PathOrURLOrStdin::Stdin),
+            PathOrURLOrStdinShadow::Path(p) => {
+                // Disallow the literal stdin marker inside Path; FromStr would
+                // route "-" to `Stdin`, so accepting it here would create an
+                // unreachable-via-FromStr variant state.
+                if p.as_os_str() == "-" {
+                    Err(Error::InvalidState(
+                        "`-` is reserved for Stdin and is not a valid Path variant".to_owned(),
+                    ))
+                } else {
+                    Ok(PathOrURLOrStdin::Path(p))
+                }
+            }
+            PathOrURLOrStdinShadow::URL(u) => {
+                if ALLOWED_NETWORK_SCHEMES.contains(&u.scheme()) {
+                    Ok(PathOrURLOrStdin::URL(u))
+                } else {
+                    Err(Error::InvalidState(format!(
+                        "URL scheme `{}` is not in the allow-list ({}); use a Path variant instead",
+                        u.scheme(),
+                        ALLOWED_NETWORK_SCHEMES.join(", ")
+                    )))
+                }
+            }
+        }
+    }
 }
 
 impl FromStr for PathOrURLOrStdin {
@@ -99,8 +156,7 @@ impl FromStr for PathOrURLOrStdin {
         // Try to parse as URL with allowed network schemes
         if let Ok(parsed_url) = Url::parse(s) {
             // Only accept known network schemes to avoid misclassifying local paths
-            const ALLOWED_SCHEMES: &[&str] = &["http", "https", "ftp"];
-            if ALLOWED_SCHEMES.contains(&parsed_url.scheme()) {
+            if ALLOWED_NETWORK_SCHEMES.contains(&parsed_url.scheme()) {
                 return Ok(PathOrURLOrStdin::URL(parsed_url));
             }
             // If it's a valid URL but with an unsupported scheme, fall through to treat as path
@@ -316,5 +372,47 @@ mod tests {
         let input = PathOrURLOrStdin::URL(url.clone());
         let bam: InputBam = input.clone().into();
         assert_eq!(bam.bam_path, input);
+    }
+
+    /// JSON deserialization must enforce the same URL-scheme allow-list as
+    /// `FromStr`.
+    #[test]
+    fn deserialize_rejects_file_url_scheme() {
+        let bad: Result<PathOrURLOrStdin, _> =
+            serde_json::from_str(r#"{"URL":"file:///etc/passwd"}"#);
+        let _: serde_json::Error = bad.unwrap_err();
+    }
+
+    /// JSON deserialization must also reject other non-allow-listed schemes.
+    #[test]
+    fn deserialize_rejects_other_disallowed_schemes() {
+        for payload in [
+            r#"{"URL":"ssh://host/path"}"#,
+            r#"{"URL":"data:text/plain,hello"}"#,
+        ] {
+            let bad: Result<PathOrURLOrStdin, _> = serde_json::from_str(payload);
+            assert!(
+                bad.is_err(),
+                "expected deserialize to reject payload `{payload}`",
+            );
+        }
+    }
+
+    /// Deserialization must reject `"-"` inside the `Path` variant — that
+    /// value is the stdin marker and is unreachable via the documented
+    /// `FromStr` parser.
+    #[test]
+    fn deserialize_rejects_dash_inside_path_variant() {
+        let bad: Result<PathOrURLOrStdin, _> = serde_json::from_str(r#"{"Path":"-"}"#);
+        let _: serde_json::Error = bad.unwrap_err();
+    }
+
+    /// Allow-listed schemes still deserialize successfully.
+    #[test]
+    fn deserialize_accepts_allowed_schemes() {
+        let good: PathOrURLOrStdin =
+            serde_json::from_str(r#"{"URL":"https://example.com/file.bam"}"#)
+                .expect("https should deserialize");
+        assert!(matches!(good, PathOrURLOrStdin::URL(_)));
     }
 }

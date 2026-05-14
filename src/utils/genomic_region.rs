@@ -9,9 +9,35 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 /// Datatype holding a genomic region
+///
+/// `Deserialize` is routed through [`GenomicRegion::try_from`] so the
+/// invariants enforced by the public `TryFrom<(String, (u64, u64))>` and
+/// `FromStr` constructors (non-empty contig, `start < end`) are also enforced
+/// on every serde input source.
 #[derive(Debug, Default, Clone, PartialOrd, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[serde(try_from = "GenomicRegionShadow")]
 pub struct GenomicRegion((String, Option<OrdPair<u64>>));
+
+/// Shadow type used solely by serde to validate `GenomicRegion`
+/// deserialization, routing through the checked constructor.
+#[derive(Deserialize)]
+struct GenomicRegionShadow((String, Option<OrdPair<u64>>));
+
+impl TryFrom<GenomicRegionShadow> for GenomicRegion {
+    type Error = Error;
+
+    fn try_from(value: GenomicRegionShadow) -> Result<Self, Self::Error> {
+        let (contig, coords) = value.0;
+        if contig.is_empty() {
+            return Err(Error::InvalidContigAndStart("contig is empty".to_owned()));
+        }
+        match coords {
+            None => Ok(GenomicRegion((contig, None))),
+            Some(c) => GenomicRegion::try_from((contig, (c.low(), c.high()))),
+        }
+    }
+}
 
 /// Obtains genomic region from a string with the standard region format of name[:begin[-end]].
 ///
@@ -49,13 +75,24 @@ impl FromStr for GenomicRegion {
         let mut colon_split: Vec<&str> = val_str.split(':').collect();
         match colon_split.len() {
             0 => unreachable!(),
-            1 => Ok(GenomicRegion((val_str.to_string(), None))),
+            1 => {
+                if val_str.is_empty() {
+                    Err(Error::InvalidContigAndStart("contig is empty".to_owned()))
+                } else {
+                    Ok(GenomicRegion((val_str.to_string(), None)))
+                }
+            }
             _ => {
                 let interval_str = colon_split.pop().expect("no error");
-                Ok(GenomicRegion((
-                    colon_split.join(":").clone(),
-                    Some(OrdPair::<u64>::from_interval(interval_str)?),
-                )))
+                let contig = colon_split.join(":");
+                if contig.is_empty() {
+                    Err(Error::InvalidContigAndStart("contig is empty".to_owned()))
+                } else {
+                    Ok(GenomicRegion((
+                        contig,
+                        Some(OrdPair::<u64>::from_interval(interval_str)?),
+                    )))
+                }
             }
         }
     }
@@ -284,6 +321,20 @@ mod tests {
         let coords = region.0.1.unwrap();
         assert_eq!(coords.low(), 1000);
         assert_eq!(coords.high(), u64::MAX);
+    }
+
+    /// Tests `GenomicRegion` parsing with empty contig
+    #[test]
+    #[should_panic(expected = "InvalidContigAndStart")]
+    fn genomic_region_parsing_empty_contig() {
+        let _: GenomicRegion = GenomicRegion::from_str("").unwrap();
+    }
+
+    /// Tests `GenomicRegion` parsing with empty contig before coordinates
+    #[test]
+    #[should_panic(expected = "InvalidContigAndStart")]
+    fn genomic_region_parsing_empty_contig_with_coordinates() {
+        let _: GenomicRegion = GenomicRegion::from_str(":1000-2000").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with wrong order coordinates
@@ -568,5 +619,31 @@ mod tests {
     #[should_panic(expected = "InvalidContigAndStart")]
     fn try_from_tuple_equal_coordinates() {
         let _: GenomicRegion = GenomicRegion::try_from(("chr1".to_owned(), (1000, 1000))).unwrap();
+    }
+
+    /// `GenomicRegion` deserialization must enforce the same invariants as the
+    /// checked constructors (non-empty contig, `start < end`).
+    #[test]
+    fn deserialize_rejects_empty_contig() {
+        let bad: Result<GenomicRegion, _> =
+            serde_json::from_str(r#"[["", {"low": 1, "high": 100}]]"#);
+        let _: serde_json::Error = bad.unwrap_err();
+    }
+
+    /// `GenomicRegion` deserialization must reject wrong-order coordinates.
+    #[test]
+    fn deserialize_rejects_wrong_order() {
+        let bad: Result<GenomicRegion, _> =
+            serde_json::from_str(r#"[["chr1", {"low": 200, "high": 100}]]"#);
+        let _: serde_json::Error = bad.unwrap_err();
+    }
+
+    /// A valid `GenomicRegion` round-trips through serde.
+    #[test]
+    fn deserialize_accepts_valid() {
+        let region = GenomicRegion::from_str("chr1:1000-2000").expect("should parse");
+        let json = serde_json::to_string(&region).expect("should serialize");
+        let back: GenomicRegion = serde_json::from_str(&json).expect("should deserialize");
+        assert_eq!(region, back);
     }
 }

@@ -9,7 +9,7 @@ use std::{fmt, str::FromStr};
 
 /// Validated DNA sequence wrapper that guarantees only valid bases (A, C, G, T).
 /// Stores sequences in uppercase.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DNARestrictive(Vec<u8>);
 
 impl DNARestrictive {
@@ -101,6 +101,22 @@ impl fmt::Display for DNARestrictive {
     }
 }
 
+impl Serialize for DNARestrictive {
+    /// Emits the DNA sequence as an upper-case ASCII string so the type can
+    /// round-trip through any serde format. The inner bytes are guaranteed
+    /// to be `A/C/G/T` by the validating constructor, which is valid UTF-8.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // SAFETY-equivalent path: `self.0` only ever contains validated
+        // ASCII bytes, so the conversion is infallible.
+        let s = std::str::from_utf8(&self.0)
+            .map_err(|e| serde::ser::Error::custom(format!("internal invariant broken: {e}")))?;
+        serializer.serialize_str(s)
+    }
+}
+
 impl<'de> Deserialize<'de> for DNARestrictive {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -182,5 +198,26 @@ mod tests {
 
         let t_seq = DNARestrictive::try_from(vec![b'T']).expect("should create");
         assert_eq!(t_seq.to_string(), "T");
+    }
+
+    /// `Serialize` must emit the same string form the `Deserialize` accepts,
+    /// so the type round-trips through serde JSON.
+    #[test]
+    fn dna_restrictive_serde_roundtrip() {
+        let original = DNARestrictive::from_str("ACGT").expect("should construct");
+        let json = serde_json::to_string(&original).expect("should serialize");
+        assert_eq!(json, r#""ACGT""#);
+        let back: DNARestrictive =
+            serde_json::from_str(&json).expect("library must accept its own output");
+        assert_eq!(original, back);
+    }
+
+    /// Direct JSON-string deserialization (the documented wire form) must
+    /// still work.
+    #[test]
+    fn dna_restrictive_deserialize_from_string() {
+        let back: DNARestrictive =
+            serde_json::from_str(r#""ACGT""#).expect("should deserialize from string form");
+        assert_eq!(back.to_string(), "ACGT");
     }
 }

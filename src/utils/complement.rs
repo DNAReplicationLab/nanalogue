@@ -43,6 +43,10 @@ pub fn complement(a: u8) -> u8 {
 }
 
 /// Return the reverse complement of an input byte sequence.
+///
+/// The fast path (`.collect()`) is only taken when the iterator's reported
+/// upper-bound length is within a safe pre-reservation budget. Larger
+/// reported lengths are refused and return an empty `Vec` instead.
 #[must_use]
 pub fn revcomp<C, T>(text: T) -> Vec<u8>
 where
@@ -50,10 +54,19 @@ where
     T: IntoIterator<Item = C>,
     T::IntoIter: DoubleEndedIterator,
 {
-    text.into_iter()
-        .rev()
-        .map(|a| complement(*a.borrow()))
-        .collect()
+    /// Upper bound on the size-hint we are willing to pre-allocate (4 GiB).
+    /// Anything reporting more is refused.
+    const MAX_PRE_RESERVE: usize = 4usize * 1024 * 1024 * 1024;
+
+    let iter = text.into_iter().rev().map(|a| complement(*a.borrow()));
+    let (lo, hi) = iter.size_hint();
+    let upper = hi.unwrap_or(lo);
+
+    if upper <= MAX_PRE_RESERVE {
+        iter.collect()
+    } else {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]
@@ -86,5 +99,18 @@ mod tests {
         assert_eq!(revcomp(b"ACGTN"), b"NACGT");
         assert_eq!(revcomp(b"GaTtaCA"), b"TGtaAtC");
         assert_eq!(revcomp(b"AGCTYRWSKMDVHBN"), b"NVDBHKMSWYRAGCT");
+    }
+
+    /// Iterators with `size_hint` exceeding the pre-reserve budget return an
+    /// empty `Vec`.
+    #[test]
+    fn revcomp_does_not_abort_on_adversarial_size_hint() {
+        let it = std::iter::repeat_n(0u8, usize::MAX);
+        let out = revcomp(it);
+        assert!(
+            out.is_empty(),
+            "adversarial size_hint must produce an empty Vec, got {}",
+            out.len(),
+        );
     }
 }

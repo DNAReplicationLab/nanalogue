@@ -9,7 +9,13 @@ use std::str::FromStr;
 use super::read_state::ReadState;
 
 /// Implements a collection-of-states of `ReadState`
+///
+/// `Deserialize` is routed through [`ReadStates::try_from`] so the same
+/// whitelist / non-empty / sort / dedup invariants enforced by the public
+/// `FromStr` and `TryFrom<Vec<u16>>` constructors are also enforced on the
+/// JSON / serde path.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "Vec<u16>")]
 pub struct ReadStates(Vec<u16>);
 
 impl FromStr for ReadStates {
@@ -180,5 +186,29 @@ mod tests {
     #[test]
     fn empty_string() {
         let _op: Error = ReadStates::from_str("").unwrap_err();
+    }
+
+    /// Verifies that `ReadStates` deserialization enforces the whitelist
+    /// invariant on every entry.
+    #[test]
+    fn deserialize_rejects_disallowed_flags() {
+        let bad: Result<ReadStates, _> = serde_json::from_str("[700, 1, 12345, 65535]");
+        let _: serde_json::Error = bad.unwrap_err();
+    }
+
+    /// Verifies the empty-input invariant is also enforced.
+    #[test]
+    fn deserialize_rejects_empty() {
+        let bad: Result<ReadStates, _> = serde_json::from_str("[]");
+        let _: serde_json::Error = bad.unwrap_err();
+    }
+
+    /// Valid input round-trips and the resulting `ReadStates` is sorted +
+    /// deduplicated, matching the public constructors.
+    #[test]
+    fn deserialize_accepts_valid_and_dedups() {
+        let good: ReadStates =
+            serde_json::from_str("[16, 0, 256, 16]").expect("should deserialize");
+        assert_eq!(good.bam_flags(), &[0, 16, 256]);
     }
 }
