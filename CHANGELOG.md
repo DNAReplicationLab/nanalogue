@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-05-14
+
 ### Added
 - `CurrRead` now exposes mapping quality (`mapq`) in library output, the
   `Display` implementation, and the `read-info` subcommand; `read-info` also
@@ -31,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hardened dependency and workflow safety by pinning GitHub Actions to commit
   SHAs, tightening dependency safety checks, and applying additional workflow
   cleanups from zizmor reviews
+- Applied additional hardening fixes using reports from Opus, and updated
+  `ethnum` to avoid a docs.rs nightly crash problem
 - Hoisted `target_names()` out of the `peek` loop for lower repeated
   overhead, and silence broken-pipe exits instead of surfacing them as errors
 - Refined documentation and README links, naming, and usage details through
