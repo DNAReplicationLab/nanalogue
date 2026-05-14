@@ -7,6 +7,35 @@ const path = require('node:path');
 const repoRoot = path.resolve(__dirname, '..');
 process.chdir(repoRoot);
 
+// Verify this npm build recognizes the min-release-age config key before
+// relying on it for the npx package install cooldown, and reject any
+// inherited min-release-age setting so this script controls the value.
+function ensureSupportedNpmConfig() {
+  const minReleaseAgeResult = spawnSync('npm', ['config', 'get', 'min-release-age'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+    shell: false,
+  });
+
+  if (minReleaseAgeResult.error) {
+    console.error(minReleaseAgeResult.error);
+    process.exit(1);
+  }
+
+  if (minReleaseAgeResult.status !== 0) {
+    process.exit(minReleaseAgeResult.status ?? 1);
+  }
+
+  if (minReleaseAgeResult.stdout.trim() !== 'null') {
+    console.error(
+      `npm must support min-release-age config; expected ${JSON.stringify('null')}, got ${JSON.stringify(minReleaseAgeResult.stdout.trim())}`,
+    );
+    process.exit(1);
+  }
+}
+
+ensureSupportedNpmConfig();
+
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey) {
   console.error('OPENAI_API_KEY is required');
@@ -14,6 +43,7 @@ if (!apiKey) {
 }
 
 const model = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
+const minimumReleaseAge = '10080';
 const outputPath = '/tmp/doc-audit.jsonl';
 if (fs.existsSync(outputPath)) {
   console.error(`Refusing to overwrite existing JSONL log: ${outputPath}`);
@@ -58,6 +88,7 @@ const result = spawnSync(
       PATH: process.env.PATH || '',
       OPENAI_API_KEY: apiKey,
       OPENAI_MODEL: model,
+      npm_config_min_release_age: minimumReleaseAge,
     },
     stdio: ['ignore', outputFd, 'inherit'],
     shell: false,
