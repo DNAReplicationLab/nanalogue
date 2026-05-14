@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+./github_workflow_scripts/check-repo-guardrails.sh
+
+if git diff --cached --name-only --diff-filter=ACMR -- '*.md' | grep -q .; then
+  node github_workflow_scripts/check-md-links.mjs --cached-only
+fi
+
+if git diff --cached --name-only --diff-filter=ACMR -- 'CHANGELOG.md' | grep -q .; then
+  node github_workflow_scripts/validate-changelog.mjs --cached-only
+fi
+
+node github_workflow_scripts/check-path-leaks.mjs --cached-only
