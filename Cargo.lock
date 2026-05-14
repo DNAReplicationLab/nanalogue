@@ -1749,7 +1749,7 @@ dependencies = [
 
 [[package]]
 name = "nanalogue"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "bedrs",
  "bio-types",
