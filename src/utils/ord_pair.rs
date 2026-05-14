@@ -11,12 +11,46 @@ use std::ops::RangeInclusive;
 use std::str::FromStr;
 
 /// Datatype holding two values low, high such that low <= high is guaranteed at creation.
+///
+/// `Deserialize` is routed through [`OrdPair::new`] via a shadow type so the
+/// `low <= high` invariant is enforced for every serde input source.
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "OrdPairShadow<T>")]
 pub struct OrdPair<T: Clone + Copy + Debug + PartialEq + PartialOrd> {
     /// low value of the ordered pair
     low: T,
     /// high value of the ordered pair
     high: T,
+}
+
+/// Shadow type used solely by serde to validate `OrdPair<T>` deserialization.
+///
+/// Accepts either the standard struct form `{"low": _, "high": _}` or the
+/// 2-element array form `[low, high]` and then routes the values through
+/// [`OrdPair::new`] so the documented `low <= high` invariant is enforced.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum OrdPairShadow<T> {
+    /// Struct form: `{"low": _, "high": _}`
+    Struct {
+        /// low value of the ordered pair
+        low: T,
+        /// high value of the ordered pair
+        high: T,
+    },
+    /// Array form: `[low, high]`
+    Tuple([T; 2]),
+}
+
+impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> TryFrom<OrdPairShadow<T>> for OrdPair<T> {
+    type Error = Error;
+
+    fn try_from(value: OrdPairShadow<T>) -> Result<Self, Self::Error> {
+        let (low, high) = match value {
+            OrdPairShadow::Struct { low, high } | OrdPairShadow::Tuple([low, high]) => (low, high),
+        };
+        OrdPair::new(low, high)
+    }
 }
 
 impl Eq for OrdPair<u8> {}
@@ -563,5 +597,38 @@ mod tests {
     fn ord_pair_update_high_violates_order_panics() {
         let mut x = OrdPair::<u8>::new(10, 11).expect("no failure");
         x.update_high(9).unwrap();
+    }
+
+    /// Deserializing the canonical struct form must enforce the `low <= high`
+    /// invariant.
+    #[test]
+    fn ord_pair_deserialize_struct_form_rejects_wrong_order() {
+        let err: Result<OrdPair<u64>, _> = serde_json::from_str(r#"{"low":100,"high":0}"#);
+        let _: serde_json::Error = err.unwrap_err();
+    }
+
+    /// Deserializing the 2-array form must also enforce `low <= high`.
+    #[test]
+    fn ord_pair_deserialize_array_form_rejects_wrong_order() {
+        let err: Result<OrdPair<u64>, _> = serde_json::from_str("[200,100]");
+        let _: serde_json::Error = err.unwrap_err();
+    }
+
+    /// Round-trip: a valid `OrdPair` serializes and deserializes back to itself.
+    #[test]
+    fn ord_pair_deserialize_struct_form_accepts_valid() {
+        let p = OrdPair::<u64>::new(10, 20).expect("should create");
+        let json = serde_json::to_string(&p).expect("should serialize");
+        let back: OrdPair<u64> = serde_json::from_str(&json).expect("should deserialize");
+        assert_eq!(p, back);
+    }
+
+    /// Array form must also be accepted for valid input.
+    #[test]
+    fn ord_pair_deserialize_array_form_accepts_valid() {
+        let back: OrdPair<u64> =
+            serde_json::from_str("[10, 20]").expect("array form should deserialize");
+        assert_eq!(back.low(), 10);
+        assert_eq!(back.high(), 20);
     }
 }

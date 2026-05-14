@@ -173,7 +173,7 @@ impl TryFrom<u8> for AllowedAGCTN {
             b'C' => Ok(AllowedAGCTN::C),
             b'T' => Ok(AllowedAGCTN::T),
             b'N' => Ok(AllowedAGCTN::N),
-            v => Err(Error::InvalidBase(v.to_string())),
+            v => Err(Error::InvalidBase(char::from(v).to_string())),
         }
     }
 }
@@ -344,15 +344,43 @@ mod tests {
         reason = "panic is appropriate in tests for wrong error type"
     )]
     fn try_from_u8_error_type() {
-        // Verify error contains the invalid base
+        // Verify error contains the offending character, consistent with
+        // TryFrom<char> and FromStr.
         let result: Result<AllowedAGCTN, _> = AllowedAGCTN::try_from(b'Z');
         let err = result.unwrap_err();
         if let Error::InvalidBase(s) = err {
-            // The error contains the numeric representation of the byte
-            assert_eq!(s, (b'Z').to_string());
+            assert_eq!(s, "Z");
         } else {
             panic!("Expected InvalidBase error, got {err:?}");
         }
+    }
+
+    /// Tests that all three sibling impls (`TryFrom<char>`, `FromStr`, `TryFrom<u8>`)
+    /// produce identical `InvalidBase` payloads for the same offending character.
+    #[test]
+    #[expect(
+        clippy::panic,
+        reason = "panic is appropriate in tests for wrong error type"
+    )]
+    fn try_from_u8_error_consistent_with_char_and_str() {
+        let from_char = match AllowedAGCTN::try_from('Z') {
+            Err(Error::InvalidBase(s)) => s,
+            other => panic!("unexpected: {other:?}"),
+        };
+        let from_str = match AllowedAGCTN::from_str("Z") {
+            Err(Error::InvalidBase(s)) => s,
+            other => panic!("unexpected: {other:?}"),
+        };
+        let from_u8 = match AllowedAGCTN::try_from(b'Z') {
+            Err(Error::InvalidBase(s)) => s,
+            other => panic!("unexpected: {other:?}"),
+        };
+        assert_eq!(from_char, "Z");
+        assert_eq!(from_str, "Z");
+        assert_eq!(
+            from_u8, "Z",
+            "TryFrom<u8> must emit the offending character"
+        );
     }
 
     #[test]

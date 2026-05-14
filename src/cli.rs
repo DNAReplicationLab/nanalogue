@@ -965,6 +965,13 @@ mod input_bam_tests {
     }
 
     #[test]
+    fn input_bam_deserialize_rejects_disallowed_read_filter() {
+        let bad: Result<InputBam, _> =
+            serde_json::from_str(r#"{"read_filter":[1, 700], "include_zero_len": true}"#);
+        let _: serde_json::Error = bad.unwrap_err();
+    }
+
+    #[test]
     fn input_bam_convert_region_to_bed3_none() {
         let mut input_bam = InputBam::default();
 

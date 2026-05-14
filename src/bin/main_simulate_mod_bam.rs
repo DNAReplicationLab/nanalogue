@@ -125,6 +125,35 @@ mod tests {
         fs::remove_dir_all(&temp_path).expect("failed to clean up temp dir");
     }
 
+    /// Test that the run function returns an error for a config whose
+    /// range invariant is violated.
+    #[test]
+    fn run_fails_with_invalid_len_range_config() {
+        let temp_path = env::temp_dir().join(format!("nanalogue_test_{}", uuid::v4_random()));
+        fs::create_dir_all(&temp_path).expect("failed to create temp dir");
+
+        let json_path = temp_path.join("invalid_range.json");
+        fs::write(
+            &json_path,
+            r#"{"contigs":{"number":1,"len_range":[200,100]},"reads":[]}"#,
+        )
+        .expect("failed to write invalid range JSON");
+
+        let cli = Cli {
+            json: json_path.to_string_lossy().to_string(),
+            bam: temp_path.join("output.bam").to_string_lossy().to_string(),
+            fasta: temp_path.join("output.fasta").to_string_lossy().to_string(),
+        };
+
+        let result = run(&cli);
+        assert!(
+            result.is_err(),
+            "run should fail when config contains an invalid len_range"
+        );
+
+        fs::remove_dir_all(&temp_path).expect("failed to clean up temp dir");
+    }
+
     /// Test that the run function returns an error with invalid JSON
     #[test]
     fn run_fails_with_invalid_json() {
