@@ -28,7 +28,7 @@ on:
         default: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: push-docker-images-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
