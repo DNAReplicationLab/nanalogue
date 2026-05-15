@@ -125,6 +125,9 @@ jobs:
     name: Publish to crates.io
     needs: [test-install-script]
     if: github.event_name == 'release'
+    permissions:
+      contents: read
+      id-token: write # Required because publish-crates.yml uses crates.io trusted publishing via OIDC.
     uses: ./.github/workflows/publish-crates.yml
     with:
       dry_run: false
