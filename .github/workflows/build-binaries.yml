@@ -135,6 +135,13 @@ jobs:
               . "$HOME/.cargo/env"
 
               find_libclang() {
+                if [[ -n "${LIBCLANG_VERSION_HINT:-}" ]]; then
+                  version_match=$(find /usr/lib /usr/local/lib /lib -type f \( -name "libclang.so" -o -name "libclang.so.*" -o -name "libclang-*.so*" \) 2>/dev/null | grep -E "(/llvm${LIBCLANG_VERSION_HINT}/|libclang[^/]*${LIBCLANG_VERSION_HINT})" | sort -V | tail -1 || true)
+                  if [[ -n "$version_match" ]]; then
+                    echo "$version_match"
+                    return
+                  fi
+                fi
                 find /usr/lib /usr/local/lib /lib -type f \( -name "libclang.so" -o -name "libclang.so.*" -o -name "libclang-*.so*" \) 2>/dev/null | sort -V | tail -1
               }
 
@@ -164,20 +171,29 @@ jobs:
                   openssl-libs-static \
                   build-base \
                   perl
-                libclang_installed=false
-                for pkg_set in \
-                  "clang clang-dev llvm-libclang" \
-                  "clang libclang" \
-                  "clang clang-libs"
-                do
-                  if apk add --no-cache $pkg_set; then
-                    libclang_installed=true
-                    break
+                # Pin libclang/clang to 16 where available because older
+                # libclang releases can be too old for the clang-sys/bindgen
+                # APIs needed by hts-sys during release builds.
+                if apk add --no-cache clang16 clang16-dev clang16-libclang llvm16-dev llvm16-libs; then
+                  export CLANG_PATH=$(command -v clang-16)
+                  command -v clang-16 >/dev/null
+                  export LIBCLANG_VERSION_HINT=16
+                else
+                  libclang_installed=false
+                  for pkg_set in \
+                    "clang clang-dev llvm-libclang" \
+                    "clang libclang" \
+                    "clang clang-libs"
+                  do
+                    if apk add --no-cache $pkg_set; then
+                      libclang_installed=true
+                      break
+                    fi
+                  done
+                  if [[ "$libclang_installed" != true ]]; then
+                    echo "ERROR: Failed to install libclang packages"
+                    exit 1
                   fi
-                done
-                if [[ "$libclang_installed" != true ]]; then
-                  echo "ERROR: Failed to install libclang packages"
-                  exit 1
                 fi
                 export CFLAGS="-I/usr/include"
               else
@@ -191,21 +207,30 @@ jobs:
                   perl-IPC-Cmd \
                   perl-core \
                   perl-Time-Piece
-                libclang_installed=false
-                for pkg_set in \
-                  "clang libclang llvm-devel" \
-                  "clang clang-devel llvm-devel" \
-                  "clang clang-libs llvm-devel" \
-                  "clang llvm-devel"
-                do
-                  if "$pm" install -y $pkg_set; then
-                    libclang_installed=true
-                    break
+                # Pin libclang/clang to 16 for manylinux_2_34 because older
+                # libclang releases can be too old for the clang-sys/bindgen
+                # APIs needed by hts-sys during release builds.
+                if [[ "$CONTAINER" == *"manylinux_2_34"* ]] && "$pm" install -y clang16-devel clang16-libs llvm16-devel llvm16-libs; then
+                  export CLANG_PATH=$(command -v clang)
+                  command -v clang >/dev/null
+                  export LIBCLANG_VERSION_HINT=16
+                else
+                  libclang_installed=false
+                  for pkg_set in \
+                    "clang libclang llvm-devel" \
+                    "clang clang-devel llvm-devel" \
+                    "clang clang-libs llvm-devel" \
+                    "clang llvm-devel"
+                  do
+                    if "$pm" install -y $pkg_set; then
+                      libclang_installed=true
+                      break
+                    fi
+                  done
+                  if [[ "$libclang_installed" != true ]]; then
+                    echo "ERROR: Failed to install libclang packages"
+                    exit 1
                   fi
-                done
-                if [[ "$libclang_installed" != true ]]; then
-                  echo "ERROR: Failed to install libclang packages"
-                  exit 1
                 fi
               fi
 
