@@ -134,6 +134,21 @@ jobs:
               curl https://sh.rustup.rs -sSf | sh -s -- -y
               . "$HOME/.cargo/env"
 
+              find_libclang() {
+                find /usr/lib /usr/local/lib /lib -type f \( -name "libclang.so" -o -name "libclang.so.*" -o -name "libclang-*.so*" \) 2>/dev/null | sort -V | tail -1
+              }
+
+              prepare_libclang() {
+                libclang_file=$(find_libclang)
+                if [ -z "$libclang_file" ]; then
+                  echo "ERROR: Could not locate libclang after installation"
+                  exit 1
+                fi
+                mkdir -p /tmp/libclang
+                cp "$libclang_file" /tmp/libclang/libclang.so
+                export LIBCLANG_PATH=/tmp/libclang
+              }
+
               # Install dependencies based on container type
               if [[ "$CONTAINER" == *"musllinux"* ]]; then
                 apk add --no-cache \
@@ -149,9 +164,25 @@ jobs:
                   openssl-libs-static \
                   build-base \
                   perl
+                libclang_installed=false
+                for pkg_set in \
+                  "clang clang-dev llvm-libclang" \
+                  "clang libclang" \
+                  "clang clang-libs"
+                do
+                  if apk add --no-cache $pkg_set; then
+                    libclang_installed=true
+                    break
+                  fi
+                done
+                if [[ "$libclang_installed" != true ]]; then
+                  echo "ERROR: Failed to install libclang packages"
+                  exit 1
+                fi
                 export CFLAGS="-I/usr/include"
               else
-                yum install -y \
+                pm=$(command -v dnf || command -v yum)
+                "$pm" install -y \
                   bzip2-devel \
                   xz-devel \
                   zlib-devel \
@@ -160,7 +191,25 @@ jobs:
                   perl-IPC-Cmd \
                   perl-core \
                   perl-Time-Piece
+                libclang_installed=false
+                for pkg_set in \
+                  "clang libclang llvm-devel" \
+                  "clang clang-devel llvm-devel" \
+                  "clang clang-libs llvm-devel" \
+                  "clang llvm-devel"
+                do
+                  if "$pm" install -y $pkg_set; then
+                    libclang_installed=true
+                    break
+                  fi
+                done
+                if [[ "$libclang_installed" != true ]]; then
+                  echo "ERROR: Failed to install libclang packages"
+                  exit 1
+                fi
               fi
+
+              prepare_libclang
 
               # Build release binaries
               cargo build --release --bins
