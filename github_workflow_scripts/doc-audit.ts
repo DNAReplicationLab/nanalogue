@@ -43,7 +43,8 @@ if (!apiKey) {
 }
 
 const model = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
-const minimumReleaseAge = '10080';
+// npm's min-release-age is expressed in days, not minutes.
+const minimumReleaseAgeDays = '7';
 const outputPath = '/tmp/doc-audit.jsonl';
 if (fs.existsSync(outputPath)) {
   console.error(`Refusing to overwrite existing JSONL log: ${outputPath}`);
@@ -64,7 +65,7 @@ const result = spawnSync(
   [
     '-y',
     '-p',
-    '@mariozechner/pi-coding-agent@0.70.2',
+    '@earendil-works/pi-coding-agent@0.74.0',
     'pi',
     '--mode',
     'json',
@@ -88,7 +89,7 @@ const result = spawnSync(
       PATH: process.env.PATH || '',
       OPENAI_API_KEY: apiKey,
       OPENAI_MODEL: model,
-      npm_config_min_release_age: minimumReleaseAge,
+      npm_config_min_release_age: minimumReleaseAgeDays,
     },
     stdio: ['ignore', outputFd, 'inherit'],
     shell: false,
