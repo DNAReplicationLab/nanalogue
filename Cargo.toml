@@ -10,7 +10,7 @@ repository = "https://github.com/DNAReplicationLab/nanalogue.git"
 homepage = "https://www.nanalogue.com"
 categories = ["command-line-utilities", "science::bioinformatics::sequence-analysis", "science::bioinformatics::genomics"]
 keywords = ["modbam", "bam", "dna", "dna_methylation", "rna"]
-exclude = [".github/", ".gitignore", "github_workflow_scripts/"]
+exclude = [".github/", ".gitignore", "github_workflow_scripts/", "AGENTS.md"]
 
 [dependencies]
 rust-htslib = "=1.0.0"
