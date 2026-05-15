@@ -24,9 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   install-script integrity checks
 
 ### Changed
-- Vendored HTSlib, selected `rust-htslib` support code,
-  fibertools-derived types, DNA complement helpers, and UUID helpers to reduce
-  external dependency surface and improve build provenance
+- Vendored selected fibertools-derived types, DNA complement helpers, and UUID
+  helpers to reduce external dependency surface and improve build provenance
 - Renamed reference-coordinate filtering APIs from
   `FilterByRefCoords`/`filter_by_ref_pos` to
   `FilterModsByRefCoords`/`filter_mods_by_ref_pos`
@@ -44,8 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed multiple panic paths across BAM parsing, read processing,
   simulation code, and missing-quality handling; also tightened trait
   contracts and broader error handling
-- Fixed HTSlib and rand compatibility issues encountered during vendoring and
-  toolchain updates, including follow-up warning cleanups
+- Fixed rand compatibility issues encountered during vendoring and toolchain
+  updates, including follow-up warning cleanups
 - Made libcurl/OpenSSL environment variable initialization safer and
   tightened the SSL initialization contract for remote access paths
 - Fixed an unlikely `i64` overflow path in `read_utils`
