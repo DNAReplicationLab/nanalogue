@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-05-15
+
+### Changed
+- Unvendored `hts-sys` and `rust-htslib`, updated third-party notices, and
+  refreshed `Cargo.lock` to use crates.io directly
+
+### Fixed
+- (Project packaging, not code) Stopped ignoring `CLAUDE.md` in git and
+  excluded both `AGENTS.md` and `CLAUDE.md` from crate packaging
+- (GitHub workflow, not code) Exchanged GitHub OIDC tokens for temporary
+  crates.io publish tokens during crate publish dry runs and real publishes
+
 ## [0.1.10] - 2026-05-14
 
 ### Added

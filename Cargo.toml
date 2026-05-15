@@ -1,6 +1,6 @@
 [package]
 name = "nanalogue"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2024"
 description = "BAM/Mod BAM parsing and analysis tool with a single-molecule focus"
 license = "MIT"
@@ -10,7 +10,7 @@ repository = "https://github.com/DNAReplicationLab/nanalogue.git"
 homepage = "https://www.nanalogue.com"
 categories = ["command-line-utilities", "science::bioinformatics::sequence-analysis", "science::bioinformatics::genomics"]
 keywords = ["modbam", "bam", "dna", "dna_methylation", "rna"]
-exclude = [".github/", ".gitignore", "github_workflow_scripts/", "AGENTS.md"]
+exclude = [".github/", ".gitignore", "github_workflow_scripts/", "AGENTS.md", "CLAUDE.md"]
 
 [dependencies]
 rust-htslib = "=1.0.0"
