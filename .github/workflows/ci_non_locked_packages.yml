@@ -16,13 +16,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-non-locked-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build_and_test:
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.toolchain }}
+      group: ci-non-locked-${{ github.ref }}-${{ matrix.toolchain }}
       cancel-in-progress: true
     name: Rust project - latest
     runs-on: ubuntu-latest
