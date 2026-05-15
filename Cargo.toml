@@ -137,6 +137,3 @@ strip = "debuginfo"
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = "0.1.48"
 
-[patch.crates-io]
-rust-htslib = { path = "vendor/rust-htslib-1.0.0" }
-hts-sys = { path = "vendor/hts-sys-2.2.0" }
