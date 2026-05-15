@@ -151,11 +151,12 @@ jobs:
 
       - name: Package binaries
         env:
+          RUST_TARGET: ${{ matrix.rust_target }}
           COMPAT_TAG: ${{ matrix.compat_tag }}
         run: |
           mkdir -p dist
-          cp "target/$TARGET/release/nanalogue" "dist/nanalogue-$COMPAT_TAG"
-          cp "target/$TARGET/release/nanalogue_sim_bam" "dist/nanalogue_sim_bam-$COMPAT_TAG"
+          cp "target/$RUST_TARGET/release/nanalogue" "dist/nanalogue-$COMPAT_TAG"
+          cp "target/$RUST_TARGET/release/nanalogue_sim_bam" "dist/nanalogue_sim_bam-$COMPAT_TAG"
 
       - name: Upload binaries
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
