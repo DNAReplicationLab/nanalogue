@@ -102,6 +102,7 @@ jobs:
         if: github.event_name == 'release'
         env:
           TAG: ${{ github.event.release.tag_name }}
+          GH_REPO: ${{ github.repository }} # Required because this job does not check out the repo before calling gh.
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "$TAG" release-zips/*.zip --clobber
