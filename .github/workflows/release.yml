@@ -121,7 +121,6 @@ jobs:
     with:
       tag: ${{ github.event.release.tag_name }}
       dry_run: false
-    secrets: inherit # Required so DOCKER_HUB_TOKEN reaches the called workflow.
 
   publish-crates:
     name: Publish to crates.io

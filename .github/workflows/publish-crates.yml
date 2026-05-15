@@ -42,9 +42,16 @@ jobs:
           submodules: recursive
       - name: Setup rustup
         run: rustup update stable && rustup default stable
+      - name: Exchange OIDC token for crates.io token
+        id: auth
+        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
       - name: Dry run (validate package)
         if: ${{ inputs.dry_run }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --dry-run
       - name: Publish to crates.io
         if: ${{ !inputs.dry_run }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish
