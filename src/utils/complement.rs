@@ -54,9 +54,9 @@ where
     T: IntoIterator<Item = C>,
     T::IntoIter: DoubleEndedIterator,
 {
-    /// Upper bound on the size-hint we are willing to pre-allocate (4 GiB).
+    /// Upper bound on the size-hint we are willing to pre-allocate (3 GiB).
     /// Anything reporting more is refused.
-    const MAX_PRE_RESERVE: usize = 4usize * 1024 * 1024 * 1024;
+    const MAX_PRE_RESERVE: usize = 3usize * 1024 * 1024 * 1024;
 
     let iter = text.into_iter().rev().map(|a| complement(*a.borrow()));
     let (lo, hi) = iter.size_hint();
