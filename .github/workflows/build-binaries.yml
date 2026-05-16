@@ -90,6 +90,24 @@ jobs:
           - runner: ubuntu-latest
             rust_target: aarch64-unknown-linux-musl
             compat_tag: musllinux_1_2_aarch64
+          - runner: ubuntu-latest
+            rust_target: arm-unknown-linux-musleabihf
+            compat_tag: musllinux_1_2_arm
+          - runner: ubuntu-latest
+            rust_target: powerpc64le-unknown-linux-musl
+            compat_tag: musllinux_1_2_powerpc64le
+          - runner: ubuntu-latest
+            rust_target: armv7-unknown-linux-gnueabihf
+            zig_suffix: 2.17
+            compat_tag: manylinux_2_17_armv7
+          - runner: ubuntu-latest
+            rust_target: riscv64gc-unknown-linux-gnu
+            zig_suffix: 2.29
+            compat_tag: manylinux_2_29_riscv64gc
+          - runner: ubuntu-latest
+            rust_target: powerpc64le-unknown-linux-gnu
+            zig_suffix: 2.29
+            compat_tag: manylinux_2_29_powerpc64le
 
     steps:
       - name: Checkout code
