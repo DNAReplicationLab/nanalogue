@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.11] - 2026-05-15
+## [0.1.11] - 2026-05-16
 
 ### Changed
+- (GitHub workflow, not code) Switched release binary builds to `cargo zigbuild` and expanded the matrix to cover additional Linux targets/compatibility tiers
+- (Project tooling, not code) Updated `install.sh` to match the expanded artifact names and architecture aliases, and refreshed the install-script checksum file
+- (Documentation, not code) Updated `README.md` install guidance to point at the GitHub Actions artifact section and list the current artifact names/suffixes
+- Relaxed the reverse-complement size guard from 4GB to 3GB
 - Unvendored `hts-sys` and `rust-htslib`, updated third-party notices, and
   refreshed `Cargo.lock` to use crates.io directly
 

@@ -167,9 +167,12 @@ detect_os() {
 
 detect_arch() {
     case "$(uname -m)" in
-        x86_64|amd64)   echo "x86_64" ;;
-        aarch64|arm64)  echo "aarch64" ;;
-        *)              error "Unsupported architecture: $(uname -m)" ;;
+        x86_64|amd64)         echo "x86_64" ;;
+        aarch64|arm64)        echo "aarch64" ;;
+        armv7l|armv7|armv6l|armv6|arm6) echo "arm" ;;
+        ppc64le|powerpc64le)  echo "powerpc64le" ;;
+        riscv64|riscv64gc)    echo "riscv64gc" ;;
+        *)                    error "Unsupported architecture: $(uname -m)" ;;
     esac
 }
 
@@ -225,17 +228,47 @@ get_asset_name() {
             ;;
         linux)
             if is_musl; then
-                echo "binaries-musllinux_1_2_${arch}.zip"
+                case "$arch" in
+                    x86_64|aarch64|powerpc64le) echo "binaries-musllinux_1_2_${arch}.zip" ;;
+                    arm)                      echo "binaries-musllinux_1_2_arm.zip" ;;
+                    *)                         error "Unsupported musl architecture: $arch" ;;
+                esac
                 return
             fi
-            glibc_version=$(get_glibc_version)
-            if [ -n "$glibc_version" ] && version_gte "$glibc_version" "2.34"; then
-                echo "binaries-manylinux_2_34_${arch}.zip"
-            elif [ -n "$glibc_version" ] && version_gte "$glibc_version" "2.28"; then
-                echo "binaries-manylinux_2_28_${arch}.zip"
-            else
-                echo "binaries-manylinux2014_${arch}.zip"
-            fi
+
+            case "$arch" in
+                x86_64|aarch64)
+                    glibc_version=$(get_glibc_version)
+                    if [ -n "$glibc_version" ] && version_gte "$glibc_version" "2.34"; then
+                        echo "binaries-manylinux_2_34_${arch}.zip"
+                    elif [ -n "$glibc_version" ] && version_gte "$glibc_version" "2.28"; then
+                        echo "binaries-manylinux_2_28_${arch}.zip"
+                    elif [ -n "$glibc_version" ] && version_gte "$glibc_version" "2.17"; then
+                        echo "binaries-manylinux_2_17_${arch}.zip"
+                    else
+                        error "Unsupported glibc version: ${glibc_version:-unknown}"
+                    fi
+                    ;;
+                arm)
+                    glibc_version=$(get_glibc_version)
+                    if [ -n "$glibc_version" ] && version_gte "$glibc_version" "2.17"; then
+                        echo "binaries-manylinux_2_17_arm.zip"
+                    else
+                        error "Unsupported glibc version: ${glibc_version:-unknown}"
+                    fi
+                    ;;
+                powerpc64le|riscv64gc)
+                    glibc_version=$(get_glibc_version)
+                    if [ -n "$glibc_version" ] && version_gte "$glibc_version" "2.29"; then
+                        echo "binaries-manylinux_2_29_${arch}.zip"
+                    else
+                        error "Unsupported glibc version: ${glibc_version:-unknown}"
+                    fi
+                    ;;
+                *)
+                    error "Unsupported Linux architecture: $arch"
+                    ;;
+            esac
             ;;
         *)
             error "Cannot determine asset for OS: $os"

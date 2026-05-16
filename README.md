@@ -82,7 +82,9 @@ Pre-built binaries for macOS and Linux are available:
 
 ### Quick Install Script
 
-The easiest way to install or update pre-built binaries is using the install script:
+The easiest way to install or update pre-built binaries is using the install script.
+It installs both `nanalogue` and `nanalogue_sim_bam` when available.
+For the available binary artifacts, see [GitHub Actions Artifacts](#github-actions-artifacts):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
@@ -138,13 +140,17 @@ from the github repository. To download:
 1. Navigate to the workflow runs
 2. Click on a successful workflow run
 3. Scroll to the "Artifacts" section at the bottom
-4. Download the binary artifact for your platform. The Linux artifact names include an architecture suffix (`x86_64` or `aarch64`):
+4. Download the binary artifact for your platform. Linux artifact names include architecture suffixes such as `x86_64`, `aarch64`, `arm`, `riscv64gc`, and `powerpc64le`:
    - `binaries-macos-latest` - macOS Apple Silicon binaries
    - `binaries-macos-15-intel` - macOS Intel binaries
-   - `binaries-musllinux_1_2_<arch>` - Alpine/musl-based Linux (static binaries)
-   - `binaries-manylinux_2_28_<arch>` - Modern Linux distributions (glibc 2.28+)
+   - `binaries-musllinux_1_2_x86_64` - x86_64 Alpine/musl (static binaries)
+   - `binaries-musllinux_1_2_aarch64` - aarch64 Alpine/musl (static binaries)
+   - `binaries-musllinux_1_2_arm` - 32-bit ARM / some Raspberry Pi models (static binaries)
+   - `binaries-musllinux_1_2_powerpc64le` - PowerPC64LE Alpine/musl (static binaries)
    - `binaries-manylinux_2_34_<arch>` - Newer Linux distributions (glibc 2.34+)
-   - `binaries-manylinux2014_<arch>` - Older Linux distributions (glibc 2.17+, maximum compatibility)
+   - `binaries-manylinux_2_29_<arch>` - RISC-V / PowerPC64LE Linux (glibc 2.29+)
+   - `binaries-manylinux_2_28_<arch>` - Modern Linux distributions (glibc 2.28+)
+   - `binaries-manylinux_2_17_arm` - Other Linux distributions (glibc 2.17+, maximum compatibility)
 
 ## Using Cargo
 
