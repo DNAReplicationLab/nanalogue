@@ -149,7 +149,8 @@ pub fn nanalogue_bam_reader_from_url(url: &Url) -> Result<bam::Reader, Error> {
 /// let err = nanalogue_indexed_bam_reader(&"examples/example_1_copy_no_index.bam",
 ///     FetchDefinition::All).unwrap_err();
 /// // we should get a missing index error, which is same as an invalid index in `rust_htslib`.
-/// assert!(matches!(err, Error::RustHtslibError(OtherError::BamInvalidIndex{..})));
+/// assert!(matches!(err, Error::RustHtslibError(err)
+///     if matches!(err.as_ref(), OtherError::BamInvalidIndex{..})));
 /// ```
 ///
 /// Check we get an error when the index is malformed.
@@ -164,7 +165,8 @@ pub fn nanalogue_bam_reader_from_url(url: &Url) -> Result<bam::Reader, Error> {
 /// let err = nanalogue_indexed_bam_reader(&"examples/example_1_copy_invalid_index.bam",
 ///     FetchDefinition::All).unwrap_err();
 /// // we should get an invalid index error, as the index exists here but is just a blank file.
-/// assert!(matches!(err, Error::RustHtslibError(OtherError::BamInvalidIndex{..})));
+/// assert!(matches!(err, Error::RustHtslibError(err)
+///     if matches!(err.as_ref(), OtherError::BamInvalidIndex{..})));
 /// ```
 pub fn nanalogue_indexed_bam_reader<J>(
     bam_path: &J,

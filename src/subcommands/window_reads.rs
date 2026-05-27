@@ -771,7 +771,6 @@ mod stochastic_tests {
     use crate::SimulationConfig;
     use crate::analysis;
     use crate::simulate_mod_bam::TempBamSimulation;
-    use itertools::izip;
     use rust_htslib::bam::{self, Read as _};
 
     /// Helper to create a simulation from JSON config
@@ -981,7 +980,6 @@ mod stochastic_tests {
     #[test]
     #[expect(
         clippy::too_many_lines,
-        clippy::arithmetic_side_effects,
         reason = "test with too many lines is ok; no chance of overflow due to small data len"
     )]
     fn run_df_with_two_types_of_mod_reads() -> Result<(), Error> {
@@ -1053,38 +1051,38 @@ mod stochastic_tests {
         let mut count_c_read_window_size: u32 = 0;
         let mut count_c_ref_window_size: u32 = 0;
 
-        for k in izip!(
-            mod_qual,
-            basecall_qual,
-            read_id,
-            base,
-            mod_strand,
-            mod_type,
-            ref_win_start,
-            ref_win_end,
-            win_start,
-            win_end
-        ) {
+        for row_idx in 0..df.height() {
+            let mod_qual_value = mod_qual.get(row_idx);
+            let basecall_qual_value = basecall_qual.get(row_idx);
+            let read_id_value = read_id.get(row_idx);
+            let base_value = base.get(row_idx);
+            let mod_strand_value = mod_strand.get(row_idx);
+            let mod_type_value = mod_type.get(row_idx);
+            let ref_win_start_value = ref_win_start.get(row_idx);
+            let ref_win_end_value = ref_win_end.get(row_idx);
+            let win_start_value = win_start.get(row_idx);
+            let win_end_value = win_end.get(row_idx);
+
             assert!(
-                k.2.unwrap().starts_with("0."),
+                read_id_value.unwrap().starts_with("0."),
                 "only 1st read group comes through, 2nd read group has no mods"
             );
             assert!(
-                (30..=40).contains(&k.1.unwrap()),
+                (30..=40).contains(&basecall_qual_value.unwrap()),
                 "base call quals are 30 to 40"
             );
-            if k.5 == Some("N") {
-                assert_eq!(k.4.unwrap(), "+");
-                assert_eq!(k.3.unwrap(), "N");
+            if mod_type_value == Some("N") {
+                assert_eq!(mod_strand_value.unwrap(), "+");
+                assert_eq!(base_value.unwrap(), "N");
                 assert_eq!(
-                    k.9.unwrap() - k.8.unwrap(),
+                    win_end_value.unwrap() - win_start_value.unwrap(),
                     200,
                     "N mod should produce 200 bp windows"
                 );
-                assert_eq!(k.0, Some(1f32));
+                assert_eq!(mod_qual_value, Some(1f32));
 
-                let ref_st = k.6.unwrap();
-                let ref_en = k.7.unwrap();
+                let ref_st = ref_win_start_value.unwrap();
+                let ref_en = ref_win_end_value.unwrap();
 
                 if ref_en > -1 && ref_st > -1 {
                     assert_eq!(
@@ -1097,26 +1095,34 @@ mod stochastic_tests {
                 // if previous window data is available, and we are not at a transition from one
                 // read to another, check if the windows have slid correctly
                 match (previous_win_start, previous_win_end) {
-                    (Some(s), Some(e)) if k.8.unwrap() != 0 => {
-                        assert_eq!(k.9.unwrap() - e, 100, "100 bp sliding window on N mod");
-                        assert_eq!(k.8.unwrap() - s, 100, "100 bp sliding window on N mod");
+                    (Some(s), Some(e)) if win_start_value.unwrap() != 0 => {
+                        assert_eq!(
+                            win_end_value.unwrap() - e,
+                            100,
+                            "100 bp sliding window on N mod"
+                        );
+                        assert_eq!(
+                            win_start_value.unwrap() - s,
+                            100,
+                            "100 bp sliding window on N mod"
+                        );
                     }
                     _ => {}
                 }
-                previous_win_start = k.8;
-                previous_win_end = k.9;
-            } else if k.5 == Some("m") {
-                assert_eq!(k.4.unwrap(), "-");
-                assert_eq!(k.3.unwrap(), "C");
-                assert_eq!(k.0, Some(0f32));
+                previous_win_start = win_start_value;
+                previous_win_end = win_end_value;
+            } else if mod_type_value == Some("m") {
+                assert_eq!(mod_strand_value.unwrap(), "-");
+                assert_eq!(base_value.unwrap(), "C");
+                assert_eq!(mod_qual_value, Some(0f32));
 
                 count_c_read_window_size += 1;
-                sum_c_read_window_size += k.9.unwrap() - k.8.unwrap();
+                sum_c_read_window_size += win_end_value.unwrap() - win_start_value.unwrap();
 
-                let ref_st = k.6.unwrap();
-                let ref_en = k.7.unwrap();
+                let ref_st = ref_win_start_value.unwrap();
+                let ref_en = ref_win_end_value.unwrap();
                 if ref_en > -1 && ref_st > -1 {
-                    sum_c_ref_window_size += k.7.unwrap() - k.6.unwrap();
+                    sum_c_ref_window_size += ref_en - ref_st;
                     count_c_ref_window_size += 1;
                 }
             } else {

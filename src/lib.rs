@@ -77,16 +77,14 @@
 //! and exposes them for downstream usage.
 
 use bedrs::{Bed3, Coordinates as _};
-use bio_types::sequence::SequenceRead as _;
 use rand::random;
-use regex::Regex;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
 use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::fs::File;
 use std::hash::{Hash as _, Hasher as _};
 use std::io::{BufRead as _, BufReader};
-use std::sync::{LazyLock, Once};
+use std::sync::Once;
 
 // Declare the modules.
 pub mod analysis;
@@ -121,8 +119,9 @@ pub use utils::uuid;
 pub use utils::{
     AllowedAGCTN, BaseMod, BaseMods, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1,
     FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
-    OrdPair, PathOrURLOrStdin, Ranges, ReadState, ReadStates, RestrictModCalledStrand,
-    SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase, get_u8_tag, revcomp,
+    OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
+    RestrictModCalledStrand, SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase,
+    get_u8_tag, mm_groups, revcomp,
 };
 
 /// Static initialization guard for SSL certificate configuration.
@@ -310,6 +309,8 @@ pub unsafe fn init_ssl_certificates() {
 /// Please read the function documentation above as well, which explains some scenarios where
 /// even valid tags can be marked as malformed.
 ///
+/// # Errors
+/// Returns an error when MM/ML tags are malformed or inconsistent.
 #[expect(clippy::too_many_lines, reason = "Complex BAM MM/ML tag parsing logic")]
 #[expect(
     clippy::missing_panics_doc,
@@ -328,26 +329,52 @@ where
     G: Fn(&usize) -> bool,
     H: Fn(&u8, &char, &ModChar) -> bool,
 {
-    // Regular expression for matching modification data in the MM tag
-    static MM_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"((([ACGTUN])([-+])([A-Za-z]+|[0-9]+)([.?]?))((,[0-9]+)*;)*)")
-            .expect("no error")
-    });
     // Array to store all the different modifications within the MM tag
     let mut rtn: Vec<BaseMod> = Vec::new();
 
-    let ml_tag: Vec<u8> = if record.aux(b"ML").is_ok() {
-        get_u8_tag(record, b"ML")
-    } else {
-        get_u8_tag(record, b"Ml")
+    // We allow `ML` or legacy `Ml`, but both may not coexist.
+    let ml_tag: Vec<u8> = {
+        let has_ml = record.aux(b"ML").is_ok();
+        let has_legacy_ml = record.aux(b"Ml").is_ok();
+        match (has_ml, has_legacy_ml) {
+            (true, true) => {
+                return Err(Error::InvalidState(
+                        "BAM record contains both `ML` and legacy `Ml` tags; refusing ambiguous modification probabilities"
+                            .to_owned(),
+                    ));
+            }
+            (false, true) => get_u8_tag(record, b"Ml"),
+            (true, false) => get_u8_tag(record, b"ML"),
+            (false, false) => Vec::<u8>::new(),
+        }
     };
 
     let mut num_mods_seen: usize = 0;
 
     let is_reverse = record.is_reverse();
 
+    // We allow `MM` or legacy `Mm`, but both may not coexist.
+    let mm_text = {
+        match (record.aux(b"MM"), record.aux(b"Mm")) {
+            (Ok(_), Ok(_)) => {
+                return Err(Error::InvalidState(
+                        "BAM record contains both `MM` and legacy `Mm` tags; refusing ambiguous modification positions"
+                            .to_owned(),
+                    ));
+            }
+            (Err(_), Ok(Aux::String(v))) | (Ok(Aux::String(v)), Err(_)) => v,
+            (Err(_), Err(_)) => "",
+            _ => {
+                return Err(Error::InvalidState(
+                    "rust-htslib MM/Mm tag parsing failure: unexpected auxiliary tag type"
+                        .to_owned(),
+                ));
+            }
+        }
+    };
+
     // if there is an MM tag iterate over all the regex matches
-    if let Ok(Aux::String(mm_text)) = record.aux(b"MM").or_else(|_| record.aux(b"Mm")) {
+    if !mm_text.is_empty() {
         // base qualities; must reverse if rev comp.
         // NOTE this is always equal to number of bases in the sequence, otherwise
         // rust_htslib will throw an error, so we don't have to check this.
@@ -388,46 +415,14 @@ where
             }
         };
 
-        for cap in MM_RE.captures_iter(mm_text) {
-            let mod_base = cap
-                .get(3)
-                .map(|m| {
-                    *m.as_str()
-                        .as_bytes()
-                        .first()
-                        .expect("regex match guaranteed to have at least 1 byte")
-                })
-                .expect("no error");
-            let mod_strand = cap
-                .get(4)
-                .map_or("", |m| m.as_str())
-                .chars()
-                .next()
-                .expect("no error");
-
-            // get modification type
-            let modification_type: ModChar = cap.get(5).map_or("", |m| m.as_str()).parse()?;
-
-            let is_implicit = match cap.get(6).map_or("", |m| m.as_str()).as_bytes() {
-                b"" | b"." => true,
-                b"?" => false,
-                _ => unreachable!("our regex expression must have prevented other possibilities"),
-            };
-            let mod_dists_str = cap.get(7).map_or("", |m| m.as_str());
-            // parse the string containing distances between modifications into a vector of i64
-
-            let mod_dists: Vec<usize> = mod_dists_str
-                .trim_end_matches(';')
-                .split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| {
-                    s.parse::<usize>().map_err(|e| {
-                        Error::InvalidModCoords(format!("invalid MM distance `{s}`: {e}"))
-                    })
-                })
-                .collect::<Result<Vec<_>, Error>>()?;
-
+        for ParsedMmGroup {
+            mod_base,
+            mod_strand,
+            modification_type,
+            is_implicit,
+            mod_dists,
+        } in mm_groups(mm_text)?
+        {
             // do we include bases with zero probabilities?
             let is_include_zero_prob = filter_mod_prob(&0);
 
@@ -652,12 +647,14 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
             }
             (false, true) => {
                 bam_opts.read_id_set = if let Some(file_path) = bam_opts.read_id_list.as_ref() {
-                    let file = File::open(file_path).map_err(Error::InputOutputError)?;
+                    let file = File::open(file_path)
+                        .map_err(|err| Error::InputOutputError(Box::new(err)))?;
                     let reader = BufReader::new(file);
                     let mut read_ids = HashSet::new();
 
                     for raw_line in reader.lines() {
-                        let temp_line = raw_line.map_err(Error::InputOutputError)?;
+                        let temp_line =
+                            raw_line.map_err(|err| Error::InputOutputError(Box::new(err)))?;
                         let line = temp_line.trim();
                         if !line.is_empty() && !line.starts_with('#') {
                             let _: bool = read_ids.insert(line.to_string());
@@ -780,8 +777,8 @@ impl BamPreFilt for bam::Record {
     }
     /// filtration by read length
     fn filt_by_len(&self, min_seq_len: u64, include_zero_len: bool) -> bool {
-        // self.len() returns a usize which we convert to u64
-        match (min_seq_len, self.len() as u64, include_zero_len) {
+        // `seq_len` returns a usize which we convert to u64
+        match (min_seq_len, self.seq_len() as u64, include_zero_len) {
             (_, 0, false) => false, // Exclude zero-length by default
             (_, 0, true) => true,   // Include zero-length when explicitly requested
             (l_min, v, _) => v >= l_min,
@@ -802,11 +799,11 @@ impl BamPreFilt for bam::Record {
     }
     /// filtration by read id
     fn filt_by_read_id(&self, read_id: &str) -> bool {
-        read_id.as_bytes() == self.name()
+        read_id.as_bytes() == self.qname()
     }
     /// filtration by read id set
     fn filt_by_read_id_set(&self, read_id_set: &HashSet<String>) -> bool {
-        if let Ok(name_str) = std::str::from_utf8(self.name()) {
+        if let Ok(name_str) = std::str::from_utf8(self.qname()) {
             read_id_set.contains(name_str)
         } else {
             false
@@ -833,7 +830,7 @@ impl BamPreFilt for bam::Record {
             v => {
                 if let Some(s) = seed {
                     let mut hasher = DefaultHasher::new();
-                    self.name().hash(&mut hasher);
+                    self.qname().hash(&mut hasher);
                     s.hash(&mut hasher);
                     let hash = hasher.finish();
                     // Normalize hash to [0, 1) by dividing by u64::MAX + 1

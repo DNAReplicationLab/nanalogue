@@ -145,8 +145,9 @@ impl FromStr for PathOrURLOrStdin {
     ///
     /// # Errors
     ///
-    /// This method should not fail for typical input strings. Parsing is lenient
-    /// and treats most inputs as valid paths.
+    /// Returns an error only when the input is syntactically a URL but uses a
+    /// disallowed scheme in the serde shadow path. Direct string parsing is
+    /// otherwise lenient and falls back to `Path` when URL parsing fails.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Check for stdin marker
         if s == "-" {
@@ -233,15 +234,31 @@ mod tests {
     #[test]
     fn from_str_parses_http_url() {
         let result =
-            PathOrURLOrStdin::from_str("http://example.com/data").expect("should parse URL");
+            PathOrURLOrStdin::from_str("http://abc.example.com/data").expect("should parse URL");
         match result {
             PathOrURLOrStdin::URL(u) => {
                 assert_eq!(u.scheme(), "http");
+                assert_eq!(u.host_str(), Some("abc.example.com"));
+                assert_eq!(u.path(), "/data");
             }
             PathOrURLOrStdin::Stdin | PathOrURLOrStdin::Path(_) => {
                 panic!("Expected URL variant")
             }
         }
+    }
+
+    #[test]
+    fn malformed_url_with_spaces_is_path() {
+        let result = PathOrURLOrStdin::from_str("https:// cdn.example.com/file.bam")
+            .expect("invalid URLs should fall back to Path");
+        assert!(matches!(result, PathOrURLOrStdin::Path(_)));
+    }
+
+    #[test]
+    fn malformed_url_without_authority_is_path() {
+        let result =
+            PathOrURLOrStdin::from_str("https://").expect("invalid URLs should fall back to Path");
+        assert!(matches!(result, PathOrURLOrStdin::Path(_)));
     }
 
     #[test]
