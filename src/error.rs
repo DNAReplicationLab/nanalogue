@@ -14,7 +14,24 @@ use std::io;
 use std::num::{ParseFloatError, ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
-use thiserror::Error;
+
+/// Shared CLI guidance for contig/region inspection failures.
+const PEEK_HELP: &str =
+    "In command line tool, use `nanalogue peek` to check contig names and lengths.";
+
+/// Shared CLI guidance for alignment/header-related failures.
+const PEEK_AND_HEADER_HELP: &str = "In command line tool, use `nanalogue peek` to check contig names and lengths.\n\
+In command line tool, if piping in a samtools view command, please include header with -h in samtools.";
+
+/// Truncate display strings to 100 characters.
+fn trunc_100(s: &str) -> String {
+    let truncated: String = s.chars().take(100).collect();
+    if s.len() > truncated.len() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
+}
 
 /// Enum that covers errors in our module.
 ///
@@ -22,155 +39,72 @@ use thiserror::Error;
 /// suffix 'Error'. If we are deriving an error from
 /// an error from another crate, and that has a suffix
 /// 'Error', we have let it be in our naming of the error.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
     /// Alignment of sequence is not known
-    #[error("unknown alignment state: `{0}`")]
     UnknownAlignState(String),
-
     /// Failure upon extracting sequence length
-    #[error("invalid sequence length: `{0}`")]
     InvalidSeqLength(String),
-
     /// Failure upon extracting or calculating alignment length of molecule
-    #[error("invalid alignment length: `{0}`")]
     InvalidAlignLength(String),
-
     /// Contig and start of alignment of molecule are invalid
-    #[error("invalid contig and/or start: `{0}`")]
     InvalidContigAndStart(String),
-
     /// Alignment coordinates (contig/start/end) are invalid.
-    #[error(
-        "invalid alignment coordinates (contig/start/end): `{0}`. \n\
- In command line tool, you can use `nanalogue peek` to check contig names and contig lengths. \n\
- In command line tool, if piping in a samtools view command, please include header with -h in samtools. "
-    )]
     InvalidAlignCoords(String),
-
     /// Modification coordinates are invalid
-    #[error("invalid mod coordinates: `{0}`")]
     InvalidModCoords(String),
-
     /// Modification probabilities are invalid
-    #[error("invalid mod probabilities: `{0}`")]
     InvalidModProbs(String),
-
     /// Sequence is invalid
-    #[error("invalid sequence: `{0}`")]
     InvalidSeq(String),
-
     /// Base is invalid (not A, G, C, T, or N)
-    #[error("invalid base: `{0}`")]
     InvalidBase(String),
-
     /// Read id of molecule is invalid
-    #[error("invalid read id: `{0}`")]
     InvalidReadID(String),
-
-    /// Modification type is invalid. Mod types are indicated in
-    /// mod BAM files like so: ...C+m... where C is the base and
-    /// m is the modification type, in this case methylation.
-    #[error("invalid mod type: `{0}`")]
+    /// Modification type is invalid.
     InvalidModType(String),
-
     /// Modification type is empty
-    #[error("empty mod type: `{0}`")]
     EmptyModType(String),
-
     /// Some error from the rust htslib library we use to read BAM files
-    #[error(
-        "rust_htslib error: `{0}` \n\
- In command line tool, you can use `nanalogue peek` to check contig names and contig lengths. \n\
- In command line tool, if piping in a samtools view command, please include header with -h in samtools. "
-    )]
-    RustHtslibError(#[from] rust_htslib::errors::Error),
-
+    RustHtslibError(Box<rust_htslib::errors::Error>),
     /// Error upon conversion from integer
-    #[error("integer conversion error: `{0}`")]
-    IntConversionError(#[from] TryFromIntError),
-
+    IntConversionError(Box<TryFromIntError>),
     /// Error involving string conversion
-    #[error("error involving string conversion: `{0}`")]
-    StringConversionError(#[from] Utf8Error),
-
+    StringConversionError(Box<Utf8Error>),
     /// Error converting from UTF-8 bytes to string
-    #[error("UTF-8 conversion error: `{0}`")]
-    Utf8ConversionError(#[from] FromUtf8Error),
-
+    Utf8ConversionError(Box<FromUtf8Error>),
     /// Error parsing JSON
-    #[error("JSON parsing error: `{0}`")]
-    JsonParseError(#[from] serde_json::Error),
-
-    /// `OrdPair` is an ordered pair, which can be obtained from
-    /// a string of the correct format. This error says string
-    /// conversion failed.
-    #[error("ordered pair conversion error: `{0}`")]
+    JsonParseError(Box<serde_json::Error>),
+    /// `OrdPair` string conversion failed.
     OrdPairConversion(String),
-
     /// Problem parsing integers
-    #[error("integer parsing error: `{0}`")]
-    IntParseError(#[from] ParseIntError),
-
+    IntParseError(Box<ParseIntError>),
     /// Problem parsing floats
-    #[error("float parsing error: `{0}`")]
-    FloatParseError(#[from] ParseFloatError),
-
+    FloatParseError(Box<ParseFloatError>),
     /// Generic Input-Output error
-    #[error("input output error: `{0}`")]
-    InputOutputError(#[from] io::Error),
-
+    InputOutputError(Box<io::Error>),
     /// Generic formatting error
-    #[error("formatting error: `{0}`")]
-    FormattingError(#[from] fmt::Error),
-
-    /// Problem reading or parsing CSV files
-    #[error("error parsing csv: `{0}`")]
-    CsvError(#[from] csv::Error),
-
+    FormattingError(Box<fmt::Error>),
     /// Error when unexpected duplicates are seen
-    #[error("duplicates detected: `{0}`")]
     InvalidDuplicates(String),
-
     /// Generic error used when program hits an invalid state
-    #[error("`{0}`")]
     InvalidState(String),
-
     /// Error while writing output
-    #[error("error while writing output: `{0}`")]
     WriteOutput(String),
-
     /// Generic not implemented error
-    #[error("not implemented: `{0}`")]
     NotImplemented(String),
-
     /// General error when ordering of items in some context is wrong.
-    #[error("items in wrong order: `{0}`")]
     WrongOrder(String),
-
     /// Data not available
-    #[error("data not available: `{0}`")]
     UnavailableData(String),
-
-    /// Read is unmapped, use this whenever some function
-    /// meant for a mapped read is called on an unmapped read
-    #[error("read is unmapped: `{0}`")]
+    /// Read is unmapped
     Unmapped(String),
-
     /// Zero values used where they should not be
-    #[error("zero values not allowed: `{0}`")]
     Zero(String),
-
     /// Zero sequence length
-    #[error("zero sequence length: `{0}`")]
     ZeroSeqLen(String),
-
     /// Genomic region coordinates exceed contig boundaries
-    #[error(
-        "invalid region '{region}': position {pos} exceeds contig length {contig_length}\n\
- In command line tool, you can use `nanalogue peek` to check contig names and contig lengths."
-    )]
     InvalidRegion {
         /// The original region string provided by the user
         region: String,
@@ -179,49 +113,265 @@ pub enum Error {
         /// The actual length of the contig
         contig_length: u64,
     },
-
     /// Sorting validation failure
-    #[error("invalid sorting: {0}")]
     InvalidSorting(String),
-
     /// Window density is below threshold
-    #[error("window density {density} below threshold {threshold}")]
     WindowDensBelowThres {
         /// The density value that was below threshold
         density: F32Bw0and1,
         /// The threshold value
         threshold: F32Bw0and1,
     },
-
     /// Window does not contain any data
-    #[error("window does not contain any data: `{0}`")]
     EmptyWindow(String),
-
     /// Data is not of sufficient size (e.g. in a window)
-    #[error("data is not of sufficient size (e.g. in a window): `{0}`")]
     InsufficientDataSize(String),
-
     /// Arithmetic error
-    #[error("unanticipated arithmetic error e.g. overflow: `{0}`")]
     Arithmetic(String),
-
     /// Problem parsing items while building structs with Builder methods
-    #[error("building error, are you missing inputs?: `{0}`")]
-    BuilderError(#[from] UninitializedFieldError),
-
+    BuilderError(Box<UninitializedFieldError>),
     /// Problem validating items with a Builder method
-    #[error("building error, input validation failed: `{0}`")]
     BuilderValidation(String),
-
     /// Problem parsing items while converting between DNA base representations
-    #[error("error converting between DNA bases: `{0}`")]
-    FromCharError(#[from] TryFromCharError),
-
+    FromCharError(Box<TryFromCharError>),
     /// Error from Polars during `DataFrame` construction or manipulation
-    #[error("Polars error: `{0}`")]
-    PolarsError(#[from] polars::error::PolarsError),
-
+    PolarsError(Box<polars::error::PolarsError>),
     /// Error simulating DNA sequences
-    #[error("Simulate DNA sequence error; problem at end of CIGAR: {0}")]
     SimulateDNASeqCIGAREndProblem(String),
+}
+
+impl fmt::Display for Error {
+    #[expect(
+        clippy::pattern_type_mismatch,
+        clippy::too_many_lines,
+        reason = "many variants, so too many lines is fine. And matching patterns written better for readability"
+    )]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownAlignState(v) => {
+                write!(f, "unknown alignment state: `{}`", trunc_100(v))
+            }
+            Self::InvalidSeqLength(v) => {
+                write!(f, "invalid sequence length: `{}`", trunc_100(v))
+            }
+            Self::InvalidAlignLength(v) => {
+                write!(f, "invalid alignment length: `{}`", trunc_100(v))
+            }
+            Self::InvalidContigAndStart(v) => {
+                write!(f, "invalid contig and/or start: `{}`", trunc_100(v))
+            }
+            Self::InvalidAlignCoords(v) => {
+                write!(
+                    f,
+                    "invalid alignment coordinates (contig/start/end): `{}`.\n{PEEK_AND_HEADER_HELP}",
+                    trunc_100(v)
+                )
+            }
+            Self::InvalidModCoords(v) => write!(f, "invalid mod coordinates: `{}`", trunc_100(v)),
+            Self::InvalidModProbs(v) => write!(f, "invalid mod probabilities: `{}`", trunc_100(v)),
+            Self::InvalidSeq(v) => write!(f, "invalid sequence: `{}`", trunc_100(v)),
+            Self::InvalidBase(v) => write!(f, "invalid base: `{}`", trunc_100(v)),
+            Self::InvalidReadID(v) => write!(f, "invalid read id: `{}`", trunc_100(v)),
+            Self::InvalidModType(v) => write!(f, "invalid mod type: `{}`", trunc_100(v)),
+            Self::EmptyModType(v) => write!(f, "empty mod type: `{}`", trunc_100(v)),
+            Self::RustHtslibError(v) => {
+                write!(f, "rust_htslib error: `{v}`\n{PEEK_AND_HEADER_HELP}")
+            }
+            Self::IntConversionError(v) => write!(f, "integer conversion error: `{v}`"),
+            Self::StringConversionError(v) => {
+                write!(f, "error involving string conversion: `{v}`")
+            }
+            Self::Utf8ConversionError(v) => write!(f, "UTF-8 conversion error: `{v}`"),
+            Self::JsonParseError(v) => write!(f, "JSON parsing error: `{v}`"),
+            Self::OrdPairConversion(v) => {
+                write!(f, "ordered pair conversion error: `{}`", trunc_100(v))
+            }
+            Self::IntParseError(v) => write!(f, "integer parsing error: `{v}`"),
+            Self::FloatParseError(v) => write!(f, "float parsing error: `{v}`"),
+            Self::InputOutputError(v) => write!(f, "input output error: `{v}`"),
+            Self::FormattingError(v) => write!(f, "formatting error: `{v}`"),
+            Self::InvalidDuplicates(v) => write!(f, "duplicates detected: `{}`", trunc_100(v)),
+            Self::InvalidState(v) => write!(f, "`{}`", trunc_100(v)),
+            Self::WriteOutput(v) => write!(f, "error while writing output: `{}`", trunc_100(v)),
+            Self::NotImplemented(v) => write!(f, "not implemented: `{}`", trunc_100(v)),
+            Self::WrongOrder(v) => write!(f, "items in wrong order: `{}`", trunc_100(v)),
+            Self::UnavailableData(v) => write!(f, "data not available: `{}`", trunc_100(v)),
+            Self::Unmapped(v) => write!(f, "read is unmapped: `{}`", trunc_100(v)),
+            Self::Zero(v) => write!(f, "zero values not allowed: `{}`", trunc_100(v)),
+            Self::ZeroSeqLen(v) => write!(f, "zero sequence length: `{}`", trunc_100(v)),
+            Self::InvalidRegion {
+                region,
+                pos,
+                contig_length,
+            } => {
+                write!(
+                    f,
+                    "invalid region '{region}': position {pos} exceeds contig length {contig_length}\n{PEEK_HELP}"
+                )
+            }
+            Self::InvalidSorting(v) => write!(f, "invalid sorting: {}", trunc_100(v)),
+            Self::WindowDensBelowThres { density, threshold } => {
+                write!(f, "window density {density} below threshold {threshold}")
+            }
+            Self::EmptyWindow(v) => {
+                write!(f, "window does not contain any data: `{}`", trunc_100(v))
+            }
+            Self::InsufficientDataSize(v) => {
+                write!(
+                    f,
+                    "data is not of sufficient size (e.g. in a window): `{}`",
+                    trunc_100(v)
+                )
+            }
+            Self::Arithmetic(v) => {
+                write!(
+                    f,
+                    "unanticipated arithmetic error e.g. overflow: `{}`",
+                    trunc_100(v)
+                )
+            }
+            Self::BuilderError(v) => write!(f, "building error, are you missing inputs?: `{v}`"),
+            Self::BuilderValidation(v) => {
+                write!(
+                    f,
+                    "building error, input validation failed: `{}`",
+                    trunc_100(v)
+                )
+            }
+            Self::FromCharError(v) => write!(f, "error converting between DNA bases: `{v}`"),
+            Self::PolarsError(v) => write!(f, "Polars error: `{v}`"),
+            Self::SimulateDNASeqCIGAREndProblem(v) => {
+                write!(
+                    f,
+                    "Simulate DNA sequence error; problem at end of CIGAR: {}",
+                    trunc_100(v)
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    #[expect(
+        clippy::pattern_type_mismatch,
+        reason = "matching borrowed enum variants keeps the implementation concise"
+    )]
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::RustHtslibError(err) => Some(err.as_ref()),
+            Self::IntConversionError(err) => Some(err.as_ref()),
+            Self::StringConversionError(err) => Some(err.as_ref()),
+            Self::Utf8ConversionError(err) => Some(err.as_ref()),
+            Self::JsonParseError(err) => Some(err.as_ref()),
+            Self::IntParseError(err) => Some(err.as_ref()),
+            Self::FloatParseError(err) => Some(err.as_ref()),
+            Self::InputOutputError(err) => Some(err.as_ref()),
+            Self::FormattingError(err) => Some(err.as_ref()),
+            Self::BuilderError(err) => Some(err.as_ref()),
+            Self::FromCharError(err) => Some(err.as_ref()),
+            Self::PolarsError(err) => Some(err.as_ref()),
+            Self::UnknownAlignState(_)
+            | Self::InvalidSeqLength(_)
+            | Self::InvalidAlignLength(_)
+            | Self::InvalidContigAndStart(_)
+            | Self::InvalidAlignCoords(_)
+            | Self::InvalidModCoords(_)
+            | Self::InvalidModProbs(_)
+            | Self::InvalidSeq(_)
+            | Self::InvalidBase(_)
+            | Self::InvalidReadID(_)
+            | Self::InvalidModType(_)
+            | Self::EmptyModType(_)
+            | Self::OrdPairConversion(_)
+            | Self::InvalidDuplicates(_)
+            | Self::InvalidState(_)
+            | Self::WriteOutput(_)
+            | Self::NotImplemented(_)
+            | Self::WrongOrder(_)
+            | Self::UnavailableData(_)
+            | Self::Unmapped(_)
+            | Self::Zero(_)
+            | Self::ZeroSeqLen(_)
+            | Self::InvalidRegion { .. }
+            | Self::InvalidSorting(_)
+            | Self::WindowDensBelowThres { .. }
+            | Self::EmptyWindow(_)
+            | Self::InsufficientDataSize(_)
+            | Self::Arithmetic(_)
+            | Self::BuilderValidation(_)
+            | Self::SimulateDNASeqCIGAREndProblem(_) => None,
+        }
+    }
+}
+
+impl From<rust_htslib::errors::Error> for Error {
+    fn from(value: rust_htslib::errors::Error) -> Self {
+        Self::RustHtslibError(Box::new(value))
+    }
+}
+
+impl From<TryFromIntError> for Error {
+    fn from(value: TryFromIntError) -> Self {
+        Self::IntConversionError(Box::new(value))
+    }
+}
+
+impl From<Utf8Error> for Error {
+    fn from(value: Utf8Error) -> Self {
+        Self::StringConversionError(Box::new(value))
+    }
+}
+
+impl From<FromUtf8Error> for Error {
+    fn from(value: FromUtf8Error) -> Self {
+        Self::Utf8ConversionError(Box::new(value))
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(value: serde_json::Error) -> Self {
+        Self::JsonParseError(Box::new(value))
+    }
+}
+
+impl From<ParseIntError> for Error {
+    fn from(value: ParseIntError) -> Self {
+        Self::IntParseError(Box::new(value))
+    }
+}
+
+impl From<ParseFloatError> for Error {
+    fn from(value: ParseFloatError) -> Self {
+        Self::FloatParseError(Box::new(value))
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(value: io::Error) -> Self {
+        Self::InputOutputError(Box::new(value))
+    }
+}
+
+impl From<fmt::Error> for Error {
+    fn from(value: fmt::Error) -> Self {
+        Self::FormattingError(Box::new(value))
+    }
+}
+
+impl From<UninitializedFieldError> for Error {
+    fn from(value: UninitializedFieldError) -> Self {
+        Self::BuilderError(Box::new(value))
+    }
+}
+
+impl From<TryFromCharError> for Error {
+    fn from(value: TryFromCharError) -> Self {
+        Self::FromCharError(Box::new(value))
+    }
+}
+
+impl From<polars::error::PolarsError> for Error {
+    fn from(value: polars::error::PolarsError) -> Self {
+        Self::PolarsError(Box::new(value))
+    }
 }

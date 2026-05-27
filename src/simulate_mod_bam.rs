@@ -109,7 +109,6 @@ use crate::{
 };
 use crate::{write_bam_denovo, write_fasta};
 use derive_builder::Builder;
-use itertools::join;
 use rand::Rng;
 use rand::RngExt as _;
 use rand::SeedableRng as _;
@@ -1041,14 +1040,8 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
         if !output.is_empty() {
             let mod_len = output.len();
             ml_vec.append(&mut output);
-            mm_str += format!(
-                "{}{}{}?,{};",
-                base as char,
-                strand,
-                mod_code,
-                join(vec![0; mod_len], ",")
-            )
-            .as_str();
+            let zero_offsets = iter::repeat_n("0", mod_len).collect::<Vec<_>>().join(",");
+            mm_str += format!("{}{}{}?,{};", base as char, strand, mod_code, zero_offsets).as_str();
         }
     }
     ml_vec.shrink_to_fit();

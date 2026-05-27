@@ -10,18 +10,91 @@ use crate::{
     CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, SeqCoordCalls, SeqDisplayOptions,
     ThresholdState,
 };
-use csv::ReaderBuilder;
-use itertools::join;
 use polars::prelude::*;
 use rust_htslib::bam;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt, fs::File, iter, rc::Rc, str};
+use std::{collections::HashMap, fmt, fs::File, io::BufReader, io::Read as _, iter, rc::Rc, str};
+
+/// Write an iterator as a comma-separated string.
+fn join_display<I>(items: I, separator: &str) -> String
+where
+    I: IntoIterator,
+    I::Item: fmt::Display,
+{
+    let mut output = String::new();
+    for (index, item) in items.into_iter().enumerate() {
+        if index > 0 {
+            output.push_str(separator);
+        }
+        output.push_str(item.to_string().as_str());
+    }
+    output
+}
 
 /// Write a vector as a CSV-formatted string
 macro_rules! vec_csv {
     ( $b: expr ) => {
-        join($b, ", ")
+        join_display($b, ", ")
     };
+}
+
+/// Read one sequencing summary line with a hard raw-byte cap.
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing,
+    reason = "(1) line & buffer lengths are checked for smallness, \
+(2) `bytes_to_consume` never exceeds buffer length and indexing only happens when it is > 0"
+)]
+fn read_seq_summ_line<R: std::io::BufRead>(
+    reader: &mut R,
+    line: &mut String,
+) -> Result<usize, Error> {
+    const MAX_SEQ_SUMM_RAW_LINE_BYTES: usize = 1002;
+
+    line.clear();
+    let mut total_bytes_read: usize = 0;
+
+    loop {
+        // With `std::io::BufReader`, this buffered slice is typically modest in
+        // size rather than a huge chunk of memory, so using `fill_buf` here is
+        // acceptable for our defensive line-length checks.
+        let buffered = reader.fill_buf()?;
+        if buffered.len() > 1000 * MAX_SEQ_SUMM_RAW_LINE_BYTES {
+            return Err(Error::InvalidState(
+                "sequencing summary tsv internal buffer unexpectedly large".to_owned(),
+            ));
+        }
+
+        let (bytes_to_consume, is_newline_found) =
+            match buffered.iter().position(|byte| *byte == b'\n') {
+                Some(v) => (v + 1, true),
+                None => (buffered.len(), false),
+            };
+        match bytes_to_consume {
+            0 => break,
+            v => {
+                total_bytes_read += v;
+
+                if total_bytes_read > MAX_SEQ_SUMM_RAW_LINE_BYTES {
+                    return Err(Error::InvalidState(
+                        "sequencing summary tsv line is too long (>1000 bytes)".to_owned(),
+                    ));
+                }
+
+                let idx = if is_newline_found { v - 1 } else { v };
+                line.push_str(str::from_utf8(&buffered[..idx])?);
+                reader.consume(v);
+                if is_newline_found {
+                    break;
+                }
+            }
+        }
+    }
+
+    if line.ends_with('\r') {
+        let _: Option<char> = line.pop();
+    }
+
+    Ok(total_bytes_read)
 }
 
 /// Declare a custom type for ease of use
@@ -45,7 +118,7 @@ impl fmt::Display for ModCountTbl {
         (if v.is_empty() {
             "NA".to_owned()
         } else {
-            join(v.into_iter().map(|k| format!("{}:{}", k.0, k.1)), ";")
+            join_display(v.into_iter().map(|k| format!("{}:{}", k.0, k.1)), ";")
         })
         .fmt(f)
     }
@@ -120,8 +193,8 @@ impl fmt::Display for ReadInstance {
         reason = "expect no confusion from this code"
     )]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // we are fine with `unsafe` here as `rust-htslib` guarantees
-        // that only 16 printable characters are allowed in the sequence.
+        // we are fine with `unsafe` here (`from_utf8_unchecked`) as `rust-htslib`
+        // guarantees that only 16 printable characters are allowed in the sequence.
         match self {
             ReadInstance::OnlyBc(u64) => format!("{u64}"),
             ReadInstance::OnlyAlign {
@@ -163,7 +236,7 @@ impl fmt::Display for ReadInstance {
                     v if !v.is_empty() => format!("\t{v}"),
                     _ => String::new(),
                 },
-                match vec_csv!(q.iter().map(|k| join(k, "."))) {
+                match vec_csv!(q.iter().map(|k| join_display(k, "."))) {
                     v if !v.is_empty() => format!("\t{v}"),
                     _ => String::new(),
                 },
@@ -272,43 +345,172 @@ impl Read {
     }
 }
 
-/// Represents a record with the columns of interest from the TSV file.
-#[derive(Debug, Serialize, Deserialize)]
-struct TSVRecord {
-    /// Read id of the molecule in the current row
-    read_id: String,
-    /// Sequence length of the molecule in the current row
-    sequence_length_template: u64,
-}
-
 /// Opens a TSV file, extracts '`read_id`' and '`sequence_length_template`' columns,
 /// and builds a `HashMap`.
-fn process_tsv(file_path: &str) -> Result<HashMap<String, Read>, Error> {
+///
+/// # Errors
+/// Returns an error if TSV processing fails. Note that `#`-prefixed
+/// lines are only treated as comments before the header row; after the
+/// header they are parsed as data rows rather than skipped.
+#[expect(
+    clippy::too_many_lines,
+    reason = "defensive checks for malformed sequencing summary input push the line count high"
+)]
+fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
+    const MAX_SEQ_SUMM_BYTES: u64 = 10u64 * 1024u64 * 1024u64 * 1024u64;
+
     let mut data_map = HashMap::<String, Read>::new();
 
     match file_path {
         "" => {}
         fp => {
             let file = File::open(fp)?;
-            let mut rdr = ReaderBuilder::new()
-                .comment(Some(b'#'))
-                .delimiter(b'\t')
-                .from_reader(file);
+            let mut reader = BufReader::new(file.take(MAX_SEQ_SUMM_BYTES + 1));
+            let mut line = String::with_capacity(1002);
 
-            for result in rdr.deserialize() {
-                let record: TSVRecord = result?;
+            let header = {
+                let mut bounds_checker: u16 = 0;
+                loop {
+                    let bytes_read = read_seq_summ_line(&mut reader, &mut line)?;
+                    if bytes_read == 0 {
+                        if reader.get_ref().limit() == 0 {
+                            return Err(Error::InvalidState(
+                                "sequencing summary file too large (> 10 GB). Contact developer."
+                                    .to_owned(),
+                            ));
+                        }
+                        return Err(Error::InvalidState(
+                            "sequencing summary tsv missing header row".to_owned(),
+                        ));
+                    }
+                    if line.starts_with('#') {
+                        bounds_checker = bounds_checker.saturating_add(1);
+                        if bounds_checker > 1000 {
+                            return Err(Error::InvalidState(
+                                "sequencing summary tsv has >1000 comment lines before the header row"
+                                    .to_owned(),
+                            ));
+                        }
+                        continue;
+                    }
+                    if line.trim().is_empty() {
+                        return Err(Error::InvalidState(
+                            "sequencing summary tsv contains a whitespace-only line before the header row"
+                                .to_owned(),
+                        ));
+                    }
+                    break line.clone();
+                }
+            };
+            let (read_id_idx, seq_len_idx): (usize, usize) = {
+                let columns: Vec<&str> = header.split('\t').collect();
+                let read_id_indexes: Vec<usize> = columns
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, col)| (*col == "read_id").then_some(idx))
+                    .take(2)
+                    .collect();
+                let seq_len_indexes: Vec<usize> = columns
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, col)| (*col == "sequence_length_template").then_some(idx))
+                    .take(2)
+                    .collect();
+                let read_id_idx = match (read_id_indexes.first(), read_id_indexes.len()) {
+                    (None, _) => {
+                        return Err(Error::InvalidState(
+                            "sequencing summary tsv missing `read_id` column".to_owned(),
+                        ));
+                    }
+                    (Some(idx), 1) => *idx,
+                    (Some(_), _) => {
+                        return Err(Error::InvalidState(
+                            "sequencing summary tsv contains multiple `read_id` columns".to_owned(),
+                        ));
+                    }
+                };
+                let seq_len_idx = match (seq_len_indexes.first(), seq_len_indexes.len()) {
+                    (None, _) => {
+                        return Err(Error::InvalidState(
+                            "sequencing summary tsv missing `sequence_length_template` column"
+                                .to_owned(),
+                        ));
+                    }
+                    (Some(idx), 1) => *idx,
+                    (Some(_), _) => {
+                        return Err(Error::InvalidState(
+                            "sequencing summary tsv contains multiple `sequence_length_template` columns"
+                                .to_owned(),
+                        ));
+                    }
+                };
+                (read_id_idx, seq_len_idx)
+            };
+
+            loop {
+                let bytes_read = read_seq_summ_line(&mut reader, &mut line)?;
+                if bytes_read == 0 {
+                    if reader.get_ref().limit() == 0 {
+                        return Err(Error::InvalidState(
+                            "sequencing summary file too large (> 10 GB). Contact developer."
+                                .to_owned(),
+                        ));
+                    }
+                    break;
+                }
+                if line.is_empty() {
+                    continue;
+                }
+                let columns: Vec<&str> = line.split('\t').collect();
+                let read_id = columns.get(read_id_idx).ok_or_else(|| {
+                    Error::InvalidState(format!(
+                        "sequencing summary tsv row has no `read_id` field at column {read_id_idx}: `{line}`"
+                    ))
+                })?;
+                if read_id.contains(['\'', '"', '`']) {
+                    return Err(Error::InvalidReadID(format!(
+                        "sequencing summary read_id contains unsupported quoting characters: `{read_id}`"
+                    )));
+                }
+                // Long read ids take up disk space and memory. If we process a million
+                // reads all with a 200 byte read id, we have to allocate a lot of memory.
+                // So, we cap read names at 50 bytes.
+                if read_id.len() > 50 {
+                    return Err(Error::InvalidState(
+                        "in sequencing summary tsv, read ids longer than 50 bytes encountered"
+                            .to_owned(),
+                    ));
+                }
+                let sequence_length_template :u64 = columns
+                    .get(seq_len_idx)
+                    .ok_or_else(|| {
+                        Error::InvalidState(format!(
+                            "sequencing summary tsv row has no `sequence_length_template` field at column {seq_len_idx}: `{line}`"
+                        ))
+                    })?
+                    .parse()
+                    .map_err(|err| {
+                        Error::InvalidState(format!(
+                            "sequencing summary tsv parse error in file `{file_path}` for read `{read_id}`: invalid `sequence_length_template` ({err})"
+                        ))
+                    })?;
                 if data_map
                     .insert(
-                        record.read_id.clone(),
-                        Read::new_bc_len(record.sequence_length_template),
+                        (*read_id).to_owned(),
+                        Read::new_bc_len(sequence_length_template),
                     )
                     .is_some()
                 {
                     return Err(Error::InvalidDuplicates(format!(
-                        "file: {file_path}, read: {0}",
-                        record.read_id
+                        "file: {file_path}, read: {read_id}"
                     )));
                 }
+            }
+
+            if data_map.is_empty() {
+                return Err(Error::InvalidState(
+                    "sequencing summary TSV did not contain any reads".to_owned(),
+                ));
             }
         }
     }
@@ -339,7 +541,7 @@ where
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
 {
     // read TSV file and convert into hashmap
-    let mut data_map = process_tsv(seq_summ_path)?;
+    let mut data_map = process_seq_summ(seq_summ_path)?;
 
     // set up a flag to check if sequencing summary file has data
     let is_seq_summ_data: bool = !data_map.is_empty();
@@ -1017,34 +1219,32 @@ mod tests {
 
         let actual_output = String::from_utf8(output).expect("Invalid UTF-8");
 
-        // Parse TSV using csv crate (similar to process_tsv)
-        let mut rdr = ReaderBuilder::new()
-            .comment(Some(b'#'))
-            .delimiter(b'\t')
-            .from_reader(actual_output.as_bytes());
-
-        let headers = rdr.headers().expect("Failed to read headers");
+        let lines: Vec<&str> = actual_output.lines().collect();
+        let headers: Vec<&str> = lines
+            .first()
+            .expect("header line should be present")
+            .split('\t')
+            .collect();
         let seq_col_idx = headers
             .iter()
-            .position(|h| h == "sequence")
+            .position(|h| *h == "sequence")
             .expect("sequence column not found");
         let qual_col_idx = headers
             .iter()
-            .position(|h| h == "qualities")
+            .position(|h| *h == "qualities")
             .expect("qualities column not found");
-
-        let mut csv_records = rdr.records();
-        let record = csv_records
-            .next()
-            .expect("No data row found")
-            .expect("Failed to parse row");
+        let record: Vec<&str> = lines
+            .get(1)
+            .expect("data row should be present")
+            .split('\t')
+            .collect();
 
         assert_eq!(
-            &record[seq_col_idx], "*",
+            record[seq_col_idx], "*",
             "Sequence column should contain '*'"
         );
         assert_eq!(
-            &record[qual_col_idx], "255",
+            record[qual_col_idx], "255",
             "Qualities column should contain '255'"
         );
     }
@@ -1076,33 +1276,349 @@ mod tests {
 
         let actual_output = String::from_utf8(output).expect("Invalid UTF-8");
 
-        // Parse TSV using csv crate (similar to process_tsv)
-        let mut rdr = ReaderBuilder::new()
-            .comment(Some(b'#'))
-            .delimiter(b'\t')
-            .from_reader(actual_output.as_bytes());
-
-        let headers = rdr.headers().expect("Failed to read headers");
+        let lines: Vec<&str> = actual_output.lines().collect();
+        let headers: Vec<&str> = lines
+            .first()
+            .expect("header line should be present")
+            .split('\t')
+            .collect();
         let seq_col_idx = headers
             .iter()
-            .position(|h| h == "sequence")
+            .position(|h| *h == "sequence")
             .expect("sequence column not found");
 
         // Verify qualities column does not exist
         assert!(
-            !headers.iter().any(|h| h == "qualities"),
+            !headers.contains(&"qualities"),
             "Qualities column should not be present when show_base_qual is false"
         );
 
-        let mut csv_records = rdr.records();
-        let record = csv_records
-            .next()
-            .expect("No data row found")
-            .expect("Failed to parse row");
+        let record: Vec<&str> = lines
+            .get(1)
+            .expect("data row should be present")
+            .split('\t')
+            .collect();
 
         assert_eq!(
-            &record[seq_col_idx], "*",
+            record[seq_col_idx], "*",
             "Sequence column should contain '*'"
+        );
+    }
+}
+
+#[cfg(test)]
+mod sequencing_summary_tests {
+    use super::*;
+    use crate::uuid;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn write_temp_seq_summary(contents: &str) -> PathBuf {
+        let temp_path =
+            std::env::temp_dir().join(format!("reads_table_seq_summary_{}.tsv", uuid::v4_random()));
+        fs::write(&temp_path, contents).expect("should write temporary sequencing summary file");
+        temp_path
+    }
+
+    fn remove_temp_file(path: &Path) {
+        fs::remove_file(path).expect("should remove temporary sequencing summary file");
+    }
+
+    #[test]
+    fn process_seq_summ_rejects_invalid_preheader_and_empty_input_cases() {
+        let test_cases = [
+            ("", "blank file should fail"),
+            (" ", "whitespace-only file should fail"),
+            ("\t", "tab-only file should fail"),
+            ("\n\n", "multiple blank lines before header should fail"),
+            (
+                "# sequencing summary\n\n",
+                "comment followed by blank line should fail",
+            ),
+            (
+                "# sequencing summary\n   \n",
+                "comment followed by whitespace-only line should fail",
+            ),
+            (
+                "# sequencing summary\n\t\n",
+                "comment followed by tab-only line should fail",
+            ),
+            (
+                "# sequencing summary\n# still comments\n",
+                "comments followed by eof should fail",
+            ),
+            (
+                "# sequencing summary\n\n# still comments\nread_id\tsequence_length_template\nread-1\t1234\n",
+                "blank line amidst pre-header comments should still fail even if valid data follows",
+            ),
+            (
+                "# sequencing summary\nread_id\tsequence_length_template\n",
+                "header without data rows should fail",
+            ),
+        ];
+
+        for (contents, message) in test_cases {
+            let temp_path = write_temp_seq_summary(contents);
+            let result = process_seq_summ(
+                temp_path
+                    .to_str()
+                    .expect("temporary file path should be valid UTF-8"),
+            );
+            remove_temp_file(&temp_path);
+            assert!(result.is_err(), "{message}");
+        }
+    }
+
+    #[test]
+    fn process_seq_summ_accepts_header_with_data_row() {
+        let temp_path = write_temp_seq_summary("read_id\tsequence_length_template\nread-1\t1234\n");
+        let result = process_seq_summ(
+            temp_path
+                .to_str()
+                .expect("temporary file path should be valid UTF-8"),
+        );
+        remove_temp_file(&temp_path);
+
+        let data_map = result.expect("header plus data row should parse successfully");
+        assert_eq!(data_map.len(), 1);
+        assert!(matches!(
+            data_map.get("read-1"),
+            Some(Read(ReadInstance::OnlyBc(1234)))
+        ));
+    }
+
+    #[test]
+    fn process_seq_summ_allows_blank_lines_after_header() {
+        let temp_path = write_temp_seq_summary(
+            "read_id\tsequence_length_template\n\nread-1\t1234\n\nread-2\t5678\n",
+        );
+        let result = process_seq_summ(
+            temp_path
+                .to_str()
+                .expect("temporary file path should be valid UTF-8"),
+        );
+        remove_temp_file(&temp_path);
+
+        let data_map = result.expect("blank lines after header should be ignored");
+        assert_eq!(data_map.len(), 2);
+        assert!(matches!(
+            data_map.get("read-1"),
+            Some(Read(ReadInstance::OnlyBc(1234)))
+        ));
+        assert!(matches!(
+            data_map.get("read-2"),
+            Some(Read(ReadInstance::OnlyBc(5678)))
+        ));
+    }
+
+    #[test]
+    fn process_seq_summ_rejects_quoted_or_too_long_read_ids() {
+        let failure_cases = [
+            (
+                "read_id\tsequence_length_template\n'read-1'\t1234\n",
+                "single-quoted read_id should fail",
+            ),
+            (
+                "read_id\tsequence_length_template\n\"read-1\"\t1234\n",
+                "double-quoted read_id should fail",
+            ),
+            (
+                "read_id\tsequence_length_template\n`read-1`\t1234\n",
+                "backtick-quoted read_id should fail",
+            ),
+            (
+                "read_id\tsequence_length_template\n123456789012345678901234567890123456789012345678901\t1234\n",
+                "read_id longer than 50 bytes should fail",
+            ),
+        ];
+
+        for (contents, message) in failure_cases {
+            let temp_path = write_temp_seq_summary(contents);
+            let result = process_seq_summ(
+                temp_path
+                    .to_str()
+                    .expect("temporary file path should be valid UTF-8"),
+            );
+            remove_temp_file(&temp_path);
+            assert!(result.is_err(), "{message}");
+        }
+    }
+
+    #[test]
+    // also checks that line starting with # in seq summ after header not ignored
+    fn process_seq_summ_accepts_hash_prefixed_read_id() {
+        let temp_path = write_temp_seq_summary("read_id\tsequence_length_template\n#read1\t1234\n");
+        let result = process_seq_summ(
+            temp_path
+                .to_str()
+                .expect("temporary file path should be valid UTF-8"),
+        );
+        remove_temp_file(&temp_path);
+
+        let data_map = result.expect("read_id containing `#` should parse successfully");
+        assert!(matches!(
+            data_map.get("#read1"),
+            Some(Read(ReadInstance::OnlyBc(1234)))
+        ));
+    }
+
+    #[test]
+    fn process_seq_summ_rejects_duplicate_read_id() {
+        let temp_path = write_temp_seq_summary(
+            "read_id\tsequence_length_template\nread-1\t1234\nread-1\t5678\n",
+        );
+        let result = process_seq_summ(
+            temp_path
+                .to_str()
+                .expect("temporary file path should be valid UTF-8"),
+        );
+        remove_temp_file(&temp_path);
+
+        assert!(result.is_err(), "duplicate read_id should fail");
+    }
+
+    #[test]
+    fn process_seq_summ_requires_expected_columns() {
+        let failure_cases = [
+            (
+                "foo\tbar\nvalue1\tvalue2\n",
+                "unrelated columns should fail",
+            ),
+            ("read_id\nread-1\n", "header with only read_id should fail"),
+            (
+                "sequence_length_template\n1234\n",
+                "header with only sequence_length_template should fail",
+            ),
+            (
+                "read_id\tread_id\tsequence_length_template\nread-1\tread-1\t1234\n",
+                "duplicate read_id columns should fail",
+            ),
+            (
+                "read_id\tsequence_length_template\tsequence_length_template\nread-1\t1234\t1234\n",
+                "duplicate sequence_length_template columns should fail",
+            ),
+            (
+                "read_id\tread_id\tsequence_length_template\tsequence_length_template\nread-1\tread-1\t1234\t1234\n",
+                "duplicate required columns should fail when both are repeated",
+            ),
+        ];
+
+        for (contents, message) in failure_cases {
+            let temp_path = write_temp_seq_summary(contents);
+            let result = process_seq_summ(
+                temp_path
+                    .to_str()
+                    .expect("temporary file path should be valid UTF-8"),
+            );
+            remove_temp_file(&temp_path);
+            assert!(result.is_err(), "{message}");
+        }
+    }
+
+    #[test]
+    fn process_seq_summ_rejects_rows_with_missing_required_fields() {
+        let failure_cases = [
+            (
+                "read_id\tsequence_length_template\nread-1\n",
+                "row missing sequence_length_template should fail",
+            ),
+            (
+                "sequence_length_template\tread_id\n1234\n",
+                "row missing read_id should fail when columns are reordered",
+            ),
+        ];
+
+        for (contents, message) in failure_cases {
+            let temp_path = write_temp_seq_summary(contents);
+            let result = process_seq_summ(
+                temp_path
+                    .to_str()
+                    .expect("temporary file path should be valid UTF-8"),
+            );
+            remove_temp_file(&temp_path);
+            assert!(result.is_err(), "{message}");
+        }
+    }
+
+    #[test]
+    fn process_seq_summ_accepts_additional_columns() {
+        let temp_path = write_temp_seq_summary(
+            "channel\tread_id\textra\tsequence_length_template\n1\tread-1\tfoo\t1234\n",
+        );
+        let result = process_seq_summ(
+            temp_path
+                .to_str()
+                .expect("temporary file path should be valid UTF-8"),
+        );
+        remove_temp_file(&temp_path);
+
+        let data_map = result.expect("additional columns should be ignored");
+        assert_eq!(data_map.len(), 1);
+        assert!(matches!(
+            data_map.get("read-1"),
+            Some(Read(ReadInstance::OnlyBc(1234)))
+        ));
+    }
+
+    #[test]
+    fn process_seq_summ_rejects_overlong_header_line() {
+        let filler_columns = iter::repeat_n("extra_column", 82)
+            .collect::<Vec<_>>()
+            .join("\t");
+        let contents = format!(
+            "read_id\tsequence_length_template\t{filler_columns}\nread-1\t1234\t{}\n",
+            iter::repeat_n("value", 82).collect::<Vec<_>>().join("\t")
+        );
+        let temp_path = write_temp_seq_summary(contents.as_str());
+        let result = process_seq_summ(
+            temp_path
+                .to_str()
+                .expect("temporary file path should be valid UTF-8"),
+        );
+        remove_temp_file(&temp_path);
+
+        assert!(
+            result.is_err(),
+            "header longer than 1000 bytes should fail even when required columns are present"
+        );
+    }
+
+    #[test]
+    fn process_seq_summ_rejects_too_many_preheader_comments() {
+        let comment_block =
+            iter::repeat_n("# sequencing summary comment\n", 1001).collect::<String>();
+        let contents = format!("{comment_block}read_id\tsequence_length_template\nread-1\t1234\n");
+        let temp_path = write_temp_seq_summary(contents.as_str());
+        let result = process_seq_summ(
+            temp_path
+                .to_str()
+                .expect("temporary file path should be valid UTF-8"),
+        );
+        remove_temp_file(&temp_path);
+
+        assert!(
+            result.is_err(),
+            "more than 1000 pre-header comment lines should fail"
+        );
+    }
+
+    #[test]
+    fn process_seq_summ_rejects_overlong_data_line() {
+        let long_extra_value = iter::repeat_n("abcd", 250).collect::<String>();
+        let contents = format!(
+            "read_id\tsequence_length_template\tfoo\nread-1\t1234\tok\nread-2\t5678\t{long_extra_value}\nread-3\t9012\tok\n"
+        );
+        let temp_path = write_temp_seq_summary(contents.as_str());
+        let result = process_seq_summ(
+            temp_path
+                .to_str()
+                .expect("temporary file path should be valid UTF-8"),
+        );
+        remove_temp_file(&temp_path);
+
+        assert!(
+            result.is_err(),
+            "nonblank data line longer than 1000 bytes should fail even when required fields are present"
         );
     }
 }
@@ -1725,7 +2241,6 @@ mod stochastic_tests_with_mods {
         TempBamSimulation,
     };
     use bedrs::Bed3;
-    use itertools::izip;
     use rust_htslib::bam::Read as _;
 
     /// Helper to run reads table generation
@@ -1800,7 +2315,15 @@ mod stochastic_tests_with_mods {
         let mod_count = df.column("mod_count")?.str()?;
         let alignment_type = df.column("alignment_type")?.str()?;
 
-        for k in izip!(seq_col, qual_col, mod_count, alignment_type) {
+        for k in seq_col
+            .into_iter()
+            .zip(qual_col)
+            .zip(mod_count)
+            .zip(alignment_type)
+            .map(|(((seq, qual), mod_count_value), alignment_type_value)| {
+                (seq, qual, mod_count_value, alignment_type_value)
+            })
+        {
             match k.3.unwrap() {
                 "unmapped" => {
                     assert_eq!(k.0.unwrap(), "*");
@@ -1978,7 +2501,7 @@ mod stochastic_tests_with_mods {
         let alignment_type = df.column("alignment_type")?.str()?;
 
         // Count mods in region 0-10 for forward and reverse reads
-        for (mod_count, aln_type) in izip!(mod_count_col, alignment_type) {
+        for (mod_count, aln_type) in mod_count_col.into_iter().zip(alignment_type) {
             match aln_type.unwrap() {
                 "unmapped" => {
                     // Unmapped reads show mod count of 0
@@ -2078,7 +2601,7 @@ mod stochastic_tests_with_mods {
         let alignment_type = df.column("alignment_type")?.str()?;
 
         // Check that both 'a' and 'm' modifications are present
-        for (mod_count, aln_type) in izip!(mod_count_col, alignment_type) {
+        for (mod_count, aln_type) in mod_count_col.into_iter().zip(alignment_type) {
             match aln_type.unwrap() {
                 "unmapped" | "primary_forward" | "secondary_forward" | "supplementary_forward" => {
                     let count_str = mod_count.unwrap();
@@ -2124,7 +2647,7 @@ mod stochastic_tests_with_mods {
         let alignment_type = df.column("alignment_type")?.str()?;
 
         // Check that both 'a' and 'm' modifications are present
-        for (mod_count, aln_type) in izip!(mod_count_col, alignment_type) {
+        for (mod_count, aln_type) in mod_count_col.into_iter().zip(alignment_type) {
             match aln_type.unwrap() {
                 "unmapped" | "primary_forward" | "secondary_forward" | "supplementary_forward" => {
                     let count_str = mod_count.unwrap();
@@ -2179,7 +2702,11 @@ mod stochastic_tests_with_mods {
 
         // Verify both mod types are present but with region-limited counts and correct sequence.
         // The sequence here is "TACGTggttggACGTA"
-        for (mod_count, aln_type, seq) in izip!(mod_count_col, alignment_type_col, seq_col) {
+        for ((mod_count, aln_type), seq) in mod_count_col
+            .into_iter()
+            .zip(alignment_type_col)
+            .zip(seq_col)
+        {
             match aln_type.unwrap() {
                 "unmapped" => {
                     // Unmapped reads show mod count of 0 when region filtering is applied
@@ -2256,7 +2783,11 @@ mod stochastic_tests_with_mods {
 
         // Verify both mod types are present but with region-limited counts and correct sequence.
         // The sequence here is "TACGTggttggACGTA" but without lowercase for the insert.
-        for (mod_count, aln_type, seq) in izip!(mod_count_col, alignment_type_col, seq_col) {
+        for ((mod_count, aln_type), seq) in mod_count_col
+            .into_iter()
+            .zip(alignment_type_col)
+            .zip(seq_col)
+        {
             match aln_type.unwrap() {
                 "unmapped" => {
                     // Unmapped reads show mod count of 0 when region filtering is applied
