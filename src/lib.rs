@@ -232,26 +232,10 @@ pub unsafe fn init_ssl_certificates() {
 ///             modification_type: 'T',
 ///             ranges: Ranges {
 ///                 annotations: vec![
-///                     FiberAnnotation {
-///                         start: 0, end: 1, length: 1, qual: 4,
-///                         reference_start: Some(9), reference_end: Some(9),
-///                         reference_length: Some(0), extra_columns: None,
-///                     },
-///                     FiberAnnotation {
-///                         start: 3, end: 4, length: 1, qual: 7,
-///                         reference_start: Some(12), reference_end: Some(12),
-///                         reference_length: Some(0), extra_columns: None,
-///                     },
-///                     FiberAnnotation {
-///                         start: 4, end: 5, length: 1, qual: 9,
-///                         reference_start: Some(13), reference_end: Some(13),
-///                         reference_length: Some(0), extra_columns: None,
-///                     },
-///                     FiberAnnotation {
-///                         start: 7, end: 8, length: 1, qual: 6,
-///                         reference_start: Some(16), reference_end: Some(16),
-///                         reference_length: Some(0), extra_columns: None,
-///                     },
+///                     FiberAnnotation { pos: 0, qual: 4, ref_pos: Some(9) },
+///                     FiberAnnotation { pos: 3, qual: 7, ref_pos: Some(12) },
+///                     FiberAnnotation { pos: 4, qual: 9, ref_pos: Some(13) },
+///                     FiberAnnotation { pos: 7, qual: 6, ref_pos: Some(16) },
 ///                 ],
 ///                 seq_len: 8,
 ///                 reverse: false,
@@ -264,31 +248,11 @@ pub unsafe fn init_ssl_certificates() {
 ///             modification_type: 'T',
 ///             ranges: Ranges {
 ///                 annotations: vec![
-///                     FiberAnnotation {
-///                         start: 12, end: 13, length: 1, qual: 3,
-///                         reference_start: Some(15), reference_end: Some(15),
-///                         reference_length: Some(0), extra_columns: None,
-///                     },
-///                     FiberAnnotation {
-///                         start: 13, end: 14, length: 1, qual: 3,
-///                         reference_start: Some(16), reference_end: Some(16),
-///                         reference_length: Some(0), extra_columns: None,
-///                     },
-///                     FiberAnnotation {
-///                         start: 16, end: 17, length: 1, qual: 4,
-///                         reference_start: Some(19), reference_end: Some(19),
-///                         reference_length: Some(0), extra_columns: None,
-///                     },
-///                     FiberAnnotation {
-///                         start: 19, end: 20, length: 1, qual: 3,
-///                         reference_start: Some(22), reference_end: Some(22),
-///                         reference_length: Some(0), extra_columns: None,
-///                     },
-///                     FiberAnnotation {
-///                         start: 20, end: 21, length: 1, qual: 182,
-///                         reference_start: Some(23), reference_end: Some(23),
-///                         reference_length: Some(0), extra_columns: None,
-///                     },
+///                     FiberAnnotation { pos: 12, qual: 3, ref_pos: Some(15) },
+///                     FiberAnnotation { pos: 13, qual: 3, ref_pos: Some(16) },
+///                     FiberAnnotation { pos: 16, qual: 4, ref_pos: Some(19) },
+///                     FiberAnnotation { pos: 19, qual: 3, ref_pos: Some(22) },
+///                     FiberAnnotation { pos: 20, qual: 182, ref_pos: Some(23) },
 ///                 ],
 ///                 seq_len: 33,
 ///                 reverse: true,
@@ -535,14 +499,9 @@ where
                     .zip(modified_probabilities.iter())
                     .map(|k| {
                         Ok(FiberAnnotation {
-                            start: i64::try_from(k.0)?,
-                            end: i64::try_from(k.0 + 1)?,
-                            length: 1,
+                            pos: i64::try_from(k.0)?,
                             qual: *k.1,
-                            reference_start: pos_map[k.0],
-                            reference_end: pos_map[k.0],
-                            reference_length: pos_map[k.0].is_some().then_some(0),
-                            extra_columns: None,
+                            ref_pos: pos_map[k.0],
                         })
                     })
                     .collect::<Result<Vec<FiberAnnotation>, Error>>()?;
@@ -895,44 +854,24 @@ mod mod_parse_tests {
                             ranges: Ranges {
                                 annotations: vec![
                                     FiberAnnotation {
-                                        start: 0,
-                                        end: 1,
-                                        length: 1,
+                                        pos: 0,
                                         qual: 4,
-                                        reference_start: Some(9),
-                                        reference_end: Some(9),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(9)
                                     },
                                     FiberAnnotation {
-                                        start: 3,
-                                        end: 4,
-                                        length: 1,
+                                        pos: 3,
                                         qual: 7,
-                                        reference_start: Some(12),
-                                        reference_end: Some(12),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(12)
                                     },
                                     FiberAnnotation {
-                                        start: 4,
-                                        end: 5,
-                                        length: 1,
+                                        pos: 4,
                                         qual: 9,
-                                        reference_start: Some(13),
-                                        reference_end: Some(13),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(13)
                                     },
                                     FiberAnnotation {
-                                        start: 7,
-                                        end: 8,
-                                        length: 1,
+                                        pos: 7,
                                         qual: 6,
-                                        reference_start: Some(16),
-                                        reference_end: Some(16),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(16)
                                     },
                                 ],
                                 seq_len: 8,
@@ -950,54 +889,29 @@ mod mod_parse_tests {
                             ranges: Ranges {
                                 annotations: vec![
                                     FiberAnnotation {
-                                        start: 3,
-                                        end: 4,
-                                        length: 1,
+                                        pos: 3,
                                         qual: 221,
-                                        reference_start: Some(26),
-                                        reference_end: Some(26),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(26)
                                     },
                                     FiberAnnotation {
-                                        start: 8,
-                                        end: 9,
-                                        length: 1,
+                                        pos: 8,
                                         qual: 242,
-                                        reference_start: Some(31),
-                                        reference_end: Some(31),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(31)
                                     },
                                     FiberAnnotation {
-                                        start: 27,
-                                        end: 28,
-                                        length: 1,
+                                        pos: 27,
                                         qual: 3,
-                                        reference_start: Some(50),
-                                        reference_end: Some(50),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(50)
                                     },
                                     FiberAnnotation {
-                                        start: 39,
-                                        end: 40,
-                                        length: 1,
+                                        pos: 39,
                                         qual: 47,
-                                        reference_start: Some(62),
-                                        reference_end: Some(62),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(62)
                                     },
                                     FiberAnnotation {
-                                        start: 47,
-                                        end: 48,
-                                        length: 1,
+                                        pos: 47,
                                         qual: 239,
-                                        reference_start: Some(70),
-                                        reference_end: Some(70),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(70)
                                     },
                                 ],
                                 seq_len: 48,
@@ -1015,54 +929,29 @@ mod mod_parse_tests {
                             ranges: Ranges {
                                 annotations: vec![
                                     FiberAnnotation {
-                                        start: 12,
-                                        end: 13,
-                                        length: 1,
+                                        pos: 12,
                                         qual: 3,
-                                        reference_start: Some(15),
-                                        reference_end: Some(15),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(15)
                                     },
                                     FiberAnnotation {
-                                        start: 13,
-                                        end: 14,
-                                        length: 1,
+                                        pos: 13,
                                         qual: 3,
-                                        reference_start: Some(16),
-                                        reference_end: Some(16),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(16)
                                     },
                                     FiberAnnotation {
-                                        start: 16,
-                                        end: 17,
-                                        length: 1,
+                                        pos: 16,
                                         qual: 4,
-                                        reference_start: Some(19),
-                                        reference_end: Some(19),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(19)
                                     },
                                     FiberAnnotation {
-                                        start: 19,
-                                        end: 20,
-                                        length: 1,
+                                        pos: 19,
                                         qual: 3,
-                                        reference_start: Some(22),
-                                        reference_end: Some(22),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(22)
                                     },
                                     FiberAnnotation {
-                                        start: 20,
-                                        end: 21,
-                                        length: 1,
+                                        pos: 20,
                                         qual: 182,
-                                        reference_start: Some(23),
-                                        reference_end: Some(23),
-                                        reference_length: Some(0),
-                                        extra_columns: None,
+                                        ref_pos: Some(23)
                                     },
                                 ],
                                 seq_len: 33,
@@ -1081,64 +970,34 @@ mod mod_parse_tests {
                                 ranges: Ranges {
                                     annotations: vec![
                                         FiberAnnotation {
-                                            start: 28,
-                                            end: 29,
-                                            length: 1,
+                                            pos: 28,
                                             qual: 0,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                         FiberAnnotation {
-                                            start: 29,
-                                            end: 30,
-                                            length: 1,
+                                            pos: 29,
                                             qual: 0,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                         FiberAnnotation {
-                                            start: 30,
-                                            end: 31,
-                                            length: 1,
+                                            pos: 30,
                                             qual: 0,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                         FiberAnnotation {
-                                            start: 32,
-                                            end: 33,
-                                            length: 1,
+                                            pos: 32,
                                             qual: 0,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                         FiberAnnotation {
-                                            start: 43,
-                                            end: 44,
-                                            length: 1,
+                                            pos: 43,
                                             qual: 77,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                         FiberAnnotation {
-                                            start: 44,
-                                            end: 45,
-                                            length: 1,
+                                            pos: 44,
                                             qual: 0,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                     ],
                                     seq_len: 48,
@@ -1153,54 +1012,29 @@ mod mod_parse_tests {
                                 ranges: Ranges {
                                     annotations: vec![
                                         FiberAnnotation {
-                                            start: 3,
-                                            end: 4,
-                                            length: 1,
+                                            pos: 3,
                                             qual: 221,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                         FiberAnnotation {
-                                            start: 8,
-                                            end: 9,
-                                            length: 1,
+                                            pos: 8,
                                             qual: 242,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                         FiberAnnotation {
-                                            start: 27,
-                                            end: 28,
-                                            length: 1,
+                                            pos: 27,
                                             qual: 0,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                         FiberAnnotation {
-                                            start: 39,
-                                            end: 40,
-                                            length: 1,
+                                            pos: 39,
                                             qual: 47,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                         FiberAnnotation {
-                                            start: 47,
-                                            end: 48,
-                                            length: 1,
+                                            pos: 47,
                                             qual: 239,
-                                            reference_start: None,
-                                            reference_end: None,
-                                            reference_length: None,
-                                            extra_columns: None,
+                                            ref_pos: None
                                         },
                                     ],
                                     seq_len: 48,

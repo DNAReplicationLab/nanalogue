@@ -49,7 +49,7 @@ struct WindowedReadEntry {
 /// and reference coordinate bounds for each window position.
 #[expect(
     clippy::too_many_lines,
-    reason = "windowing logic is simple but just takes up many lines"
+    reason = "dense windowing logic kept in one function for readability"
 )]
 fn compute_windowed_mod_data<F>(
     base_mod: &BaseMod,
@@ -65,21 +65,11 @@ where
     // constant to mark windows with basecalled coordinates but no reference coordinates.
     const INVALID_REF_POS: i64 = -1;
 
-    #[expect(
-        clippy::type_complexity,
-        reason = "I think a tuple of 5 `Vec` is fine if its readable"
-    )]
-    let (mod_data, starts, ends, ref_starts, ref_ends): (
-        Vec<u8>,
-        Vec<i64>,
-        Vec<i64>,
-        Vec<Option<i64>>,
-        Vec<Option<i64>>,
-    ) = base_mod
+    let (mod_data, starts, ref_starts): (Vec<u8>, Vec<i64>, Vec<Option<i64>>) = base_mod
         .ranges
         .annotations
         .iter()
-        .map(|k| (k.qual, k.start, k.end, k.reference_start, k.reference_end))
+        .map(|k| (k.qual, k.pos, k.ref_pos))
         .collect();
     let base = base_mod.modified_base as char;
     let mod_strand = base_mod.strand;
@@ -90,7 +80,7 @@ where
     if let Some(v) = mod_data.len().checked_sub(win_size) {
         #[expect(
             clippy::arithmetic_side_effects,
-            reason = "a +1 on `ref_win_end`, no overflow as coords << 2^63, complex arithmetic in Q score avg"
+            reason = "a +1 on `ref_win_end` and `win_end`, no overflow as coords << 2^63, complex arithmetic in Q score avg"
         )]
         for window_idx in (0..=v).step_by(slide_size) {
             let win_val = match window_function(
@@ -112,13 +102,14 @@ where
             // populated quite strictly. Nevertheless, I am leaving these in for
             // future-proofing.
             let win_start = *starts.get(window_idx).expect("window_idx is valid");
-            let win_end = *ends
+            let win_end = *starts
                 .get(window_idx..)
                 .expect("window_idx <= v where v = len - win_size")
                 .get(0..win_size)
                 .expect("no error as we've checked data len >= win size")
                 .last()
-                .expect("no error as we've checked data len >= win size");
+                .expect("no error as we've checked data len >= win size")
+                + 1;
 
             let ref_win_start = ref_starts
                 .get(window_idx..)
@@ -130,7 +121,7 @@ where
                 .min()
                 .copied()
                 .unwrap_or(INVALID_REF_POS);
-            let ref_win_end = ref_ends
+            let ref_win_end = ref_starts
                 .get(window_idx..)
                 .expect("window_idx <= v where v = len - win_size")
                 .get(0..win_size)

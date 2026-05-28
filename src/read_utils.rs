@@ -2022,9 +2022,9 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
             .annotations
             .iter()
             .map(|k| {
-                let start: u64 = k.start.try_into()?;
-                let ref_start = k.reference_start.unwrap_or(-1);
-                Ok((start, ref_start, k.qual))
+                let pos: u64 = k.pos.try_into()?;
+                let ref_pos = k.ref_pos.unwrap_or(-1);
+                Ok((pos, ref_pos, k.qual))
             })
             .collect();
 
@@ -2059,19 +2059,19 @@ fn reconstruct_base_mods(
             let mut annotations = Vec::<FiberAnnotation>::with_capacity(entry.data.len());
             let mut valid_range = 0..seq_len;
 
-            for &(start, ref_start, qual) in &entry.data {
-                // Check that sequence coordinates are in range [prev_start + 1, seq_len)
-                if !valid_range.contains(&start) {
+            for &(pos, ref_pos, qual) in &entry.data {
+                // Check that sequence coordinates are in range [prev_pos + 1, seq_len)
+                if !valid_range.contains(&pos) {
                     return Err(Error::InvalidModCoords(String::from(
                         "in mod table, read coords > seq length or read coords not sorted (NOTE: \
 ascending needed even if reversed read)!",
                     )));
                 }
-                valid_range = start.checked_add(1).ok_or_else(|| {
+                valid_range = pos.checked_add(1).ok_or_else(|| {
                     Error::InvalidModCoords(String::from("read coordinate overflow"))
                 })?..seq_len;
 
-                let ref_start_after_check = match (ref_start, ref_range.contains(&ref_start)) {
+                let ref_pos_after_check = match (ref_pos, ref_range.contains(&ref_pos)) {
                     (-1, _) => None,
                     (v, true) if v > -1 => Some(v),
                     (v, _) => {
@@ -2080,21 +2080,11 @@ ascending needed even if reversed read)!",
                         )));
                     }
                 };
-                let start_i64 = i64::try_from(start)?;
-                let end_i64 = start_i64.checked_add(1).ok_or_else(|| {
-                    Error::InvalidModCoords(String::from(
-                        "start coordinate overflow when computing annotation end",
-                    ))
-                })?;
+                let pos_i64 = i64::try_from(pos)?;
                 annotations.push(FiberAnnotation {
-                    start: start_i64,
-                    end: end_i64,
-                    length: 1,
+                    pos: pos_i64,
                     qual,
-                    reference_start: ref_start_after_check,
-                    reference_end: ref_start_after_check,
-                    reference_length: ref_start_after_check.is_some().then_some(0),
-                    extra_columns: None,
+                    ref_pos: ref_pos_after_check,
                 });
             }
             annotations

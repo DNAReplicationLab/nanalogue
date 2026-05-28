@@ -169,69 +169,49 @@ mod tests {
 
     #[test]
     fn direct_ranges_filter_mods_by_ref_pos() {
-        // Create a Ranges object with multiple ranges
-        // All vectors have the same length as required
+        // Create a Ranges object with multiple per-base annotations.
+        // All vectors have the same length as required.
         let mut ranges = Ranges {
-            // Each entry represents a genomic range with different properties
+            // Each entry represents a single base position with different properties.
             annotations: vec![
                 FiberAnnotation {
-                    start: 10,
-                    end: 15,
-                    length: 5,
+                    pos: 10,
                     qual: 100,
-                    reference_start: Some(10),
-                    reference_end: Some(15),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
                 FiberAnnotation {
-                    start: 20,
-                    end: 25,
-                    length: 5,
+                    pos: 20,
                     qual: 120,
-                    reference_start: Some(20),
-                    reference_end: Some(25),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(20),
                 },
                 FiberAnnotation {
-                    start: 30,
-                    end: 35,
-                    length: 5,
+                    pos: 30,
                     qual: 140,
-                    reference_start: Some(30),
-                    reference_end: Some(35),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(30),
                 },
                 FiberAnnotation {
-                    start: 40,
-                    end: 45,
-                    length: 5,
+                    pos: 40,
                     qual: 160,
-                    reference_start: Some(40),
-                    reference_end: Some(45),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(40),
                 },
             ],
             seq_len: 50,
             reverse: false,
         };
 
-        // Filter ranges to keep only those overlapping with reference region 18-32
+        // Filter annotations to keep only those overlapping with reference region 18-32.
         ranges.filter_mods_by_ref_pos(18, 32).unwrap();
 
-        // Verify that only the ranges that overlap with [18, 32) are kept
-        // Should keep ranges [20-25] and [30-35] (indexes 1 and 2)
+        // Verify that only the annotations that overlap with [18, 32) are kept.
+        // Should keep the points at ref_pos 20 and 30 (indexes 1 and 2).
         assert_eq!(ranges.lengths().len(), 2);
         assert_eq!(ranges.reference_lengths().len(), 2);
 
-        // Check the specific values were retained correctly
+        // Check the specific values were retained correctly.
         assert_eq!(ranges.starts(), vec![20, 30]);
-        assert_eq!(ranges.ends(), vec![25, 35]);
+        assert_eq!(ranges.ends(), vec![21, 31]);
         assert_eq!(ranges.reference_starts(), vec![Some(20), Some(30)]);
-        assert_eq!(ranges.reference_ends(), vec![Some(25), Some(35)]);
+        assert_eq!(ranges.reference_ends(), vec![Some(20), Some(30)]);
         assert_eq!(ranges.qual(), vec![120, 140]);
 
         // Verify seq_len and reverse flag are preserved
@@ -241,58 +221,38 @@ mod tests {
 
     #[test]
     fn ranges_filter_mods_by_ref_pos_no_overlap() {
-        // Create a Ranges object with ranges that don't overlap the target region
+        // Create a Ranges object with annotations that don't overlap the target region.
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
-                    start: 10,
-                    end: 15,
-                    length: 5,
+                    pos: 10,
                     qual: 100,
-                    reference_start: Some(10),
-                    reference_end: Some(15),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
                 FiberAnnotation {
-                    start: 20,
-                    end: 25,
-                    length: 5,
+                    pos: 20,
                     qual: 120,
-                    reference_start: Some(20),
-                    reference_end: Some(25),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(20),
                 },
                 FiberAnnotation {
-                    start: 60,
-                    end: 65,
-                    length: 5,
+                    pos: 60,
                     qual: 140,
-                    reference_start: Some(60),
-                    reference_end: Some(65),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(60),
                 },
                 FiberAnnotation {
-                    start: 70,
-                    end: 75,
-                    length: 5,
+                    pos: 70,
                     qual: 160,
-                    reference_start: Some(70),
-                    reference_end: Some(75),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(70),
                 },
             ],
             seq_len: 80,
             reverse: true,
         };
 
-        // Filter ranges for region [30, 50) - none should match
+        // Filter annotations for region [30, 50) - none should match.
         ranges.filter_mods_by_ref_pos(30, 50).unwrap();
 
-        // Verify that all ranges were filtered out
+        // Verify that all annotations were filtered out.
         assert_eq!(ranges.annotations.len(), 0);
 
         // Verify metadata is preserved
@@ -302,62 +262,42 @@ mod tests {
 
     #[test]
     fn ranges_filter_mods_by_ref_pos_with_none_values() {
-        // Create a Ranges object with some None values
+        // Create a Ranges object with some None reference positions.
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
-                    start: 10,
-                    end: 15,
-                    length: 5,
+                    pos: 10,
                     qual: 100,
-                    reference_start: Some(10),
-                    reference_end: Some(15),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
                 FiberAnnotation {
-                    start: 20,
-                    end: 25,
-                    length: 5,
+                    pos: 20,
                     qual: 120,
-                    reference_start: Some(20),
-                    reference_end: Some(25),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(20),
                 },
                 FiberAnnotation {
-                    start: 30,
-                    end: 35,
-                    length: 5,
+                    pos: 30,
                     qual: 140,
-                    reference_start: None,
-                    reference_end: None,
-                    reference_length: None,
-                    extra_columns: None,
+                    ref_pos: None,
                 },
                 FiberAnnotation {
-                    start: 40,
-                    end: 45,
-                    length: 5,
+                    pos: 40,
                     qual: 160,
-                    reference_start: Some(40),
-                    reference_end: Some(45),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(40),
                 },
             ],
             seq_len: 50,
             reverse: false,
         };
 
-        // Filter ranges to keep only those overlapping with reference region 18-22
-        // Only the range at index 1 should be kept
+        // Filter annotations to keep only those overlapping with reference region 18-22.
+        // Only the annotation at index 1 should be kept.
         ranges.filter_mods_by_ref_pos(18, 22).unwrap();
 
-        // Verify that only the range that overlaps with [18, 22) is kept
+        // Verify that only the annotation that overlaps with [18, 22) is kept.
         assert_eq!(ranges.annotations.len(), 1);
         assert_eq!(ranges.reference_starts(), vec![Some(20)]);
-        assert_eq!(ranges.reference_ends(), vec![Some(25)]);
+        assert_eq!(ranges.reference_ends(), vec![Some(20)]);
         assert_eq!(ranges.qual(), vec![120]);
 
         // Verify metadata is preserved
@@ -367,71 +307,46 @@ mod tests {
 
     #[test]
     fn ranges_filter_mods_by_ref_pos_with_none_values_2() {
-        // Create a Ranges object with some None values
+        // Create a Ranges object with some None reference positions.
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
-                    start: 10,
-                    end: 15,
-                    length: 5,
+                    pos: 10,
                     qual: 100,
-                    reference_start: Some(10),
-                    reference_end: Some(15),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
                 FiberAnnotation {
-                    start: 19,
-                    end: 20,
-                    length: 1,
+                    pos: 19,
                     qual: 120,
-                    reference_start: Some(20),
-                    reference_end: Some(21),
-                    reference_length: Some(1),
-                    extra_columns: None,
+                    ref_pos: Some(20),
                 },
                 FiberAnnotation {
-                    start: 20,
-                    end: 21,
-                    length: 1,
+                    pos: 20,
                     qual: 140,
-                    reference_start: None,
-                    reference_end: None,
-                    reference_length: None,
-                    extra_columns: None,
+                    ref_pos: None,
                 },
                 FiberAnnotation {
-                    start: 21,
-                    end: 22,
-                    length: 1,
+                    pos: 21,
                     qual: 150,
-                    reference_start: Some(21),
-                    reference_end: Some(22),
-                    reference_length: Some(1),
-                    extra_columns: None,
+                    ref_pos: Some(21),
                 },
                 FiberAnnotation {
-                    start: 40,
-                    end: 45,
-                    length: 5,
+                    pos: 40,
                     qual: 160,
-                    reference_start: Some(40),
-                    reference_end: Some(45),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(40),
                 },
             ],
             seq_len: 50,
             reverse: true,
         };
 
-        // Filter ranges to keep only those overlapping with reference region 18-22
+        // Filter annotations to keep only those overlapping with reference region 18-22.
         ranges.filter_mods_by_ref_pos(18, 22).unwrap();
 
-        // Verify that only the ranges that overlaps with [18, 22) are kept
+        // Verify that only the annotations that overlap with [18, 22) are kept.
         assert_eq!(ranges.annotations.len(), 3);
         assert_eq!(ranges.reference_starts(), vec![Some(20), None, Some(21)]);
-        assert_eq!(ranges.reference_ends(), vec![Some(21), None, Some(22)]);
+        assert_eq!(ranges.reference_ends(), vec![Some(20), None, Some(21)]);
         assert_eq!(ranges.qual(), vec![120, 140, 150]);
 
         // Verify metadata is preserved
@@ -447,44 +362,24 @@ mod tests {
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
-                    start: 10,
-                    end: 15,
-                    length: 5,
+                    pos: 10,
                     qual: 100,
-                    reference_start: Some(10),
-                    reference_end: Some(15),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
                 FiberAnnotation {
-                    start: 20,
-                    end: 25,
-                    length: 5,
+                    pos: 20,
                     qual: 120,
-                    reference_start: Some(20),
-                    reference_end: Some(25),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(20),
                 },
                 FiberAnnotation {
-                    start: 30,
-                    end: 35,
-                    length: 5,
+                    pos: 30,
                     qual: 140,
-                    reference_start: Some(30),
-                    reference_end: Some(35),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(30),
                 },
                 FiberAnnotation {
-                    start: 40,
-                    end: 45,
-                    length: 5,
+                    pos: 40,
                     qual: 160,
-                    reference_start: Some(40),
-                    reference_end: Some(45),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(40),
                 },
             ],
             seq_len: 50,
@@ -498,140 +393,104 @@ mod tests {
     #[test]
     #[should_panic(expected = "WrongOrder")]
     fn ranges_filter_panics_when_start_greater_than_end() {
-        // Create a Ranges object where start > end, violating the first assertion
+        // Create a Ranges object with decreasing reference positions (wrong order).
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
-                    start: 10,
-                    end: 15,
-                    length: 5,
+                    pos: 10,
                     qual: 100,
-                    reference_start: Some(10),
-                    reference_end: Some(15),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
+                // Decreasing reference positions should panic.
                 FiberAnnotation {
-                    start: 30,
-                    end: 25,
-                    length: 5,
+                    pos: 30,
                     qual: 120,
-                    reference_start: Some(30),
-                    reference_end: Some(25), // 30 > 25, this should panic
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(9),
                 },
             ],
             seq_len: 50,
             reverse: false,
         };
 
-        // This should panic because start (30) > end (25)
+        // This should panic because reference positions are not strictly increasing.
         ranges.filter_mods_by_ref_pos(0, 50).unwrap();
     }
 
     #[test]
     #[should_panic(expected = "WrongOrder")]
     fn ranges_filter_panics_when_starts_not_increasing() {
-        // Create a Ranges object where starts are not strictly increasing
+        // Create a Ranges object where reference positions are not strictly increasing.
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
-                    start: 10,
-                    end: 15,
-                    length: 5,
+                    pos: 10,
                     qual: 100,
-                    reference_start: Some(10),
-                    reference_end: Some(15),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
+                // Same reference position should panic.
                 FiberAnnotation {
-                    start: 10,
-                    end: 20,
-                    length: 10,
+                    pos: 11,
                     qual: 120,
-                    reference_start: Some(10), // Same start value, should panic
-                    reference_end: Some(20),
-                    reference_length: Some(10),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
             ],
             seq_len: 50,
             reverse: false,
         };
 
-        // This should panic because start values are not strictly increasing
+        // This should panic because reference positions are not strictly increasing.
         ranges.filter_mods_by_ref_pos(0, 50).unwrap();
     }
 
     #[test]
     #[should_panic(expected = "WrongOrder")]
     fn ranges_filter_panics_when_starts_decreasing() {
-        // Create a Ranges object where starts are decreasing
+        // Create a Ranges object where reference positions are decreasing.
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
-                    start: 20,
-                    end: 25,
-                    length: 5,
+                    pos: 20,
                     qual: 100,
-                    reference_start: Some(20),
-                    reference_end: Some(25),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(20),
                 },
+                // Decreasing reference positions should panic.
                 FiberAnnotation {
-                    start: 10,
-                    end: 15,
-                    length: 5,
+                    pos: 10,
                     qual: 120,
-                    reference_start: Some(10), // Decreasing start values, should panic
-                    reference_end: Some(15),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
             ],
             seq_len: 50,
             reverse: false,
         };
 
-        // This should panic because starts are decreasing
+        // This should panic because reference positions are decreasing.
         ranges.filter_mods_by_ref_pos(0, 50).unwrap();
     }
 
     #[test]
     #[should_panic(expected = "WrongOrder")]
     fn ranges_filter_panics_when_start_less_than_previous_end() {
-        // Create a Ranges object where a start is less than previous end (overlapping ranges)
+        // Create a Ranges object where reference windows overlap (duplicate ref_pos).
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
-                    start: 10,
-                    end: 15,
-                    length: 5,
+                    pos: 10,
                     qual: 100,
-                    reference_start: Some(10),
-                    reference_end: Some(15),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
+                // Overlapping reference windows (duplicate position) should panic.
                 FiberAnnotation {
-                    start: 14,
-                    end: 20,
-                    length: 6,
+                    pos: 11,
                     qual: 120,
-                    reference_start: Some(14), // start (14) < previous_end (15)
-                    reference_end: Some(20),
-                    reference_length: Some(6),
-                    extra_columns: None,
+                    ref_pos: Some(10),
                 },
             ],
             seq_len: 50,
             reverse: false,
         };
 
-        // This should panic because start (14) < previous_end (15)
+        // This should panic because reference windows are not strictly ordered (they overlap).
         ranges.filter_mods_by_ref_pos(0, 50).unwrap();
     }
 
@@ -640,34 +499,19 @@ mod tests {
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
-                    start: 1,
-                    end: 2,
-                    length: 1,
+                    pos: 1,
                     qual: 100,
-                    reference_start: None,
-                    reference_end: None,
-                    reference_length: None,
-                    extra_columns: None,
+                    ref_pos: None,
                 },
                 FiberAnnotation {
-                    start: 2,
-                    end: 3,
-                    length: 1,
+                    pos: 2,
                     qual: 120,
-                    reference_start: None,
-                    reference_end: None,
-                    reference_length: None,
-                    extra_columns: None,
+                    ref_pos: None,
                 },
                 FiberAnnotation {
-                    start: 41,
-                    end: 42,
-                    length: 1,
+                    pos: 41,
                     qual: 140,
-                    reference_start: Some(50),
-                    reference_end: Some(51),
-                    reference_length: Some(1),
-                    extra_columns: None,
+                    ref_pos: Some(50),
                 },
             ],
             seq_len: 96,
@@ -679,6 +523,12 @@ mod tests {
         // Verify that only one point comes through
         assert_eq!(ranges.annotations.len(), 1);
         assert_eq!(ranges.qual(), vec![140u8]);
+
+        ranges.filter_mods_by_ref_pos(70, 91).unwrap();
+
+        // Verify that no point comes through
+        assert!(ranges.annotations.is_empty());
+        assert!(ranges.qual().is_empty());
     }
 }
 
