@@ -66,56 +66,19 @@ impl FiberAnnotations {
         }
     }
 
-    /// Query start positions.
-    #[must_use]
-    pub fn starts(&self) -> Vec<i64> {
-        self.annotations.iter().map(|a| a.pos).collect()
+    /// Query positions.
+    pub fn pos(&self) -> impl Iterator<Item = i64> + '_ {
+        self.annotations.iter().map(|a| a.pos)
     }
 
-    /// Query end positions.
-    #[must_use]
-    #[expect(
-        clippy::missing_panics_doc,
-        reason = "`pos` is derived from sequence coordinates so `pos + 1` cannot overflow in practice"
-    )]
-    pub fn ends(&self) -> Vec<i64> {
-        self.annotations
-            .iter()
-            .map(|a| a.pos.checked_add(1).expect("pos + 1 overflow"))
-            .collect()
-    }
-
-    /// Query lengths.
-    #[must_use]
-    pub fn lengths(&self) -> Vec<i64> {
-        self.annotations.iter().map(|_| 1).collect()
+    /// Reference positions.
+    pub fn ref_pos(&self) -> impl Iterator<Item = Option<i64>> + '_ {
+        self.annotations.iter().map(|a| a.ref_pos)
     }
 
     /// Quality values.
-    #[must_use]
-    pub fn qual(&self) -> Vec<u8> {
-        self.annotations.iter().map(|a| a.qual).collect()
-    }
-
-    /// Reference start positions.
-    #[must_use]
-    pub fn reference_starts(&self) -> Vec<Option<i64>> {
-        self.annotations.iter().map(|a| a.ref_pos).collect()
-    }
-
-    /// Reference end positions.
-    #[must_use]
-    pub fn reference_ends(&self) -> Vec<Option<i64>> {
-        self.annotations.iter().map(|a| a.ref_pos).collect()
-    }
-
-    /// Reference lengths.
-    #[must_use]
-    pub fn reference_lengths(&self) -> Vec<Option<i64>> {
-        self.annotations
-            .iter()
-            .map(|a| a.ref_pos.map(|_| 0))
-            .collect()
+    pub fn qual(&self) -> impl Iterator<Item = u8> + '_ {
+        self.annotations.iter().map(|a| a.qual)
     }
 }
 
@@ -254,13 +217,12 @@ mod tests {
             seq_len: 50,
             reverse: false,
         };
-        assert_eq!(annotations.starts(), vec![5, 20]);
-        assert_eq!(annotations.ends(), vec![6, 21]);
-        assert_eq!(annotations.lengths(), vec![1, 1]);
-        assert_eq!(annotations.qual(), vec![100, 150]);
-        assert_eq!(annotations.reference_starts(), vec![Some(50), None]);
-        assert_eq!(annotations.reference_ends(), vec![Some(50), None]);
-        assert_eq!(annotations.reference_lengths(), vec![Some(0), None]);
+        assert_eq!(annotations.pos().collect::<Vec<_>>(), vec![5, 20]);
+        assert_eq!(annotations.qual().collect::<Vec<_>>(), vec![100, 150]);
+        assert_eq!(
+            annotations.ref_pos().collect::<Vec<_>>(),
+            vec![Some(50), None]
+        );
     }
 
     #[test]
@@ -270,12 +232,8 @@ mod tests {
             seq_len: 0,
             reverse: false,
         };
-        assert!(annotations.starts().is_empty());
-        assert!(annotations.ends().is_empty());
-        assert!(annotations.lengths().is_empty());
-        assert!(annotations.qual().is_empty());
-        assert!(annotations.reference_starts().is_empty());
-        assert!(annotations.reference_ends().is_empty());
-        assert!(annotations.reference_lengths().is_empty());
+        assert!(annotations.pos().next().is_none());
+        assert!(annotations.qual().next().is_none());
+        assert!(annotations.ref_pos().next().is_none());
     }
 }

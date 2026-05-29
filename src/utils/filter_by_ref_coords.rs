@@ -3,7 +3,7 @@
 
 use crate::{Error, Intersects as _, OrdPair, Ranges};
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, cmp::max, fmt};
+use std::{cmp::Ordering, fmt};
 
 /// Categorizes the types of windows into two possibilities.
 ///
@@ -51,16 +51,9 @@ impl WindowState {
         match *self {
             WindowState(None) => false,
             WindowState(Some(v)) => {
-                // For various reasons, we want to permit 0-bp intervals on the `WindowState` here
-                // (but not on the genomic interval) and treat them like 1-bp intervals.
-                // This is because `fibertools-rs` uses 0 bp intervals in the `FiberAnnotation`
-                // struct (as that crate is evolving (still in version 0.x at time of writing),
-                // this may change in the future).
-
                 let lo = v.low();
                 let hi = v.high();
-
-                (interval.low()..interval.high()).intersects(&(lo..max(lo.saturating_add(1), hi)))
+                (interval.low()..interval.high()).intersects(&(lo..hi))
             }
         }
     }
@@ -118,13 +111,16 @@ impl FilterModsByRefCoords for Ranges {
         let (start_index, stop_index_plus_one) = {
             let mut coord_limits: Option<OrdPair<usize>> = None;
             let mut previous_window = WindowState(None);
-            for k in self
-                .reference_starts()
-                .iter()
-                .zip(self.reference_ends().iter())
-                .enumerate()
-            {
-                let window_state = WindowState::new(*(k.1.0), *(k.1.1))?;
+            for (idx, ann) in self.annotations.iter().enumerate() {
+                let window_state = WindowState::new(
+                    ann.ref_pos,
+                    match ann.ref_pos {
+                        None => None,
+                        Some(v) => Some(v.checked_add(1).ok_or(Error::Arithmetic(
+                            "overflow error in coordinates while filtering by ref".to_owned(),
+                        ))?),
+                    },
+                )?;
                 match window_state {
                     WindowState(None) => {}
                     w @ WindowState(Some(_)) if previous_window < w => previous_window = w,
@@ -136,12 +132,12 @@ impl FilterModsByRefCoords for Ranges {
                 }
                 if window_state.intersects(interval) {
                     if coord_limits.is_none() {
-                        coord_limits = Some(OrdPair::<usize>::new(k.0, k.0)?);
+                        coord_limits = Some(OrdPair::<usize>::new(idx, idx)?);
                     } else {
                         let Some(ref mut v) = coord_limits else {
                             unreachable!("we've checked for the `Some` variant already")
                         };
-                        v.update_high(k.0)?;
+                        v.update_high(idx)?;
                     }
                 }
             }
@@ -204,15 +200,15 @@ mod tests {
 
         // Verify that only the annotations that overlap with [18, 32) are kept.
         // Should keep the points at ref_pos 20 and 30 (indexes 1 and 2).
-        assert_eq!(ranges.lengths().len(), 2);
-        assert_eq!(ranges.reference_lengths().len(), 2);
+        assert_eq!(ranges.annotations.len(), 2);
 
         // Check the specific values were retained correctly.
-        assert_eq!(ranges.starts(), vec![20, 30]);
-        assert_eq!(ranges.ends(), vec![21, 31]);
-        assert_eq!(ranges.reference_starts(), vec![Some(20), Some(30)]);
-        assert_eq!(ranges.reference_ends(), vec![Some(20), Some(30)]);
-        assert_eq!(ranges.qual(), vec![120, 140]);
+        assert_eq!(ranges.pos().collect::<Vec<_>>(), vec![20, 30]);
+        assert_eq!(
+            ranges.ref_pos().collect::<Vec<_>>(),
+            vec![Some(20), Some(30)]
+        );
+        assert_eq!(ranges.qual().collect::<Vec<_>>(), vec![120, 140]);
 
         // Verify seq_len and reverse flag are preserved
         assert_eq!(ranges.seq_len, 50);
@@ -296,9 +292,8 @@ mod tests {
 
         // Verify that only the annotation that overlaps with [18, 22) is kept.
         assert_eq!(ranges.annotations.len(), 1);
-        assert_eq!(ranges.reference_starts(), vec![Some(20)]);
-        assert_eq!(ranges.reference_ends(), vec![Some(20)]);
-        assert_eq!(ranges.qual(), vec![120]);
+        assert_eq!(ranges.ref_pos().collect::<Vec<_>>(), vec![Some(20)]);
+        assert_eq!(ranges.qual().collect::<Vec<_>>(), vec![120]);
 
         // Verify metadata is preserved
         assert_eq!(ranges.seq_len, 50);
@@ -345,9 +340,11 @@ mod tests {
 
         // Verify that only the annotations that overlap with [18, 22) are kept.
         assert_eq!(ranges.annotations.len(), 3);
-        assert_eq!(ranges.reference_starts(), vec![Some(20), None, Some(21)]);
-        assert_eq!(ranges.reference_ends(), vec![Some(20), None, Some(21)]);
-        assert_eq!(ranges.qual(), vec![120, 140, 150]);
+        assert_eq!(
+            ranges.ref_pos().collect::<Vec<_>>(),
+            vec![Some(20), None, Some(21)]
+        );
+        assert_eq!(ranges.qual().collect::<Vec<_>>(), vec![120, 140, 150]);
 
         // Verify metadata is preserved
         assert_eq!(ranges.seq_len, 50);
@@ -522,13 +519,13 @@ mod tests {
 
         // Verify that only one point comes through
         assert_eq!(ranges.annotations.len(), 1);
-        assert_eq!(ranges.qual(), vec![140u8]);
+        assert_eq!(ranges.qual().collect::<Vec<_>>(), vec![140u8]);
 
         ranges.filter_mods_by_ref_pos(70, 91).unwrap();
 
         // Verify that no point comes through
         assert!(ranges.annotations.is_empty());
-        assert!(ranges.qual().is_empty());
+        assert!(ranges.qual().next().is_none());
     }
 }
 
@@ -655,13 +652,15 @@ mod window_state_tests {
         assert!(!ws.intersects(interval));
     }
 
-    /// Tests `WindowState::intersects` with 0-bp window (treated as 1-bp)
+    /// Tests `WindowState::intersects` with a 0-bp window.
+    ///
+    /// We treat `start == end` windows as empty (half-open range semantics),
+    /// so they do not intersect any interval.
     #[test]
     fn window_state_intersects_zero_bp_window() {
-        // 0-bp window at position 15 should be treated as 1-bp window [15, 16)
         let ws = WindowState::new(Some(15), Some(15)).unwrap();
         let interval = OrdPair::new(14, 16).unwrap();
-        assert!(ws.intersects(interval));
+        assert!(!ws.intersects(interval));
     }
 
     /// Tests `WindowState::intersects` with 0-bp window not overlapping

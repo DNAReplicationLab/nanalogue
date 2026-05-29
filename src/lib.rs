@@ -1243,9 +1243,8 @@ mod base_qual_filtering_tests {
             assert_eq!(base_mod.modified_base, b'T');
             assert_eq!(base_mod.strand, '+');
             assert_eq!(base_mod.modification_type, 'T');
-            assert_eq!(base_mod.ranges.qual(), vec![7, 9]);
-            assert_eq!(base_mod.ranges.starts(), vec![3, 4]);
-            assert_eq!(base_mod.ranges.ends(), vec![4, 5]);
+            assert_eq!(base_mod.ranges.qual().collect::<Vec<_>>(), vec![7, 9]);
+            assert_eq!(base_mod.ranges.pos().collect::<Vec<_>>(), vec![3, 4]);
         }
 
         Ok(())

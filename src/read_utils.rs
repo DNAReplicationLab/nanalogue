@@ -1188,7 +1188,7 @@ impl CurrRead<AlignAndModData> {
                     ranges: track,
                     ..
                 } if *x == tag_char => {
-                    let mod_data = track.qual();
+                    let mod_data: Vec<u8> = track.qual().collect();
                     if let Some(l) = mod_data.len().checked_sub(win_size) {
                         result.extend(
                             (0..=l)

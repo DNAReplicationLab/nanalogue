@@ -444,6 +444,12 @@ fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
                         ));
                     }
                 };
+                if read_id_idx == seq_len_idx {
+                    return Err(Error::InvalidState(
+                        "impossible state: read id and sequence length columns are the same"
+                            .to_owned(),
+                    ));
+                }
                 (read_id_idx, seq_len_idx)
             };
 
@@ -461,8 +467,17 @@ fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
                 if line.is_empty() {
                     continue;
                 }
-                let columns: Vec<&str> = line.split('\t').collect();
-                let read_id = columns.get(read_id_idx).ok_or_else(|| {
+                let mut read_id_field: Option<&str> = None;
+                let mut seq_len_field: Option<&str> = None;
+                for (idx, field) in line.split('\t').enumerate() {
+                    if idx == read_id_idx {
+                        read_id_field = Some(field);
+                    }
+                    if idx == seq_len_idx {
+                        seq_len_field = Some(field);
+                    }
+                }
+                let read_id = read_id_field.ok_or_else(|| {
                     Error::InvalidState(format!(
                         "sequencing summary tsv row has no `read_id` field at column {read_id_idx}: `{line}`"
                     ))
@@ -481,8 +496,7 @@ fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
                             .to_owned(),
                     ));
                 }
-                let sequence_length_template :u64 = columns
-                    .get(seq_len_idx)
+                let sequence_length_template: u64 = seq_len_field
                     .ok_or_else(|| {
                         Error::InvalidState(format!(
                             "sequencing summary tsv row has no `sequence_length_template` field at column {seq_len_idx}: `{line}`"
@@ -788,19 +802,22 @@ where
     // Convert buffer to string
     let output = String::from_utf8(buffer)?;
 
-    // Remove comment lines (starting with '#') and find the header
-    let lines: Vec<&str> = output
-        .lines()
-        .filter(|line| !line.starts_with('#'))
-        .collect();
-
-    if lines.is_empty() {
-        return Err(Error::InvalidState("Output has no header line".to_string()));
+    // Filter out comment lines (starting with '#').
+    // The first non-# line is the header.
+    let mut header_line_opt: Option<&str> = None;
+    let mut tsv_without_comments = String::new();
+    for line in output.lines() {
+        if line.starts_with('#') {
+            continue;
+        }
+        if header_line_opt.is_none() {
+            header_line_opt = Some(line);
+        }
+        tsv_without_comments.push_str(line);
+        tsv_without_comments.push('\n');
     }
 
-    // First non-comment line is the header
-    let header_line = lines
-        .first()
+    let header_line = header_line_opt
         .ok_or_else(|| Error::InvalidState("Output has no header line".to_string()))?;
 
     // Parse header to determine which columns are present
@@ -830,9 +847,6 @@ where
     }
 
     let schema = Schema::from_iter(schema_fields);
-
-    // Reconstruct TSV without comment lines for parsing
-    let tsv_without_comments = lines.join("\n");
 
     // Parse the TSV data with the schema
     let cursor = std::io::Cursor::new(tsv_without_comments.as_bytes());
