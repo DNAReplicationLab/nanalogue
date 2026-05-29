@@ -364,8 +364,14 @@ where
                     record
                         .aligned_pairs_full()
                         .filter(|x| x[0].is_some())
-                        .map(|x| x[1])
-                        .collect()
+                        .map(|x| match x[1] {
+                            None => Ok(None),
+                            Some(v) if v >= 0 => Ok(Some(v)),
+                            Some(v) => Err(Error::InvalidModCoords(format!(
+                                "reference coordinate {v} from aligned_pairs_full is invalid"
+                            ))),
+                        })
+                        .collect::<Result<Vec<Option<i64>>, Error>>()?
                 }
             };
             if temp.len() == seq_len {

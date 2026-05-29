@@ -257,12 +257,18 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
                 let seq_len = x.ranges.seq_len;
                 Ok((
                     usize::try_from(seq_len)?,
-                    (ModChar::new(x.modification_type),
-                    match x.strand{
-                        '+' => true,
-                        '-' => false,
-                        v => return Err(Error::InvalidState(format!("{v} is not a valid strand!"))),
-                    }),
+                    (
+                        ModChar::new(x.modification_type),
+                        match x.strand {
+                            '+' => true,
+                            '-' => false,
+                            v => {
+                                return Err(Error::InvalidState(format!(
+                                    "{v} is not a valid strand!"
+                                )));
+                            }
+                        },
+                    ),
                     x.ranges
                         .annotations
                         .iter()
@@ -271,8 +277,7 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
                                 Ok((usize::try_from(y.pos)?, y.qual))
                             } else {
                                 Err(Error::NotImplemented(
-                                    "cannot use a non-per-base annotation and/or malformed coordinates in `BaseMods`"
-                                        .to_owned(),
+                                    "annotation position out of range in `BaseMods`".to_owned(),
                                 ))
                             }
                         })

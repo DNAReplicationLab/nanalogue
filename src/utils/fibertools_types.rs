@@ -74,10 +74,14 @@ impl FiberAnnotations {
 
     /// Query end positions.
     #[must_use]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "`pos` is derived from sequence coordinates so `pos + 1` cannot overflow in practice"
+    )]
     pub fn ends(&self) -> Vec<i64> {
         self.annotations
             .iter()
-            .map(|a| a.pos.saturating_add(1))
+            .map(|a| a.pos.checked_add(1).expect("pos + 1 overflow"))
             .collect()
     }
 

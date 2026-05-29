@@ -2071,7 +2071,7 @@ ascending needed even if reversed read)!",
                     Error::InvalidModCoords(String::from("read coordinate overflow"))
                 })?..seq_len;
 
-                let ref_pos_after_check = match (ref_pos, ref_range.contains(&ref_pos)) {
+                let mapped_ref_pos = match (ref_pos, ref_range.contains(&ref_pos)) {
                     (-1, _) => None,
                     (v, true) if v > -1 => Some(v),
                     (v, _) => {
@@ -2084,7 +2084,7 @@ ascending needed even if reversed read)!",
                 annotations.push(FiberAnnotation {
                     pos: pos_i64,
                     qual,
-                    ref_pos: ref_pos_after_check,
+                    ref_pos: mapped_ref_pos,
                 });
             }
             annotations

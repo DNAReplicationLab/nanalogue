@@ -51,7 +51,7 @@ impl WindowState {
         match *self {
             WindowState(None) => false,
             WindowState(Some(v)) => {
-                // For various reasons, we want to permit 0-bp intevals on the `WindowState` here
+                // For various reasons, we want to permit 0-bp intervals on the `WindowState` here
                 // (but not on the genomic interval) and treat them like 1-bp intervals.
                 // This is because `fibertools-rs` uses 0 bp intervals in the `FiberAnnotation`
                 // struct (as that crate is evolving (still in version 0.x at time of writing),

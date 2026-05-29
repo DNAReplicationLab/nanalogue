@@ -65,6 +65,8 @@ where
     // constant to mark windows with basecalled coordinates but no reference coordinates.
     const INVALID_REF_POS: i64 = -1;
 
+    // We call positions as starts, ref_starts etc. as we are dealing with windows,
+    // so better to start using window-like terminology
     let (mod_data, starts, ref_starts): (Vec<u8>, Vec<i64>, Vec<Option<i64>>) = base_mod
         .ranges
         .annotations
@@ -121,6 +123,8 @@ where
                 .min()
                 .copied()
                 .unwrap_or(INVALID_REF_POS);
+            // For per-base point annotations, `ref_pos` is a single coordinate (no separate ref-end).
+            // We therefore derive both ref window bounds from `ref_starts`.
             let ref_win_end = ref_starts
                 .get(window_idx..)
                 .expect("window_idx <= v where v = len - win_size")
