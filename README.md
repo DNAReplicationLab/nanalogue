@@ -177,7 +177,7 @@ This uses the exact versions of dependencies specified in the package's `Cargo.l
 and fixes install problems due to newer packages.
 
 If you are building from a Git checkout instead of an installed crate, make sure
-Git submodules are initialized so the vendored HTSlib source is available:
+Git submodules are initialized so if any sources are vendored, they become available:
 
 ```bash
 git submodule update --init --recursive

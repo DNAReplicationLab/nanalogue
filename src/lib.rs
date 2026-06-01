@@ -90,6 +90,7 @@ use std::sync::Once;
 pub mod analysis;
 pub mod cli;
 pub mod commands;
+pub mod constants;
 pub mod error;
 pub mod file_utils;
 pub mod read_utils;
