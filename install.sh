@@ -252,7 +252,7 @@ get_asset_name() {
                 arm)
                     glibc_version=$(get_glibc_version)
                     if [ -n "$glibc_version" ] && version_gte "$glibc_version" "2.17"; then
-                        echo "binaries-manylinux_2_17_arm.zip"
+                        echo "binaries-manylinux_2_17_armv7.zip"
                     else
                         error "Unsupported glibc version: ${glibc_version:-unknown}"
                     fi
