@@ -5,7 +5,7 @@ Thank you for your interest in contributing to `nanalogue`! This project is larg
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/DNAReplicationLab/nanalogue.git`
+2. Clone your fork: `git clone https://github.com/YOUR-USERNAME/nanalogue.git`
 3. Create a branch for your changes: `git checkout -b feature/your-feature-name`
 
 ## Development Setup
@@ -64,7 +64,7 @@ The project uses extensive clippy lints (see `Cargo.toml` for the full list). Yo
 ### Commit Messages
 
 - Write clear, descriptive commit messages
-- Use present tense ("adds feature" not "added feature")
+- Use a present-tense verb led, concise first line for commit messages ("adds feature" not "added feature")
 - Reference issue numbers when applicable
 
 ## Pull Request Process
