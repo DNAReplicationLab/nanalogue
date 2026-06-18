@@ -5,8 +5,8 @@
 
 use crate::BaseMod;
 use crate::{
-    AlignmentInfoBuilder, CurrRead, Error, F32AbsValAtMost1, InputMods, InputWindowing, ModChar,
-    OptionalTag, ReadState,
+    AlignmentInfo, AlignmentInfoBuilder, CurrRead, Error, F32AbsValAtMost1, InputMods,
+    InputWindowing, ModChar, OptionalTag, ReadState,
 };
 use polars::prelude::*;
 use rust_htslib::bam::Record;
@@ -23,7 +23,7 @@ struct WindowedModTableEntry {
     /// The modification code (e.g. 'm' for 5mC, 'T' for `BrdU`)
     mod_code: ModChar,
     /// Windowed data: `(win_start, win_end, win_val, mean_base_qual, ref_win_start, ref_win_end)`
-    data: Vec<(i64, i64, F32AbsValAtMost1, u8, i64, i64)>,
+    data: Vec<(u32, u32, F32AbsValAtMost1, u8, i64, i64)>,
 }
 
 /// A single read's windowed modification data for JSON output
@@ -33,13 +33,13 @@ struct WindowedReadEntry {
     alignment_type: ReadState,
     /// Alignment coordinates (absent for unmapped reads)
     #[serde(skip_serializing_if = "Option::is_none")]
-    alignment: Option<crate::read_utils::AlignmentInfo>,
+    alignment: Option<AlignmentInfo>,
     /// Per-modification-type windowed data
     mod_table: Vec<WindowedModTableEntry>,
     /// The read identifier (QNAME)
     read_id: String,
     /// Basecalled sequence length
-    seq_len: u64,
+    seq_len: u32,
 }
 
 /// Computes windowed modification data for a single base modification type
@@ -67,7 +67,7 @@ where
 
     // We call positions as starts, ref_starts etc. as we are dealing with windows,
     // so better to start using window-like terminology
-    let (mod_data, starts, ref_starts): (Vec<u8>, Vec<i64>, Vec<Option<i64>>) = base_mod
+    let (mod_data, starts, ref_starts): (Vec<u8>, Vec<u32>, Vec<Option<u32>>) = base_mod
         .ranges
         .annotations
         .iter()
@@ -77,12 +77,12 @@ where
     let mod_strand = base_mod.strand;
     let mod_type = ModChar::new(base_mod.modification_type);
 
-    let mut windows: Vec<(i64, i64, F32AbsValAtMost1, u8, i64, i64)> = Vec::new();
+    let mut windows: Vec<(u32, u32, F32AbsValAtMost1, u8, i64, i64)> = Vec::new();
 
     if let Some(v) = mod_data.len().checked_sub(win_size) {
         #[expect(
             clippy::arithmetic_side_effects,
-            reason = "a +1 on `ref_win_end` and `win_end`, no overflow as coords << 2^63, complex arithmetic in Q score avg"
+            reason = "complex arithmetic in Q score avg. i64::from(u32) + 1 is fine, no overflow here"
         )]
         for window_idx in (0..=v).step_by(slide_size) {
             let win_val = match window_function(
@@ -104,14 +104,21 @@ where
             // populated quite strictly. Nevertheless, I am leaving these in for
             // future-proofing.
             let win_start = *starts.get(window_idx).expect("window_idx is valid");
-            let win_end = *starts
-                .get(window_idx..)
-                .expect("window_idx <= v where v = len - win_size")
-                .get(0..win_size)
-                .expect("no error as we've checked data len >= win size")
-                .last()
-                .expect("no error as we've checked data len >= win size")
-                + 1;
+            let win_end = {
+                let temp_val = *starts
+                    .get(window_idx..)
+                    .expect("window_idx <= v where v = len - win_size")
+                    .get(0..win_size)
+                    .expect("no error as we've checked data len >= win size")
+                    .last()
+                    .expect("no error as we've checked data len >= win size");
+                if temp_val == u32::MAX {
+                    return Err(Error::InvalidState(String::from(
+                        "Window ends at u32::MAX. Read is too long (i.e. u32::MAX long)",
+                    )));
+                }
+                temp_val + 1
+            };
 
             let ref_win_start = ref_starts
                 .get(window_idx..)
@@ -122,7 +129,7 @@ where
                 .flatten()
                 .min()
                 .copied()
-                .unwrap_or(INVALID_REF_POS);
+                .map_or(INVALID_REF_POS, i64::from);
             // For per-base point annotations, `ref_pos` is a single coordinate (no separate ref-end).
             // We therefore derive both ref window bounds from `ref_starts`.
             let ref_win_end = ref_starts
@@ -134,11 +141,7 @@ where
                 .flatten()
                 .max()
                 .copied()
-                .map_or(Ok(INVALID_REF_POS), |x| {
-                    x.checked_add(1).ok_or_else(|| {
-                        Error::Arithmetic("overflow computing ref_win_end".to_owned())
-                    })
-                })?;
+                .map_or(INVALID_REF_POS, |x| i64::from(x) + 1);
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,
@@ -362,8 +365,8 @@ where
         Field::new("base".into(), DataType::String),
         Field::new("mod_strand".into(), DataType::String),
         Field::new("mod_type".into(), DataType::String),
-        Field::new("win_start".into(), DataType::UInt64),
-        Field::new("win_end".into(), DataType::UInt64),
+        Field::new("win_start".into(), DataType::UInt32),
+        Field::new("win_end".into(), DataType::UInt32),
         Field::new("basecall_qual".into(), DataType::UInt32),
     ];
 
@@ -1035,11 +1038,11 @@ mod stochastic_tests {
         let mod_type = df.column("mod_type")?.str()?;
         let ref_win_start = df.column("ref_win_start")?.i64()?;
         let ref_win_end = df.column("ref_win_end")?.i64()?;
-        let win_start = df.column("win_start")?.u64()?;
-        let win_end = df.column("win_end")?.u64()?;
+        let win_start = df.column("win_start")?.u32()?;
+        let win_end = df.column("win_end")?.u32()?;
 
-        let mut previous_win_start: Option<u64> = None;
-        let mut previous_win_end: Option<u64> = None;
+        let mut previous_win_start: Option<u32> = None;
+        let mut previous_win_end: Option<u32> = None;
 
         let mut sum_c_read_window_size: u64 = 0;
         let mut sum_c_ref_window_size: i64 = 0;
@@ -1112,7 +1115,8 @@ mod stochastic_tests {
                 assert_eq!(mod_qual_value, Some(0f32));
 
                 count_c_read_window_size += 1;
-                sum_c_read_window_size += win_end_value.unwrap() - win_start_value.unwrap();
+                sum_c_read_window_size +=
+                    u64::from(win_end_value.unwrap() - win_start_value.unwrap());
 
                 let ref_st = ref_win_start_value.unwrap();
                 let ref_en = ref_win_end_value.unwrap();

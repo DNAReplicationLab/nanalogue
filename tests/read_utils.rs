@@ -107,7 +107,7 @@ mod tests {
                 let curr_read = CurrRead::default()
                     .set_read_state_and_id(&r)?
                     .set_seq_len(&r)?;
-                let len = curr_read.seq_len().unwrap();
+                let len = u64::from(curr_read.seq_len().unwrap());
                 sum = sum.checked_add(len).unwrap();
                 deviation_sq = deviation_sq.checked_add(len.abs_diff(150).pow(2)).unwrap();
             }
@@ -204,13 +204,13 @@ mod tests {
                     }
                 }?;
 
-                let seq_len: u64 = curr_read.seq_len().unwrap();
+                let seq_len = u64::from(curr_read.seq_len().unwrap());
                 sum_seq_len = sum_seq_len.checked_add(seq_len).unwrap();
                 deviation_sequence_len_sq = deviation_sequence_len_sq
                     .checked_add(seq_len.abs_diff(162).pow(2))
                     .unwrap();
 
-                let align_len: u64 = curr_read.align_len().unwrap();
+                let align_len = u64::from(curr_read.align_len().unwrap());
                 sum_align_len = sum_align_len.checked_add(align_len).unwrap();
                 deviation_align_len_sq = deviation_align_len_sq
                     .checked_add(align_len.abs_diff(150).pow(2))
@@ -481,7 +481,7 @@ mod tests {
                 let seq_subset = curr_read.seq_on_ref_coords(&r, &region)?;
 
                 // Check for sequence length match
-                assert_eq!(curr_read.seq_len()? - 1, u64::try_from(seq_subset.len())?);
+                assert_eq!(curr_read.seq_len()? - 1, u32::try_from(seq_subset.len())?);
 
                 // Create a region with no overlap at all and check we get no data
                 let region_no_overlap =
@@ -800,7 +800,7 @@ mod tests {
                 .set_contig_id_and_start(&r)
                 .unwrap();
             // Try to convert to StrandedBed3 without align_len set
-            let _: StrandedBed3<i32, u64> = StrandedBed3::try_from(&curr_read).unwrap();
+            let _: StrandedBed3<i32, u32> = StrandedBed3::try_from(&curr_read).unwrap();
         }
     }
 
@@ -818,7 +818,7 @@ mod tests {
                 .set_align_len(&r)
                 .unwrap();
             // Try to convert to StrandedBed3 without contig_id_and_start set
-            let _: StrandedBed3<i32, u64> = StrandedBed3::try_from(&curr_read).unwrap();
+            let _: StrandedBed3<i32, u32> = StrandedBed3::try_from(&curr_read).unwrap();
         }
     }
 

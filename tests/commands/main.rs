@@ -180,7 +180,7 @@ mod bam_input_option_retrieval_from_commands {
     fn create_test_input_bam() -> InputBam {
         InputBamBuilder::default()
             .bam_path(PathOrURLOrStdin::Path("/test/path/to/test_bam.bam".into()))
-            .min_seq_len(12345u64)
+            .min_seq_len(12345u32)
             .build()
             .expect("Failed to build test InputBam")
     }

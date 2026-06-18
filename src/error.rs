@@ -109,9 +109,9 @@ pub enum Error {
         /// The original region string provided by the user
         region: String,
         /// The position that exceeds the contig boundary
-        pos: u64,
+        pos: u32,
         /// The actual length of the contig
-        contig_length: u64,
+        contig_length: u32,
     },
     /// Sorting validation failure
     InvalidSorting(String),

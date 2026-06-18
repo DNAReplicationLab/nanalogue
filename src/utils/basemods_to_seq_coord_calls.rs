@@ -205,7 +205,7 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
     /// - The input `BaseMods` is empty (no sequence length can be determined)
     /// - Different `BaseMod` entries have inconsistent sequence lengths
     /// - Any strand character is not '+' or '-'
-    /// - Any annotation is not per-base (e.g., multi-base ranges are not supported)
+    /// - Any annotation position is out of range for the declared `seq_len`
     /// - Position coordinates are out of bounds
     ///
     /// # Example
@@ -649,19 +649,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "NotImplemented")]
-    fn seq_coord_calls_start_beyond_seq_len() {
-        // Test with start coordinate beyond seq_len
-        let base_mods = BaseMods {
+    fn seq_coord_calls_seq_len_boundary() -> Result<(), Error> {
+        // `SeqCoordCalls::try_from` treats annotation positions as valid only when
+        // they satisfy the half-open interval check `0 <= pos < seq_len`.
+        // So for `seq_len == 5`, `pos == 4` must be accepted.
+        let valid = BaseMods {
             base_mods: vec![BaseMod {
                 modified_base: b'T',
                 strand: '+',
                 modification_type: 'T',
                 ranges: Ranges {
                     annotations: vec![FiberAnnotation {
-                        pos: 10, // Position beyond seq_len (5)
+                        pos: 4,
                         qual: 100,
-                        ref_pos: Some(10),
+                        ref_pos: Some(4),
                     }],
                     seq_len: 5,
                     reverse: false,
@@ -669,6 +670,32 @@ mod tests {
                 record_is_reverse: false,
             }],
         };
-        let _: SeqCoordCalls = SeqCoordCalls::try_from(&base_mods).unwrap();
+        let seq_coord_calls = SeqCoordCalls::try_from(&valid)?;
+        assert_eq!(seq_coord_calls.mod_calls(4), Some(&[100u8][..]));
+        assert_eq!(seq_coord_calls.mod_calls(5), None);
+
+        // But `pos == seq_len` is just outside the valid half-open range and must
+        // be rejected as an out-of-range annotation coordinate.
+        let invalid = BaseMods {
+            base_mods: vec![BaseMod {
+                modified_base: b'T',
+                strand: '+',
+                modification_type: 'T',
+                ranges: Ranges {
+                    annotations: vec![FiberAnnotation {
+                        pos: 5,
+                        qual: 100,
+                        ref_pos: Some(5),
+                    }],
+                    seq_len: 5,
+                    reverse: false,
+                },
+                record_is_reverse: false,
+            }],
+        };
+        let err = SeqCoordCalls::try_from(&invalid).unwrap_err();
+        assert!(matches!(err, Error::NotImplemented(_)));
+
+        Ok(())
     }
 }

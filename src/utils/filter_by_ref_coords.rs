@@ -7,10 +7,10 @@ use std::{cmp::Ordering, fmt};
 
 /// Categorizes the types of windows into two possibilities.
 ///
-/// `OrdPair<u64>`'s checked `Deserialize` enforces `start <= end` for the
+/// `OrdPair<u32>`'s checked `Deserialize` enforces `start <= end` for the
 /// inner pair on every serde input source.
 #[derive(Clone, Copy, Default, Debug, Serialize, Deserialize)]
-pub struct WindowState(Option<OrdPair<u64>>);
+pub struct WindowState(Option<OrdPair<u32>>);
 
 impl fmt::Display for WindowState {
     /// converts to string for display i.e. "low, high" or "undefined"
@@ -30,7 +30,7 @@ impl WindowState {
     /// If open windows are encountered i.e. `start` or `end` are `None` but not
     /// both (both are `None` is fine), or if `start` or `end` are negative or
     /// ordered incorrectly, which will lead to an `OrdPair` error i.e. `start > end`
-    pub fn new(start: Option<i64>, end: Option<i64>) -> Result<Self, Error> {
+    pub fn new(start: Option<u32>, end: Option<u32>) -> Result<Self, Error> {
         Ok(match (start, end) {
             (None, None) => WindowState(None),
             (Some(v), None) | (None, Some(v)) => {
@@ -38,16 +38,13 @@ impl WindowState {
                     "window was (None, {v}) or ({v}, None) - we cannot deal with these"
                 )));
             }
-            (Some(v), Some(w)) => WindowState(Some(OrdPair::<u64>::new(
-                u64::try_from(v)?,
-                u64::try_from(w)?,
-            )?)),
+            (Some(v), Some(w)) => WindowState(Some(OrdPair::<u32>::new(v, w)?)),
         })
     }
 
     /// Intersects with a genomic region
     #[must_use]
-    pub fn intersects(&self, interval: OrdPair<u64>) -> bool {
+    pub fn intersects(&self, interval: OrdPair<u32>) -> bool {
         match *self {
             WindowState(None) => false,
             WindowState(Some(v)) => {
@@ -94,7 +91,7 @@ pub trait FilterModsByRefCoords {
     ///
     /// # Errors
     /// Up to the user to set errors accordingly
-    fn filter_mods_by_ref_pos(&mut self, _: i64, _: i64) -> Result<(), Error>;
+    fn filter_mods_by_ref_pos(&mut self, _: u32, _: u32) -> Result<(), Error>;
 }
 
 /// Implements filter by reference coordinates for the Ranges
@@ -104,14 +101,15 @@ pub trait FilterModsByRefCoords {
 impl FilterModsByRefCoords for Ranges {
     /// filters by reference position i.e. all pos such that start <= pos < end
     /// are retained. does not use contig in filtering.
-    fn filter_mods_by_ref_pos(&mut self, start: i64, end: i64) -> Result<(), Error> {
-        let genomic_interval = format!("{start}-{end}");
-        let interval = OrdPair::<u64>::from_interval(&genomic_interval)?;
+    fn filter_mods_by_ref_pos(&mut self, start: u32, end: u32) -> Result<(), Error> {
+        let interval = OrdPair::new(start, end)?;
 
         let (start_index, stop_index_plus_one) = {
             let mut coord_limits: Option<OrdPair<usize>> = None;
             let mut previous_window = WindowState(None);
             for (idx, ann) in self.annotations.iter().enumerate() {
+                // as ref annotations are points, treat as [ref_pos, ref_pos + 1) for interval
+                // intersection
                 let window_state = WindowState::new(
                     ann.ref_pos,
                     match ann.ref_pos {
@@ -257,6 +255,29 @@ mod tests {
     }
 
     #[test]
+    fn point_annotation_is_included_at_its_own_position() {
+        // A point at ref_pos 20 occupies [20, 21). Filtering [20, 21) must keep it;
+        // filtering [21, 22) must not.
+        let base = Ranges {
+            annotations: vec![FiberAnnotation {
+                pos: 5,
+                qual: 100,
+                ref_pos: Some(20),
+            }],
+            seq_len: 50,
+            reverse: false,
+        };
+
+        let mut included = base.clone();
+        included.filter_mods_by_ref_pos(20, 21).unwrap();
+        assert_eq!(included.annotations.len(), 1);
+
+        let mut excluded = base.clone();
+        excluded.filter_mods_by_ref_pos(21, 22).unwrap();
+        assert!(excluded.annotations.is_empty());
+    }
+
+    #[test]
     fn ranges_filter_mods_by_ref_pos_with_none_values() {
         // Create a Ranges object with some None reference positions.
         let mut ranges = Ranges {
@@ -352,10 +373,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "OrdPairConversion")]
     fn ranges_filter_mods_by_ref_pos_with_start_equals_end() {
         // Test the edge case where start == end.
-        // As this is a 0-bp interval, we should just get an error.
+        // As this is a 0-bp interval, there must be no data remaining after filtering.
         let mut ranges = Ranges {
             annotations: vec![
                 FiberAnnotation {
@@ -383,8 +403,11 @@ mod tests {
             reverse: false,
         };
 
-        // Filter with start == end (e.g., [25, 25))
-        ranges.filter_mods_by_ref_pos(25, 25).unwrap();
+        // Filter with start == end (e.g., [20, 20))
+        ranges.filter_mods_by_ref_pos(20, 20).unwrap();
+
+        // Verify that no data remains
+        assert!(ranges.annotations.is_empty());
     }
 
     #[test]
@@ -575,27 +598,6 @@ mod window_state_tests {
         let _: WindowState = WindowState::new(Some(30), Some(20)).unwrap();
     }
 
-    /// Tests `WindowState::new` fails with negative start value
-    #[test]
-    #[should_panic(expected = "TryFromInt")]
-    fn window_state_new_negative_start_panics() {
-        let _: WindowState = WindowState::new(Some(-10), Some(20)).unwrap();
-    }
-
-    /// Tests `WindowState::new` fails with negative end value
-    #[test]
-    #[should_panic(expected = "TryFromInt")]
-    fn window_state_new_negative_end_panics() {
-        let _: WindowState = WindowState::new(Some(10), Some(-20)).unwrap();
-    }
-
-    /// Tests `WindowState::new` fails with both negative values
-    #[test]
-    #[should_panic(expected = "TryFromInt")]
-    fn window_state_new_both_negative_panics() {
-        let _: WindowState = WindowState::new(Some(-10), Some(-5)).unwrap();
-    }
-
     /// Tests `WindowState::intersects` returns false for undefined window
     #[test]
     fn window_state_intersects_none_returns_false() {
@@ -663,20 +665,22 @@ mod window_state_tests {
         assert!(!ws.intersects(interval));
     }
 
-    /// Tests `WindowState::intersects` with 0-bp window not overlapping
+    /// Tests `WindowState::intersects` with 0-bp window not overlapping.
+    ///
+    /// We treat `start == end` windows as empty (half-open range semantics),
+    /// so they do not intersect any interval.
     #[test]
     fn window_state_intersects_zero_bp_window_no_overlap() {
-        // 0-bp window at position 15 should be treated as 1-bp window [15, 16)
         let ws = WindowState::new(Some(15), Some(15)).unwrap();
         let interval = OrdPair::new(20, 30).unwrap();
         assert!(!ws.intersects(interval));
     }
 
-    /// Tests `WindowState::intersects` does not panic at `u64::MAX`
+    /// Tests `WindowState::intersects` does not panic at `u32::MAX`
     #[test]
-    fn window_state_intersects_u64_max_zero_bp_window() {
-        let ws = WindowState(Some(OrdPair::new(u64::MAX, u64::MAX).unwrap()));
-        let interval = OrdPair::new(u64::MAX - 1, u64::MAX).unwrap();
+    fn window_state_intersects_u32_max_zero_bp_window() {
+        let ws = WindowState(Some(OrdPair::new(u32::MAX, u32::MAX).unwrap()));
+        let interval = OrdPair::new(u32::MAX - 1, u32::MAX).unwrap();
         assert!(!ws.intersects(interval));
     }
 
@@ -799,7 +803,7 @@ mod window_state_tests {
     }
 
     /// `WindowState` deserialization must enforce the `low <= high` invariant
-    /// (delegated to the validated `OrdPair<u64>` deserializer).
+    /// (delegated to the validated `OrdPair<u32>` deserializer).
     #[test]
     fn window_state_deserialize_rejects_wrong_order() {
         let bad: Result<WindowState, _> = serde_json::from_str(r#"{"low":200,"high":100}"#);

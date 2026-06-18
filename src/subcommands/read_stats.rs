@@ -130,16 +130,16 @@ where
 
         // get length of sequence.
         if let Ok(v) = curr_read.seq_len() {
-            seq_len_total += v;
-            seq_len_heap.push(v);
+            seq_len_total += u64::from(v);
+            seq_len_heap.push(u64::from(v));
         }
 
         // get length of alignment
         match curr_read.set_align_len(&record) {
             Ok(cr) => {
                 let v = cr.align_len()?;
-                align_len_total += v;
-                align_len_heap.push(v);
+                align_len_total += u64::from(v);
+                align_len_heap.push(u64::from(v));
             }
             Err(Error::Unmapped(_)) => {}
             Err(e) => return Err(e),

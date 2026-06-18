@@ -25,11 +25,11 @@ use rust_htslib::bam::record::Aux;
 )]
 pub struct FiberAnnotation {
     /// Position on the query sequence (0-based, inclusive)
-    pub pos: i64,
+    pub pos: u32,
+    /// Position on the reference (0-based, inclusive), if mapped
+    pub ref_pos: Option<u32>,
     /// Quality / probability value (0–255)
     pub qual: u8,
-    /// Position on the reference (0-based, inclusive), if mapped
-    pub ref_pos: Option<i64>,
 }
 
 /// A collection of [`FiberAnnotation`] items along a single read.
@@ -42,7 +42,7 @@ pub struct FiberAnnotations {
     /// Sorted annotations along the read
     pub annotations: Vec<FiberAnnotation>,
     /// Length of the query sequence
-    pub seq_len: i64,
+    pub seq_len: u32,
     /// Whether the read is on the reverse strand
     pub reverse: bool,
 }
@@ -55,7 +55,7 @@ impl FiberAnnotations {
     #[must_use]
     pub fn from_annotations(
         mut annotations: Vec<FiberAnnotation>,
-        seq_len: i64,
+        seq_len: u32,
         reverse: bool,
     ) -> Self {
         annotations.sort_by_key(|a| a.pos);
@@ -67,16 +67,19 @@ impl FiberAnnotations {
     }
 
     /// Query positions.
-    pub fn pos(&self) -> impl Iterator<Item = i64> + '_ {
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
+    pub fn pos(&self) -> impl Iterator<Item = u32> + '_ {
         self.annotations.iter().map(|a| a.pos)
     }
 
     /// Reference positions.
-    pub fn ref_pos(&self) -> impl Iterator<Item = Option<i64>> + '_ {
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
+    pub fn ref_pos(&self) -> impl Iterator<Item = Option<u32>> + '_ {
         self.annotations.iter().map(|a| a.ref_pos)
     }
 
     /// Quality values.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
     pub fn qual(&self) -> impl Iterator<Item = u8> + '_ {
         self.annotations.iter().map(|a| a.qual)
     }

@@ -11,18 +11,18 @@ use std::str::FromStr;
 /// Datatype holding a genomic region
 ///
 /// `Deserialize` is routed through [`GenomicRegion::try_from`] so the
-/// invariants enforced by the public `TryFrom<(String, (u64, u64))>` and
+/// invariants enforced by the public `TryFrom<(String, (u32, u32))>` and
 /// `FromStr` constructors (non-empty contig, `start < end`) are also enforced
 /// on every serde input source.
 #[derive(Debug, Default, Clone, PartialOrd, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 #[serde(try_from = "GenomicRegionShadow")]
-pub struct GenomicRegion((String, Option<OrdPair<u64>>));
+pub struct GenomicRegion((String, Option<OrdPair<u32>>));
 
 /// Shadow type used solely by serde to validate `GenomicRegion`
 /// deserialization, routing through the checked constructor.
 #[derive(Deserialize)]
-struct GenomicRegionShadow((String, Option<OrdPair<u64>>));
+struct GenomicRegionShadow((String, Option<OrdPair<u32>>));
 
 impl TryFrom<GenomicRegionShadow> for GenomicRegion {
     type Error = Error;
@@ -90,7 +90,7 @@ impl FromStr for GenomicRegion {
                 } else {
                     Ok(GenomicRegion((
                         contig,
-                        Some(OrdPair::<u64>::from_interval(interval_str)?),
+                        Some(OrdPair::<u32>::from_interval(interval_str)?),
                     )))
                 }
             }
@@ -108,7 +108,7 @@ impl GenomicRegion {
     /// # Panics
     /// No panic expected; we've used an `expect` while getting `contig_length`, but we
     /// have already checked if the contig exists in the previous line.
-    pub fn try_to_bed3(self, header: &bam::HeaderView) -> Result<Bed3<i32, u64>, Error> {
+    pub fn try_to_bed3(self, header: &bam::HeaderView) -> Result<Bed3<i32, u32>, Error> {
         let region_bed = {
             let GenomicRegion((contig_name, coords)) = self;
             let numeric_contig: i32 = header
@@ -117,9 +117,17 @@ impl GenomicRegion {
                     "does {contig_name} exist? failure in `GenomicRegion` -> `Bed3`"
                 )))?
                 .try_into()?;
-            let contig_length = header
-                .target_len(u32::try_from(numeric_contig)?)
-                .expect("no error as we've checked if contig exists");
+            let contig_length: u32 = {
+                let contig_len: u64 = header
+                    .target_len(u32::try_from(numeric_contig)?)
+                    .expect("no error as we've checked if contig exists");
+                if contig_len > u64::from(u32::MAX) {
+                    return Err(Error::InvalidSeqLength(String::from(
+                        "cannot deal with contigs with length > u32::MAX",
+                    )));
+                }
+                contig_len.try_into().expect("no error")
+            };
 
             let (start, end) = if let Some(c) = coords {
                 let start = c.low();
@@ -127,7 +135,7 @@ impl GenomicRegion {
 
                 // Check if start position exceeds contig length
                 if start >= contig_length {
-                    let region_str = if end == u64::MAX {
+                    let region_str = if end == u32::MAX {
                         format!("{contig_name}:{start}-")
                     } else {
                         format!("{contig_name}:{start}-{end}")
@@ -141,7 +149,7 @@ impl GenomicRegion {
                 }
 
                 // Also check end coordinate for closed intervals
-                if end != u64::MAX && end > contig_length {
+                if end != u32::MAX && end > contig_length {
                     let region_str = format!("{contig_name}:{start}-{end}");
                     return Err(Error::InvalidRegion {
                         region: region_str,
@@ -150,12 +158,12 @@ impl GenomicRegion {
                     });
                 }
 
-                (start, if end == u64::MAX { contig_length } else { end })
+                (start, if end == u32::MAX { contig_length } else { end })
             } else {
-                (0u64, contig_length)
+                (0u32, contig_length)
             };
 
-            Bed3::<i32, u64>::new(numeric_contig, start, end)
+            Bed3::<i32, u32>::new(numeric_contig, start, end)
         };
         Ok(region_bed)
     }
@@ -180,18 +188,16 @@ impl GenomicRegion {
     /// use std::str::FromStr;
     ///
     /// assert_eq!(GenomicRegion::from_str("chr1").unwrap().start_end(), None);
-    /// assert_eq!(GenomicRegion::from_str("chr10_4:1000-").unwrap().start_end(), Some((1000, u64::MAX)));
+    /// assert_eq!(GenomicRegion::from_str("chr10_4:1000-").unwrap().start_end(), Some((1000, u32::MAX)));
     /// assert_eq!(GenomicRegion::from_str("chr10_4:a:1000-2000").unwrap().start_end(), Some((1000, 2000)));
     /// ```
     #[must_use]
-    pub fn start_end(&self) -> Option<(u64, u64)> {
+    pub fn start_end(&self) -> Option<(u32, u32)> {
         self.0.1.as_ref().map(|v| (v.low(), v.high()))
     }
 }
 
-impl<'a> TryFrom<&'a GenomicRegion> for bam::FetchDefinition<'a> {
-    type Error = Error;
-
+impl<'a> From<&'a GenomicRegion> for bam::FetchDefinition<'a> {
     /// Converts into `FetchDefinition`, a struct used by `rust_htslib` to fetch by region from
     /// indexed BAM files.
     /// ```
@@ -202,39 +208,39 @@ impl<'a> TryFrom<&'a GenomicRegion> for bam::FetchDefinition<'a> {
     /// // To do examples below, we need to convert every character to ASCII
     ///
     /// let region1 = GenomicRegion::from_str("chr1")?;
-    /// let region1_fd = FetchDefinition::try_from(&region1)?;
+    /// let region1_fd = FetchDefinition::from(&region1);
     /// assert_eq!(format!("{:?}", region1_fd), "String([99, 104, 114, 49])");
     ///
     /// let region2 = GenomicRegion::from_str("chr10_4:1000-")?;
-    /// let region2_fd = FetchDefinition::try_from(&region2)?;
+    /// let region2_fd = FetchDefinition::from(&region2);
     /// assert_eq!(format!("{:?}", region2_fd), "RegionString([99, 104, 114, 49, 48, 95, 52], \
     /// 1000, 9223372036854775807)");
     ///
     /// let region3 = GenomicRegion::from_str("chr10_4:a:1000-2000")?;
-    /// // change call from `try_from` to `try_into` for sake of variety.
-    /// let region3_fd :FetchDefinition = (&region3).try_into()?;
+    /// // change call from `from` to `into` for sake of variety.
+    /// let region3_fd :FetchDefinition = (&region3).into();
     /// assert_eq!(format!("{:?}", region3_fd), "RegionString([99, 104, 114, 49, 48, 95, 52, 58, 97], \
     /// 1000, 2000)");
     ///
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
-    fn try_from(value: &'a GenomicRegion) -> Result<bam::FetchDefinition<'a>, Error> {
+    fn from(value: &'a GenomicRegion) -> bam::FetchDefinition<'a> {
         match (value.contig(), value.start_end()) {
-            (c, None) => Ok(bam::FetchDefinition::from(c)),
+            (c, None) => bam::FetchDefinition::from(c),
             (c, Some((st, en))) => {
-                let st_i64 = i64::try_from(st)?;
-                let en_i64 = if en == u64::MAX {
+                let st_i64 = i64::from(st);
+                let en_i64 = if en == u32::MAX {
                     i64::MAX
                 } else {
-                    i64::try_from(en)?
+                    i64::from(en)
                 };
-                Ok(bam::FetchDefinition::from((c, st_i64, en_i64)))
+                bam::FetchDefinition::from((c, st_i64, en_i64))
             }
         }
     }
 }
 
-impl TryFrom<(String, (u64, u64))> for GenomicRegion {
+impl TryFrom<(String, (u32, u32))> for GenomicRegion {
     type Error = Error;
 
     /// Conversion from tuple if possible
@@ -253,7 +259,7 @@ impl TryFrom<(String, (u64, u64))> for GenomicRegion {
     ///     .unwrap_err();
     /// let val4 :Error = GenomicRegion::try_from((String::new(), (12000, 14000))).unwrap_err();
     /// ```
-    fn try_from(value: (String, (u64, u64))) -> Result<Self, Self::Error> {
+    fn try_from(value: (String, (u32, u32))) -> Result<Self, Self::Error> {
         if value.0.is_empty() {
             return Err(Error::InvalidContigAndStart(format!(
                 "{}:{}-{} is an invalid region; contig is empty",
@@ -268,7 +274,7 @@ impl TryFrom<(String, (u64, u64))> for GenomicRegion {
         }
         Ok(GenomicRegion((
             value.0,
-            Some(OrdPair::<u64>::try_from(value.1)?),
+            Some(OrdPair::<u32>::try_from(value.1)?),
         )))
     }
 }
@@ -320,7 +326,7 @@ mod tests {
         assert_eq!(region.0.0, "chr1");
         let coords = region.0.1.unwrap();
         assert_eq!(coords.low(), 1000);
-        assert_eq!(coords.high(), u64::MAX);
+        assert_eq!(coords.high(), u32::MAX);
     }
 
     /// Tests `GenomicRegion` parsing with empty contig
@@ -432,7 +438,7 @@ mod tests {
 
         // Verify the BED3 record
         assert_eq!(*bed3.chr(), 1); // chr2 should be the second chromosome (index 1)
-        assert_eq!(bed3.start(), u64::MIN);
+        assert_eq!(bed3.start(), u32::MIN);
         assert_eq!(bed3.end(), 242_193_529);
     }
 
@@ -446,7 +452,7 @@ mod tests {
         let region = GenomicRegion::from_str("chr1:300000000-400000000").expect("should parse");
 
         // This should panic with InvalidRegion
-        let _: Bed3<i32, u64> = region.try_to_bed3(&header).unwrap();
+        let _: Bed3<i32, u32> = region.try_to_bed3(&header).unwrap();
     }
 
     /// Tests error case when contig doesn't exist in the header
@@ -459,7 +465,7 @@ mod tests {
         let region = GenomicRegion::from_str("nonexistent_contig:1000-2000").expect("should parse");
 
         // This should panic with InvalidAlignCoords error
-        let _: Bed3<i32, u64> = region.try_to_bed3(&header).unwrap();
+        let _: Bed3<i32, u32> = region.try_to_bed3(&header).unwrap();
     }
 
     /// Tests conversion of an open-ended region to BED3 format
@@ -511,7 +517,7 @@ mod tests {
     #[test]
     fn start_end_open_ended() {
         let region = GenomicRegion::from_str("chr10_4:1000-").expect("should parse");
-        assert_eq!(region.start_end(), Some((1000, u64::MAX)));
+        assert_eq!(region.start_end(), Some((1000, u32::MAX)));
     }
 
     /// Tests `start_end()` method with closed interval
@@ -525,7 +531,7 @@ mod tests {
     #[test]
     fn try_from_fetch_definition_simple_contig() {
         let region = GenomicRegion::from_str("chr1").expect("should parse");
-        let fetch_def = bam::FetchDefinition::try_from(&region).expect("should convert");
+        let fetch_def = bam::FetchDefinition::from(&region);
         // chr1 as ASCII: c=99, h=104, r=114, 1=49
         assert_eq!(format!("{fetch_def:?}"), "String([99, 104, 114, 49])");
     }
@@ -534,7 +540,7 @@ mod tests {
     #[test]
     fn try_from_fetch_definition_open_ended() {
         let region = GenomicRegion::from_str("chr10_4:1000-").expect("should parse");
-        let fetch_def = bam::FetchDefinition::try_from(&region).expect("should convert");
+        let fetch_def = bam::FetchDefinition::from(&region);
         // chr10_4 as ASCII: c=99, h=104, r=114, 1=49, 0=48, _=95, 4=52
         // i64::MAX = 9223372036854775807
         assert_eq!(
@@ -548,7 +554,7 @@ mod tests {
     fn try_from_fetch_definition_closed_interval() {
         let region = GenomicRegion::from_str("chr10_4:a:1000-2000").expect("should parse");
         // Test both try_from and try_into for variety
-        let fetch_def: bam::FetchDefinition = (&region).try_into().expect("should convert");
+        let fetch_def: bam::FetchDefinition = (&region).into();
         // chr10_4:a as ASCII: c=99, h=104, r=114, 1=49, 0=48, _=95, 4=52, :=58, a=97
         assert_eq!(
             format!("{fetch_def:?}"),
@@ -556,7 +562,7 @@ mod tests {
         );
     }
 
-    /// Tests `TryFrom<(String, (u64, u64))>` with valid inputs
+    /// Tests `TryFrom<(String, (u32, u32))>` with valid inputs
     #[expect(
         clippy::shadow_unrelated,
         reason = "repetition is fine; each block is clearly separated"
@@ -592,21 +598,21 @@ mod tests {
         assert_eq!(region.start_end(), Some((1_000_000, 2_000_000)));
 
         // Edge case: very large end value
-        let region: GenomicRegion = ("chr22".to_owned(), (0, u64::MAX - 1))
+        let region: GenomicRegion = ("chr22".to_owned(), (0, u32::MAX - 1))
             .try_into()
             .expect("should convert");
         assert_eq!(region.contig(), "chr22");
-        assert_eq!(region.start_end(), Some((0, u64::MAX - 1)));
+        assert_eq!(region.start_end(), Some((0, u32::MAX - 1)));
     }
 
-    /// Tests `TryFrom<(String, (u64, u64))>` with empty contig name
+    /// Tests `TryFrom<(String, (u32, u32))>` with empty contig name
     #[test]
     #[should_panic(expected = "InvalidContigAndStart")]
     fn try_from_tuple_empty_contig() {
         let _: GenomicRegion = GenomicRegion::try_from((String::new(), (12000, 14000))).unwrap();
     }
 
-    /// Tests `TryFrom<(String, (u64, u64))>` with wrong order coordinates
+    /// Tests `TryFrom<(String, (u32, u32))>` with wrong order coordinates
     #[test]
     #[should_panic(expected = "WrongOrder")]
     fn try_from_tuple_wrong_order() {
@@ -614,7 +620,7 @@ mod tests {
             GenomicRegion::try_from(("sample_contig_2".to_owned(), (14000, 12000))).unwrap();
     }
 
-    /// Tests `TryFrom<(String, (u64, u64))>` with equal start and end coordinates
+    /// Tests `TryFrom<(String, (u32, u32))>` with equal start and end coordinates
     #[test]
     #[should_panic(expected = "InvalidContigAndStart")]
     fn try_from_tuple_equal_coordinates() {

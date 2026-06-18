@@ -109,7 +109,8 @@ pub use file_utils::{
     write_fasta,
 };
 pub use read_utils::{
-    AlignmentInfoBuilder, CurrRead, CurrReadBuilder, ModTableEntryBuilder, curr_reads_to_dataframe,
+    AlignmentInfo, AlignmentInfoBuilder, CurrRead, CurrReadBuilder, ModTableEntryBuilder,
+    curr_reads_to_dataframe,
 };
 pub use simulate_mod_bam::SimulationConfig;
 pub use subcommands::{
@@ -357,7 +358,7 @@ where
         let seq_len = forward_bases.len();
 
         let pos_map = {
-            let temp: Vec<Option<i64>> = {
+            let temp: Vec<Option<u32>> = {
                 if record.is_unmapped() {
                     std::iter::repeat_n(None, seq_len).collect()
                 } else {
@@ -366,12 +367,13 @@ where
                         .filter(|x| x[0].is_some())
                         .map(|x| match x[1] {
                             None => Ok(None),
-                            Some(v) if v >= 0 => Ok(Some(v)),
-                            Some(v) => Err(Error::InvalidModCoords(format!(
-                                "reference coordinate {v} from aligned_pairs_full is invalid"
-                            ))),
+                            Some(v) => u32::try_from(v).map(Some).map_err(|e| {
+                                Error::InvalidModCoords(format!(
+                                    "reference coordinate from aligned_pairs_full is invalid: {e}"
+                                ))
+                            }),
                         })
-                        .collect::<Result<Vec<Option<i64>>, Error>>()?
+                        .collect::<Result<Vec<Option<u32>>, Error>>()?
                 }
             };
             if temp.len() == seq_len {
@@ -505,7 +507,7 @@ where
                     .zip(modified_probabilities.iter())
                     .map(|k| {
                         Ok(FiberAnnotation {
-                            pos: i64::try_from(k.0)?,
+                            pos: u32::try_from(k.0)?,
                             qual: *k.1,
                             ref_pos: pos_map[k.0],
                         })
@@ -521,7 +523,7 @@ where
                         } else {
                             annotations
                         },
-                        seq_len: i64::try_from(seq_len)?,
+                        seq_len: u32::try_from(seq_len)?,
                         reverse: is_reverse,
                     },
                     record_is_reverse: is_reverse,
@@ -644,9 +646,9 @@ pub trait BamPreFilt {
     /// apply default filtration
     fn pre_filt(&self, _bam_opts: &InputBam) -> bool;
     /// filtration by length
-    fn filt_by_len(&self, _min_seq_len: u64, _include_zero_len: bool) -> bool;
+    fn filt_by_len(&self, _min_seq_len: u32, _include_zero_len: bool) -> bool;
     /// filtration by alignment length
-    fn filt_by_align_len(&self, _min_align_len: i64) -> bool;
+    fn filt_by_align_len(&self, _min_align_len: u32) -> bool;
     /// filtration by read id
     fn filt_by_read_id(&self, _read_id: &str) -> bool;
     /// filtration by read id set
@@ -658,7 +660,7 @@ pub trait BamPreFilt {
     /// filtration by mapq
     fn filt_by_mapq(&self, _min_mapq: u8, _exclude_mapq_unavail: bool) -> bool;
     /// filtration by region
-    fn filt_by_region(&self, _region: &Bed3<i32, u64>, _full_region: bool) -> bool;
+    fn filt_by_region(&self, _region: &Bed3<i32, u32>, _full_region: bool) -> bool;
 }
 
 /// Trait that performs filtration on `rust_htslib` Record
@@ -741,16 +743,21 @@ impl BamPreFilt for bam::Record {
             }
     }
     /// filtration by read length
-    fn filt_by_len(&self, min_seq_len: u64, include_zero_len: bool) -> bool {
-        // `seq_len` returns a usize which we convert to u64
-        match (min_seq_len, self.seq_len() as u64, include_zero_len) {
+    fn filt_by_len(&self, min_seq_len: u32, include_zero_len: bool) -> bool {
+        // `seq_len` returns a usize which we convert to u32.
+        // If we cannot convert, `seq_len` is too large and thus is larger than
+        // `min_seq_len`, which is a u32, so we let the read through.
+        let Ok(seq_len) = u32::try_from(self.seq_len()) else {
+            return true;
+        };
+        match (min_seq_len, seq_len, include_zero_len) {
             (_, 0, false) => false, // Exclude zero-length by default
             (_, 0, true) => true,   // Include zero-length when explicitly requested
             (l_min, v, _) => v >= l_min,
         }
     }
     /// filtration by alignment length
-    fn filt_by_align_len(&self, min_align_len: i64) -> bool {
+    fn filt_by_align_len(&self, min_align_len: u32) -> bool {
         !self.is_unmapped() && {
             let ref_end = self.reference_end();
             let ref_start = self.pos();
@@ -759,7 +766,7 @@ impl BamPreFilt for bam::Record {
                 && ref_end
                     .checked_sub(ref_start)
                     .expect("ref_end >= ref_start so overflow is impossible")
-                    >= min_align_len
+                    >= i64::from(min_align_len)
         }
     }
     /// filtration by read id
@@ -812,14 +819,14 @@ impl BamPreFilt for bam::Record {
         !(exclude_mapq_unavail && self.mapq() == 255) && self.mapq() >= min_mapq
     }
     /// filtration by region
-    fn filt_by_region(&self, region: &Bed3<i32, u64>, full_region: bool) -> bool {
+    fn filt_by_region(&self, region: &Bed3<i32, u32>, full_region: bool) -> bool {
         !self.is_unmapped() && (self.tid() == *region.chr()) && {
             let region_start = region.start();
             let region_end = region.end();
-            let Ok(start): Result<u64, _> = self.pos().try_into() else {
+            let Ok(start): Result<u32, _> = self.pos().try_into() else {
                 return false;
             };
-            let Ok(end): Result<u64, _> = self.reference_end().try_into() else {
+            let Ok(end): Result<u32, _> = self.reference_end().try_into() else {
                 return false;
             };
             if full_region {

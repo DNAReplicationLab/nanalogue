@@ -97,10 +97,10 @@ pub struct CurrRead<S: CurrReadState> {
     mapq: u8,
 
     /// Length of the stored sequence in a BAM file. This is usually the basecalled sequence.
-    seq_len: Option<u64>,
+    seq_len: Option<u32>,
 
     /// Length of the segment on the reference genome the molecule maps to.
-    align_len: Option<u64>,
+    align_len: Option<u32>,
 
     /// Stores modification information along with any applied thresholds.
     mods: (BaseMods, ThresholdState),
@@ -111,7 +111,7 @@ pub struct CurrRead<S: CurrReadState> {
     /// header. To convert this into an alphanumeric string, you have to
     /// process the header and store it in `contig_name` below.
     /// We have left it this way as it is easier to store and process integers.
-    contig_id_and_start: Option<(i32, u64)>,
+    contig_id_and_start: Option<(i32, u32)>,
 
     /// Contig name.
     contig_name: Option<String>,
@@ -295,7 +295,7 @@ impl CurrRead<NoData> {
         if is_seq_len_non_zero {
             curr_read_state = curr_read_state.set_seq_len(record)?;
         } else {
-            curr_read_state.seq_len = Some(0u64);
+            curr_read_state.seq_len = Some(0u32);
         }
         let CurrRead::<OnlyAlignData> {
             state,
@@ -388,7 +388,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                         self.read_id()
                     )));
                 }
-                l => Some(u64::try_from(l)?),
+                l => Some(u32::try_from(l)?),
             },
         };
         Ok(self)
@@ -397,7 +397,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///
     /// # Errors
     /// Error if sequence length is not set
-    pub fn seq_len(&self) -> Result<u64, Error> {
+    pub fn seq_len(&self) -> Result<u32, Error> {
         self.seq_len.ok_or(Error::UnavailableData(format!(
             "seq len not available, read_id: {}",
             self.read_id()
@@ -436,8 +436,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                     // ```
                     let st = record.pos();
                     let en = record.reference_end();
-                    if en > st && st >= 0 {
-                        let align_len: u64 = en
+                    if en > st && st >= 0 && en <= u32::MAX.into() {
+                        let align_len: u32 = en
                             .checked_sub(st)
                             .ok_or(Error::InvalidState(String::from(
                                 "unreachable overflow in align len calculation",
@@ -446,7 +446,8 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                         Ok(Some(align_len))
                     } else {
                         Err(Error::InvalidAlignLength(format!(
-                            "in `set_align_len`, start: {st}, end: {en} invalid! i.e. en <= st or st < 0, read_id: {}",
+                            "in `set_align_len`, start: {st}, end: {en} invalid! \
+i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                             self.read_id()
                         )))
                     }
@@ -459,7 +460,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///
     /// # Errors
     /// if instance is unmapped or alignment length is not set
-    pub fn align_len(&self) -> Result<u64, Error> {
+    pub fn align_len(&self) -> Result<u32, Error> {
         if self.read_state().is_unmapped() {
             Err(Error::Unmapped(format!(
                 "request alignment data on unmapped, read_id: {}",
@@ -555,7 +556,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///
     /// # Errors
     /// If instance is unmapped or if data (contig id and start) are not set
-    pub fn contig_id_and_start(&self) -> Result<(i32, u64), Error> {
+    pub fn contig_id_and_start(&self) -> Result<(i32, u32), Error> {
         if self.read_state().is_unmapped() {
             Err(Error::Unmapped(format!(
                 "requesting alignment data on unmapped read, read_id: {}",
@@ -720,7 +721,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///         let seq_subset = curr_read.seq_on_ref_coords(&r, &region)?;
     ///
     ///         // Check for sequence length match
-    ///         assert_eq!(curr_read.seq_len()? - 1, u64::try_from(seq_subset.len())?);
+    ///         assert_eq!(curr_read.seq_len()? - 1, u32::try_from(seq_subset.len())?);
     ///
     ///         // Create a region with no overlap at all and check we get no data
     ///         let region = Bed3::new(contig_id, start + align_len, start + align_len + 2);
@@ -737,7 +738,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     pub fn seq_on_ref_coords(
         &self,
         record: &Record,
-        region: &Bed3<i32, u64>,
+        region: &Bed3<i32, u32>,
     ) -> Result<Vec<u8>, Error> {
         Ok(self
             .seq_and_qual_on_ref_coords(record, region)?
@@ -821,7 +822,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     pub fn seq_and_qual_on_ref_coords(
         &self,
         record: &Record,
-        region: &Bed3<i32, u64>,
+        region: &Bed3<i32, u32>,
     ) -> Result<Vec<Option<(bool, u8, u8)>>, Error> {
         let seq = record.seq().as_bytes();
         let qual = record.qual();
@@ -905,29 +906,17 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     pub fn seq_coords_from_ref_coords(
         &self,
         record: &Record,
-        region: &Bed3<i32, u64>,
+        region: &Bed3<i32, u32>,
     ) -> Result<Vec<Option<(bool, usize)>>, Error> {
         let interval = {
-            let intersected_region = region.intersect(&StrandedBed3::<i32, u64>::try_from(self)?);
+            let intersected_region = region.intersect(&StrandedBed3::<i32, u32>::try_from(self)?);
             let Some(v) = intersected_region else {
                 return Err(Error::UnavailableData(
                     "coord-retrieval: region does not intersect with read".to_owned(),
                 ));
             };
-            let start = i64::try_from(v.start()).map_err(|_err| {
-                Error::InvalidAlignCoords(format!(
-                    "coord-retrieval: region start {} exceeds i64 range while intersecting with read_id: {}",
-                    v.start(),
-                    self.read_id()
-                ))
-            })?;
-            let end = i64::try_from(v.end()).map_err(|_err| {
-                Error::InvalidAlignCoords(format!(
-                    "coord-retrieval: region end {} exceeds i64 range while intersecting with read_id: {}",
-                    v.end(),
-                    self.read_id()
-                ))
-            })?;
+            let start = i64::from(v.start());
+            let end = i64::from(v.end());
             (start < end)
                 .then_some(start..end)
                 .ok_or(Error::UnavailableData(
@@ -1082,7 +1071,7 @@ impl CurrRead<OnlyAlignDataComplete> {
         })?;
         let w = mod_options.trim_read_ends_mod();
         let interval = if let Some(bed3) = mod_options.region_filter().as_ref() {
-            let stranded_bed3 = StrandedBed3::<i32, u64>::try_from(&self)?;
+            let stranded_bed3 = StrandedBed3::<i32, u32>::try_from(&self)?;
             if let Some(v) = bed3.intersect(&stranded_bed3) {
                 if v.start() == stranded_bed3.start() && v.end() == stranded_bed3.end() {
                     None
@@ -1108,21 +1097,9 @@ impl CurrRead<OnlyAlignDataComplete> {
             )?;
             if let Some(v) = interval {
                 match v.start.cmp(&v.end) {
-                    Ordering::Less => read.filter_mods_by_ref_pos(
-                        i64::try_from(v.start).map_err(|_err| {
-                            Error::InvalidAlignCoords(format!(
-                                "region start {} exceeds i64 range while filtering read_id: {}",
-                                v.start, read_id
-                            ))
-                        })?,
-                        i64::try_from(v.end).map_err(|_err| {
-                            Error::InvalidAlignCoords(format!(
-                                "region end {} exceeds i64 range while filtering read_id: {}",
-                                v.end, read_id
-                            ))
-                        })?,
-                    )?,
-                    Ordering::Equal => read.filter_mods_by_ref_pos(i64::MAX - 1, i64::MAX)?,
+                    Ordering::Less | Ordering::Equal => {
+                        read.filter_mods_by_ref_pos(v.start, v.end)?;
+                    }
                     Ordering::Greater => {
                         return Err(Error::InvalidState(String::from(
                             "`bedrs` should not allow malformed intervals!",
@@ -1384,13 +1361,9 @@ where
 /// }
 /// # Ok::<(), Error>(())
 /// ```
-impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for StrandedBed3<i32, u64> {
+impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for StrandedBed3<i32, u32> {
     type Error = Error;
 
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "u64 variables won't overflow with genomic coords (<2^64-1)"
-    )]
     fn try_from(value: &CurrRead<S>) -> Result<Self, Self::Error> {
         match (
             value.read_state().strand(),
@@ -1406,12 +1379,18 @@ impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for Strand
                 "contig id and start not set while converting to bed3! read_id: {}",
                 value.read_id()
             ))),
-            ('+', Some(al), Some((cg, st))) => {
-                Ok(StrandedBed3::new(cg, st, st + al, Strand::Forward))
-            }
-            ('-', Some(al), Some((cg, st))) => {
-                Ok(StrandedBed3::new(cg, st, st + al, Strand::Reverse))
-            }
+            ('+', Some(al), Some((cg, st))) => match st.checked_add(al) {
+                Some(v) => Ok(StrandedBed3::new(cg, st, v, Strand::Forward)),
+                None => Err(Error::InvalidAlignCoords(String::from(
+                    "alignment coords exceed u32::MAX",
+                ))),
+            },
+            ('-', Some(al), Some((cg, st))) => match st.checked_add(al) {
+                Some(v) => Ok(StrandedBed3::new(cg, st, v, Strand::Reverse)),
+                None => Err(Error::InvalidAlignCoords(String::from(
+                    "alignment coords exceed u32::MAX",
+                ))),
+            },
             (_, _, _) => Err(Error::InvalidState(String::from(
                 "strand should be +/-/., so we should never reach this",
             ))),
@@ -1459,7 +1438,7 @@ impl TryFrom<Rc<Record>> for CurrRead<AlignAndModData> {
 impl FilterModsByRefCoords for CurrRead<AlignAndModData> {
     /// filters modification data by reference position i.e. all pos such that
     /// start <= pos < end are retained. does not use contig in filtering.
-    fn filter_mods_by_ref_pos(&mut self, start: i64, end: i64) -> Result<(), Error> {
+    fn filter_mods_by_ref_pos(&mut self, start: u32, end: u32) -> Result<(), Error> {
         for k in &mut self.mods.0.base_mods {
             k.ranges.filter_mods_by_ref_pos(start, end)?;
         }
@@ -1786,7 +1765,7 @@ pub struct CurrReadBuilder {
     /// Alignment quality / BAM MAPQ. A value of 255 indicates unavailable.
     mapq: u8,
     /// Sequence length
-    seq_len: u64,
+    seq_len: u32,
 }
 
 impl Default for CurrReadBuilder {
@@ -1811,9 +1790,9 @@ impl Default for CurrReadBuilder {
 #[builder(default, build_fn(error = "Error"), pattern = "owned")]
 pub struct AlignmentInfo {
     /// Start position on reference
-    start: u64,
+    start: u32,
     /// End position on reference
-    end: u64,
+    end: u32,
     /// Contig/chromosome name
     contig: String,
     /// Contig/chromosome ID
@@ -1838,7 +1817,7 @@ pub struct ModTableEntry {
     mod_code: ModChar,
     /// Modification data as [`start`, `ref_start`, `mod_qual`] tuples
     #[builder(setter(into))]
-    data: Vec<(u64, i64, u8)>,
+    data: Vec<(u32, i64, u8)>,
 }
 
 impl CurrReadBuilder {
@@ -1874,7 +1853,7 @@ impl CurrReadBuilder {
     }
     /// Sets sequence length
     #[must_use]
-    pub fn seq_len(mut self, value: u64) -> Self {
+    pub fn seq_len(mut self, value: u32) -> Self {
         self.seq_len = value;
         self
     }
@@ -1976,7 +1955,7 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
                     align_len,
                     contig_id_and_start,
                     contig_name,
-                    i64::try_from(alignment.start)?..i64::try_from(alignment.end)?,
+                    i64::from(alignment.start)..i64::from(alignment.end),
                 )
             }
             (true, None) => (None, None, None, (-1i64)..0),
@@ -2017,14 +1996,19 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
     let mut mod_table = Vec::new();
 
     for base_mod in &base_mods.base_mods {
-        let entries: Result<Vec<_>, Error> = base_mod
+        let entries: Vec<_> = base_mod
             .ranges
             .annotations
             .iter()
             .map(|k| {
-                let pos: u64 = k.pos.try_into()?;
-                let ref_pos = k.ref_pos.unwrap_or(-1);
-                Ok((pos, ref_pos, k.qual))
+                (
+                    k.pos,
+                    match k.ref_pos {
+                        None => -1,
+                        Some(v) => i64::from(v),
+                    },
+                    k.qual,
+                )
             })
             .collect();
 
@@ -2032,7 +2016,7 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
             base: AllowedAGCTN::try_from(base_mod.modified_base)?,
             is_strand_plus: base_mod.strand == '+',
             mod_code: ModChar::new(base_mod.modification_type),
-            data: entries?,
+            data: entries,
         });
     }
 
@@ -2044,15 +2028,9 @@ fn reconstruct_base_mods(
     mod_table: &[ModTableEntry],
     is_reverse: bool,
     ref_range: Range<i64>,
-    seq_len: u64,
+    seq_len: u32,
 ) -> Result<BaseMods, Error> {
     let mut base_mods = Vec::new();
-
-    // Validate seq_len fits in i64 before entering any loop, to prevent
-    // downstream arithmetic on coordinates that silently exceed i64::MAX.
-    let seq_len_i64: i64 = seq_len
-        .try_into()
-        .map_err(|_err| Error::InvalidSeqLength(String::from("seq_len exceeds i64::MAX")))?;
 
     for entry in mod_table {
         let annotations = {
@@ -2073,16 +2051,17 @@ ascending needed even if reversed read)!",
 
                 let mapped_ref_pos = match (ref_pos, ref_range.contains(&ref_pos)) {
                     (-1, _) => None,
-                    (v, true) if v > -1 => Some(v),
+                    (v, true) if v > -1 && v <= u32::MAX.into() => {
+                        Some(u32::try_from(v).expect("no error as we have checked limits"))
+                    }
                     (v, _) => {
                         return Err(Error::InvalidAlignCoords(format!(
-                            "coordinate {v} invalid in mod table (exceeds alignment coords or is < -1)"
+                            "coordinate {v} invalid in mod table (exceeds alignment coords or is < -1 or > u32::MAX)"
                         )));
                     }
                 };
-                let pos_i64 = i64::try_from(pos)?;
                 annotations.push(FiberAnnotation {
-                    pos: pos_i64,
+                    pos,
                     qual,
                     ref_pos: mapped_ref_pos,
                 });
@@ -2090,7 +2069,7 @@ ascending needed even if reversed read)!",
             annotations
         };
 
-        let ranges = Ranges::from_annotations(annotations, seq_len_i64, is_reverse);
+        let ranges = Ranges::from_annotations(annotations, seq_len, is_reverse);
 
         let strand = if entry.is_strand_plus { '+' } else { '-' };
 
@@ -2169,7 +2148,7 @@ ascending needed even if reversed read)!",
 /// assert_eq!(read_id_col.get(0), Some("test_read"));
 /// assert_eq!(read_id_col.get(1), Some("test_read"));
 ///
-/// let seq_len_col = df.column("seq_len")?.u64()?;
+/// let seq_len_col = df.column("seq_len")?.u32()?;
 /// assert_eq!(seq_len_col.get(0), Some(40));
 /// assert_eq!(seq_len_col.get(1), Some(40));
 ///
@@ -2182,11 +2161,11 @@ ascending needed even if reversed read)!",
 /// assert_eq!(alignment_type_col.get(1), Some("primary_forward"));
 ///
 /// // Check alignment fields (repeated across both rows)
-/// let align_start_col = df.column("align_start")?.u64()?;
+/// let align_start_col = df.column("align_start")?.u32()?;
 /// assert_eq!(align_start_col.get(0), Some(10));
 /// assert_eq!(align_start_col.get(1), Some(10));
 ///
-/// let align_end_col = df.column("align_end")?.u64()?;
+/// let align_end_col = df.column("align_end")?.u32()?;
 /// assert_eq!(align_end_col.get(0), Some(60));
 /// assert_eq!(align_end_col.get(1), Some(60));
 ///
@@ -2212,7 +2191,7 @@ ascending needed even if reversed read)!",
 /// assert_eq!(mod_code_col.get(1), Some("m"));
 ///
 /// // Check modification data points (unique per row)
-/// let position_col = df.column("position")?.u64()?;
+/// let position_col = df.column("position")?.u32()?;
 /// assert_eq!(position_col.get(0), Some(0)); // First mod position
 /// assert_eq!(position_col.get(1), Some(2)); // Second mod position
 ///
@@ -2233,13 +2212,13 @@ ascending needed even if reversed read)!",
 pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<DataFrame, Error> {
     // Vectors to hold column data
     let mut read_ids: Vec<String> = Vec::new();
-    let mut seq_lens: Vec<Option<u64>> = Vec::new();
+    let mut seq_lens: Vec<Option<u32>> = Vec::new();
     let mut mapqs: Vec<u32> = Vec::new();
     let mut alignment_types: Vec<String> = Vec::new();
 
     // Alignment info columns
-    let mut align_starts: Vec<Option<u64>> = Vec::new();
-    let mut align_ends: Vec<Option<u64>> = Vec::new();
+    let mut align_starts: Vec<Option<u32>> = Vec::new();
+    let mut align_ends: Vec<Option<u32>> = Vec::new();
     let mut contigs: Vec<Option<String>> = Vec::new();
     let mut contig_ids: Vec<Option<i32>> = Vec::new();
 
@@ -2249,7 +2228,7 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
     let mut mod_codes: Vec<String> = Vec::new();
 
     // Modification data point columns (the unique part)
-    let mut positions: Vec<u64> = Vec::new();
+    let mut positions: Vec<u32> = Vec::new();
     let mut ref_positions: Vec<i64> = Vec::new();
     let mut mod_qualities: Vec<u32> = Vec::new();
 
@@ -2445,7 +2424,7 @@ mod test_error_handling {
         let record = reader.records().next().unwrap()?;
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
         let (contig_id, start) = curr_read.contig_id_and_start()?;
-        let region = Bed3::new(contig_id, start, start + 8);
+        let region = Bed3::<i32, u32>::new(contig_id, start, start + 8);
 
         let seq_subset = curr_read.seq_and_qual_on_ref_coords(&record, &region)?;
         assert_eq!(
@@ -2465,7 +2444,7 @@ mod test_error_handling {
     }
 
     #[test]
-    fn seq_coords_from_ref_coords_overflowing_region_errors() {
+    fn seq_coords_from_ref_coords_overflowing_read_errors() {
         let curr_read: CurrRead<OnlyAlignDataComplete> = CurrRead {
             state: ReadState::PrimaryFwd,
             read_id: "overflow_read".to_owned(),
@@ -2473,13 +2452,13 @@ mod test_error_handling {
             seq_len: Some(1),
             align_len: Some(1),
             mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
-            contig_id_and_start: Some((0, i64::MAX as u64)),
+            contig_id_and_start: Some((0, u32::MAX)),
             contig_name: Some("chr1".to_owned()),
             mod_base_qual_thres: 0,
             marker: PhantomData,
         };
         let record = Record::new();
-        let region = Bed3::new(0, i64::MAX as u64, i64::MAX as u64 + 1);
+        let region = Bed3::<i32, u32>::new(0, u32::MAX - 1, u32::MAX);
 
         let err = curr_read
             .seq_coords_from_ref_coords(&record, &region)
@@ -2496,7 +2475,7 @@ mod test_error_handling {
             seq_len: Some(1),
             align_len: Some(1),
             mods: (BaseMods { base_mods: vec![] }, ThresholdState::default()),
-            contig_id_and_start: Some((0, u64::MAX)),
+            contig_id_and_start: Some((0, u32::MAX)),
             contig_name: Some("chr1".to_owned()),
             mod_base_qual_thres: 0,
             marker: PhantomData,

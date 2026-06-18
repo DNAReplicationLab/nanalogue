@@ -17,7 +17,7 @@ struct MockModOptions {
     mod_prob_filter: ThresholdState,
     trim_read_ends_mod: usize,
     base_qual_filter_mod: u8,
-    region_filter: Option<Bed3<i32, u64>>,
+    region_filter: Option<Bed3<i32, u32>>,
 }
 
 impl MockModOptions {
@@ -57,7 +57,7 @@ impl MockModOptions {
         self
     }
 
-    fn with_region_filter(mut self, region: Bed3<i32, u64>) -> Self {
+    fn with_region_filter(mut self, region: Bed3<i32, u32>) -> Self {
         self.region_filter = Some(region);
         self
     }
@@ -86,7 +86,7 @@ impl InputModOptions for MockModOptions {
 }
 
 impl InputRegionOptions for MockModOptions {
-    fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
+    fn region_filter(&self) -> &Option<Bed3<i32, u32>> {
         &self.region_filter
     }
 
@@ -94,7 +94,7 @@ impl InputRegionOptions for MockModOptions {
         None
     }
 
-    fn set_region_filter(&mut self, value: Option<Bed3<i32, u64>>) {
+    fn set_region_filter(&mut self, value: Option<Bed3<i32, u32>>) {
         self.region_filter = value;
     }
 }
@@ -153,8 +153,8 @@ mod tests {
         }
 
         // Check specific positions that should be present (read positions 3, 8, 47)
-        let pos_col = df_low.column("position")?.u64()?;
-        let positions: Vec<u64> = (0..df_low.height())
+        let pos_col = df_low.column("position")?.u32()?;
+        let positions: Vec<u32> = (0..df_low.height())
             .filter_map(|i| pos_col.get(i))
             .collect();
         assert!(
@@ -365,7 +365,7 @@ mod tests {
         );
 
         // Check that remaining position is 27
-        let pos_col = df_trim.column("position")?.u64()?;
+        let pos_col = df_trim.column("position")?.u32()?;
         let position = pos_col.get(0).unwrap();
         assert_eq!(
             position, 27,

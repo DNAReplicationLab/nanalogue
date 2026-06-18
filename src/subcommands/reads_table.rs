@@ -151,9 +151,9 @@ enum ReadInstance {
     /// we will have to make a choice.
     OnlyAlign {
         /// Alignment length from the BAM file
-        align_len: Vec<u64>,
+        align_len: Vec<u32>,
         /// Sequence length from the BAM file
-        seq_len: u64,
+        seq_len: u32,
         /// Count of various mods from the BAM file
         mod_count: Vec<ModCountTbl>,
         /// Alignment type (primary, secondary, reverse etc.) from the BAM file.
@@ -164,7 +164,7 @@ enum ReadInstance {
         qual: Vec<Vec<u8>>,
     },
     /// Only basecalled info i.e. from the sequencing summary file is available
-    OnlyBc(u64),
+    OnlyBc(u32),
     /// Information from both sequencing summary and alignment file are available.
     /// NOTE that these are vectors as a read can have multiple BAM records,
     /// but the basecalled length is not a vector as a sequencing summary file
@@ -173,9 +173,9 @@ enum ReadInstance {
     /// then we will have to make a choice.
     BothAlignBc {
         /// Alignment length from the BAM file
-        align_len: Vec<u64>,
+        align_len: Vec<u32>,
         /// Sequence length from the sequencing summary file
-        bc_len: u64,
+        bc_len: u32,
         /// Count of various mods from the BAM file
         mod_count: Vec<ModCountTbl>,
         /// Alignment type (primary, secondary, reverse etc.) from the BAM file.
@@ -196,7 +196,7 @@ impl fmt::Display for ReadInstance {
         // we are fine with `unsafe` here (`from_utf8_unchecked`) as `rust-htslib`
         // guarantees that only 16 printable characters are allowed in the sequence.
         match self {
-            ReadInstance::OnlyBc(u64) => format!("{u64}"),
+            ReadInstance::OnlyBc(v) => format!("{v}"),
             ReadInstance::OnlyAlign {
                 align_len: al,
                 seq_len: sl,
@@ -253,14 +253,14 @@ struct Read(ReadInstance);
 /// Implements functions for Read
 impl Read {
     /// initialization using basecalled length
-    fn new_bc_len(l: u64) -> Self {
+    fn new_bc_len(l: u32) -> Self {
         Self(ReadInstance::OnlyBc(l))
     }
 
     /// initialization using alignment information
     fn new_align_len(
-        align_len: u64,
-        seq_len: u64,
+        align_len: u32,
+        seq_len: u32,
         mod_count: Option<ModCountTbl>,
         read_state: ReadState,
         seq: Option<Vec<(u8, BaseFmt)>>,
@@ -283,8 +283,8 @@ impl Read {
     )]
     fn add_align_len(
         &mut self,
-        align_len: u64,
-        seq_len: u64,
+        align_len: u32,
+        seq_len: u32,
         mod_count: Option<ModCountTbl>,
         read_state: ReadState,
         seq: Option<Vec<(u8, BaseFmt)>>,
@@ -453,6 +453,12 @@ fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
                 (read_id_idx, seq_len_idx)
             };
 
+            let max_col_idx_of_interest = if read_id_idx < seq_len_idx {
+                seq_len_idx
+            } else {
+                read_id_idx
+            };
+
             loop {
                 let bytes_read = read_seq_summ_line(&mut reader, &mut line)?;
                 if bytes_read == 0 {
@@ -476,6 +482,9 @@ fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
                     if idx == seq_len_idx {
                         seq_len_field = Some(field);
                     }
+                    if idx == max_col_idx_of_interest {
+                        break;
+                    }
                 }
                 let read_id = read_id_field.ok_or_else(|| {
                     Error::InvalidState(format!(
@@ -496,7 +505,7 @@ fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
                             .to_owned(),
                     ));
                 }
-                let sequence_length_template: u64 = seq_len_field
+                let sequence_length_template: u32 = seq_len_field
                     .ok_or_else(|| {
                         Error::InvalidState(format!(
                             "sequencing summary tsv row has no `sequence_length_template` field at column {seq_len_idx}: `{line}`"
@@ -759,6 +768,17 @@ where
     Ok(())
 }
 
+/// Removes comment lines from read-table output and returns the first
+/// remaining line as the header along with the reconstructed TSV body.
+fn strip_comment_lines(output: &str) -> (Option<&str>, String) {
+    let lines: Vec<&str> = output
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect();
+    let header_line = lines.first().copied();
+    (header_line, lines.join("\n"))
+}
+
 /// Creates a `DataFrame` from read table data
 ///
 /// This function calls [`run`] with a buffer handle, then parses the output into a Polars `DataFrame`.
@@ -802,20 +822,7 @@ where
     // Convert buffer to string
     let output = String::from_utf8(buffer)?;
 
-    // Filter out comment lines (starting with '#').
-    // The first non-# line is the header.
-    let mut header_line_opt: Option<&str> = None;
-    let mut tsv_without_comments = String::new();
-    for line in output.lines() {
-        if line.starts_with('#') {
-            continue;
-        }
-        if header_line_opt.is_none() {
-            header_line_opt = Some(line);
-        }
-        tsv_without_comments.push_str(line);
-        tsv_without_comments.push('\n');
-    }
+    let (header_line_opt, tsv_without_comments) = strip_comment_lines(&output);
 
     let header_line = header_line_opt
         .ok_or_else(|| Error::InvalidState("Output has no header line".to_string()))?;
@@ -831,7 +838,7 @@ where
             "read_id" => Field::new("read_id".into(), DataType::String),
             "align_length" => Field::new("align_length".into(), DataType::String),
             "sequence_length_template" => {
-                Field::new("sequence_length_template".into(), DataType::UInt64)
+                Field::new("sequence_length_template".into(), DataType::UInt32)
             }
             "alignment_type" => Field::new("alignment_type".into(), DataType::String),
             "mod_count" => Field::new("mod_count".into(), DataType::String),
@@ -899,7 +906,16 @@ mod tests {
 
     #[test]
     fn read_instance_only_bc_len_display() {
-        assert_eq!("1000".to_owned(), ReadInstance::OnlyBc(1000u64).to_string());
+        assert_eq!("1000".to_owned(), ReadInstance::OnlyBc(1000u32).to_string());
+    }
+
+    #[test]
+    fn strip_comment_lines_keeps_no_trailing_newline() {
+        let output = "#comment\nread_id\talign_length\nread1\t42";
+        let (header_line, tsv_without_comments) = strip_comment_lines(output);
+
+        assert_eq!(header_line, Some("read_id\talign_length"));
+        assert_eq!(tsv_without_comments, "read_id\talign_length\nread1\t42");
     }
 
     fn run_read_table_test(
@@ -1021,7 +1037,7 @@ mod tests {
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
             SeqDisplayOptions::Region {
-                region: Bed3::<i32, u64>::new(0, 10, 12),
+                region: Bed3::<i32, u32>::new(0, 10, 12),
                 show_ins_lowercase: false,
                 show_base_qual: true,
                 show_mod_z: false,
@@ -1041,7 +1057,7 @@ mod tests {
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
             SeqDisplayOptions::Region {
-                region: Bed3::<i32, u64>::new(1, 0, 2000),
+                region: Bed3::<i32, u32>::new(1, 0, 2000),
                 show_ins_lowercase: false,
                 show_base_qual: true,
                 show_mod_z: false,
@@ -1106,7 +1122,7 @@ mod tests {
             "./examples/example_7.sam",
             None,
             SeqDisplayOptions::Region {
-                region: Bed3::<i32, u64>::new(0, 0, 1000),
+                region: Bed3::<i32, u32>::new(0, 0, 1000),
                 show_ins_lowercase: true,
                 show_base_qual: false,
                 show_mod_z: false,
@@ -1120,7 +1136,7 @@ mod tests {
             "./examples/example_7.sam",
             None,
             SeqDisplayOptions::Region {
-                region: Bed3::<i32, u64>::new(0, 0, 1000),
+                region: Bed3::<i32, u32>::new(0, 0, 1000),
                 show_ins_lowercase: false,
                 show_base_qual: false,
                 show_mod_z: false,
@@ -1843,11 +1859,11 @@ mod stochastic_tests {
         );
 
         let align_length = df.column("align_length")?.str()?;
-        let seq_length = df.column("sequence_length_template")?.u64()?;
+        let seq_length = df.column("sequence_length_template")?.u32()?;
         let alignment_type = df.column("alignment_type")?.str()?;
 
         for k in align_length.iter().zip(seq_length).zip(alignment_type) {
-            let al = k.0.0.unwrap().parse::<u64>().unwrap();
+            let al = k.0.0.unwrap().parse::<u32>().unwrap();
             let sl = k.0.1.unwrap();
             let rs = k.1.unwrap();
             assert!(al == 0 || al == sl);
@@ -1902,11 +1918,11 @@ mod stochastic_tests {
         );
 
         let align_length = df.column("align_length")?.str()?;
-        let seq_length = df.column("sequence_length_template")?.u64()?;
+        let seq_length = df.column("sequence_length_template")?.u32()?;
         let alignment_type = df.column("alignment_type")?.str()?;
 
         for k in align_length.iter().zip(seq_length).zip(alignment_type) {
-            let al = k.0.0.unwrap().parse::<u64>().unwrap();
+            let al = k.0.0.unwrap().parse::<u32>().unwrap();
             let sl = k.0.1.unwrap();
             let rs = k.1.unwrap();
             assert!(al == 0 || al == sl - 18); // barcode is 7 bp, insertion is 4 bp, so 2 * 7 + 4
@@ -2152,7 +2168,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u64>::new(0, 0, 10),
+                region: Bed3::<i32, u32>::new(0, 0, 10),
             },
             "ACGTACGTAC",
             10,
@@ -2169,7 +2185,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u64>::new(0, 100, 110),
+                region: Bed3::<i32, u32>::new(0, 100, 110),
             },
             "..........",
             10,
@@ -2186,7 +2202,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u64>::new(0, 195, 205),
+                region: Bed3::<i32, u32>::new(0, 195, 205),
             },
             ".....ACGTA",
             10,
@@ -2203,7 +2219,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u64>::new(0, 495, 505),
+                region: Bed3::<i32, u32>::new(0, 495, 505),
             },
             "TACGTggttggACGTA",
             16,
@@ -2220,7 +2236,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: false,
                 show_mod_z: false,
-                region: Bed3::<i32, u64>::new(0, 495, 505),
+                region: Bed3::<i32, u32>::new(0, 495, 505),
             },
             "TACGTGGTTGGACGTA",
             16,
@@ -2237,7 +2253,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u64>::new(0, 990, 1000),
+                region: Bed3::<i32, u32>::new(0, 990, 1000),
             },
             "GTACGTACGT",
             10,
@@ -2374,7 +2390,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: Bed3::<i32, u64>::new(0, 0, 10),
+                    region: Bed3::<i32, u32>::new(0, 0, 10),
                 },
                 k.1,
                 k.2,
@@ -2397,7 +2413,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k,
-                    region: Bed3::<i32, u64>::new(0, 100, 110),
+                    region: Bed3::<i32, u32>::new(0, 100, 110),
                 },
                 "..........",
                 "..........",
@@ -2423,7 +2439,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: Bed3::<i32, u64>::new(0, 195, 205),
+                    region: Bed3::<i32, u32>::new(0, 195, 205),
                 },
                 k.1,
                 k.2,
@@ -2449,7 +2465,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: Bed3::<i32, u64>::new(0, 495, 505),
+                    region: Bed3::<i32, u32>::new(0, 495, 505),
                 },
                 k.1,
                 k.2,
@@ -2475,7 +2491,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: Bed3::<i32, u64>::new(0, 990, 1000),
+                    region: Bed3::<i32, u32>::new(0, 990, 1000),
                 },
                 k.1,
                 k.2,
@@ -2497,7 +2513,7 @@ mod stochastic_tests_with_mods {
 
         // Test region 0-10
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
-            .region_bed3(Bed3::<i32, u64>::new(0, 0, 10))
+            .region_bed3(Bed3::<i32, u32>::new(0, 0, 10))
             .build()?;
 
         let df = run_reads_table_generation(
@@ -2507,7 +2523,7 @@ mod stochastic_tests_with_mods {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u64>::new(0, 0, 10),
+                region: Bed3::<i32, u32>::new(0, 0, 10),
             },
         )?;
 
@@ -2696,7 +2712,7 @@ mod stochastic_tests_with_mods {
 
         // Test a small region
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
-            .region_bed3(Bed3::<i32, u64>::new(0, 495, 505))
+            .region_bed3(Bed3::<i32, u32>::new(0, 495, 505))
             .build()?;
 
         let df = run_reads_table_generation(
@@ -2706,7 +2722,7 @@ mod stochastic_tests_with_mods {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: true,
-                region: Bed3::<i32, u64>::new(0, 495, 505),
+                region: Bed3::<i32, u32>::new(0, 495, 505),
             },
         )?;
 
@@ -2776,7 +2792,7 @@ mod stochastic_tests_with_mods {
 
         // Test a small region
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
-            .region_bed3(Bed3::<i32, u64>::new(0, 495, 505))
+            .region_bed3(Bed3::<i32, u32>::new(0, 495, 505))
             .mod_prob_filter(ThresholdState::Both((250u8, (100u8, 150u8).try_into()?)))
             .build()?;
 
@@ -2787,7 +2803,7 @@ mod stochastic_tests_with_mods {
                 show_base_qual: false,
                 show_ins_lowercase: false,
                 show_mod_z: true,
-                region: Bed3::<i32, u64>::new(0, 495, 505),
+                region: Bed3::<i32, u32>::new(0, 495, 505),
             },
         )?;
 
