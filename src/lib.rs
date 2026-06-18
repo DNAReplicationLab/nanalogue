@@ -76,7 +76,10 @@
 //! BAM record data, processes the DNA/RNA modification information amongst other pieces of information,
 //! and exposes them for downstream usage.
 
-use bedrs::{Bed3, Coordinates as _};
+#[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64")))]
+compile_error!("This crate supports only 32-bit and 64-bit platforms.");
+
+use bedrs::{Bed3, Coordinates as _, StrandedBed3};
 use rand::random;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
 use std::collections::HashSet;
@@ -124,6 +127,11 @@ pub use utils::{
     RestrictModCalledStrand, SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase,
     get_u8_tag, mm_groups, revcomp,
 };
+
+/// Genomic 3-column BED shorthand used with `bedrs` coordinate types in this crate.
+pub type GenomicBed3 = Bed3<i32, u32>;
+/// Genomic stranded BED shorthand used with `bedrs` coordinate types in this crate.
+pub type GenomicStrandedBed3 = StrandedBed3<i32, u32>;
 
 /// Static initialization guard for SSL certificate configuration.
 static SSL_INIT: Once = Once::new();
@@ -660,7 +668,18 @@ pub trait BamPreFilt {
     /// filtration by mapq
     fn filt_by_mapq(&self, _min_mapq: u8, _exclude_mapq_unavail: bool) -> bool;
     /// filtration by region
-    fn filt_by_region(&self, _region: &Bed3<i32, u32>, _full_region: bool) -> bool;
+    fn filt_by_region(&self, _region: &GenomicBed3, _full_region: bool) -> bool;
+}
+
+/// Applies sequence-length filtering.
+fn seq_len_passes_filter(seq_len: usize, min_seq_len: u32, include_zero_len: bool) -> bool {
+    match (min_seq_len, seq_len, include_zero_len) {
+        (_, 0, false) => false, // Exclude zero-length by default
+        (_, 0, true) => true,   // Include zero-length when explicitly requested
+        (l_min, v, _) => {
+            v >= usize::try_from(l_min).expect("u32 always fits into usize on supported targets")
+        }
+    }
 }
 
 /// Trait that performs filtration on `rust_htslib` Record
@@ -744,17 +763,7 @@ impl BamPreFilt for bam::Record {
     }
     /// filtration by read length
     fn filt_by_len(&self, min_seq_len: u32, include_zero_len: bool) -> bool {
-        // `seq_len` returns a usize which we convert to u32.
-        // If we cannot convert, `seq_len` is too large and thus is larger than
-        // `min_seq_len`, which is a u32, so we let the read through.
-        let Ok(seq_len) = u32::try_from(self.seq_len()) else {
-            return true;
-        };
-        match (min_seq_len, seq_len, include_zero_len) {
-            (_, 0, false) => false, // Exclude zero-length by default
-            (_, 0, true) => true,   // Include zero-length when explicitly requested
-            (l_min, v, _) => v >= l_min,
-        }
+        seq_len_passes_filter(self.seq_len(), min_seq_len, include_zero_len)
     }
     /// filtration by alignment length
     fn filt_by_align_len(&self, min_align_len: u32) -> bool {
@@ -819,7 +828,7 @@ impl BamPreFilt for bam::Record {
         !(exclude_mapq_unavail && self.mapq() == 255) && self.mapq() >= min_mapq
     }
     /// filtration by region
-    fn filt_by_region(&self, region: &Bed3<i32, u32>, full_region: bool) -> bool {
+    fn filt_by_region(&self, region: &GenomicBed3, full_region: bool) -> bool {
         !self.is_unmapped() && (self.tid() == *region.chr()) && {
             let region_start = region.start();
             let region_end = region.end();
@@ -1175,6 +1184,12 @@ mod mod_parse_tests {
 mod zero_length_filtering_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
+
+    #[test]
+    fn seq_len_filter_compares_large_usize_lengths_correctly() {
+        assert!(seq_len_passes_filter(usize::MAX, u32::MAX, false));
+        assert!(seq_len_passes_filter(usize::MAX, 1, false));
+    }
 
     #[test]
     fn zero_length_filtering_with_example_2_zero_len_sam() -> Result<(), Error> {

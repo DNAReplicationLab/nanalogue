@@ -1,10 +1,9 @@
 //! Tests for `set_mod_data_restricted_options` method in `read_utils.rs`
 //! Covers filtering by region, tag, strand, probability, base quality, and read end trimming
 
-use bedrs::Bed3;
 use nanalogue_core::{
-    CurrRead, Error, InputModOptions, InputRegionOptions, ModChar, RestrictModCalledStrand,
-    ThresholdState, curr_reads_to_dataframe, nanalogue_bam_reader,
+    CurrRead, Error, GenomicBed3, InputModOptions, InputRegionOptions, ModChar,
+    RestrictModCalledStrand, ThresholdState, curr_reads_to_dataframe, nanalogue_bam_reader,
 };
 use rust_htslib::bam::Read as _;
 use std::str::FromStr as _;
@@ -17,7 +16,7 @@ struct MockModOptions {
     mod_prob_filter: ThresholdState,
     trim_read_ends_mod: usize,
     base_qual_filter_mod: u8,
-    region_filter: Option<Bed3<i32, u32>>,
+    region_filter: Option<GenomicBed3>,
 }
 
 impl MockModOptions {
@@ -57,7 +56,7 @@ impl MockModOptions {
         self
     }
 
-    fn with_region_filter(mut self, region: Bed3<i32, u32>) -> Self {
+    fn with_region_filter(mut self, region: GenomicBed3) -> Self {
         self.region_filter = Some(region);
         self
     }
@@ -86,7 +85,7 @@ impl InputModOptions for MockModOptions {
 }
 
 impl InputRegionOptions for MockModOptions {
-    fn region_filter(&self) -> &Option<Bed3<i32, u32>> {
+    fn region_filter(&self) -> &Option<GenomicBed3> {
         &self.region_filter
     }
 
@@ -94,7 +93,7 @@ impl InputRegionOptions for MockModOptions {
         None
     }
 
-    fn set_region_filter(&mut self, value: Option<Bed3<i32, u32>>) {
+    fn set_region_filter(&mut self, value: Option<GenomicBed3>) {
         self.region_filter = value;
     }
 }
@@ -203,7 +202,7 @@ mod tests {
 
         // Create a region that fully contains the read
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = Bed3::new(2, 0, 100); // Fully contains the read
+        let region = GenomicBed3::new(2, 0, 100); // Fully contains the read
         let options = MockModOptions::new().with_region_filter(region);
 
         let result = curr_read.set_mod_data_restricted_options(&record, &options)?;
@@ -232,7 +231,7 @@ mod tests {
         // Create a region that partially overlaps (region 50-100 overlaps with read 23-71)
         // Only mods at ref positions >= 50 should be kept (positions 50, 62, 70)
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = Bed3::new(2, 50, 100); // Partial overlap on right side
+        let region = GenomicBed3::new(2, 50, 100); // Partial overlap on right side
         let options = MockModOptions::new().with_region_filter(region);
 
         let result = curr_read.set_mod_data_restricted_options(&record, &options)?;
@@ -290,7 +289,7 @@ mod tests {
         // Second record in example_1.bam is on contig 2, positions 23-71
         // Create a region on a different contig (no overlap)
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = Bed3::new(0, 0, 100); // Different contig, no overlap
+        let region = GenomicBed3::new(0, 0, 100); // Different contig, no overlap
         let options = MockModOptions::new().with_region_filter(region);
 
         let result = curr_read.set_mod_data_restricted_options(&record, &options)?;
@@ -325,7 +324,7 @@ mod tests {
             .unwrap_or(0);
 
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = Bed3::new(2, 23, 71); // Exact match
+        let region = GenomicBed3::new(2, 23, 71); // Exact match
         let options = MockModOptions::new().with_region_filter(region);
 
         let result = curr_read.set_mod_data_restricted_options(&record, &options)?;
@@ -603,7 +602,7 @@ mod tests {
 
         // Apply multiple filters: trimming + probability + region
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = Bed3::new(2, 50, 71); // Region [50, 71)
+        let region = GenomicBed3::new(2, 50, 71); // Region [50, 71)
         let options = MockModOptions::new()
             .with_trim_read_ends(5) // Keeps read positions [5, 43)
             .with_mod_prob_filter(ThresholdState::GtEq(200)) // Keeps qual >= 200
@@ -630,7 +629,7 @@ mod tests {
 
         // Create a scenario with no overlap (different contig) which creates 0..0 interval
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = Bed3::new(1, 0, 10); // Different contig than record's contig 2
+        let region = GenomicBed3::new(1, 0, 10); // Different contig than record's contig 2
         let options = MockModOptions::new().with_region_filter(region);
 
         let result = curr_read.set_mod_data_restricted_options(&record, &options)?;

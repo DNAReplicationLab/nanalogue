@@ -899,8 +899,7 @@ pub fn sort_output_lines(output: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nanalogue_bam_reader;
-    use bedrs::Bed3;
+    use crate::{GenomicBed3, nanalogue_bam_reader};
     use rand::random;
     use rust_htslib::bam::Read as _;
 
@@ -1037,7 +1036,7 @@ mod tests {
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
             SeqDisplayOptions::Region {
-                region: Bed3::<i32, u32>::new(0, 10, 12),
+                region: GenomicBed3::new(0, 10, 12),
                 show_ins_lowercase: false,
                 show_base_qual: true,
                 show_mod_z: false,
@@ -1057,7 +1056,7 @@ mod tests {
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
             SeqDisplayOptions::Region {
-                region: Bed3::<i32, u32>::new(1, 0, 2000),
+                region: GenomicBed3::new(1, 0, 2000),
                 show_ins_lowercase: false,
                 show_base_qual: true,
                 show_mod_z: false,
@@ -1122,7 +1121,7 @@ mod tests {
             "./examples/example_7.sam",
             None,
             SeqDisplayOptions::Region {
-                region: Bed3::<i32, u32>::new(0, 0, 1000),
+                region: GenomicBed3::new(0, 0, 1000),
                 show_ins_lowercase: true,
                 show_base_qual: false,
                 show_mod_z: false,
@@ -1136,7 +1135,7 @@ mod tests {
             "./examples/example_7.sam",
             None,
             SeqDisplayOptions::Region {
-                region: Bed3::<i32, u32>::new(0, 0, 1000),
+                region: GenomicBed3::new(0, 0, 1000),
                 show_ins_lowercase: false,
                 show_base_qual: false,
                 show_mod_z: false,
@@ -1656,10 +1655,12 @@ mod sequencing_summary_tests {
 #[cfg(test)]
 mod stochastic_tests {
     use super::*;
-    use crate::simulate_mod_bam::{
-        ContigConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder, TempBamSimulation,
+    use crate::{
+        GenomicBed3,
+        simulate_mod_bam::{
+            ContigConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder, TempBamSimulation,
+        },
     };
-    use bedrs::Bed3;
     use derive_builder::Builder;
     use rust_htslib::bam::Read as _;
     use std::ops::RangeInclusive;
@@ -2168,7 +2169,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u32>::new(0, 0, 10),
+                region: GenomicBed3::new(0, 0, 10),
             },
             "ACGTACGTAC",
             10,
@@ -2185,7 +2186,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u32>::new(0, 100, 110),
+                region: GenomicBed3::new(0, 100, 110),
             },
             "..........",
             10,
@@ -2202,7 +2203,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u32>::new(0, 195, 205),
+                region: GenomicBed3::new(0, 195, 205),
             },
             ".....ACGTA",
             10,
@@ -2219,7 +2220,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u32>::new(0, 495, 505),
+                region: GenomicBed3::new(0, 495, 505),
             },
             "TACGTggttggACGTA",
             16,
@@ -2236,7 +2237,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: false,
                 show_mod_z: false,
-                region: Bed3::<i32, u32>::new(0, 495, 505),
+                region: GenomicBed3::new(0, 495, 505),
             },
             "TACGTGGTTGGACGTA",
             16,
@@ -2253,7 +2254,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u32>::new(0, 990, 1000),
+                region: GenomicBed3::new(0, 990, 1000),
             },
             "GTACGTACGT",
             10,
@@ -2265,12 +2266,13 @@ mod stochastic_tests {
 #[cfg(test)]
 mod stochastic_tests_with_mods {
     use super::*;
-    use crate::InputModsBuilder;
-    use crate::simulate_mod_bam::{
-        ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder,
-        TempBamSimulation,
+    use crate::{
+        GenomicBed3, InputModsBuilder,
+        simulate_mod_bam::{
+            ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder,
+            TempBamSimulation,
+        },
     };
-    use bedrs::Bed3;
     use rust_htslib::bam::Read as _;
 
     /// Helper to run reads table generation
@@ -2390,7 +2392,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: Bed3::<i32, u32>::new(0, 0, 10),
+                    region: GenomicBed3::new(0, 0, 10),
                 },
                 k.1,
                 k.2,
@@ -2413,7 +2415,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k,
-                    region: Bed3::<i32, u32>::new(0, 100, 110),
+                    region: GenomicBed3::new(0, 100, 110),
                 },
                 "..........",
                 "..........",
@@ -2439,7 +2441,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: Bed3::<i32, u32>::new(0, 195, 205),
+                    region: GenomicBed3::new(0, 195, 205),
                 },
                 k.1,
                 k.2,
@@ -2465,7 +2467,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: Bed3::<i32, u32>::new(0, 495, 505),
+                    region: GenomicBed3::new(0, 495, 505),
                 },
                 k.1,
                 k.2,
@@ -2491,7 +2493,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: Bed3::<i32, u32>::new(0, 990, 1000),
+                    region: GenomicBed3::new(0, 990, 1000),
                 },
                 k.1,
                 k.2,
@@ -2513,7 +2515,7 @@ mod stochastic_tests_with_mods {
 
         // Test region 0-10
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
-            .region_bed3(Bed3::<i32, u32>::new(0, 0, 10))
+            .region_bed3(GenomicBed3::new(0, 0, 10))
             .build()?;
 
         let df = run_reads_table_generation(
@@ -2523,7 +2525,7 @@ mod stochastic_tests_with_mods {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: Bed3::<i32, u32>::new(0, 0, 10),
+                region: GenomicBed3::new(0, 0, 10),
             },
         )?;
 
@@ -2712,7 +2714,7 @@ mod stochastic_tests_with_mods {
 
         // Test a small region
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
-            .region_bed3(Bed3::<i32, u32>::new(0, 495, 505))
+            .region_bed3(GenomicBed3::new(0, 495, 505))
             .build()?;
 
         let df = run_reads_table_generation(
@@ -2722,7 +2724,7 @@ mod stochastic_tests_with_mods {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: true,
-                region: Bed3::<i32, u32>::new(0, 495, 505),
+                region: GenomicBed3::new(0, 495, 505),
             },
         )?;
 
@@ -2792,7 +2794,7 @@ mod stochastic_tests_with_mods {
 
         // Test a small region
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
-            .region_bed3(Bed3::<i32, u32>::new(0, 495, 505))
+            .region_bed3(GenomicBed3::new(0, 495, 505))
             .mod_prob_filter(ThresholdState::Both((250u8, (100u8, 150u8).try_into()?)))
             .build()?;
 
@@ -2803,7 +2805,7 @@ mod stochastic_tests_with_mods {
                 show_base_qual: false,
                 show_ins_lowercase: false,
                 show_mod_z: true,
-                region: Bed3::<i32, u32>::new(0, 495, 505),
+                region: GenomicBed3::new(0, 495, 505),
             },
         )?;
 

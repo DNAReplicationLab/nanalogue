@@ -4,11 +4,11 @@
 
 use crate::{
     AllowedAGCTN, BaseMod, BaseMods, Contains as _, Error, F32Bw0and1, FiberAnnotation,
-    FilterModsByRefCoords, InputModOptions, InputRegionOptions, InputWindowing, ModChar, Ranges,
-    ReadState, ThresholdState, nanalogue_mm_ml_parser,
+    FilterModsByRefCoords, GenomicBed3, GenomicStrandedBed3, InputModOptions, InputRegionOptions,
+    InputWindowing, ModChar, Ranges, ReadState, ThresholdState, nanalogue_mm_ml_parser,
 };
-use bedrs::prelude::{Intersect as _, StrandedBed3};
-use bedrs::{Bed3, Coordinates as _, Strand};
+use bedrs::prelude::Intersect as _;
+use bedrs::{Coordinates as _, Strand};
 use bio_types::genome::AbstractInterval as _;
 use derive_builder::Builder;
 use polars::{df, prelude::DataFrame};
@@ -738,7 +738,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     pub fn seq_on_ref_coords(
         &self,
         record: &Record,
-        region: &Bed3<i32, u32>,
+        region: &GenomicBed3,
     ) -> Result<Vec<u8>, Error> {
         Ok(self
             .seq_and_qual_on_ref_coords(record, region)?
@@ -822,7 +822,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     pub fn seq_and_qual_on_ref_coords(
         &self,
         record: &Record,
-        region: &Bed3<i32, u32>,
+        region: &GenomicBed3,
     ) -> Result<Vec<Option<(bool, u8, u8)>>, Error> {
         let seq = record.seq().as_bytes();
         let qual = record.qual();
@@ -906,10 +906,10 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     pub fn seq_coords_from_ref_coords(
         &self,
         record: &Record,
-        region: &Bed3<i32, u32>,
+        region: &GenomicBed3,
     ) -> Result<Vec<Option<(bool, usize)>>, Error> {
         let interval = {
-            let intersected_region = region.intersect(&StrandedBed3::<i32, u32>::try_from(self)?);
+            let intersected_region = region.intersect(&GenomicStrandedBed3::try_from(self)?);
             let Some(v) = intersected_region else {
                 return Err(Error::UnavailableData(
                     "coord-retrieval: region does not intersect with read".to_owned(),
@@ -1071,7 +1071,7 @@ impl CurrRead<OnlyAlignDataComplete> {
         })?;
         let w = mod_options.trim_read_ends_mod();
         let interval = if let Some(bed3) = mod_options.region_filter().as_ref() {
-            let stranded_bed3 = StrandedBed3::<i32, u32>::try_from(&self)?;
+            let stranded_bed3 = GenomicStrandedBed3::try_from(&self)?;
             if let Some(v) = bed3.intersect(&stranded_bed3) {
                 if v.start() == stranded_bed3.start() && v.end() == stranded_bed3.end() {
                     None
@@ -1361,7 +1361,7 @@ where
 /// }
 /// # Ok::<(), Error>(())
 /// ```
-impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for StrandedBed3<i32, u32> {
+impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for GenomicStrandedBed3 {
     type Error = Error;
 
     fn try_from(value: &CurrRead<S>) -> Result<Self, Self::Error> {
@@ -1370,7 +1370,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for Strand
             value.align_len().ok(),
             value.contig_id_and_start().ok(),
         ) {
-            ('.', _, _) => Ok(StrandedBed3::empty()),
+            ('.', _, _) => Ok(GenomicStrandedBed3::empty()),
             (_, None, _) => Err(Error::InvalidAlignLength(format!(
                 "align len not set while converting to bed3! read_id: {}",
                 value.read_id()
@@ -1380,13 +1380,13 @@ impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for Strand
                 value.read_id()
             ))),
             ('+', Some(al), Some((cg, st))) => match st.checked_add(al) {
-                Some(v) => Ok(StrandedBed3::new(cg, st, v, Strand::Forward)),
+                Some(v) => Ok(GenomicStrandedBed3::new(cg, st, v, Strand::Forward)),
                 None => Err(Error::InvalidAlignCoords(String::from(
                     "alignment coords exceed u32::MAX",
                 ))),
             },
             ('-', Some(al), Some((cg, st))) => match st.checked_add(al) {
-                Some(v) => Ok(StrandedBed3::new(cg, st, v, Strand::Reverse)),
+                Some(v) => Ok(GenomicStrandedBed3::new(cg, st, v, Strand::Reverse)),
                 None => Err(Error::InvalidAlignCoords(String::from(
                     "alignment coords exceed u32::MAX",
                 ))),
@@ -2424,7 +2424,7 @@ mod test_error_handling {
         let record = reader.records().next().unwrap()?;
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
         let (contig_id, start) = curr_read.contig_id_and_start()?;
-        let region = Bed3::<i32, u32>::new(contig_id, start, start + 8);
+        let region = GenomicBed3::new(contig_id, start, start + 8);
 
         let seq_subset = curr_read.seq_and_qual_on_ref_coords(&record, &region)?;
         assert_eq!(
@@ -2458,7 +2458,7 @@ mod test_error_handling {
             marker: PhantomData,
         };
         let record = Record::new();
-        let region = Bed3::<i32, u32>::new(0, u32::MAX - 1, u32::MAX);
+        let region = GenomicBed3::new(0, u32::MAX - 1, u32::MAX);
 
         let err = curr_read
             .seq_coords_from_ref_coords(&record, &region)
@@ -2703,6 +2703,36 @@ mod test_serde {
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSeqLength
         let _: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+    }
+
+    #[test]
+    fn sequence_coordinate_exceeding_u32_is_rejected_by_serde_before_curr_read_validation() {
+        let invalid_json = r#"{
+            "alignment_type": "primary_forward",
+            "alignment": {
+                "start": 0,
+                "end": 30
+            },
+            "mod_table": [
+                {
+                    "data": [[4294967296, 1, 200]]
+                }
+            ],
+            "seq_len": 30
+        }"#;
+
+        let builder_err = serde_json::from_str::<CurrReadBuilder>(invalid_json).unwrap_err();
+        assert!(
+            builder_err.to_string().contains("invalid value"),
+            "expected serde to reject oversized u32 while deserializing CurrReadBuilder, got: {builder_err}"
+        );
+
+        let curr_read_err =
+            serde_json::from_str::<CurrRead<AlignAndModData>>(invalid_json).unwrap_err();
+        assert!(
+            curr_read_err.to_string().contains("invalid value"),
+            "expected CurrRead deserialization to fail during serde, got: {curr_read_err}"
+        );
     }
 
     #[test]

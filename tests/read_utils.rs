@@ -1,11 +1,10 @@
 //! Tests for `read_utils.rs` extracted from doctests
 
-use bedrs::prelude::StrandedBed3;
 use bedrs::{Bed3, Coordinates as _, Strand};
 use nanalogue_core::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
 use nanalogue_core::{
-    CurrRead, Error, Intersects as _, ModChar, ReadState, ThresholdState, nanalogue_bam_reader,
-    read_utils::OnlyAlignData,
+    CurrRead, Error, GenomicStrandedBed3, Intersects as _, ModChar, ReadState, ThresholdState,
+    nanalogue_bam_reader, read_utils::OnlyAlignData,
 };
 use rust_htslib::bam::Read as _;
 use std::collections::{HashMap, hash_map::Entry};
@@ -760,12 +759,12 @@ mod tests {
         for (count, record) in reader.records().enumerate() {
             let r = record?;
             let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
-            let bed3_stranded = StrandedBed3::try_from(&curr_read).unwrap();
+            let bed3_stranded = GenomicStrandedBed3::try_from(&curr_read).unwrap();
             let exp_bed3_stranded = match count {
-                0 => StrandedBed3::new(0, 9, 17, Strand::Forward),
-                1 => StrandedBed3::new(2, 23, 71, Strand::Forward),
-                2 => StrandedBed3::new(1, 3, 36, Strand::Reverse),
-                3 => StrandedBed3::empty(),
+                0 => GenomicStrandedBed3::new(0, 9, 17, Strand::Forward),
+                1 => GenomicStrandedBed3::new(2, 23, 71, Strand::Forward),
+                2 => GenomicStrandedBed3::new(1, 3, 36, Strand::Reverse),
+                3 => GenomicStrandedBed3::empty(),
                 _ => unreachable!(),
             };
             assert_eq!(*bed3_stranded.chr(), *exp_bed3_stranded.chr());
@@ -800,7 +799,7 @@ mod tests {
                 .set_contig_id_and_start(&r)
                 .unwrap();
             // Try to convert to StrandedBed3 without align_len set
-            let _: StrandedBed3<i32, u32> = StrandedBed3::try_from(&curr_read).unwrap();
+            let _: GenomicStrandedBed3 = GenomicStrandedBed3::try_from(&curr_read).unwrap();
         }
     }
 
@@ -818,7 +817,7 @@ mod tests {
                 .set_align_len(&r)
                 .unwrap();
             // Try to convert to StrandedBed3 without contig_id_and_start set
-            let _: StrandedBed3<i32, u32> = StrandedBed3::try_from(&curr_read).unwrap();
+            let _: GenomicStrandedBed3 = GenomicStrandedBed3::try_from(&curr_read).unwrap();
         }
     }
 

@@ -2,8 +2,7 @@
 //! Handles parsing of genomic regions from standard string formats
 
 use super::ord_pair::OrdPair;
-use crate::Error;
-use bedrs::prelude::Bed3;
+use crate::{Error, GenomicBed3};
 use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -108,7 +107,7 @@ impl GenomicRegion {
     /// # Panics
     /// No panic expected; we've used an `expect` while getting `contig_length`, but we
     /// have already checked if the contig exists in the previous line.
-    pub fn try_to_bed3(self, header: &bam::HeaderView) -> Result<Bed3<i32, u32>, Error> {
+    pub fn try_to_bed3(self, header: &bam::HeaderView) -> Result<GenomicBed3, Error> {
         let region_bed = {
             let GenomicRegion((contig_name, coords)) = self;
             let numeric_contig: i32 = header
@@ -163,7 +162,7 @@ impl GenomicRegion {
                 (0u32, contig_length)
             };
 
-            Bed3::<i32, u32>::new(numeric_contig, start, end)
+            GenomicBed3::new(numeric_contig, start, end)
         };
         Ok(region_bed)
     }
@@ -452,7 +451,7 @@ mod tests {
         let region = GenomicRegion::from_str("chr1:300000000-400000000").expect("should parse");
 
         // This should panic with InvalidRegion
-        let _: Bed3<i32, u32> = region.try_to_bed3(&header).unwrap();
+        let _: GenomicBed3 = region.try_to_bed3(&header).unwrap();
     }
 
     /// Tests error case when contig doesn't exist in the header
@@ -465,7 +464,7 @@ mod tests {
         let region = GenomicRegion::from_str("nonexistent_contig:1000-2000").expect("should parse");
 
         // This should panic with InvalidAlignCoords error
-        let _: Bed3<i32, u32> = region.try_to_bed3(&header).unwrap();
+        let _: GenomicBed3 = region.try_to_bed3(&header).unwrap();
     }
 
     /// Tests conversion of an open-ended region to BED3 format
