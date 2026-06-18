@@ -24,3 +24,11 @@ i.e. not with this commit we do blah blah.
 Any docs or plans you make must go into brainstorming/ . you must never commit anything in brainstorming/
 
 Use the quiet version of cargo commands wherever possible.
+
+This project should use Clang 18-21 only and avoid Clang 22 if present.
+For any `cargo` command in this repo, set CLANG paths like below if the cargo commands do not work.
+If cargo commands do not work and the paths below do not exist, try searching for clangs 18-21.
+If you still cannot find the paths, then talk to the user.
+- `CLANG_PATH=/usr/bin/clang-18`
+- `LIBCLANG_PATH=/usr/lib/llvm-18/lib`
+

@@ -101,7 +101,7 @@ mod tests {
         assert_eq!(read_id_col.get(0), Some("some_read"));
         assert_eq!(read_id_col.get(1), Some("some_read"));
 
-        let seq_len_col = df.column("seq_len")?.u64()?;
+        let seq_len_col = df.column("seq_len")?.u32()?;
         assert_eq!(seq_len_col.get(0), Some(40));
         assert_eq!(seq_len_col.get(1), Some(40));
 
@@ -114,11 +114,11 @@ mod tests {
         assert_eq!(alignment_type_col.get(1), Some("primary_forward"));
 
         // Verify alignment fields
-        let align_start_col = df.column("align_start")?.u64()?;
+        let align_start_col = df.column("align_start")?.u32()?;
         assert_eq!(align_start_col.get(0), Some(10));
         assert_eq!(align_start_col.get(1), Some(10));
 
-        let align_end_col = df.column("align_end")?.u64()?;
+        let align_end_col = df.column("align_end")?.u32()?;
         assert_eq!(align_end_col.get(0), Some(60));
         assert_eq!(align_end_col.get(1), Some(60));
 
@@ -144,7 +144,7 @@ mod tests {
         assert_eq!(mod_code_col.get(1), Some("m"));
 
         // Verify modification data points
-        let position_col = df.column("position")?.u64()?;
+        let position_col = df.column("position")?.u32()?;
         assert_eq!(position_col.get(0), Some(0));
         assert_eq!(position_col.get(1), Some(2));
 
@@ -203,7 +203,7 @@ mod tests {
             assert_eq!(read_id_col.get(i), Some("some_read"));
         }
 
-        let seq_len_col = df.column("seq_len")?.u64()?;
+        let seq_len_col = df.column("seq_len")?.u32()?;
         for i in 0..4 {
             assert_eq!(seq_len_col.get(i), Some(40));
         }
@@ -214,12 +214,12 @@ mod tests {
         }
 
         // Verify alignment fields (should be same for all rows)
-        let align_start_col = df.column("align_start")?.u64()?;
+        let align_start_col = df.column("align_start")?.u32()?;
         for i in 0..4 {
             assert_eq!(align_start_col.get(i), Some(10));
         }
 
-        let align_end_col = df.column("align_end")?.u64()?;
+        let align_end_col = df.column("align_end")?.u32()?;
         for i in 0..4 {
             assert_eq!(align_end_col.get(i), Some(60));
         }
@@ -237,7 +237,7 @@ mod tests {
         // Verify modification data points
         let base_col = df.column("base")?.str()?;
         let mod_code_col = df.column("mod_code")?.str()?;
-        let position_col = df.column("position")?.u64()?;
+        let position_col = df.column("position")?.u32()?;
         let ref_position_col = df.column("ref_position")?.i64()?;
         let mod_quality_col = df.column("mod_quality")?.u32()?;
 
@@ -295,7 +295,7 @@ mod tests {
             assert_eq!(read_id_col.get(i), Some("some_read"));
         }
 
-        let seq_len_col = df.column("seq_len")?.u64()?;
+        let seq_len_col = df.column("seq_len")?.u32()?;
         for i in 0..4 {
             assert_eq!(seq_len_col.get(i), Some(40));
         }
@@ -306,12 +306,12 @@ mod tests {
         }
 
         // Verify alignment fields are None for unmapped reads
-        let align_start_col = df.column("align_start")?.u64()?;
+        let align_start_col = df.column("align_start")?.u32()?;
         for i in 0..4 {
             assert_eq!(align_start_col.get(i), None);
         }
 
-        let align_end_col = df.column("align_end")?.u64()?;
+        let align_end_col = df.column("align_end")?.u32()?;
         for i in 0..4 {
             assert_eq!(align_end_col.get(i), None);
         }
@@ -329,7 +329,7 @@ mod tests {
         // Verify modification data points
         let base_col = df.column("base")?.str()?;
         let mod_code_col = df.column("mod_code")?.str()?;
-        let position_col = df.column("position")?.u64()?;
+        let position_col = df.column("position")?.u32()?;
         let ref_position_col = df.column("ref_position")?.i64()?;
         let mod_quality_col = df.column("mod_quality")?.u32()?;
 

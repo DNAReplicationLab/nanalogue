@@ -140,7 +140,7 @@ from the github repository. To download:
 1. Navigate to the workflow runs
 2. Click on a successful workflow run
 3. Scroll to the "Artifacts" section at the bottom
-4. Download the binary artifact for your platform. Linux artifact names include architecture suffixes such as `x86_64`, `aarch64`, `arm`, `riscv64gc`, and `powerpc64le`:
+4. Download the binary artifact for your platform. Linux artifact names include architecture suffixes such as `x86_64`, `aarch64`, `armv7`, `riscv64gc`, and `powerpc64le`:
    - `binaries-macos-latest` - macOS Apple Silicon binaries
    - `binaries-macos-15-intel` - macOS Intel binaries
    - `binaries-musllinux_1_2_x86_64` - x86_64 Alpine/musl (static binaries)
@@ -150,7 +150,7 @@ from the github repository. To download:
    - `binaries-manylinux_2_34_<arch>` - Newer Linux distributions (glibc 2.34+)
    - `binaries-manylinux_2_29_<arch>` - RISC-V / PowerPC64LE Linux (glibc 2.29+)
    - `binaries-manylinux_2_28_<arch>` - Modern Linux distributions (glibc 2.28+)
-   - `binaries-manylinux_2_17_arm` - Other Linux distributions (glibc 2.17+, maximum compatibility)
+   - `binaries-manylinux_2_17_armv7` - 32-bit ARM / some Raspberry Pi models (glibc 2.17+, maximum compatibility)
 
 ## Using Cargo
 

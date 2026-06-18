@@ -18,28 +18,18 @@ use rust_htslib::bam::record::Aux;
 // ---------------------------------------------------------------------------
 
 /// A single genomic annotation with query and reference coordinates.
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 #[expect(
     clippy::exhaustive_structs,
     reason = "vendored type constructed directly in user code and doctests"
 )]
 pub struct FiberAnnotation {
-    /// Start position on the query sequence (0-based, inclusive)
-    pub start: i64,
-    /// End position on the query sequence (0-based, exclusive)
-    pub end: i64,
-    /// Length of the annotation on the query sequence
-    pub length: i64,
+    /// Position on the query sequence (0-based, inclusive)
+    pub pos: u32,
+    /// Position on the reference (0-based, inclusive), if mapped
+    pub ref_pos: Option<u32>,
     /// Quality / probability value (0–255)
     pub qual: u8,
-    /// Start position on the reference (0-based, inclusive), if mapped
-    pub reference_start: Option<i64>,
-    /// End position on the reference (0-based, exclusive), if mapped
-    pub reference_end: Option<i64>,
-    /// Length of the annotation on the reference, if mapped
-    pub reference_length: Option<i64>,
-    /// Optional extra annotation columns
-    pub extra_columns: Option<Vec<String>>,
 }
 
 /// A collection of [`FiberAnnotation`] items along a single read.
@@ -52,7 +42,7 @@ pub struct FiberAnnotations {
     /// Sorted annotations along the read
     pub annotations: Vec<FiberAnnotation>,
     /// Length of the query sequence
-    pub seq_len: i64,
+    pub seq_len: u32,
     /// Whether the read is on the reverse strand
     pub reverse: bool,
 }
@@ -65,10 +55,10 @@ impl FiberAnnotations {
     #[must_use]
     pub fn from_annotations(
         mut annotations: Vec<FiberAnnotation>,
-        seq_len: i64,
+        seq_len: u32,
         reverse: bool,
     ) -> Self {
-        annotations.sort_by_key(|a| a.start);
+        annotations.sort_by_key(|a| a.pos);
         Self {
             annotations,
             seq_len,
@@ -76,49 +66,22 @@ impl FiberAnnotations {
         }
     }
 
-    /// Query start positions.
-    #[must_use]
-    pub fn starts(&self) -> Vec<i64> {
-        self.annotations.iter().map(|a| a.start).collect()
+    /// Query positions.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
+    pub fn pos(&self) -> impl Iterator<Item = u32> + '_ {
+        self.annotations.iter().map(|a| a.pos)
     }
 
-    /// Query end positions.
-    #[must_use]
-    pub fn ends(&self) -> Vec<i64> {
-        self.annotations.iter().map(|a| a.end).collect()
-    }
-
-    /// Query lengths.
-    #[must_use]
-    pub fn lengths(&self) -> Vec<i64> {
-        self.annotations.iter().map(|a| a.length).collect()
+    /// Reference positions.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
+    pub fn ref_pos(&self) -> impl Iterator<Item = Option<u32>> + '_ {
+        self.annotations.iter().map(|a| a.ref_pos)
     }
 
     /// Quality values.
-    #[must_use]
-    pub fn qual(&self) -> Vec<u8> {
-        self.annotations.iter().map(|a| a.qual).collect()
-    }
-
-    /// Reference start positions.
-    #[must_use]
-    pub fn reference_starts(&self) -> Vec<Option<i64>> {
-        self.annotations.iter().map(|a| a.reference_start).collect()
-    }
-
-    /// Reference end positions.
-    #[must_use]
-    pub fn reference_ends(&self) -> Vec<Option<i64>> {
-        self.annotations.iter().map(|a| a.reference_end).collect()
-    }
-
-    /// Reference lengths.
-    #[must_use]
-    pub fn reference_lengths(&self) -> Vec<Option<i64>> {
-        self.annotations
-            .iter()
-            .map(|a| a.reference_length)
-            .collect()
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
+    pub fn qual(&self) -> impl Iterator<Item = u8> + '_ {
+        self.annotations.iter().map(|a| a.qual)
     }
 }
 
@@ -244,36 +207,25 @@ mod tests {
         let annotations = FiberAnnotations {
             annotations: vec![
                 FiberAnnotation {
-                    start: 5,
-                    end: 10,
-                    length: 5,
+                    pos: 5,
                     qual: 100,
-                    reference_start: Some(50),
-                    reference_end: Some(55),
-                    reference_length: Some(5),
-                    extra_columns: None,
+                    ref_pos: Some(50),
                 },
                 FiberAnnotation {
-                    start: 20,
-                    end: 25,
-                    length: 5,
+                    pos: 20,
                     qual: 150,
-                    reference_start: None,
-                    reference_end: None,
-                    reference_length: None,
-                    extra_columns: None,
+                    ref_pos: None,
                 },
             ],
             seq_len: 50,
             reverse: false,
         };
-        assert_eq!(annotations.starts(), vec![5, 20]);
-        assert_eq!(annotations.ends(), vec![10, 25]);
-        assert_eq!(annotations.lengths(), vec![5, 5]);
-        assert_eq!(annotations.qual(), vec![100, 150]);
-        assert_eq!(annotations.reference_starts(), vec![Some(50), None]);
-        assert_eq!(annotations.reference_ends(), vec![Some(55), None]);
-        assert_eq!(annotations.reference_lengths(), vec![Some(5), None]);
+        assert_eq!(annotations.pos().collect::<Vec<_>>(), vec![5, 20]);
+        assert_eq!(annotations.qual().collect::<Vec<_>>(), vec![100, 150]);
+        assert_eq!(
+            annotations.ref_pos().collect::<Vec<_>>(),
+            vec![Some(50), None]
+        );
     }
 
     #[test]
@@ -283,12 +235,8 @@ mod tests {
             seq_len: 0,
             reverse: false,
         };
-        assert!(annotations.starts().is_empty());
-        assert!(annotations.ends().is_empty());
-        assert!(annotations.lengths().is_empty());
-        assert!(annotations.qual().is_empty());
-        assert!(annotations.reference_starts().is_empty());
-        assert!(annotations.reference_ends().is_empty());
-        assert!(annotations.reference_lengths().is_empty());
+        assert!(annotations.pos().next().is_none());
+        assert!(annotations.qual().next().is_none());
+        assert!(annotations.ref_pos().next().is_none());
     }
 }

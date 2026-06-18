@@ -2,10 +2,9 @@
 //!
 //! This file provides some global options in the command line interface.
 use crate::{
-    Error, F32Bw0and1, GenomicRegion, ModChar, PathOrURLOrStdin, ReadStates,
+    Error, F32Bw0and1, GenomicBed3, GenomicRegion, ModChar, PathOrURLOrStdin, ReadStates,
     RestrictModCalledStrand, ThresholdState,
 };
-use bedrs::prelude::Bed3;
 use clap::{Args, FromArgMatches};
 use derive_builder::Builder;
 use rust_htslib::bam;
@@ -44,8 +43,8 @@ use std::str::FromStr;
 ///
 /// let bam = InputBamBuilder::default()
 ///     .bam_path(PathOrURLOrStdin::Path("/some/path/to/bam.bam".into()))
-///     .min_seq_len(30000u64)
-///     .min_align_len(20000i64)
+///     .min_seq_len(30000u32)
+///     .min_align_len(20000u32)
 ///     .read_id("some-id")
 ///     .read_filter("primary_forward,secondary_forward".into())
 ///     .sample_fraction(F32Bw0and1::new(1.0).expect("no error"))
@@ -108,14 +107,13 @@ use std::str::FromStr;
 /// `region_bed3` using [`GenomicRegion::try_to_bed3`] and a BAM header.
 ///
 /// ```should_panic
-/// use bedrs::prelude::Bed3;
-/// use nanalogue_core::{Error, InputBamBuilder, PathOrURLOrStdin};
+/// use nanalogue_core::{Error, GenomicBed3, InputBamBuilder, PathOrURLOrStdin};
 ///
 /// let bam = InputBamBuilder::default()
 ///     .bam_path(PathOrURLOrStdin::Path("/some/path/to/bam.bam".into()))
 ///     .read_id("some-id")
 ///     .region("chr4:1000-2000".into())
-///     .region_bed3(Bed3::<i32,u64>::new(3, 1000, 2000))
+///     .region_bed3(GenomicBed3::new(3, 1000, 2000))
 ///     .build()?;
 /// # Ok::<(), Error>(())
 /// ```
@@ -126,7 +124,6 @@ use std::str::FromStr;
 /// * `read_id_set` is a set of read ids supplied directly.
 ///
 /// ```
-/// use bedrs::prelude::Bed3;
 /// use nanalogue_core::{Error, InputBamBuilder, PathOrURLOrStdin};
 /// use std::collections::HashSet;
 ///
@@ -165,12 +162,12 @@ pub struct InputBam {
     /// below this value. Defaults to 0.
     #[clap(long, default_value_t)]
     #[builder(setter(into))]
-    pub min_seq_len: u64,
+    pub min_seq_len: u32,
     /// Exclude reads whose alignment length in the BAM file is
     /// below this value. Defaults to unused.
     #[clap(long)]
     #[builder(setter(into, strip_option))]
-    pub min_align_len: Option<i64>,
+    pub min_align_len: Option<u32>,
     /// Only include this read id, defaults to unused i.e. all reads are used.
     /// NOTE: if there are multiple alignments corresponding
     /// to this read id, all of them are used.
@@ -255,7 +252,7 @@ pub struct InputBam {
     /// based on the other options that the user sets.
     #[clap(skip)]
     #[builder(setter(into, strip_option))]
-    pub region_bed3: Option<Bed3<i32, u64>>,
+    pub region_bed3: Option<GenomicBed3>,
     /// Only keep reads if they pass through the specified region in full.
     /// Related to the input `--region`; has no effect if that is not set.
     #[clap(long, default_value_t, requires = "region")]
@@ -458,8 +455,7 @@ impl TagState for RequiredTag {
 /// knows `chr3` corresponds to `4`, so they set the region directly.
 ///
 /// ```
-/// use bedrs::prelude::Bed3;
-/// use nanalogue_core::{InputModsBuilder, Error, RequiredTag, ThresholdState};
+/// use nanalogue_core::{Error, GenomicBed3, InputModsBuilder, RequiredTag, ThresholdState};
 /// use std::str::FromStr;
 ///
 /// let input_options = InputModsBuilder::<RequiredTag>::default()
@@ -468,7 +464,7 @@ impl TagState for RequiredTag {
 ///     .mod_prob_filter(ThresholdState::GtEq(0))
 ///     .trim_read_ends_mod(10)
 ///     .base_qual_filter_mod(10)
-///     .region_bed3(Bed3::<i32, u64>::new(4, 4000, 5000))
+///     .region_bed3(GenomicBed3::new(4, 4000, 5000))
 ///     .build()?;
 ///
 /// # Ok::<(), Error>(())
@@ -479,13 +475,12 @@ impl TagState for RequiredTag {
 /// can result in an undefined state, so we do not allow this.
 ///
 /// ```should_panic
-/// use bedrs::prelude::Bed3;
-/// use nanalogue_core::{InputModsBuilder, Error, RequiredTag, ThresholdState};
+/// use nanalogue_core::{Error, GenomicBed3, InputModsBuilder, RequiredTag, ThresholdState};
 /// use std::str::FromStr;
 ///
 /// let input_options = InputModsBuilder::<RequiredTag>::default()
 ///     .mod_prob_filter(ThresholdState::GtEq(0))
-///     .region_bed3(Bed3::<i32, u64>::new(4, 4000, 5000))
+///     .region_bed3(GenomicBed3::new(4, 4000, 5000))
 ///     .mod_region("chr3:4000-5000".into())
 ///     .build()?;
 ///
@@ -568,7 +563,7 @@ pub struct InputMods<S: TagState + Args + FromArgMatches + Default> {
     /// into a numeric contig id.
     #[clap(skip)]
     #[builder(setter(strip_option))]
-    pub region_bed3: Option<Bed3<i32, u64>>,
+    pub region_bed3: Option<GenomicBed3>,
 }
 
 impl<S: TagState + Args + FromArgMatches + Default> InputModsBuilder<S> {
@@ -631,11 +626,11 @@ pub trait InputModOptions {
 /// Retrieves options for region
 pub trait InputRegionOptions {
     /// returns region requested
-    fn region_filter(&self) -> &Option<Bed3<i32, u64>>;
+    fn region_filter(&self) -> &Option<GenomicBed3>;
     /// returns region requested but region in genomic string format
     fn region_filter_genomic_string(&self) -> Option<GenomicRegion>;
     /// sets region requested
-    fn set_region_filter(&mut self, _value: Option<Bed3<i32, u64>>);
+    fn set_region_filter(&mut self, _value: Option<GenomicBed3>);
     /// returns true if full overlap with region is requested as opposed to
     /// only partial overlap. defaults to false.
     fn is_full_overlap(&self) -> bool {
@@ -690,10 +685,10 @@ impl<S: TagState + Args + FromArgMatches + Default> InputRegionOptions for Input
     fn region_filter_genomic_string(&self) -> Option<GenomicRegion> {
         self.mod_region.clone()
     }
-    fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
+    fn region_filter(&self) -> &Option<GenomicBed3> {
         &self.region_bed3
     }
-    fn set_region_filter(&mut self, value: Option<Bed3<i32, u64>>) {
+    fn set_region_filter(&mut self, value: Option<GenomicBed3>) {
         self.region_bed3 = value;
     }
 }
@@ -711,10 +706,10 @@ impl InputRegionOptions for InputBam {
     fn region_filter_genomic_string(&self) -> Option<GenomicRegion> {
         self.region.clone()
     }
-    fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
+    fn region_filter(&self) -> &Option<GenomicBed3> {
         &self.region_bed3
     }
-    fn set_region_filter(&mut self, value: Option<Bed3<i32, u64>>) {
+    fn set_region_filter(&mut self, value: Option<GenomicBed3>) {
         self.region_bed3 = value;
     }
     fn is_full_overlap(&self) -> bool {
@@ -785,7 +780,7 @@ pub enum SeqDisplayOptions {
         /// Option to show modified bases as Z (or z depending on other options)
         show_mod_z: bool,
         /// Region over which sequence must be shown
-        region: Bed3<i32, u64>,
+        region: GenomicBed3,
     },
 }
 
@@ -907,7 +902,7 @@ mod input_mods_required_tag_tests {
             .mod_prob_filter(ThresholdState::GtEq(0))
             .trim_read_ends_mod(10)
             .base_qual_filter_mod(10)
-            .region_bed3(Bed3::<i32, u64>::new(4, 4000, 5000))
+            .region_bed3(GenomicBed3::new(4, 4000, 5000))
             .build()
             .unwrap();
     }
@@ -951,8 +946,8 @@ mod input_bam_tests {
     fn input_bam_builder() {
         let _: InputBam = InputBamBuilder::default()
             .bam_path(PathOrURLOrStdin::Path("/some/path/to/bam.bam".into()))
-            .min_seq_len(30000u64)
-            .min_align_len(20000i64)
+            .min_seq_len(30000u32)
+            .min_align_len(20000u32)
             .read_id("some-id")
             .read_filter("primary_forward,secondary_forward".into())
             .sample_fraction(F32Bw0and1::one())
@@ -1074,7 +1069,7 @@ mod input_bam_tests {
         // When region_bed3 is already set and region is None, should not convert
         let mut input_bam = InputBam {
             region: None,
-            region_bed3: Some(Bed3::<i32, u64>::new(1, 1000, 2000)),
+            region_bed3: Some(GenomicBed3::new(1, 1000, 2000)),
             ..Default::default()
         };
 
@@ -1103,7 +1098,7 @@ mod input_bam_tests {
         // When both region and region_bed3 are set, should error
         let mut input_bam = InputBam {
             region: Some(GenomicRegion::from_str("chr2:1500-2500").unwrap()),
-            region_bed3: Some(Bed3::<i32, u64>::new(1, 1000, 2000)),
+            region_bed3: Some(GenomicBed3::new(1, 1000, 2000)),
             ..Default::default()
         };
 
@@ -1126,12 +1121,12 @@ mod input_region_options_tests {
 
     #[derive(Debug, Default)]
     struct TestInputRegionOptions {
-        region_filter: Option<Bed3<i32, u64>>,
+        region_filter: Option<GenomicBed3>,
         region_filter_genomic_string: Option<GenomicRegion>,
     }
 
     impl InputRegionOptions for TestInputRegionOptions {
-        fn region_filter(&self) -> &Option<Bed3<i32, u64>> {
+        fn region_filter(&self) -> &Option<GenomicBed3> {
             &self.region_filter
         }
 
@@ -1139,7 +1134,7 @@ mod input_region_options_tests {
             self.region_filter_genomic_string.clone()
         }
 
-        fn set_region_filter(&mut self, value: Option<Bed3<i32, u64>>) {
+        fn set_region_filter(&mut self, value: Option<GenomicBed3>) {
             self.region_filter = value;
         }
     }
@@ -1173,7 +1168,7 @@ mod validate_builder_functions {
         let _: InputBam = InputBamBuilder::default()
             .bam_path(PathOrURLOrStdin::Path("/some/path.bam".into()))
             .region("chr1:1000-2000".into())
-            .region_bed3(Bed3::<i32, u64>::new(0, 1000, 2000))
+            .region_bed3(GenomicBed3::new(0, 1000, 2000))
             .build()
             .unwrap();
     }
@@ -1237,7 +1232,7 @@ mod validate_builder_functions {
         let _: InputMods<OptionalTag> = InputModsBuilder::<OptionalTag>::default()
             .mod_prob_filter(ThresholdState::GtEq(0))
             .mod_region("chr1:1000-2000".into())
-            .region_bed3(Bed3::<i32, u64>::new(0, 1000, 2000))
+            .region_bed3(GenomicBed3::new(0, 1000, 2000))
             .build()
             .unwrap();
     }
@@ -1249,7 +1244,7 @@ mod validate_builder_functions {
             .tag(RequiredTag::from_str("m").unwrap())
             .mod_prob_filter(ThresholdState::GtEq(0))
             .mod_region("chr1:1000-2000".into())
-            .region_bed3(Bed3::<i32, u64>::new(0, 1000, 2000))
+            .region_bed3(GenomicBed3::new(0, 1000, 2000))
             .build()
             .unwrap();
     }

@@ -118,7 +118,7 @@ use rust_htslib::bam;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
 use serde::{Deserialize, Serialize};
 use std::iter;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::NonZeroU32;
 use std::ops::RangeInclusive;
 use std::path::Path;
 use std::str::FromStr as _;
@@ -268,8 +268,8 @@ pub struct ContigConfig {
     #[builder(field(ty = "u32", build = "self.number.try_into()?"))]
     pub number: NonZeroU32,
     /// Contig length range in bp [min, max]
-    #[builder(field(ty = "(u64, u64)", build = "self.len_range.try_into()?"))]
-    pub len_range: OrdPair<NonZeroU64>,
+    #[builder(field(ty = "(u32, u32)", build = "self.len_range.try_into()?"))]
+    pub len_range: OrdPair<NonZeroU32>,
     /// Optional repeated sequence to use for contigs instead of random generation
     #[builder(field(
         ty = "String",
@@ -480,7 +480,7 @@ impl Default for ContigConfig {
     fn default() -> Self {
         Self {
             number: NonZeroU32::new(1).unwrap(),
-            len_range: OrdPair::new(NonZeroU64::new(1).unwrap(), NonZeroU64::new(1).unwrap())
+            len_range: OrdPair::new(NonZeroU32::new(1).unwrap(), NonZeroU32::new(1).unwrap())
                 .unwrap(),
             repeated_seq: None,
         }
@@ -1051,10 +1051,10 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
 /// Generates random DNA sequence of given length
 ///
 /// # Panics
-/// Panics if the sequence length exceeds `usize::MAX` (2^32 - 1 on 32-bit systems, 2^64 - 1 on 64-bit systems).
+/// Panics if the sequence length exceeds `usize::MAX`.
 ///
 /// ```
-/// use std::num::NonZeroU64;
+/// use std::num::NonZeroU32;
 /// use rand::Rng;
 /// use nanalogue_core::simulate_mod_bam::generate_random_dna_sequence;
 ///
@@ -1063,7 +1063,7 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
 /// assert_eq!(seq.len(), 100);
 /// assert!(seq.iter().all(|&base| [b'A', b'C', b'G', b'T'].contains(&base)));
 /// ```
-pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU64, rng: &mut R) -> Vec<u8> {
+pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU32, rng: &mut R) -> Vec<u8> {
     const DNA_BASES: [u8; 4] = [b'A', b'C', b'G', b'T'];
     iter::repeat_with(|| {
         *DNA_BASES
@@ -1128,7 +1128,7 @@ pub fn add_barcode(read_seq: &[u8], barcode: DNARestrictive, read_state: ReadSta
 /// Generates contigs with random sequence according to configuration
 ///
 /// ```
-/// use std::num::{NonZeroU32, NonZeroU64};
+/// use std::num::NonZeroU32;
 /// use nanalogue_core::{OrdPair, GetDNARestrictive};
 /// use nanalogue_core::simulate_mod_bam::generate_contigs_denovo;
 /// use rand::Rng;
@@ -1149,14 +1149,14 @@ pub fn add_barcode(read_seq: &[u8], barcode: DNARestrictive, read_state: ReadSta
 )]
 pub fn generate_contigs_denovo<R: Rng>(
     contig_number: NonZeroU32,
-    len_range: OrdPair<NonZeroU64>,
+    len_range: OrdPair<NonZeroU32>,
     rng: &mut R,
 ) -> Vec<Contig> {
     (0..contig_number.get())
         .map(|i| {
             let length = rng.random_range(len_range.low().get()..=len_range.high().get());
             let seq_bytes =
-                generate_random_dna_sequence(NonZeroU64::try_from(length).expect("no error"), rng);
+                generate_random_dna_sequence(NonZeroU32::try_from(length).expect("no error"), rng);
             let seq_str = String::from_utf8(seq_bytes).expect("valid DNA sequence");
             ContigBuilder::default()
                 .name(format!("contig_{i:05}"))
@@ -1173,7 +1173,7 @@ pub fn generate_contigs_denovo<R: Rng>(
 /// within the specified range. The last repetition is clipped if needed.
 ///
 /// ```
-/// use std::num::{NonZeroU32, NonZeroU64};
+/// use std::num::NonZeroU32;
 /// use std::str::FromStr;
 /// use nanalogue_core::{DNARestrictive, GetDNARestrictive, OrdPair};
 /// use nanalogue_core::simulate_mod_bam::generate_contigs_denovo_repeated_seq;
@@ -1202,7 +1202,7 @@ pub fn generate_contigs_denovo<R: Rng>(
 )]
 pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
     contig_number: NonZeroU32,
-    len_range: OrdPair<NonZeroU64>,
+    len_range: OrdPair<NonZeroU32>,
     seq: &S,
     rng: &mut R,
 ) -> Vec<Contig> {
@@ -1592,7 +1592,7 @@ mod random_dna_generation_test {
     /// Test for generation of random DNA of a given length
     #[test]
     fn generate_random_dna_sequence_works() {
-        let seq = generate_random_dna_sequence(NonZeroU64::new(100).unwrap(), &mut rand::rng());
+        let seq = generate_random_dna_sequence(NonZeroU32::new(100).unwrap(), &mut rand::rng());
         assert_eq!(seq.len(), 100);
         for base in seq {
             assert!([b'A', b'C', b'G', b'T'].contains(&base));
@@ -3387,7 +3387,7 @@ mod contig_generation_tests {
         let seq = DNARestrictive::from_str("ACGT").unwrap();
         let contigs = generate_contigs_denovo_repeated_seq(
             NonZeroU32::new(10000).unwrap(),
-            OrdPair::new(NonZeroU64::new(10).unwrap(), NonZeroU64::new(12).unwrap()).unwrap(),
+            OrdPair::new(NonZeroU32::new(10).unwrap(), NonZeroU32::new(12).unwrap()).unwrap(),
             &seq,
             &mut rand::rng(),
         );

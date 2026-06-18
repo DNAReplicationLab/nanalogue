@@ -308,7 +308,7 @@ where
             run_on_bam(cli, handle, nanalogue_bam_reader_from_url(&v)?)
         }
         (PathOrURLOrStdin::Path(v), Some(w)) => {
-            match nanalogue_indexed_bam_reader(&v, (&w).try_into()?) {
+            match nanalogue_indexed_bam_reader(&v, (&w).into()) {
                 Err(Error::RustHtslibError(err))
                     if matches!(err.as_ref(), RHError::BamInvalidIndex { .. }) =>
                 {
@@ -320,7 +320,7 @@ where
             }
         }
         (PathOrURLOrStdin::URL(v), Some(w)) => {
-            match nanalogue_indexed_bam_reader_from_url(&v, (&w).try_into()?) {
+            match nanalogue_indexed_bam_reader_from_url(&v, (&w).into()) {
                 Err(Error::RustHtslibError(err))
                     if matches!(err.as_ref(), RHError::BamInvalidIndex { .. }) =>
                 {

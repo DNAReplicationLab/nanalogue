@@ -6,7 +6,7 @@ use crate::{Error, F32Bw0and1};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
-use std::num::NonZeroU64;
+use std::num::NonZeroU32;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 
@@ -54,8 +54,8 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> TryFrom<OrdPairShadow<T>>
 }
 
 impl Eq for OrdPair<u8> {}
-impl Eq for OrdPair<u64> {}
-impl Eq for OrdPair<NonZeroU64> {}
+impl Eq for OrdPair<u32> {}
+impl Eq for OrdPair<NonZeroU32> {}
 impl Eq for OrdPair<F32Bw0and1> {}
 
 impl<T: Clone + Copy + Debug + Default + Ord> Default for OrdPair<T> {
@@ -175,16 +175,16 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
     }
 }
 
-impl OrdPair<u64> {
+impl OrdPair<u32> {
     /// Parse an interval string specifically for genomic regions.
-    /// Supports formats like "1000-2000" and "1000-" (where end defaults to `u64::MAX`).
+    /// Supports formats like "1000-2000" and "1000-" (where end defaults to `u32::MAX`).
     /// Enforces strict inequality (start < end).
     ///
     /// ```
     /// use nanalogue_core::OrdPair;
     ///
     /// // Standard interval
-    /// let interval = OrdPair::<u64>::from_interval("1000-2000")?;
+    /// let interval = OrdPair::<u32>::from_interval("1000-2000")?;
     /// assert_eq!(interval.low(), 1000);
     /// assert_eq!(interval.high(), 2000);
     /// # Ok::<(), nanalogue_core::Error>(())
@@ -193,10 +193,10 @@ impl OrdPair<u64> {
     /// ```
     /// # use nanalogue_core::OrdPair;
     /// #
-    /// // Open-ended interval (end defaults to u64::MAX)
-    /// let interval = OrdPair::<u64>::from_interval("1000-")?;
+    /// // Open-ended interval (end defaults to u32::MAX)
+    /// let interval = OrdPair::<u32>::from_interval("1000-")?;
     /// assert_eq!(interval.low(), 1000);
-    /// assert_eq!(interval.high(), u64::MAX);
+    /// assert_eq!(interval.high(), u32::MAX);
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     ///
@@ -204,7 +204,7 @@ impl OrdPair<u64> {
     /// # use nanalogue_core::OrdPair;
     /// #
     /// // Equal start and end should fail
-    /// let interval = OrdPair::<u64>::from_interval("1000-1000")?;
+    /// let interval = OrdPair::<u32>::from_interval("1000-1000")?;
     /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     ///
@@ -226,7 +226,7 @@ calls are only used after verifying the length of the parts vector, ensuring saf
                     .first()
                     .expect("parts has exactly 2 elements")
                     .trim()
-                    .parse::<u64>()
+                    .parse::<u32>()
                     .map_err(|_err| {
                         Error::OrdPairConversion(
                             "Invalid start coordinate in interval!".to_string(),
@@ -240,14 +240,14 @@ calls are only used after verifying the length of the parts vector, ensuring saf
                     .is_empty()
                 {
                     // Open-ended interval: "1000-"
-                    u64::MAX
+                    u32::MAX
                 } else {
                     // Closed interval: "1000-2000"
                     parts
                         .get(1)
                         .expect("parts has exactly 2 elements")
                         .trim()
-                        .parse::<u64>()
+                        .parse::<u32>()
                         .map_err(|_err| {
                             Error::OrdPairConversion(
                                 "Invalid end coordinate in interval!".to_string(),
@@ -323,25 +323,25 @@ impl<T: Clone + Copy + Debug + fmt::Display + PartialEq + PartialOrd> fmt::Displ
     }
 }
 
-/// Shorthand notation for an ordered pair of `NonZeroU64`.
+/// Shorthand notation for an ordered pair of `NonZeroU32`.
 ///
 /// # Examples
 /// ```
 /// use nanalogue_core::{Error, OrdPair};
-/// use std::num::NonZeroU64;
-/// let v = OrdPair::<NonZeroU64>::try_from((2u64, 3u64))?;
-/// assert_eq!(v, OrdPair::new(NonZeroU64::new(2).unwrap(), NonZeroU64::new(3).unwrap()).unwrap());
+/// use std::num::NonZeroU32;
+/// let v = OrdPair::<NonZeroU32>::try_from((2u32, 3u32))?;
+/// assert_eq!(v, OrdPair::new(NonZeroU32::new(2).unwrap(), NonZeroU32::new(3).unwrap()).unwrap());
 /// # Ok::<(), nanalogue_core::Error>(())
 /// ```
-impl TryFrom<(u64, u64)> for OrdPair<NonZeroU64> {
+impl TryFrom<(u32, u32)> for OrdPair<NonZeroU32> {
     type Error = Error;
 
-    fn try_from(value: (u64, u64)) -> Result<Self, Self::Error> {
+    fn try_from(value: (u32, u32)) -> Result<Self, Self::Error> {
         OrdPair::new(
-            NonZeroU64::new(value.0).ok_or(Error::InvalidState(String::from(
+            NonZeroU32::new(value.0).ok_or(Error::InvalidState(String::from(
                 "did you pass positive integers < 2^64?",
             )))?,
-            NonZeroU64::new(value.1).ok_or(Error::InvalidState(String::from(
+            NonZeroU32::new(value.1).ok_or(Error::InvalidState(String::from(
                 "did you pass positive integers < 2^64?",
             )))?,
         )
@@ -458,68 +458,68 @@ mod tests {
     #[test]
     fn ord_pair_from_interval() {
         // Standard interval
-        let interval = OrdPair::<u64>::from_interval("1000-2000").expect("should parse");
+        let interval = OrdPair::<u32>::from_interval("1000-2000").expect("should parse");
         assert_eq!(interval.low(), 1000);
         assert_eq!(interval.high(), 2000);
 
         // Open-ended interval
-        let interval = OrdPair::<u64>::from_interval("1000-").expect("should parse");
+        let interval = OrdPair::<u32>::from_interval("1000-").expect("should parse");
         assert_eq!(interval.low(), 1000);
-        assert_eq!(interval.high(), u64::MAX);
+        assert_eq!(interval.high(), u32::MAX);
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_equal_start_end_panics() {
-        let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000-1000").unwrap();
+        let _: OrdPair<u32> = OrdPair::<u32>::from_interval("1000-1000").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_start_greater_than_end_panics() {
-        let _: OrdPair<u64> = OrdPair::<u64>::from_interval("2000-1000").unwrap();
+        let _: OrdPair<u32> = OrdPair::<u32>::from_interval("2000-1000").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_no_dash_panics() {
-        let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000").unwrap();
+        let _: OrdPair<u32> = OrdPair::<u32>::from_interval("1000").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_too_many_dashes_panics() {
-        let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000-2000-3000").unwrap();
+        let _: OrdPair<u32> = OrdPair::<u32>::from_interval("1000-2000-3000").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_invalid_start_panics() {
-        let _: OrdPair<u64> = OrdPair::<u64>::from_interval("abc-2000").unwrap();
+        let _: OrdPair<u32> = OrdPair::<u32>::from_interval("abc-2000").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_invalid_end_panics() {
-        let _: OrdPair<u64> = OrdPair::<u64>::from_interval("1000-xyz").unwrap();
+        let _: OrdPair<u32> = OrdPair::<u32>::from_interval("1000-xyz").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_empty_string_panics() {
-        let _: OrdPair<u64> = OrdPair::<u64>::from_interval("").unwrap();
+        let _: OrdPair<u32> = OrdPair::<u32>::from_interval("").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_just_dash_panics() {
-        let _: OrdPair<u64> = OrdPair::<u64>::from_interval("-").unwrap();
+        let _: OrdPair<u32> = OrdPair::<u32>::from_interval("-").unwrap();
     }
 
     #[test]
     #[should_panic(expected = "OrdPairConversion")]
     fn ord_pair_from_interval_negative_numbers_panics() {
-        let _: OrdPair<u64> = OrdPair::<u64>::from_interval("-100-200").unwrap();
+        let _: OrdPair<u32> = OrdPair::<u32>::from_interval("-100-200").unwrap();
     }
 
     #[test]
@@ -603,30 +603,30 @@ mod tests {
     /// invariant.
     #[test]
     fn ord_pair_deserialize_struct_form_rejects_wrong_order() {
-        let err: Result<OrdPair<u64>, _> = serde_json::from_str(r#"{"low":100,"high":0}"#);
+        let err: Result<OrdPair<u32>, _> = serde_json::from_str(r#"{"low":100,"high":0}"#);
         let _: serde_json::Error = err.unwrap_err();
     }
 
     /// Deserializing the 2-array form must also enforce `low <= high`.
     #[test]
     fn ord_pair_deserialize_array_form_rejects_wrong_order() {
-        let err: Result<OrdPair<u64>, _> = serde_json::from_str("[200,100]");
+        let err: Result<OrdPair<u32>, _> = serde_json::from_str("[200,100]");
         let _: serde_json::Error = err.unwrap_err();
     }
 
     /// Round-trip: a valid `OrdPair` serializes and deserializes back to itself.
     #[test]
     fn ord_pair_deserialize_struct_form_accepts_valid() {
-        let p = OrdPair::<u64>::new(10, 20).expect("should create");
+        let p = OrdPair::<u32>::new(10, 20).expect("should create");
         let json = serde_json::to_string(&p).expect("should serialize");
-        let back: OrdPair<u64> = serde_json::from_str(&json).expect("should deserialize");
+        let back: OrdPair<u32> = serde_json::from_str(&json).expect("should deserialize");
         assert_eq!(p, back);
     }
 
     /// Array form must also be accepted for valid input.
     #[test]
     fn ord_pair_deserialize_array_form_accepts_valid() {
-        let back: OrdPair<u64> =
+        let back: OrdPair<u32> =
             serde_json::from_str("[10, 20]").expect("array form should deserialize");
         assert_eq!(back.low(), 10);
         assert_eq!(back.high(), 20);
