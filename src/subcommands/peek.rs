@@ -2,6 +2,8 @@
 //!
 //! This function displays contigs, contig lengths and modification types after looking at the header and the given records
 
+use crate::constants::peek::{MAX_CONTIGS, MAX_MODIFICATIONS, MAX_RECORDS};
+use crate::constants::shared::MAX_RECORD_CAPACITY_BYTES;
 use crate::{AllowedAGCTN, CurrRead, Error, ModChar};
 use rust_htslib::bam;
 use std::collections::HashSet;
@@ -39,11 +41,26 @@ use std::rc::Rc;
 /// - BAM header parsing fails
 /// - Reading or parsing BAM records fails
 /// - Converting modification data fails
+/// - Hard caps are hit
+///
+/// # Panics
+///
+/// This function converts some `u32` constants (e.g. record caps) to `usize`
+/// for comparisons with iterator indices.
+/// This conversion should never panic on supported targets because `usize` is
+/// at least 32 bits.
 pub fn run<W, D>(handle: &mut W, header: &bam::HeaderView, records: D) -> Result<(), Error>
 where
     W: io::Write,
     D: Iterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
 {
+    // Cap on number of contigs
+    if header.target_count() > MAX_CONTIGS {
+        return Err(Error::InvalidState(format!(
+            "peek contig limit exceeded: > {MAX_CONTIGS}"
+        )));
+    }
+
     // 1. Display contigs
     writeln!(handle, "contigs_and_lengths:")?;
     let target_names = header.target_names();
@@ -63,8 +80,22 @@ where
     // 2. Collect modifications from records
     let mut modifications = HashSet::new();
 
-    for record_result in records {
+    for (record_idx, record_result) in records.enumerate() {
         let record = record_result?;
+
+        // Cap on number of records
+        if record_idx > usize::try_from(MAX_RECORDS).expect("MAX RECORDS set incorrectly") {
+            return Err(Error::InvalidState(format!(
+                "peek record limit exceeded: {MAX_RECORDS}"
+            )));
+        }
+
+        // Cap on record capacity as reported by HTSlib
+        if record.inner().m_data > MAX_RECORD_CAPACITY_BYTES {
+            return Err(Error::InvalidState(format!(
+                "peek record capacity limit exceeded: {MAX_RECORD_CAPACITY_BYTES}"
+            )));
+        }
 
         // Convert to CurrRead to extract modification data
         // Skip zero-length sequences (CurrRead::try_from returns Error::ZeroSeqLen)
@@ -84,7 +115,14 @@ where
 
             // Create the modification string: base+strand+modification_type
             let mod_string = format!("{}{}{}", base, base_mod.strand, mod_char);
-            let _: bool = modifications.insert(mod_string);
+            if modifications.insert(mod_string)
+                && modifications.len()
+                    > usize::try_from(MAX_MODIFICATIONS).expect("MAX_MODIFICATIONS set incorrectly")
+            {
+                return Err(Error::InvalidState(format!(
+                    "peek modification limit exceeded: > {MAX_MODIFICATIONS}"
+                )));
+            }
         }
     }
 
@@ -93,7 +131,8 @@ where
     if modifications.is_empty() {
         writeln!(handle, "None")?;
     } else {
-        // Sort modifications for consistent output
+        // Sort modifications for consistent output.
+        // Not a big slowdown to convert to Vecs as we have capped number of mods.
         let mut sorted_mods: Vec<_> = modifications.into_iter().collect();
         sorted_mods.sort();
         for mod_string in sorted_mods {
