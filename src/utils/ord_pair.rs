@@ -339,10 +339,10 @@ impl TryFrom<(u32, u32)> for OrdPair<NonZeroU32> {
     fn try_from(value: (u32, u32)) -> Result<Self, Self::Error> {
         OrdPair::new(
             NonZeroU32::new(value.0).ok_or(Error::InvalidState(String::from(
-                "did you pass positive integers < 2^64?",
+                "did you pass positive integers < 2^32?",
             )))?,
             NonZeroU32::new(value.1).ok_or(Error::InvalidState(String::from(
-                "did you pass positive integers < 2^64?",
+                "did you pass positive integers < 2^32?",
             )))?,
         )
     }

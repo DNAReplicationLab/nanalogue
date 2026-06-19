@@ -1156,7 +1156,8 @@ impl CurrRead<AlignAndModData> {
         // as there is no way to make CurrRead fall into these illegal states.
         #[expect(
             clippy::missing_panics_doc,
-            reason = "checked_sub ensures win_size <= mod_data.len() before windowing"
+            reason = "(1) checked_sub ensures win_size <= mod_data.len() before windowing, \
+(2) u32->usize ok as we enforce 32 bit platforms or higher in lib.rs"
         )]
         for k in v {
             match k {
@@ -1166,16 +1167,24 @@ impl CurrRead<AlignAndModData> {
                     ..
                 } if *x == tag_char => {
                     let mod_data: Vec<u8> = track.qual().collect();
-                    if let Some(l) = mod_data.len().checked_sub(win_size) {
+                    if let Some(l) = mod_data.len().checked_sub(
+                        usize::try_from(win_size).expect("no error as platforms >= 32-bit"),
+                    ) {
                         result.extend(
                             (0..=l)
-                                .step_by(slide_size)
+                                .step_by(
+                                    usize::try_from(slide_size)
+                                        .expect("no error as platforms >= 32-bit"),
+                                )
                                 .map(|i| {
                                     window_function(
                                         mod_data
                                             .get(i..)
                                             .expect("i <= len - win_size")
-                                            .get(0..win_size)
+                                            .get(
+                                                0..usize::try_from(win_size)
+                                                    .expect("no error as platforms >= 32-bit"),
+                                            )
                                             .expect("checked len>=win_size so no error"),
                                     )
                                 })

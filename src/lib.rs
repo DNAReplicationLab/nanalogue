@@ -125,8 +125,8 @@ pub use utils::{
     AllowedAGCTN, BaseMod, BaseMods, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1,
     FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
     OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
-    RestrictModCalledStrand, SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase,
-    get_u8_tag, mm_groups, revcomp,
+    RestrictModCalledStrand, SeqCoordCalls, ThresholdState, assert_bounded_counter, assert_flag,
+    assert_nonzero_counter, complement, convert_seq_uppercase, get_u8_tag, mm_groups, revcomp,
 };
 
 /// Genomic 3-column BED shorthand used with `bedrs` coordinate types in this crate.

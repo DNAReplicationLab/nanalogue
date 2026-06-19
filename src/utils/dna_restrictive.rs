@@ -69,6 +69,10 @@ impl TryFrom<Vec<u8>> for DNARestrictive {
     fn try_from(s: Vec<u8>) -> Result<Self, Self::Error> {
         if s.is_empty() {
             Err(Error::InvalidSeq("empty sequence supplied!".to_owned()))
+        } else if u32::try_from(s.len()).is_err() {
+            Err(Error::InvalidSeq(
+                "sequence cannot be longer than u32::MAX".to_owned(),
+            ))
         } else {
             Ok(DNARestrictive(
                 s.into_iter()

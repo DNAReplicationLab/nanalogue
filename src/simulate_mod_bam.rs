@@ -1539,6 +1539,8 @@ where
 /// automatically removes them when dropped.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TempBamSimulation {
+    /// Temporary directory containing simulation outputs
+    temp_dir: String,
     /// Path to bam file that will be created
     bam_path: String,
     /// Path to fasta file that will be created
@@ -1551,13 +1553,29 @@ impl TempBamSimulation {
     /// # Errors
     /// Returns an error if the simulation run fails
     pub fn new(config: SimulationConfig) -> Result<Self, Error> {
-        let temp_dir = std::env::temp_dir();
-        let bam_path = temp_dir.join(format!("{}.bam", uuid::v4_random()));
-        let fasta_path = temp_dir.join(format!("{}.fa", uuid::v4_random()));
+        let temp_dir_root = {
+            let temp = std::env::temp_dir();
+            if temp.is_dir() {
+                temp
+            } else {
+                return Err(Error::InvalidState(String::from(
+                    "the temp directory environmental variable is inaccessible",
+                )));
+            }
+        };
+        let temp_dir = temp_dir_root.join(uuid::v4_random());
+        #[expect(
+            clippy::create_dir,
+            reason = "we are not using create_dir_all here as we want to fail if the environmentally specified temporary directory does not exist"
+        )]
+        std::fs::create_dir(&temp_dir)?;
+
+        let bam_path = temp_dir.join("simulation.bam");
+        let fasta_path = temp_dir.join("simulation.fa");
 
         run(config, &bam_path, &fasta_path)?;
-
         Ok(Self {
+            temp_dir: temp_dir.to_string_lossy().to_string(),
             bam_path: bam_path.to_string_lossy().to_string(),
             fasta_path: fasta_path.to_string_lossy().to_string(),
         })
@@ -1579,9 +1597,7 @@ impl TempBamSimulation {
 impl Drop for TempBamSimulation {
     fn drop(&mut self) {
         // Ignore errors during cleanup - files may already be deleted
-        drop(std::fs::remove_file(&self.bam_path));
-        drop(std::fs::remove_file(&self.fasta_path));
-        drop(std::fs::remove_file(&(self.bam_path.clone() + ".bai")));
+        drop(std::fs::remove_dir_all(&self.temp_dir));
     }
 }
 

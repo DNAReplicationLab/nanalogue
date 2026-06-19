@@ -4,7 +4,9 @@
 
 use crate::constants::peek::{MAX_CONTIGS, MAX_MODIFICATIONS, MAX_RECORDS};
 use crate::constants::shared::MAX_RECORD_CAPACITY_BYTES;
-use crate::{AllowedAGCTN, CurrRead, Error, ModChar};
+use crate::{
+    AllowedAGCTN, CurrRead, Error, ModChar, assert_bounded_counter, assert_nonzero_counter,
+};
 use rust_htslib::bam;
 use std::collections::HashSet;
 use std::io;
@@ -42,6 +44,8 @@ use std::rc::Rc;
 /// - Reading or parsing BAM records fails
 /// - Converting modification data fails
 /// - Hard caps are hit
+/// - The BAM file is blank; this command errors on blank BAMs because `modifications: None`
+///   would otherwise be ambiguous between "no modifications found" and "no reads were present"
 ///
 /// # Panics
 ///
@@ -54,7 +58,8 @@ where
     W: io::Write,
     D: Iterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
 {
-    // Cap on number of contigs
+    // Error out if too many contigs are found.
+    // No contigs found is fine as BAM may be unmapped.
     if header.target_count() > MAX_CONTIGS {
         return Err(Error::InvalidState(format!(
             "peek contig limit exceeded: > {MAX_CONTIGS}"
@@ -79,21 +84,17 @@ where
 
     // 2. Collect modifications from records
     let mut modifications = HashSet::new();
+    let mut idx: u32 = 0;
 
-    for (record_idx, record_result) in records.enumerate() {
+    for record_result in records {
         let record = record_result?;
 
-        // Cap on number of records
-        if record_idx > usize::try_from(MAX_RECORDS).expect("MAX RECORDS set incorrectly") {
-            return Err(Error::InvalidState(format!(
-                "peek record limit exceeded: {MAX_RECORDS}"
-            )));
-        }
+        assert_bounded_counter(&mut idx, MAX_RECORDS, "peek")?;
 
         // Cap on record capacity as reported by HTSlib
         if record.inner().m_data > MAX_RECORD_CAPACITY_BYTES {
             return Err(Error::InvalidState(format!(
-                "peek record capacity limit exceeded: {MAX_RECORD_CAPACITY_BYTES}"
+                "record capacity limit exceeded: {MAX_RECORD_CAPACITY_BYTES}"
             )));
         }
 
@@ -125,6 +126,8 @@ where
             }
         }
     }
+
+    assert_nonzero_counter(idx, "records")?;
 
     // 3. Display modifications
     writeln!(handle, "modifications:")?;
@@ -299,6 +302,57 @@ mod tests {
     }
 
     #[test]
+    fn peek_no_mods() {
+        use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
+
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100],
+                "repeated_seq": "ACGTACGTACGTACGT"
+            },
+            "reads": [{
+                "number": 20,
+                "mapq_range": [20, 30],
+                "base_qual_range": [20, 30],
+                "len_range": [0.8, 1.0]
+            }]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+
+        let mut input_bam = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path(sim.bam_path().into()))
+            .build()
+            .expect("should build InputBam");
+
+        let bam_rc_records = BamRcRecords::new(
+            &mut reader,
+            &mut input_bam,
+            &mut InputMods::<OptionalTag>::default(),
+        )
+        .expect("should create BamRcRecords");
+
+        // Run peek
+        let mut output = Vec::new();
+        run(
+            &mut output,
+            &bam_rc_records.header,
+            bam_rc_records.rc_records.take(100),
+        )
+        .expect("peek should succeed");
+
+        let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
+
+        let expected = "contigs_and_lengths:\ncontig_00000\t100\n\nmodifications:\nNone\n";
+
+        assert_eq!(output_str, expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "no records found!")]
     fn peek_empty_file() {
         use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
 
@@ -334,13 +388,7 @@ mod tests {
             &bam_rc_records.header,
             bam_rc_records.rc_records.take(100),
         )
-        .expect("peek should succeed");
-
-        let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
-
-        let expected = "contigs_and_lengths:\ncontig_00000\t100\n\nmodifications:\nNone\n";
-
-        assert_eq!(output_str, expected);
+        .unwrap();
     }
 
     #[test]

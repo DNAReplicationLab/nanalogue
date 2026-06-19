@@ -59,26 +59,31 @@ impl FromStr for ReadStates {
     /// # Ok::<(), Error>(())
     /// ```
     fn from_str(s: &str) -> Result<ReadStates, Self::Err> {
-        let mut states = {
-            let mut temp_states = HashSet::<u16>::new();
-            for part in s.split(',').map(str::trim) {
-                if let Ok(v) = ReadState::from_str(part) {
-                    let _: bool = temp_states.insert(u16::from(v));
-                } else {
-                    let err_msg = "invalid `ReadStates`. Needs strings separated by commas \
-where allowed list is primary_forward primary_reverse secondary_forward secondary_reverse \
-supplementary_forward supplementary_reverse unmapped. The following are all valid examples: \
-* primary_forward * primary_forward,primary_reverse * secondary_forward,primary_reverse,unmapped";
-                    return Err(Error::UnknownAlignState(err_msg.to_string()));
-                }
-            }
-            temp_states.into_iter().collect::<Vec<u16>>()
-        };
-        if states.is_empty() {
+        if s.is_empty() {
             Err(Error::UnknownAlignState(
                 "Set of allowed read states cannot be empty!".to_owned(),
             ))
+        } else if s.len() > 200 {
+            Err(Error::InvalidState(
+                "pathological input detected; even hitting all read states does not need 200 bytes"
+                    .to_owned(),
+            ))
         } else {
+            let mut states = {
+                let mut temp_states = HashSet::<u16>::new();
+                for part in s.split(',').map(str::trim) {
+                    if let Ok(v) = ReadState::from_str(part) {
+                        let _: bool = temp_states.insert(u16::from(v));
+                    } else {
+                        let err_msg = "invalid `ReadStates`. Needs strings separated by commas \
+where allowed list is primary_forward primary_reverse secondary_forward secondary_reverse \
+supplementary_forward supplementary_reverse unmapped. The following are all valid examples: \
+* primary_forward * primary_forward,primary_reverse * secondary_forward,primary_reverse,unmapped";
+                        return Err(Error::UnknownAlignState(err_msg.to_string()));
+                    }
+                }
+                temp_states.into_iter().collect::<Vec<u16>>()
+            };
             states.sort_unstable();
             Ok(ReadStates(states))
         }
@@ -105,6 +110,10 @@ impl TryFrom<Vec<u16>> for ReadStates {
         if s.is_empty() {
             Err(Error::UnknownAlignState(
                 "Set of allowed read states cannot be empty!".to_owned(),
+            ))
+        } else if s.len() > 20 {
+            Err(Error::InvalidState(
+                "pathological input detected; even hitting all ReadStates does not need 20 entries in Vec".to_owned(),
             ))
         } else {
             let temp_output = s
@@ -157,6 +166,8 @@ mod tests {
         let op = ReadStates::from_str("primary_reverse,primary_forward,primary_reverse")?;
         assert_eq!(op.bam_flags(), &[0, 16]);
 
+        let _: Error = ReadStates::from_str(&"p".repeat(201)).unwrap_err();
+
         Ok(())
     }
 
@@ -172,6 +183,7 @@ mod tests {
         let _: Error = ReadStates::try_from(vec![700]).unwrap_err();
         let _: Error = ReadStates::try_from(vec![16, 400]).unwrap_err();
         let _: Error = ReadStates::try_from(vec![]).unwrap_err();
+        let _: Error = ReadStates::try_from(vec![0; 21]).unwrap_err();
 
         let val = ReadStates::try_from(vec![16, 16]).unwrap();
         assert_eq!(val.bam_flags(), &[16]);

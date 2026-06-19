@@ -4,7 +4,11 @@
 //! filtration criteria on these windows using user-supplied parameters
 //! and output these reads.
 
-use crate::{CurrRead, Error, F32Bw0and1, InputMods, InputWindowing, RequiredTag};
+use crate::constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS};
+use crate::{
+    CurrRead, Error, F32Bw0and1, InputMods, InputWindowing, RequiredTag, assert_bounded_counter,
+    assert_nonzero_counter,
+};
 use rust_htslib::bam::Record;
 use std::rc::Rc;
 
@@ -13,6 +17,8 @@ use std::rc::Rc;
 ///
 /// # Errors
 /// Returns an error if BAM record reading, alignment parsing, or modification data processing fails.
+/// This command also errors on blank BAM files because otherwise empty output would be ambiguous
+/// between "no matching reads" and "no reads were present".
 pub fn run<W, F, G, D>(
     handle: &mut W,
     bam_records: D,
@@ -27,10 +33,22 @@ where
     G: Fn(&Vec<F32Bw0and1>) -> bool,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
+    let mut idx: u32 = 0;
+
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
         let record = r?;
+
+        assert_bounded_counter(&mut idx, MAX_RECORDS, "find modified reads")?;
+
+        // Cap on record capacity as reported by HTSlib
+        if record.inner().m_data > MAX_RECORD_CAPACITY_BYTES {
+            return Err(Error::InvalidState(format!(
+                "record capacity limit exceeded: {MAX_RECORD_CAPACITY_BYTES}"
+            )));
+        }
+
         let curr_read_state = CurrRead::default().try_from_only_alignment(&record)?;
         let read_id = String::from(curr_read_state.read_id());
         // apply our windowing function and then the windowing filter
@@ -48,6 +66,8 @@ where
         }
     }
 
+    assert_nonzero_counter(idx, "records")?;
+
     Ok(())
 }
 
@@ -56,14 +76,14 @@ mod tests {
     use super::*;
     use crate::{ModChar, ThresholdState, nanalogue_bam_reader};
     use rust_htslib::bam::Read as _;
-    use std::num::NonZeroUsize;
+    use std::num::NonZeroU32;
 
     /// Helper function that runs `find_modified_reads` with specified parameters
     /// and returns the output as a vector of read IDs
     fn run_find_modified_reads_test<F, G>(
         bam_path: &str,
-        window_size: usize,
-        step_size: usize,
+        window_size: u32,
+        step_size: u32,
         tag: char,
         window_function: F,
         window_filter: G,
@@ -78,8 +98,8 @@ mod tests {
 
         // Set up windowing options
         let window_options = InputWindowing {
-            win: NonZeroUsize::new(window_size).unwrap(),
-            step: NonZeroUsize::new(step_size).unwrap(),
+            win: NonZeroU32::new(window_size).unwrap(),
+            step: NonZeroU32::new(step_size).unwrap(),
         };
 
         // Set up mod options

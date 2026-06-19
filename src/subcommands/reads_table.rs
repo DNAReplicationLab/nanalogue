@@ -6,9 +6,10 @@
 //! function. The routine reads both BAM and sequencing summary files
 //! if provided, otherwise only reads the BAM file.
 
+use crate::constants::shared::MAX_RECORDS;
 use crate::{
     CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, SeqCoordCalls, SeqDisplayOptions,
-    ThresholdState,
+    ThresholdState, assert_bounded_counter, assert_nonzero_counter,
 };
 use polars::prelude::*;
 use rust_htslib::bam;
@@ -547,6 +548,8 @@ fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
 ///
 /// # Errors
 /// Returns an error if TSV processing, BAM record reading, sequence retrieval, or output writing fails.
+/// This command also errors on blank BAM files because otherwise sparse or empty output would be
+/// ambiguous between "no rows matched" and "no reads were present".
 ///
 /// # Panics
 /// If lists associated with sequence, modification, and/or base quality are malformed i.e.
@@ -580,11 +583,14 @@ where
         },
     }
 
+    let mut idx: u32 = 0;
+
     // Go record by record in the BAM file,
     // get the read id and the alignment length, and put it in the hashmap
     for r in bam_records {
         // read records
         let record = r?;
+        assert_bounded_counter(&mut idx, MAX_RECORDS, "reads table")?;
 
         // get information of current read
         let curr_read_state = {
@@ -713,6 +719,8 @@ where
                 align_len, seq_len, mod_count, read_state, sequence, qualities,
             ));
     }
+
+    assert_nonzero_counter(idx, "records")?;
 
     // print the output header
     writeln!(
