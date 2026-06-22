@@ -147,9 +147,14 @@ from the github repository. To download:
    - `binaries-musllinux_1_2_aarch64` - aarch64 Alpine/musl (static binaries)
    - `binaries-musllinux_1_2_arm` - 32-bit ARM / some Raspberry Pi models (static binaries)
    - `binaries-musllinux_1_2_powerpc64le` - PowerPC64LE Alpine/musl (static binaries)
-   - `binaries-manylinux_2_34_<arch>` - Newer Linux distributions (glibc 2.34+)
-   - `binaries-manylinux_2_29_<arch>` - RISC-V / PowerPC64LE Linux (glibc 2.29+)
-   - `binaries-manylinux_2_28_<arch>` - Modern Linux distributions (glibc 2.28+)
+   - `binaries-manylinux_2_34_x86_64` - x86_64 Linux (glibc 2.34+)
+   - `binaries-manylinux_2_34_aarch64` - aarch64 Linux (glibc 2.34+)
+   - `binaries-manylinux_2_29_riscv64gc` - RISC-V Linux (glibc 2.29+)
+   - `binaries-manylinux_2_29_powerpc64le` - PowerPC64LE Linux (glibc 2.29+)
+   - `binaries-manylinux_2_28_x86_64` - x86_64 Linux (glibc 2.28+)
+   - `binaries-manylinux_2_28_aarch64` - aarch64 Linux (glibc 2.28+)
+   - `binaries-manylinux_2_17_x86_64` - x86_64 Linux (glibc 2.17+)
+   - `binaries-manylinux_2_17_aarch64` - aarch64 Linux (glibc 2.17+)
    - `binaries-manylinux_2_17_armv7` - 32-bit ARM / some Raspberry Pi models (glibc 2.17+, maximum compatibility)
 
 ## Using Cargo
@@ -365,7 +370,7 @@ Sample output is similar to the one above but with gradients reported instead of
 mean modification densities in the `win_val` column.
 
 ## `nanalogue peek`
-Read the BAM file header and the first 100 records, and output contig information
+Read the BAM file header and the first 100,000 records, and output contig information
 and modification tag information. Sample output follows.
 
 ```text
@@ -379,7 +384,7 @@ G-7200
 T+T
 ```
 
-If no modifications are found in the first 100 records, you will see
+If no modifications are found in the first 100,000 records, you will see
 
 ```text
 contigs_and_lengths:

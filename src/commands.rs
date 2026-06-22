@@ -128,7 +128,7 @@ pub enum Commands {
         #[clap(flatten)]
         mods: InputMods<OptionalTag>,
     },
-    /// Display BAM file contigs, contig lengths, and mod types from a "peek" at the header and first 100 records
+    /// Display BAM file contigs, contig lengths, and mod types from a "peek" at the header and up to 100,000 records
     Peek {
         /// Input BAM file (path, URL, or '-' for stdin)
         bam: PathOrURLOrStdin,

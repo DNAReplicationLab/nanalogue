@@ -202,7 +202,7 @@ pub unsafe fn init_ssl_certificates() {
 ///
 /// # Tag Variant Support
 ///
-/// We support MM/ML (standard) and Mm/Ml (fallback) tag variants, but no other variants.
+/// We support MM/ML (standard) and Mm/Ml (fallback mixed-case) tag variants, but no other variants.
 /// The specification recommends MM/ML, but we support the Mm/Ml variant as some sequencing
 /// technologies use this capitalization. Other mixed-case variants (e.g., mM/mL) and fully
 /// lowercase variants (mm/ml) are not recognized.
@@ -854,7 +854,7 @@ mod mod_parse_tests {
     use rust_htslib::bam::Read as _;
 
     /// Tests if Mod BAM modification parsing is alright with fallback tag support.
-    /// Tests both MM/ML (standard uppercase) and Mm/Ml (fallback lowercase) tag variants.
+    /// Tests both MM/ML (standard uppercase) and Mm/Ml (fallback mixed-case) tag variants.
     /// Note: Only these specific variants are supported - fully lowercase (mm/ml) and
     /// other mixed-case variants (e.g., mM/mL) are not recognized.
     /// Some of the test cases here may be a repeat of the doctest above.
