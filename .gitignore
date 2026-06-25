@@ -12,3 +12,4 @@ claude.md
 commit_message
 *.vuln.md
 *vuln.md
+*callgrind*

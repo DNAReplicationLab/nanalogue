@@ -11,6 +11,9 @@ pub mod shared {
 
     /// Hard cap on the maximum number of records that commands will accept
     pub const MAX_RECORDS: u32 = 500_000_000;
+
+    /// Hard cap on the number of types of mods per BAM record
+    pub const MAX_MOD_TYPES: u8 = 100;
 }
 
 /// Constants used by the `peek` subcommand/module.

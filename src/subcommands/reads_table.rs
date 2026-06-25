@@ -6,17 +6,17 @@
 //! function. The routine reads both BAM and sequencing summary files
 //! if provided, otherwise only reads the BAM file.
 
-use crate::constants::shared::MAX_RECORDS;
+use crate::constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS};
 use crate::{
     CurrRead, Error, InputMods, ModChar, OptionalTag, ReadState, SeqCoordCalls, SeqDisplayOptions,
-    ThresholdState, assert_bounded_counter, assert_nonzero_counter,
+    ThresholdState, assert_bounded_counter, assert_nonzero_counter, assert_record_data_capacity,
 };
 use polars::prelude::*;
 use rust_htslib::bam;
 use std::{collections::HashMap, fmt, fs::File, io::BufReader, io::Read as _, iter, rc::Rc, str};
 
-/// Write an iterator as a comma-separated string.
-fn join_display<I>(items: I, separator: &str) -> String
+/// Write an iterator as a separated string.
+fn join_display<I>(items: I, separator: &str) -> Result<String, fmt::Error>
 where
     I: IntoIterator,
     I::Item: fmt::Display,
@@ -26,15 +26,23 @@ where
         if index > 0 {
             output.push_str(separator);
         }
+        // we cap how many items can be joined this way
+        if index
+            > u32::MAX
+                .try_into()
+                .expect("no error expected on 32-bit platforms and above")
+        {
+            return Err(fmt::Error);
+        }
         output.push_str(item.to_string().as_str());
     }
-    output
+    Ok(output)
 }
 
 /// Write a vector as a CSV-formatted string
 macro_rules! vec_csv {
     ( $b: expr ) => {
-        join_display($b, ", ")
+        join_display($b, ", ")?
     };
 }
 
@@ -117,10 +125,10 @@ impl fmt::Display for ModCountTbl {
         let mut v: Vec<(ModChar, u32)> = self.0.clone().into_iter().collect();
         v.sort_by_key(|k| k.0);
         (if v.is_empty() {
-            "NA".to_owned()
+            Ok("NA".to_owned())
         } else {
             join_display(v.into_iter().map(|k| format!("{}:{}", k.0, k.1)), ";")
-        })
+        })?
         .fmt(f)
     }
 }
@@ -213,35 +221,58 @@ impl fmt::Display for ReadInstance {
                 read_state: rs,
                 seq: sq,
                 qual: q,
-            } => format!(
-                "{}\t{sl}\t{}{}{}{}",
-                vec_csv!(al),
-                vec_csv!(rs),
-                match vec_csv!(mc) {
-                    v if !v.is_empty() => format!("\t{v}"),
-                    _ => String::new(),
-                },
-                match vec_csv!(sq.iter().map(|v| unsafe {
-                    String::from_utf8_unchecked(
-                        v.clone()
-                            .into_iter()
-                            .map(|w| match w.1 {
-                                BaseFmt::No => w.0,
-                                BaseFmt::LowerCase => w.0.to_ascii_lowercase(),
-                                BaseFmt::Highlight => b'Z',
-                                BaseFmt::LowerCaseHighlight => b'z',
-                            })
-                            .collect::<Vec<u8>>(),
-                    )
-                })) {
-                    v if !v.is_empty() => format!("\t{v}"),
-                    _ => String::new(),
-                },
-                match vec_csv!(q.iter().map(|k| join_display(k, "."))) {
-                    v if !v.is_empty() => format!("\t{v}"),
-                    _ => String::new(),
-                },
-            ),
+            } => {
+                // assertions to enforce length constraints
+                if (al.len() != rs.len())
+                    || (!mc.is_empty() && mc.len() != al.len())
+                    || (!sq.is_empty() && sq.len() != al.len())
+                {
+                    return Err(fmt::Error);
+                }
+                if !q.is_empty() {
+                    if sq.len() != q.len() {
+                        return Err(fmt::Error);
+                    }
+                    for k in sq.iter().zip(q) {
+                        if k.0.len() != k.1.len() {
+                            return Err(fmt::Error);
+                        }
+                    }
+                }
+                format!(
+                    "{}\t{sl}\t{}{}{}{}",
+                    vec_csv!(al),
+                    vec_csv!(rs),
+                    match vec_csv!(mc) {
+                        v if !v.is_empty() => format!("\t{v}"),
+                        _ => String::new(),
+                    },
+                    match vec_csv!(sq.iter().map(|v| unsafe {
+                        String::from_utf8_unchecked(
+                            v.clone()
+                                .into_iter()
+                                .map(|w| match w.1 {
+                                    BaseFmt::No => w.0,
+                                    BaseFmt::LowerCase => w.0.to_ascii_lowercase(),
+                                    BaseFmt::Highlight => b'Z',
+                                    BaseFmt::LowerCaseHighlight => b'z',
+                                })
+                                .collect::<Vec<u8>>(),
+                        )
+                    })) {
+                        v if !v.is_empty() => format!("\t{v}"),
+                        _ => String::new(),
+                    },
+                    match vec_csv!(
+                        q.iter()
+                            .map(|k| join_display(k, "."))
+                            .collect::<Result<Vec<String>, _>>()?
+                    ) {
+                        v if !v.is_empty() => format!("\t{v}"),
+                        _ => String::new(),
+                    },
+                )
+            }
         }
         .fmt(f)
     }
@@ -266,15 +297,24 @@ impl Read {
         read_state: ReadState,
         seq: Option<Vec<(u8, BaseFmt)>>,
         qual: Option<Vec<u8>>,
-    ) -> Self {
-        Self(ReadInstance::OnlyAlign {
-            align_len: vec![align_len],
-            seq_len,
-            mod_count: mod_count.into_iter().collect(),
-            read_state: vec![read_state],
-            seq: seq.into_iter().collect(),
-            qual: qual.into_iter().collect(),
-        })
+    ) -> Result<Self, Error> {
+        let seq_cast: Vec<Vec<(u8, BaseFmt)>> = seq.into_iter().collect();
+        let qual_cast: Vec<Vec<u8>> = qual.into_iter().collect();
+
+        if qual_cast.is_empty() || (seq_cast.len() == qual_cast.len()) {
+            Ok(Self(ReadInstance::OnlyAlign {
+                align_len: vec![align_len],
+                seq_len,
+                mod_count: mod_count.into_iter().collect(),
+                read_state: vec![read_state],
+                seq: seq_cast,
+                qual: qual_cast,
+            }))
+        } else {
+            Err(Error::InvalidState(
+                "seq and qual are of different lengths!".to_owned(),
+            ))
+        }
     }
 
     /// adding alignment information to an entry
@@ -290,7 +330,15 @@ impl Read {
         read_state: ReadState,
         seq: Option<Vec<(u8, BaseFmt)>>,
         qual: Option<Vec<u8>>,
-    ) {
+    ) -> Result<(), Error> {
+        let seq_cast: Vec<Vec<(u8, BaseFmt)>> = seq.into_iter().collect();
+        let qual_cast: Vec<Vec<u8>> = qual.into_iter().collect();
+
+        if !qual_cast.is_empty() && (seq_cast.len() != qual_cast.len()) {
+            return Err(Error::InvalidState(
+                "seq and qual are of different lengths!".to_owned(),
+            ));
+        }
         match &mut self.0 {
             ReadInstance::OnlyAlign {
                 align_len: al,
@@ -303,8 +351,8 @@ impl Read {
                 al.push(align_len);
                 rs.push(read_state);
                 mc.extend(mod_count);
-                sq.extend(seq);
-                q.extend(qual);
+                sq.extend(seq_cast);
+                q.extend(qual_cast);
 
                 // BAM files are not supposed to have different sequence lengths for
                 // the same read if there are multiple records corresponding to one read.
@@ -329,8 +377,8 @@ impl Read {
                 al.push(align_len);
                 rs.push(read_state);
                 mc.extend(mod_count);
-                sq.extend(seq);
-                q.extend(qual);
+                sq.extend(seq_cast);
+                q.extend(qual_cast);
             }
             ReadInstance::OnlyBc(bl) => {
                 self.0 = ReadInstance::BothAlignBc {
@@ -338,11 +386,12 @@ impl Read {
                     bc_len: *bl,
                     mod_count: mod_count.into_iter().collect(),
                     read_state: vec![read_state],
-                    seq: seq.into_iter().collect(),
-                    qual: qual.into_iter().collect(),
+                    seq: seq_cast.into_iter().collect(),
+                    qual: qual_cast.into_iter().collect(),
                 };
             }
         }
+        Ok(())
     }
 }
 
@@ -591,6 +640,11 @@ where
         // read records
         let record = r?;
         assert_bounded_counter(&mut idx, MAX_RECORDS, "reads table")?;
+        assert_record_data_capacity(
+            record.inner().m_data,
+            MAX_RECORD_CAPACITY_BYTES,
+            "reads table",
+        )?;
 
         // get information of current read
         let curr_read_state = {
@@ -627,71 +681,82 @@ where
         };
 
         // get sequence and basecalling qualities
-        let (sequence, qualities) = {
-            let seq = record.seq().as_bytes();
-            let qual = record.qual().to_vec();
-            match seq_display {
-                SeqDisplayOptions::No => (None, None),
-                SeqDisplayOptions::Full { show_base_qual } => (
-                    Some({
-                        if seq.is_empty() {
-                            vec![(b'*', BaseFmt::No)]
-                        } else {
-                            seq.into_iter().zip(iter::repeat(BaseFmt::No)).collect()
-                        }
-                    }),
-                    show_base_qual.then_some(if qual.is_empty() { vec![255u8] } else { qual }),
-                ),
-                SeqDisplayOptions::Region {
-                    show_ins_lowercase,
-                    show_base_qual,
-                    region,
-                    show_mod_z,
-                } => {
-                    let error_message = "no coordinate errors anticipated";
-                    let (o_1, o_2): (Vec<(u8, BaseFmt)>, Vec<u8>) = {
-                        let coord_map =
-                            match curr_read_state.seq_coords_from_ref_coords(&record, &region) {
-                                Err(Error::UnavailableData(_)) => vec![],
-                                Err(e) => return Err(e),
-                                Ok(x) => x,
-                            };
-                        if coord_map.is_empty() || seq.is_empty() {
-                            (vec![(b'*', BaseFmt::No)], vec![255u8])
-                        } else {
-                            let mod_data =
-                                match SeqCoordCalls::try_from(&curr_read_state.mod_data().0) {
-                                    Err(Error::UnavailableData(_)) => vec![false; seq.len()],
-                                    Err(e) => return Err(e),
-                                    Ok(v) => v.collapse_mod_calls(),
-                                };
-                            coord_map
-                                .into_iter()
-                                .map(|y| {
-                                    y.map_or(((b'.', BaseFmt::No), 255u8), |z| {
-                                        (
-                                            (
-                                                *seq.get(z.1).expect(error_message),
-                                                match (
-                                                    show_ins_lowercase && !z.0,
-                                                    show_mod_z
-                                                        && *mod_data.get(z.1).expect(error_message),
-                                                ) {
-                                                    (true, true) => BaseFmt::LowerCaseHighlight,
-                                                    (true, false) => BaseFmt::LowerCase,
-                                                    (false, true) => BaseFmt::Highlight,
-                                                    (false, false) => BaseFmt::No,
-                                                },
-                                            ),
-                                            *qual.get(z.1).expect(error_message),
-                                        )
-                                    })
-                                })
-                                .collect()
-                        }
+        let (sequence, qualities) = match seq_display {
+            SeqDisplayOptions::No => (None, None),
+            SeqDisplayOptions::Full { show_base_qual } => {
+                let seq = record.seq().as_bytes();
+                let sequence = if seq.is_empty() {
+                    vec![(b'*', BaseFmt::No)]
+                } else {
+                    seq.into_iter().zip(iter::repeat(BaseFmt::No)).collect()
+                };
+                let qualities = show_base_qual.then(|| {
+                    let qual = record.qual().to_vec();
+                    if qual.is_empty() { vec![255u8] } else { qual }
+                });
+                if let Some(quality_values) = qualities.as_ref()
+                    && sequence.len() != quality_values.len()
+                {
+                    return Err(Error::InvalidState(
+                        "sequence and qualities are not of equal length".to_owned(),
+                    ));
+                }
+                (Some(sequence), qualities)
+            }
+            SeqDisplayOptions::Region {
+                show_ins_lowercase,
+                show_base_qual,
+                region,
+                show_mod_z,
+            } => {
+                let error_message = "no coordinate errors anticipated";
+                let seq = record.seq().as_bytes();
+                let coord_map = match curr_read_state.seq_coords_from_ref_coords(&record, &region) {
+                    Err(Error::UnavailableData(_)) => vec![],
+                    Err(e) => return Err(e),
+                    Ok(x) => x,
+                };
+                if coord_map.is_empty() || seq.is_empty() {
+                    (
+                        Some(vec![(b'*', BaseFmt::No)]),
+                        show_base_qual.then_some(vec![255u8]),
+                    )
+                } else {
+                    let qual = record.qual();
+                    if seq.len() != qual.len() {
+                        return Err(Error::InvalidState(
+                            "sequence and qualities are not of equal length".to_owned(),
+                        ));
+                    }
+                    let mod_data = match SeqCoordCalls::try_from(&curr_read_state.mod_data().0) {
+                        Err(Error::UnavailableData(_)) => vec![false; seq.len()],
+                        Err(e) => return Err(e),
+                        Ok(v) => v.collapse_mod_calls(),
                     };
+                    let (sequence, qualities): (Vec<(u8, BaseFmt)>, Vec<u8>) = coord_map
+                        .into_iter()
+                        .map(|y| {
+                            y.map_or(((b'.', BaseFmt::No), 255u8), |z| {
+                                (
+                                    (
+                                        *seq.get(z.1).expect(error_message),
+                                        match (
+                                            show_ins_lowercase && !z.0,
+                                            show_mod_z && *mod_data.get(z.1).expect(error_message),
+                                        ) {
+                                            (true, true) => BaseFmt::LowerCaseHighlight,
+                                            (true, false) => BaseFmt::LowerCase,
+                                            (false, true) => BaseFmt::Highlight,
+                                            (false, false) => BaseFmt::No,
+                                        },
+                                    ),
+                                    *qual.get(z.1).expect(error_message),
+                                )
+                            })
+                        })
+                        .collect();
 
-                    (Some(o_1), show_base_qual.then_some(o_2))
+                    (Some(sequence), show_base_qual.then_some(qualities))
                 }
             }
         };
@@ -703,21 +768,32 @@ where
 
         // add data depending on whether an entry is already present
         // in the hashmap from the sequencing summary file
+        let mut is_insert_error = false;
         let _: &mut _ = data_map
             .entry(qname)
             .and_modify(|entry| {
-                entry.add_align_len(
-                    align_len,
-                    seq_len,
-                    mod_count.clone(),
-                    read_state,
-                    sequence.clone(),
-                    qualities.clone(),
-                );
+                if entry
+                    .add_align_len(
+                        align_len,
+                        seq_len,
+                        mod_count.clone(),
+                        read_state,
+                        sequence.clone(),
+                        qualities.clone(),
+                    )
+                    .is_err()
+                {
+                    is_insert_error = true;
+                }
             })
             .or_insert(Read::new_align_len(
                 align_len, seq_len, mod_count, read_state, sequence, qualities,
+            )?);
+        if is_insert_error {
+            return Err(Error::InvalidState(
+                "invalid state encountered while populating sequence data".to_owned(),
             ));
+        }
     }
 
     assert_nonzero_counter(idx, "records")?;
@@ -1168,7 +1244,8 @@ mod tests {
         let n = lengths.len();
         for count in 0..n {
             let random_state_1: ReadState = random();
-            let mut read = Read::new_align_len(1, lengths[count], None, random_state_1, None, None);
+            let mut read = Read::new_align_len(1, lengths[count], None, random_state_1, None, None)
+                .expect("no error");
             for l in 1..n {
                 let random_state: ReadState = random();
                 let indx = if count + l < n {
@@ -1176,7 +1253,8 @@ mod tests {
                 } else {
                     count + l - n
                 };
-                read.add_align_len(1, lengths[indx], None, random_state, None, None);
+                read.add_align_len(1, lengths[indx], None, random_state, None, None)
+                    .expect("no error");
             }
             match read.0 {
                 ReadInstance::OnlyAlign { seq_len: 40, .. } => {}
@@ -1212,7 +1290,8 @@ mod tests {
                 } else {
                     count + l - n
                 };
-                read.add_align_len(1, lengths[indx], None, random_state, None, None);
+                read.add_align_len(1, lengths[indx], None, random_state, None, None)
+                    .expect("no error");
             }
             match read.0 {
                 ReadInstance::BothAlignBc { bc_len, .. } if bc_len == lengths[count] => {}

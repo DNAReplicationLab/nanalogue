@@ -20,10 +20,20 @@ function gitList(commandArgs) {
   }
 }
 
+function toRepoRelative(file) {
+  const absolute = path.isAbsolute(file) ? file : path.resolve(repoRoot, file);
+  const relative = path.relative(repoRoot, absolute);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  return relative.split(path.sep).join('/');
+}
+
 function readMarkdown(file) {
-  if (cachedOnly) {
+  const repoRelative = toRepoRelative(file);
+  if (cachedOnly && repoRelative) {
     try {
-      return execFileSync('git', ['show', `:${file}`], { encoding: 'utf8' });
+      return execFileSync('git', ['show', `:${repoRelative}`], { encoding: 'utf8' });
     } catch {
       // fall through to the working tree for untracked files
     }

@@ -126,7 +126,8 @@ pub use utils::{
     FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
     OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
     RestrictModCalledStrand, SeqCoordCalls, ThresholdState, assert_bounded_counter, assert_flag,
-    assert_nonzero_counter, complement, convert_seq_uppercase, get_u8_tag, mm_groups, revcomp,
+    assert_nonzero_counter, assert_record_data_capacity, complement, convert_seq_uppercase,
+    mm_groups, revcomp,
 };
 
 /// Genomic 3-column BED shorthand used with `bedrs` coordinate types in this crate.
@@ -193,7 +194,7 @@ pub unsafe fn init_ssl_certificates() {
     });
 }
 
-/// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods` struct.
+/// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods`-like struct.
 ///
 /// Portions of this implementation are adapted from the published crate
 /// `fibertools-rs` v0.8.2 (<https://crates.io/crates/fibertools-rs>), whose
@@ -208,7 +209,8 @@ pub unsafe fn init_ssl_certificates() {
 /// lowercase variants (mm/ml) are not recognized.
 ///
 /// Function should cover almost all mod bam cases, but will fail in the following scenarios:
-/// - If multiple mods are present on the same base e.g. methylation and hydroxymethylation,
+/// - A specific type of multiple mod notation that is not frequently used.
+///   If multiple mods are present on the same base e.g. methylation and hydroxymethylation,
 ///   most BAM files the author has come across use the notation MM:Z:C+m,...;C+h,...;,
 ///   which this function can parse. But the notation MM:Z:C+mh,...; is also allowed.
 ///   We do not parse this for now, please contribute code if you want to add this functionality!
@@ -307,21 +309,22 @@ where
     let mut rtn: Vec<BaseMod> = Vec::new();
 
     // We allow `ML` or legacy `Ml`, but both may not coexist.
-    let ml_tag: Vec<u8> = {
-        let has_ml = record.aux(b"ML").is_ok();
-        let has_legacy_ml = record.aux(b"Ml").is_ok();
-        match (has_ml, has_legacy_ml) {
-            (true, true) => {
-                return Err(Error::InvalidState(
-                        "BAM record contains both `ML` and legacy `Ml` tags; refusing ambiguous modification probabilities"
-                            .to_owned(),
-                    ));
-            }
-            (false, true) => get_u8_tag(record, b"Ml"),
-            (true, false) => get_u8_tag(record, b"ML"),
-            (false, false) => Vec::<u8>::new(),
+    let ml_tag = match (record.aux(b"ML"), record.aux(b"Ml")) {
+        (Ok(_), Ok(_)) => {
+            return Err(Error::InvalidState(
+                "BAM record contains both `ML` and legacy `Ml` tags; refusing ambiguous modification probabilities"
+                    .to_owned(),
+            ));
+        }
+        (Err(_), Ok(Aux::ArrayU8(v))) | (Ok(Aux::ArrayU8(v)), Err(_)) => Some(v),
+        (Err(_), Err(_)) => None,
+        _ => {
+            return Err(Error::InvalidState(
+                "rust-htslib ML/Ml tag parsing failure: unexpected auxiliary tag type".to_owned(),
+            ));
         }
     };
+    let ml_tag_len = ml_tag.as_ref().map_or(0, bam::record::AuxArray::len);
 
     let mut num_mods_seen: usize = 0;
 
@@ -347,7 +350,7 @@ where
         }
     };
 
-    // if there is an MM tag iterate over all the regex matches
+    // if there is an MM tag, process the data
     if !mm_text.is_empty() {
         // base qualities; must reverse if rev comp.
         // NOTE this is always equal to number of bases in the sequence, otherwise
@@ -365,6 +368,12 @@ where
         };
 
         let seq_len = forward_bases.len();
+
+        if !base_qual.is_empty() && base_qual.len() != seq_len {
+            return Err(Error::InvalidState(
+                "base quality array is not the same size as sequence!".to_owned(),
+            ));
+        }
 
         let pos_map = {
             let temp: Vec<Option<u32>> = {
@@ -409,20 +418,35 @@ where
 
             // find real positions in the forward sequence
             let mut cur_mod_idx: usize = 0;
-            let mut dist_from_last_mod_base: usize = 0;
+            let mut dist_from_last_mod_base: u32 = 0;
 
             // declare vectors with an approximate with_capacity
             let (mut modified_positions, mut modified_probabilities) = {
+                if mod_dists.len()
+                    > usize::try_from(u32::MAX).expect("no error on 32-bit platforms or higher")
+                {
+                    return Err(Error::InvalidState("mod_dists is too long".to_owned()));
+                }
                 let mod_data_len_approx = if is_implicit {
                     // In implicit mode, there may be any number of bases
                     // after the MM data is over, which must be assumed as unmodified.
                     // So we cannot know the exact length of the data before actually
                     // parsing it, and this is just a lower bound of the length.
-                    mod_dists
-                        .iter()
-                        .copied()
-                        .try_fold(mod_dists.len(), usize::checked_add)
-                        .unwrap_or(mod_dists.len())
+                    usize::try_from(
+                        mod_dists
+                            .iter()
+                            .copied()
+                            .try_fold(
+                                u32::try_from(mod_dists.len())
+                                    .expect("no error as we've just checked this"),
+                                u32::checked_add,
+                            )
+                            .unwrap_or(
+                                u32::try_from(mod_dists.len())
+                                    .expect("no error as we've just checked this"),
+                            ),
+                    )
+                    .expect("no error on 32-bit platforms or higher")
                 } else {
                     mod_dists.len()
                 };
@@ -454,15 +478,14 @@ where
                             .expect("cur_mod_idx < mod_dists.len()")
                 {
                     let prob = ml_tag
-                        .get(cur_mod_idx..)
-                        .expect("cur_mod_idx < mod_dists.len() and ml_tag has same length")
-                        .get(num_mods_seen)
+                        .as_ref()
+                        .and_then(|tag| tag.get(num_mods_seen + cur_mod_idx))
                         .ok_or(Error::InvalidModProbs(
                             "ML tag appears to be insufficiently long!".into(),
                         ))?;
-                    if filter_mod_prob(prob) && is_seq_pos_pass {
+                    if filter_mod_prob(&prob) && is_seq_pos_pass {
                         modified_positions.push(cur_seq_idx);
-                        modified_probabilities.push(*prob);
+                        modified_probabilities.push(prob);
                     }
                     dist_from_last_mod_base = 0;
                     cur_mod_idx += 1;
@@ -495,10 +518,6 @@ where
                     mod_dists.len(),
                 )));
             }
-
-            // if data matches filters, add to struct.
-            modified_positions.shrink_to(0);
-            modified_probabilities.shrink_to(0);
 
             #[expect(
                 clippy::arithmetic_side_effects,
@@ -542,23 +561,9 @@ where
         }
     }
 
-    if num_mods_seen == ml_tag.len() {
+    if num_mods_seen == ml_tag_len {
         // needed so I can compare methods
         rtn.sort();
-
-        // Check for duplicate strand, modification_type combinations
-        let mut seen_combinations = HashSet::new();
-        for base_mod in &rtn {
-            let combination = (base_mod.strand, base_mod.modification_type);
-            if seen_combinations.contains(&combination) {
-                return Err(Error::InvalidDuplicates(format!(
-                    "Duplicate strand '{}' and modification_type '{}' combination found",
-                    base_mod.strand, base_mod.modification_type
-                )));
-            }
-            let _: bool = seen_combinations.insert(combination);
-        }
-
         Ok(BaseMods { base_mods: rtn })
     } else {
         Err(Error::InvalidModProbs(
@@ -729,9 +734,9 @@ impl BamPreFilt for bam::Record {
     /// apply default filtration by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
         self.filt_random_subset(bam_opts.sample_fraction, bam_opts.sample_seed)
-            & self.filt_by_len(bam_opts.min_seq_len, bam_opts.include_zero_len)
-            & self.filt_by_mapq(bam_opts.mapq_filter, bam_opts.exclude_mapq_unavail)
-            & {
+            && self.filt_by_len(bam_opts.min_seq_len, bam_opts.include_zero_len)
+            && self.filt_by_mapq(bam_opts.mapq_filter, bam_opts.exclude_mapq_unavail)
+            && {
                 if let Some(v) = bam_opts.read_id.as_ref() {
                     self.filt_by_read_id(v)
                 } else if let Some(read_id_set) = bam_opts.read_id_set.as_ref() {
@@ -740,21 +745,21 @@ impl BamPreFilt for bam::Record {
                     true
                 }
             }
-            & {
+            && {
                 if let Some(v) = bam_opts.min_align_len {
                     self.filt_by_align_len(v)
                 } else {
                     true
                 }
             }
-            & {
+            && {
                 if let Some(v) = bam_opts.read_filter.as_ref() {
                     self.filt_by_bitwise_or_flags(v)
                 } else {
                     true
                 }
             }
-            & {
+            && {
                 if let Some(v) = bam_opts.region_filter().as_ref() {
                     self.filt_by_region(v, bam_opts.is_full_overlap())
                 } else {

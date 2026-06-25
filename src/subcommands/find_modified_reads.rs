@@ -7,7 +7,7 @@
 use crate::constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS};
 use crate::{
     CurrRead, Error, F32Bw0and1, InputMods, InputWindowing, RequiredTag, assert_bounded_counter,
-    assert_nonzero_counter,
+    assert_nonzero_counter, assert_record_data_capacity,
 };
 use rust_htslib::bam::Record;
 use std::rc::Rc;
@@ -41,13 +41,11 @@ where
         let record = r?;
 
         assert_bounded_counter(&mut idx, MAX_RECORDS, "find modified reads")?;
-
-        // Cap on record capacity as reported by HTSlib
-        if record.inner().m_data > MAX_RECORD_CAPACITY_BYTES {
-            return Err(Error::InvalidState(format!(
-                "record capacity limit exceeded: {MAX_RECORD_CAPACITY_BYTES}"
-            )));
-        }
+        assert_record_data_capacity(
+            record.inner().m_data,
+            MAX_RECORD_CAPACITY_BYTES,
+            "find modified reads",
+        )?;
 
         let curr_read_state = CurrRead::default().try_from_only_alignment(&record)?;
         let read_id = String::from(curr_read_state.read_id());

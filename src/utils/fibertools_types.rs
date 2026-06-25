@@ -5,13 +5,11 @@
 //! The published crate metadata declares the MIT license. We vendor only the
 //! small subset of types
 //! we use (`FiberAnnotation`, `FiberAnnotations`/`Ranges`, `BaseMod`,
-//! `BaseMods`, `convert_seq_uppercase`, `get_u8_tag`) so that our crate
+//! `BaseMods`, `convert_seq_uppercase`) so that our crate
 //! avoids compiling the full fibertools-rs dependency and its heavy build
 //! script.
 //!
 //! See `THIRD_PARTY_NOTICES.md` for the full upstream license text.
-
-use rust_htslib::bam::record::Aux;
 
 // ---------------------------------------------------------------------------
 // bamannotations types
@@ -148,27 +146,6 @@ pub fn convert_seq_uppercase(mut seq: Vec<u8>) -> Vec<u8> {
     seq
 }
 
-/// Extracts a `u8` array auxiliary tag from a BAM record.
-///
-/// Returns an empty `Vec` if the tag is absent or not of the expected type.
-///
-/// # Examples
-///
-/// ```
-/// use nanalogue_core::get_u8_tag;
-/// use rust_htslib::bam::Record;
-/// let record = Record::new();
-/// assert_eq!(get_u8_tag(&record, b"ML"), Vec::<u8>::new());
-/// ```
-#[must_use]
-pub fn get_u8_tag(record: &rust_htslib::bam::Record, tag: &[u8; 2]) -> Vec<u8> {
-    if let Ok(Aux::ArrayU8(array)) = record.aux(tag) {
-        array.iter().collect()
-    } else {
-        vec![]
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,12 +171,6 @@ mod tests {
     fn convert_seq_uppercase_empty() {
         let input: Vec<u8> = vec![];
         assert_eq!(convert_seq_uppercase(input), Vec::<u8>::new());
-    }
-
-    #[test]
-    fn get_u8_tag_missing() {
-        let record = rust_htslib::bam::Record::new();
-        assert_eq!(get_u8_tag(&record, b"ML"), Vec::<u8>::new());
     }
 
     #[test]

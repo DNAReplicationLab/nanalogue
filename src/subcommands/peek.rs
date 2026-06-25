@@ -6,6 +6,7 @@ use crate::constants::peek::{MAX_CONTIGS, MAX_MODIFICATIONS, MAX_RECORDS};
 use crate::constants::shared::MAX_RECORD_CAPACITY_BYTES;
 use crate::{
     AllowedAGCTN, CurrRead, Error, ModChar, assert_bounded_counter, assert_nonzero_counter,
+    assert_record_data_capacity,
 };
 use rust_htslib::bam;
 use std::collections::HashSet;
@@ -90,13 +91,7 @@ where
         let record = record_result?;
 
         assert_bounded_counter(&mut idx, MAX_RECORDS, "peek")?;
-
-        // Cap on record capacity as reported by HTSlib
-        if record.inner().m_data > MAX_RECORD_CAPACITY_BYTES {
-            return Err(Error::InvalidState(format!(
-                "record capacity limit exceeded: {MAX_RECORD_CAPACITY_BYTES}"
-            )));
-        }
+        assert_record_data_capacity(record.inner().m_data, MAX_RECORD_CAPACITY_BYTES, "peek")?;
 
         // Convert to CurrRead to extract modification data
         // Skip zero-length sequences (CurrRead::try_from returns Error::ZeroSeqLen)

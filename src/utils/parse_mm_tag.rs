@@ -1,7 +1,7 @@
 //! MM-tag parsing helpers.
 
-use crate::{Error, ModChar};
-use std::str;
+use crate::{Error, ModChar, constants::shared::MAX_MOD_TYPES};
+use std::{collections::HashSet, str, str::FromStr as _};
 
 /// Parsed representation of a single MM-tag group.
 #[derive(Debug)]
@@ -16,7 +16,7 @@ pub struct ParsedMmGroup {
     /// Whether omitted positions are implicitly unmodified.
     pub is_implicit: bool,
     /// Distances between successive modified bases.
-    pub mod_dists: Vec<usize>,
+    pub mod_dists: Vec<u32>,
 }
 
 /// Parse semicolon-delimited MM-tag text into groups.
@@ -30,107 +30,106 @@ pub struct ParsedMmGroup {
 #[expect(
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
-    clippy::string_from_utf8_as_bytes,
     clippy::string_slice,
+    clippy::missing_asserts_for_indexing,
     reason = "bounds are checked before slicing and index arithmetic is tightly controlled"
+)]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "u32 -> usize conversion will not fail"
 )]
 pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
     let mut groups = Vec::<ParsedMmGroup>::new();
+    let mut seen_combinations = HashSet::new();
     let mut group_start = 0usize;
+    let group_bytes = group.as_bytes();
 
-    for (index, byte) in group.as_bytes().iter().copied().enumerate() {
+    for (index, byte) in group_bytes.iter().copied().enumerate() {
         if byte != b';' {
             continue;
         }
 
-        let raw_group = &group[group_start..index];
-        if raw_group.is_empty() {
+        let raw_group = &group_bytes[group_start..index];
+        // smallest valid length is 3 e.g. something like "C+m"
+        if raw_group.len() < 3 {
             return Err(Error::InvalidModType(
-                "empty MM group encountered while parsing MM tag".to_owned(),
+                "malformed MM group encountered while parsing MM tag".to_owned(),
             ));
         }
-
-        let mut parsed_mod_base: Option<u8> = None;
-        let mut parsed_mod_strand: Option<char> = None;
-        let mut parsed_mod_code_end: Option<usize> = None;
-
-        for (local_index, local_byte) in raw_group.as_bytes().iter().copied().enumerate() {
-            match local_index {
-                0 => {
-                    if !matches!(local_byte, b'A' | b'C' | b'G' | b'T' | b'U' | b'N') {
-                        return Err(Error::InvalidBase(format!(
-                            "invalid MM base `{}`",
-                            char::from(local_byte)
-                        )));
-                    }
-                    parsed_mod_base = Some(local_byte);
-                }
-                1 => {
-                    let strand = char::from(local_byte);
-                    if !matches!(strand, '+' | '-') {
-                        return Err(Error::InvalidModType(format!(
-                            "invalid MM strand `{strand}` in group `{raw_group}`"
-                        )));
-                    }
-                    parsed_mod_strand = Some(strand);
-                }
-                _ => {
-                    if !local_byte.is_ascii_alphanumeric() {
-                        parsed_mod_code_end = Some(local_index);
-                        break;
-                    }
-                }
-            }
-        }
-
-        let Some(mod_base) = parsed_mod_base else {
-            return Err(Error::InvalidModType("empty MM group".to_owned()));
-        };
-        let Some(mod_strand) = parsed_mod_strand else {
-            return Err(Error::InvalidModType(format!(
-                "missing MM strand for group `{raw_group}`"
-            )));
-        };
-
-        let mod_code_end = parsed_mod_code_end.unwrap_or(raw_group.len());
-        if mod_code_end == 2 {
-            return Err(Error::EmptyModType(format!(
-                "missing MM modification type in group `{raw_group}`"
-            )));
-        }
-        let modification_type: ModChar =
-            str::from_utf8(&raw_group.as_bytes()[2..mod_code_end])?.parse()?;
-
-        let punctuation = raw_group.as_bytes().get(mod_code_end).copied();
-        let is_implicit = match punctuation {
-            Some(b'?') => false,
-            // A comma here is not a punctuation flag; it means there was no
-            // explicit `.`/`?` marker and the distance list starts immediately.
-            Some(b'.' | b',') | None => true,
-            Some(other) => {
-                return Err(Error::InvalidModType(format!(
-                    "invalid MM punctuation `{}` in group `{raw_group}`",
-                    char::from(other)
+        let mod_base = match raw_group[0] {
+            v @ (b'A' | b'C' | b'G' | b'T' | b'U' | b'N') => v,
+            v => {
+                return Err(Error::InvalidBase(format!(
+                    "invalid MM base `{}`",
+                    char::from(v)
                 )));
             }
         };
-        let distance_start = mod_code_end + usize::from(matches!(punctuation, Some(b'.' | b'?')));
+        let mod_strand = match &raw_group[1] {
+            &b'+' => '+',
+            &b'-' => '-',
+            v => return Err(Error::InvalidModType(format!("invalid MM strand `{v}`"))),
+        };
 
-        let mod_dists = str::from_utf8(&raw_group.as_bytes()[distance_start..])?
+        let (mod_type, is_implicit) = {
+            let mod_type_and_implicit_flag_str =
+                str::from_utf8(&raw_group[2..raw_group.len().min(11)])?;
+            // 2..11 because max char is 1114111 (7) + an optional ?/. (1) + comma (1) = 9
+            let mod_type_and_implicit_flag = mod_type_and_implicit_flag_str
+                .split(',')
+                .take(1)
+                .collect::<Vec<_>>()[0];
+            let n = mod_type_and_implicit_flag.len();
+            if mod_type_and_implicit_flag.ends_with('?') {
+                (
+                    ModChar::from_str(&mod_type_and_implicit_flag[0..n - 1])?,
+                    false,
+                )
+            } else if mod_type_and_implicit_flag.ends_with('.') {
+                (
+                    ModChar::from_str(&mod_type_and_implicit_flag[0..n - 1])?,
+                    true,
+                )
+            } else {
+                (ModChar::from_str(&mod_type_and_implicit_flag[0..n])?, true)
+            }
+        };
+
+        // Check for duplicate strand, modification_type combinations
+        if !seen_combinations.insert((mod_strand, mod_type)) {
+            return Err(Error::InvalidDuplicates(format!(
+                "Duplicate strand '{mod_strand}' and modification_type '{mod_type}' combination found",
+            )));
+        }
+
+        // Check we don't process too many mod types
+        if seen_combinations.len() > usize::from(MAX_MOD_TYPES) {
+            return Err(Error::InvalidState(format!(
+                "max types of mods exceeded {MAX_MOD_TYPES}"
+            )));
+        }
+
+        let mod_dists = str::from_utf8(raw_group)?
             .split(',')
-            .map(str::trim)
-            .filter(|entry| !entry.is_empty())
+            .skip(1)
+            .take(usize::try_from(u32::MAX).expect("no error on 32-bit platforms and higher"))
             .map(|entry| {
-                entry.parse::<usize>().map_err(|err| {
+                entry.parse::<u32>().map_err(|err| {
                     Error::InvalidModCoords(format!("invalid MM distance `{entry}`: {err}"))
                 })
             })
             .collect::<Result<Vec<_>, Error>>()?;
 
+        if mod_dists.len()
+            == usize::try_from(u32::MAX).expect("no error on 32-bit platforms and higher")
+        {
+            return Err(Error::InvalidState("mod dists too long!".to_owned()));
+        }
+
         groups.push(ParsedMmGroup {
             mod_base,
             mod_strand,
-            modification_type,
+            modification_type: mod_type,
             is_implicit,
             mod_dists,
         });
@@ -160,15 +159,15 @@ mod tests {
     }
 
     #[test]
-    fn mm_groups_rejects_missing_semicolon_terminator() {
-        let result = mm_groups("C+m,0,1");
-        assert!(result.is_err(), "unterminated MM group should fail");
+    fn mm_groups_rejects_just_semicolon() {
+        let result = mm_groups(";");
+        assert!(result.is_err(), "just a semicolon should fail");
     }
 
     #[test]
-    fn mm_groups_rejects_consecutive_semicolons() {
-        let result = mm_groups("C+m,0;;");
-        assert!(result.is_err(), "consecutive semicolons should fail");
+    fn mm_groups_rejects_missing_semicolon_terminator() {
+        let result = mm_groups("C+m,0,1");
+        assert!(result.is_err(), "unterminated MM group should fail");
     }
 
     #[test]
@@ -181,6 +180,48 @@ mod tests {
         assert_eq!(group.modification_type.val(), 'm');
         assert!(!group.is_implicit);
         assert!(group.mod_dists.is_empty());
+    }
+
+    #[test]
+    fn mm_groups_parses_period_flag_without_distances() {
+        let groups = mm_groups("C+m.;").expect("MM group with `.` and no distances should parse");
+        assert_eq!(groups.len(), 1);
+        let group = groups.first().expect("one MM group should be present");
+        assert_eq!(group.mod_base, b'C');
+        assert_eq!(group.mod_strand, '+');
+        assert_eq!(group.modification_type.val(), 'm');
+        assert!(group.is_implicit);
+        assert!(group.mod_dists.is_empty());
+    }
+
+    #[test]
+    fn mm_groups_parses_no_flag_without_distances() {
+        let groups = mm_groups("C+m;").expect("MM group with no distances should parse");
+        assert_eq!(groups.len(), 1);
+        let group = groups.first().expect("one MM group should be present");
+        assert_eq!(group.mod_base, b'C');
+        assert_eq!(group.mod_strand, '+');
+        assert_eq!(group.modification_type.val(), 'm');
+        assert!(group.is_implicit);
+        assert!(group.mod_dists.is_empty());
+    }
+
+    #[test]
+    fn mm_groups_rejects_just_semicolon_after_one_valid_mod() {
+        let result = mm_groups("C+m?;;");
+        assert!(
+            result.is_err(),
+            "just a semicolon present after a valid mod should fail"
+        );
+    }
+
+    #[test]
+    fn mm_groups_fails_question_flag_without_distances_but_with_comma() {
+        let result = mm_groups("C+m?,;");
+        assert!(
+            result.is_err(),
+            "question flag without distances but with comma should fail"
+        );
     }
 
     #[test]
@@ -202,5 +243,52 @@ mod tests {
         assert_eq!(second_group.modification_type.val(), 'a');
         assert!(!second_group.is_implicit);
         assert_eq!(second_group.mod_dists, vec![2]);
+    }
+
+    #[test]
+    fn mm_groups_rejects_too_many_mods() {
+        let mut long_mm_tag = String::with_capacity(800);
+        for k in 0..101 {
+            let tag = format!("C+{k},0;");
+            long_mm_tag.push_str(&tag);
+        }
+        let result = mm_groups(&long_mm_tag);
+        assert!(result.is_err(), "too many mods should fail");
+    }
+
+    #[test]
+    fn mm_groups_rejects_different_base_same_mod_type_strand() {
+        let result = mm_groups("C+m,0;A+m,0;");
+        assert!(result.is_err(), "different base same mod type should fail");
+    }
+
+    #[test]
+    fn mm_groups_rejects_same_base_same_mod_type_strand() {
+        let result = mm_groups("C+m,0;C+m,0;");
+        assert!(result.is_err(), "same base same mod type should fail");
+    }
+
+    #[test]
+    fn mm_groups_rejects_really_long_mod_tag() {
+        let result = mm_groups("C+123456789,0;");
+        assert!(result.is_err(), "really long mod tag should fail");
+    }
+
+    #[test]
+    fn mm_groups_accepts_char_limit() {
+        let result = mm_groups("C+1114111?,0;");
+        assert!(
+            result.is_ok(),
+            "really long mod tag within char limit should pass"
+        );
+    }
+
+    #[test]
+    fn mm_groups_rejects_above_char_limit() {
+        let result = mm_groups("C+1114112?,0;");
+        assert!(
+            result.is_err(),
+            "really long mod tag above char limit should fail"
+        );
     }
 }

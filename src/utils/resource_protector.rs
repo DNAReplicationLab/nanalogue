@@ -32,6 +32,20 @@ pub fn assert_nonzero_counter(idx: u32, what: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// Assert that a BAM record's internal data capacity stays within a configured bound.
+///
+/// # Errors
+/// Returns an error if `m_data` exceeds `max`.
+pub fn assert_record_data_capacity(m_data: u32, max: u32, what: &str) -> Result<(), Error> {
+    if m_data > max {
+        return Err(Error::InvalidState(format!(
+            "{what} record capacity limit exceeded: {max}"
+        )));
+    }
+
+    Ok(())
+}
+
 /// Assert that a flag is true.
 ///
 /// # Errors
@@ -46,8 +60,11 @@ pub fn assert_flag(flag: bool, msg: &str) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{assert_bounded_counter, assert_flag, assert_nonzero_counter};
+    use super::{
+        assert_bounded_counter, assert_flag, assert_nonzero_counter, assert_record_data_capacity,
+    };
     use crate::Error;
+    use crate::constants::shared::MAX_RECORD_CAPACITY_BYTES;
 
     #[test]
     fn assert_bounded_counter_increments_within_bound() -> Result<(), Error> {
@@ -97,6 +114,22 @@ mod tests {
     #[should_panic(expected = "no records found!")]
     fn assert_nonzero_counter_errors_on_zero() {
         assert_nonzero_counter(0, "records").unwrap();
+    }
+
+    #[test]
+    fn assert_record_data_capacity_accepts_exact_limit() -> Result<(), Error> {
+        assert_record_data_capacity(MAX_RECORD_CAPACITY_BYTES, MAX_RECORD_CAPACITY_BYTES, "peek")
+    }
+
+    #[test]
+    #[should_panic(expected = "peek record capacity limit exceeded")]
+    fn assert_record_data_capacity_errors_when_limit_exceeded() {
+        assert_record_data_capacity(
+            MAX_RECORD_CAPACITY_BYTES + 1,
+            MAX_RECORD_CAPACITY_BYTES,
+            "peek",
+        )
+        .unwrap();
     }
 
     #[test]

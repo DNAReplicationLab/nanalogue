@@ -147,9 +147,10 @@ from the github repository. To download:
    - `binaries-musllinux_1_2_aarch64` - aarch64 Alpine/musl (static binaries)
    - `binaries-musllinux_1_2_arm` - 32-bit ARM / some Raspberry Pi models (static binaries)
    - `binaries-musllinux_1_2_powerpc64le` - PowerPC64LE Alpine/musl (static binaries)
-   - `binaries-manylinux_2_34_<arch>` - Newer Linux distributions (glibc 2.34+)
+   - `binaries-manylinux_2_34_<arch>` - x86_64 / aarch64 newer Linux distributions (glibc 2.34+)
    - `binaries-manylinux_2_29_<arch>` - RISC-V / PowerPC64LE Linux (glibc 2.29+)
-   - `binaries-manylinux_2_28_<arch>` - Modern Linux distributions (glibc 2.28+)
+   - `binaries-manylinux_2_28_<arch>` - x86_64 / aarch64 Modern Linux distributions (glibc 2.28+)
+   - `binaries-manylinux_2_17_<arch>` - x86_64 / aarch64 (glibc 2.17+, maximum compatibility)
    - `binaries-manylinux_2_17_armv7` - 32-bit ARM / some Raspberry Pi models (glibc 2.17+, maximum compatibility)
 
 ## Using Cargo
