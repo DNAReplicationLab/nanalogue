@@ -79,6 +79,9 @@
 #[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64")))]
 compile_error!("This crate supports only 32-bit and 64-bit platforms.");
 
+use crate::constants::shared::{
+    MAX_MOD_TYPES, MAX_READ_IDS_FOR_FILTERING, MAX_RECORD_CAPACITY_BYTES,
+};
 use bedrs::{Bed3, Coordinates as _, StrandedBed3};
 use rand::random;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
@@ -305,10 +308,19 @@ where
     G: Fn(&usize) -> bool,
     H: Fn(&u8, &char, &ModChar) -> bool,
 {
+    // make sure record is not too large
+    assert_record_data_capacity(
+        record.inner().m_data,
+        MAX_RECORD_CAPACITY_BYTES,
+        "MM ML parsing",
+    )?;
+
     // Array to store all the different modifications within the MM tag
     let mut rtn: Vec<BaseMod> = Vec::new();
 
     // We allow `ML` or legacy `Ml`, but both may not coexist.
+    // We only allow an ArrayU8 (the normal ML:B:C should parse
+    // correctly as this datatype).
     let ml_tag = match (record.aux(b"ML"), record.aux(b"Ml")) {
         (Ok(_), Ok(_)) => {
             return Err(Error::InvalidState(
@@ -325,6 +337,27 @@ where
         }
     };
     let ml_tag_len = ml_tag.as_ref().map_or(0, bam::record::AuxArray::len);
+
+    // check ml_tag is not too long.
+    // TODO restrict sequence lengths throughout the codebase to be smaller so that
+    //      MAX_MOD_TYPES * max_seq_length can still fit in a u32. This is so that our
+    //      program can run on 32-bit platforms like we claim.
+    match usize::from(MAX_MOD_TYPES)
+        .checked_mul(usize::try_from(u32::MAX).expect("no error on 32-bit platforms and above"))
+    {
+        Some(v) => {
+            if ml_tag_len > v {
+                return Err(Error::InvalidState(
+                    "ML tag is too long to process".to_owned(),
+                ));
+            }
+        }
+        None => {
+            return Err(Error::InvalidState(
+                "problems with platform, decrease MAX_MOD_TYPES".to_owned(),
+            ));
+        }
+    }
 
     let mut num_mods_seen: usize = 0;
 
@@ -369,12 +402,22 @@ where
 
         let seq_len = forward_bases.len();
 
+        if seq_len >= usize::try_from(u32::MAX).expect("no error on 32-bit platforms or higher") {
+            return Err(Error::InvalidState(
+                "sequence longer than u32::MAX".to_owned(),
+            ));
+        }
+
         if !base_qual.is_empty() && base_qual.len() != seq_len {
             return Err(Error::InvalidState(
                 "base quality array is not the same size as sequence!".to_owned(),
             ));
         }
 
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "we've verified seq_len < u32::MAX above (& blocked < 32-bit platforms) so +1 will not overflow"
+        )]
         let pos_map = {
             let temp: Vec<Option<u32>> = {
                 if record.is_unmapped() {
@@ -383,6 +426,7 @@ where
                     record
                         .aligned_pairs_full()
                         .filter(|x| x[0].is_some())
+                        .take(seq_len + 1)
                         .map(|x| match x[1] {
                             None => Ok(None),
                             Some(v) => u32::try_from(v).map(Some).map_err(|e| {
@@ -397,11 +441,9 @@ where
             if temp.len() == seq_len {
                 temp
             } else {
-                return Err(Error::InvalidState(format!(
-                    "rust_htslib failure! seq coordinates malformed {} != {}",
-                    temp.len(),
-                    seq_len
-                )));
+                return Err(Error::InvalidState(
+                    "rust_htslib failure! seq coordinates malformed".to_owned(),
+                ));
             }
         };
 
@@ -606,6 +648,9 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
     /// # Errors
     /// Returns an error if thread pool creation, BAM region fetching/processing,
     /// or read ID file processing fails.
+    ///
+    /// # Panics
+    /// One u32->usize conversion uses an expect; this is not expected to panic.
     pub fn new<T: InputRegionOptions>(
         bam_reader: &'a mut R,
         bam_opts: &mut InputBam,
@@ -633,12 +678,20 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
                     let reader = BufReader::new(file);
                     let mut read_ids = HashSet::new();
 
-                    for raw_line in reader.lines() {
+                    for (index, raw_line) in reader.lines().enumerate() {
                         let temp_line =
                             raw_line.map_err(|err| Error::InputOutputError(Box::new(err)))?;
                         let line = temp_line.trim();
                         if !line.is_empty() && !line.starts_with('#') {
                             let _: bool = read_ids.insert(line.to_string());
+                        }
+                        if index
+                            >= usize::try_from(MAX_READ_IDS_FOR_FILTERING)
+                                .expect("no error on 32-bit platforms and above")
+                        {
+                            return Err(Error::InvalidState(
+                                "too many read ids in text input file for filtering".to_owned(),
+                            ));
                         }
                     }
                     Some(read_ids)

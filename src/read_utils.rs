@@ -1,11 +1,10 @@
 //! Implements `CurrRead` Struct for processing information
 //! and the mod information in the BAM file using a parser implemented in
 //! another module.
-
 use crate::{
     AllowedAGCTN, BaseMod, BaseMods, Contains as _, Error, F32Bw0and1, FiberAnnotation,
     FilterModsByRefCoords, GenomicBed3, GenomicStrandedBed3, InputModOptions, InputRegionOptions,
-    InputWindowing, ModChar, Ranges, ReadState, ThresholdState, nanalogue_mm_ml_parser,
+    InputWindowing, ModChar, Ranges, ReadState, ThresholdState, constants::shared::MAX_MOD_TYPES, nanalogue_mm_ml_parser,
 };
 use bedrs::prelude::Intersect as _;
 use bedrs::{Coordinates as _, Strand};
@@ -2040,8 +2039,27 @@ fn reconstruct_base_mods(
     seq_len: u32,
 ) -> Result<BaseMods, Error> {
     let mut base_mods = Vec::new();
+    let mut seen_combinations = HashSet::new();
 
     for entry in mod_table {
+
+        let mod_strand = if entry.is_strand_plus { '+' } else { '-' };
+        let mod_type = entry.mod_code;
+
+        // Check for duplicate strand, modification_type combinations
+        if !seen_combinations.insert((mod_strand, mod_type)) {
+            return Err(Error::InvalidDuplicates(format!(
+                "Duplicate strand '{mod_strand}' and modification_type '{mod_type}' combination found",
+            )));
+        }
+
+        // Check we don't process too many mod types
+        if seen_combinations.len() > usize::from(MAX_MOD_TYPES) {
+            return Err(Error::InvalidState(format!(
+                "max types of mods exceeded {MAX_MOD_TYPES}"
+            )));
+        }
+
         let annotations = {
             let mut annotations = Vec::<FiberAnnotation>::with_capacity(entry.data.len());
             let mut valid_range = 0..seq_len;
@@ -2080,32 +2098,17 @@ ascending needed even if reversed read)!",
 
         let ranges = Ranges::from_annotations(annotations, seq_len, is_reverse);
 
-        let strand = if entry.is_strand_plus { '+' } else { '-' };
 
         base_mods.push(BaseMod {
             modified_base: u8::try_from(char::from(entry.base))?,
-            strand,
-            modification_type: entry.mod_code.val(),
+            strand: mod_strand,
+            modification_type: mod_type.val(),
             ranges,
             record_is_reverse: is_reverse,
         });
     }
 
     base_mods.sort();
-
-    // Check for duplicate strand, modification_type combinations
-    let mut seen_combinations = HashSet::new();
-    for base_mod in &base_mods {
-        let combination = (base_mod.strand, base_mod.modification_type);
-        if seen_combinations.contains(&combination) {
-            return Err(Error::InvalidDuplicates(format!(
-                "Duplicate strand '{}' and modification_type '{}' combination found",
-                base_mod.strand, base_mod.modification_type
-            )));
-        }
-        let _: bool = seen_combinations.insert(combination);
-    }
-
     Ok(BaseMods { base_mods })
 }
 

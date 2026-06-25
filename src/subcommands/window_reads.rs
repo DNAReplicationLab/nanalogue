@@ -3,12 +3,10 @@
 //! In this module, we window data along molecules, and then output
 //! these windows
 
-use crate::BaseMod;
-use crate::constants::shared::MAX_RECORDS;
 use crate::{
-    AlignmentInfo, AlignmentInfoBuilder, CurrRead, Error, F32AbsValAtMost1, InputMods,
+    AlignmentInfo, AlignmentInfoBuilder, BaseMod, CurrRead, Error, F32AbsValAtMost1, InputMods,
     InputWindowing, ModChar, OptionalTag, ReadState, assert_bounded_counter, assert_flag,
-    assert_nonzero_counter,
+    assert_nonzero_counter, assert_record_data_capacity, constants::shared::{MAX_RECORDS, MAX_RECORD_CAPACITY_BYTES}
 };
 use polars::prelude::*;
 use rust_htslib::bam::Record;
@@ -293,6 +291,7 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
         // read records
         let record = r?;
         assert_bounded_counter(&mut idx, MAX_RECORDS, "window reads")?;
+        assert_record_data_capacity(record.inner().m_data, MAX_RECORD_CAPACITY_BYTES, "window reads")?;
 
         // set data in records
         let curr_read_state = CurrRead::default()
@@ -533,6 +532,7 @@ where
         // read records
         let record = r?;
         assert_bounded_counter(&mut idx, MAX_RECORDS, "window reads")?;
+        assert_record_data_capacity(record.inner().m_data, MAX_RECORD_CAPACITY_BYTES, "window reads")?;
 
         // set data in records
         let curr_read_state = CurrRead::default()

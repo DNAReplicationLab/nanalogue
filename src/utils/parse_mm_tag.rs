@@ -77,8 +77,8 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
             // 2..11 because max char is 1114111 (7) + an optional ?/. (1) + comma (1) = 9
             let mod_type_and_implicit_flag = mod_type_and_implicit_flag_str
                 .split(',')
-                .take(1)
-                .collect::<Vec<_>>()[0];
+                .next()
+                .expect("split always yields at least one element");
             let n = mod_type_and_implicit_flag.len();
             if mod_type_and_implicit_flag.ends_with('?') {
                 (
@@ -112,7 +112,7 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
         let mod_dists = str::from_utf8(raw_group)?
             .split(',')
             .skip(1)
-            .take(usize::try_from(u32::MAX).expect("no error on 32-bit platforms and higher"))
+            .take(usize::try_from(u32::MAX - 1).expect("no error on 32-bit platforms and higher") + 1)
             .map(|entry| {
                 entry.parse::<u32>().map_err(|err| {
                     Error::InvalidModCoords(format!("invalid MM distance `{entry}`: {err}"))

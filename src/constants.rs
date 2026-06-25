@@ -14,6 +14,9 @@ pub mod shared {
 
     /// Hard cap on the number of types of mods per BAM record
     pub const MAX_MOD_TYPES: u8 = 100;
+
+    /// Hard cap on the number of read ids that can be supplied from an external text file for filtering
+    pub const MAX_READ_IDS_FOR_FILTERING: u32 = 1_000_000;
 }
 
 /// Constants used by the `peek` subcommand/module.

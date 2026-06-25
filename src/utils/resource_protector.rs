@@ -1,4 +1,5 @@
-//! Helpers for protecting loops against runaway iteration.
+//! Helpers for (1) protecting loops against runaway iteration.
+//! and for (2) protecting against memory exhaustion.
 
 use crate::Error;
 

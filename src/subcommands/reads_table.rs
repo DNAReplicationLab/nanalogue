@@ -789,6 +789,10 @@ where
             .or_insert(Read::new_align_len(
                 align_len, seq_len, mod_count, read_state, sequence, qualities,
             )?);
+        
+        // We throw away the actual error produced by `add_align_len` and propagate
+        // a generic error instead. Can be fixed in the future. Leaving this be as
+        // it takes too much of my attention.
         if is_insert_error {
             return Err(Error::InvalidState(
                 "invalid state encountered while populating sequence data".to_owned(),
