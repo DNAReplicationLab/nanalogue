@@ -155,9 +155,10 @@ from the github repository. To download:
 ## Using Cargo
 
 Run the following command to install or update `nanalogue` for usage on the command line.
+Existing installs are overwritten with `--force`.
 
 ```bash
-cargo install nanalogue
+cargo install --force nanalogue
 ```
 
 `cargo` is the rust package manager. If you do not have `cargo`,
@@ -167,10 +168,10 @@ to get it. On Linux and macOS systems, the install command is as simple as
 
 ### Using cargo locked
 
-If the `cargo install` command fails, please also try
+If the `cargo install` command fails, or if you are updating an existing install, please also try
 
 ```bash
-cargo install nanalogue --locked
+cargo install --force nanalogue --locked
 ```
 
 This uses the exact versions of dependencies specified in the package's `Cargo.lock` file,
@@ -229,7 +230,7 @@ Prints information about reads in JSON, including BAM mapping quality (`mapq`). 
 ]
 ```
 Please note that a `mapq` of 255 means that the mapping quality is unavailable,
-and a `mod_count` of "NA" means modifications are not present.
+and a `mod_count` of "NA" means no modifications were counted after the current filters were applied.
 
 With options like `--detailed` and `--detailed-pretty`, the modification information in the BAM file
 is converted to a more-usable JSON format; this detailed output also includes `mapq`. A sample output snippet follows.
