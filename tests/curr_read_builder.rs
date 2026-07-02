@@ -13,7 +13,9 @@ mod tests {
     /// First example, unmapped read with very little information
     #[test]
     fn unmapped_minimal() -> Result<(), Error> {
-        let _read: CurrRead<AlignAndModData> = CurrReadBuilder::default().build()?;
+        let _read: CurrRead<AlignAndModData> = CurrReadBuilder::default()
+            .read_id("some_read".into())
+            .build()?;
         Ok(())
     }
 

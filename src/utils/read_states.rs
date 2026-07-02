@@ -64,6 +64,10 @@ impl FromStr for ReadStates {
                 "Set of allowed read states cannot be empty!".to_owned(),
             ))
         } else if s.len() > 200 {
+            // The longest, useful s is if the seven states are concatenated by a comma.
+            // But, s can contain repeated strings e.g. primary, primary so there's no
+            // real upper bound. So, we just put a nominal 200 here that is longer than
+            // the seven states concatenated by a comma.
             Err(Error::InvalidState(
                 "pathological input detected; even hitting all read states does not need 200 bytes"
                     .to_owned(),
@@ -112,6 +116,8 @@ impl TryFrom<Vec<u16>> for ReadStates {
                 "Set of allowed read states cannot be empty!".to_owned(),
             ))
         } else if s.len() > 20 {
+            // Again, repeated entries are allowed in the Vec so there's no real
+            // upper bound. We just set 20 (>> 7) as a nominal guard.
             Err(Error::InvalidState(
                 "pathological input detected; even hitting all ReadStates does not need 20 entries in Vec".to_owned(),
             ))

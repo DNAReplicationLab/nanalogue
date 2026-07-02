@@ -77,6 +77,7 @@ where
     }
 
     writeln!(handle, "\n]")?;
+    handle.flush()?;
     Ok(())
 }
 

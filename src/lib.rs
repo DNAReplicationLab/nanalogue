@@ -80,7 +80,8 @@
 compile_error!("This crate supports only 32-bit and 64-bit platforms.");
 
 use crate::constants::shared::{
-    MAX_MOD_TYPES, MAX_READ_IDS_FOR_FILTERING, MAX_RECORD_CAPACITY_BYTES,
+    MAX_ML_ARRAY_LENGTH, MAX_MM_TAG_LENGTH, MAX_READ_ID_LEN, MAX_READ_IDS_FOR_FILTERING,
+    MAX_RECORD_CAPACITY_BYTES,
 };
 use bedrs::{Bed3, Coordinates as _, StrandedBed3};
 use rand::random;
@@ -89,7 +90,7 @@ use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::fs::File;
 use std::hash::{Hash as _, Hasher as _};
-use std::io::{BufRead as _, BufReader};
+use std::io::{BufRead, BufReader};
 use std::sync::Once;
 
 // Declare the modules.
@@ -129,8 +130,8 @@ pub use utils::{
     FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
     OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
     RestrictModCalledStrand, SeqCoordCalls, ThresholdState, assert_bounded_counter, assert_flag,
-    assert_nonzero_counter, assert_record_data_capacity, complement, convert_seq_uppercase,
-    mm_groups, revcomp,
+    assert_nonzero_counter, assert_record_data_capacity, assert_valid_read_id, complement,
+    convert_seq_uppercase, mm_groups, revcomp,
 };
 
 /// Genomic 3-column BED shorthand used with `bedrs` coordinate types in this crate.
@@ -338,25 +339,14 @@ where
     };
     let ml_tag_len = ml_tag.as_ref().map_or(0, bam::record::AuxArray::len);
 
-    // check ml_tag is not too long.
-    // TODO restrict sequence lengths throughout the codebase to be smaller so that
-    //      MAX_MOD_TYPES * max_seq_length can still fit in a u32. This is so that our
-    //      program can run on 32-bit platforms like we claim.
-    match usize::from(MAX_MOD_TYPES)
-        .checked_mul(usize::try_from(u32::MAX).expect("no error on 32-bit platforms and above"))
+    // Checks `ml_tag` is not too long.
+    // Other checks such as record size checks may stop this from ever triggering.
+    if ml_tag_len
+        > usize::try_from(MAX_ML_ARRAY_LENGTH).expect("no error on 32-bit platforms and above")
     {
-        Some(v) => {
-            if ml_tag_len > v {
-                return Err(Error::InvalidState(
-                    "ML tag is too long to process".to_owned(),
-                ));
-            }
-        }
-        None => {
-            return Err(Error::InvalidState(
-                "problems with platform, decrease MAX_MOD_TYPES".to_owned(),
-            ));
-        }
+        return Err(Error::InvalidState(
+            "ML tag is too long to process".to_owned(),
+        ));
     }
 
     let mut num_mods_seen: usize = 0;
@@ -382,6 +372,16 @@ where
             }
         }
     };
+
+    // Checks `mm_text` is not too long.
+    // Other checks such as record size checks may stop this from ever triggering.
+    if mm_text.len()
+        > usize::try_from(MAX_MM_TAG_LENGTH).expect("no error on 32-bit platforms and above")
+    {
+        return Err(Error::InvalidState(
+            "MM tag is too long to process".to_owned(),
+        ));
+    }
 
     // if there is an MM tag, process the data
     if !mm_text.is_empty() {
@@ -642,6 +642,42 @@ where
     pub header: bam::HeaderView,
 }
 
+/// Loads read IDs from a text reader, enforcing a maximum on distinct IDs.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "`counter` is bounded by `max_read_ids` so no problem"
+)]
+fn load_read_ids_for_filtering<T: BufRead>(
+    reader: T,
+    max_read_ids: u32,
+) -> Result<HashSet<String>, Error> {
+    let mut read_ids = HashSet::new();
+    let mut counter: u32 = 0;
+
+    for raw_line in reader.lines() {
+        let temp_line = raw_line.map_err(|err| Error::InputOutputError(Box::new(err)))?;
+        let line = temp_line.trim();
+        if !line.is_empty() {
+            assert_valid_read_id(line.as_bytes(), MAX_READ_ID_LEN)?;
+            let _: bool = read_ids.insert(line.to_string());
+        }
+        if counter < max_read_ids {
+            counter += 1;
+        } else {
+            return Err(Error::InvalidState(
+                "too many lines in read id text input file for filtering".to_owned(),
+            ));
+        }
+    }
+
+    assert!(
+        read_ids.len()
+            <= usize::try_from(max_read_ids).expect("no problem on 32-bit platforms and higher"),
+        "bug: we should catch read id sets that are too long!"
+    );
+    Ok(read_ids)
+}
+
 impl<'a, R: bam::Read> BamRcRecords<'a, R> {
     /// Extracts `RcRecords` from a BAM Reader
     ///
@@ -676,25 +712,10 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
                     let file = File::open(file_path)
                         .map_err(|err| Error::InputOutputError(Box::new(err)))?;
                     let reader = BufReader::new(file);
-                    let mut read_ids = HashSet::new();
-
-                    for (index, raw_line) in reader.lines().enumerate() {
-                        let temp_line =
-                            raw_line.map_err(|err| Error::InputOutputError(Box::new(err)))?;
-                        let line = temp_line.trim();
-                        if !line.is_empty() && !line.starts_with('#') {
-                            let _: bool = read_ids.insert(line.to_string());
-                        }
-                        if index
-                            >= usize::try_from(MAX_READ_IDS_FOR_FILTERING)
-                                .expect("no error on 32-bit platforms and above")
-                        {
-                            return Err(Error::InvalidState(
-                                "too many read ids in text input file for filtering".to_owned(),
-                            ));
-                        }
-                    }
-                    Some(read_ids)
+                    Some(load_read_ids_for_filtering(
+                        reader,
+                        MAX_READ_IDS_FOR_FILTERING,
+                    )?)
                 } else {
                     None
                 };
@@ -1338,6 +1359,7 @@ mod bam_rc_record_tests {
     use rand::random_range;
     use rust_htslib::bam::record;
     use rust_htslib::bam::record::{Cigar, CigarString};
+    use std::io::Cursor;
 
     /// Creates 200 BAM records with names `read_0` .. `read_199` and runs
     /// `filt_random_subset` with fraction 0.5 and the given seed on each,
@@ -1788,6 +1810,38 @@ mod bam_rc_record_tests {
         // read_id_set should remain unchanged
         assert!(bam_opts.read_id_list.is_none());
         assert_eq!(bam_opts.read_id_set, Some(read_id_set));
+    }
+
+    #[test]
+    fn load_read_ids_for_filtering_allows_duplicate() {
+        let reader = Cursor::new("read_0\nread_1\nread_0\n");
+
+        let read_id_set = load_read_ids_for_filtering(reader, 3).unwrap();
+
+        assert_eq!(read_id_set.len(), 2);
+        assert!(read_id_set.contains("read_0"));
+        assert!(read_id_set.contains("read_1"));
+    }
+
+    #[test]
+    #[should_panic(expected = "too many lines in read id text input file for filtering")]
+    fn load_read_ids_for_filtering_rejects_new_unique_past_limit() {
+        let reader = Cursor::new("read_0\nread_1\nread_2\n");
+        drop(load_read_ids_for_filtering(reader, 2).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
+    fn load_read_ids_for_filtering_rejects_malformed_reads() {
+        let reader = Cursor::new("read_0\nre ad_1\nread_2\n");
+        drop(load_read_ids_for_filtering(reader, 3).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "we do not accept read ids starting with a # symbol")]
+    fn load_read_ids_for_filtering_rejects_comments() {
+        let reader = Cursor::new("#comment\nread_1\nread_2\n");
+        drop(load_read_ids_for_filtering(reader, 3).unwrap());
     }
 
     #[test]

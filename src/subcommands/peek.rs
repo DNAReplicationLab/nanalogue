@@ -2,8 +2,8 @@
 //!
 //! This function displays contigs, contig lengths and modification types after looking at the header and the given records
 
-use crate::constants::peek::{MAX_CONTIGS, MAX_MODIFICATIONS, MAX_RECORDS};
-use crate::constants::shared::MAX_RECORD_CAPACITY_BYTES;
+use crate::constants::peek::MAX_RECORDS;
+use crate::constants::shared::{MAX_CONTIGS, MAX_MOD_TYPES, MAX_RECORD_CAPACITY_BYTES};
 use crate::{
     AllowedAGCTN, CurrRead, Error, ModChar, assert_bounded_counter, assert_nonzero_counter,
     assert_record_data_capacity,
@@ -50,16 +50,17 @@ use std::rc::Rc;
 ///
 /// # Panics
 ///
-/// This function converts some `u32` constants (e.g. record caps) to `usize`
-/// for comparisons with iterator indices.
-/// This conversion should never panic on supported targets because `usize` is
-/// at least 32 bits.
+/// - this function converts some `u32` constants (e.g. record caps) to `usize`
+///   for comparisons with iterator indices.
+///   This conversion should never panic on supported targets because `usize` is
+///   at least 32 bits.
+/// - `sorted_mods` guaranteed to be less in number than `MAX_MOD_TYPES`, so this assert shouldn't fail.
 pub fn run<W, D>(handle: &mut W, header: &bam::HeaderView, records: D) -> Result<(), Error>
 where
     W: io::Write,
     D: Iterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
 {
-    // Error out if too many contigs are found.
+    // We check the total contig number here and error out if too many are found.
     // No contigs found is fine as BAM may be unmapped.
     if header.target_count() > MAX_CONTIGS {
         return Err(Error::InvalidState(format!(
@@ -111,18 +112,14 @@ where
 
             // Create the modification string: base+strand+modification_type
             let mod_string = format!("{}{}{}", base, base_mod.strand, mod_char);
-            if modifications.insert(mod_string)
-                && modifications.len()
-                    > usize::try_from(MAX_MODIFICATIONS).expect("MAX_MODIFICATIONS set incorrectly")
+            if modifications.insert(mod_string) && modifications.len() > usize::from(MAX_MOD_TYPES)
             {
                 return Err(Error::InvalidState(format!(
-                    "peek modification limit exceeded: > {MAX_MODIFICATIONS}"
+                    "peek modification limit exceeded: > {MAX_MOD_TYPES}"
                 )));
             }
         }
     }
-
-    assert_nonzero_counter(idx, "records")?;
 
     // 3. Display modifications
     writeln!(handle, "modifications:")?;
@@ -133,11 +130,20 @@ where
         // Not a big slowdown to convert to Vecs as we have capped number of mods.
         let mut sorted_mods: Vec<_> = modifications.into_iter().collect();
         sorted_mods.sort();
+        assert!(
+            sorted_mods.len() <= usize::from(MAX_MOD_TYPES),
+            "bug: sorted mod types cannot be more than MAX_MOD_TYPES"
+        );
         for mod_string in sorted_mods {
             writeln!(handle, "{mod_string}")?;
         }
     }
 
+    handle.flush()?;
+    assert_nonzero_counter(
+        idx,
+        "No records found. Please check if the BAM/CRAM/SAM resource has at least one record",
+    )?;
     Ok(())
 }
 
@@ -347,7 +353,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "no records found!")]
+    #[should_panic(
+        expected = "No records found. Please check if the BAM/CRAM/SAM resource has at least one record"
+    )]
     fn peek_empty_file() {
         use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
 

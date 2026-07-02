@@ -4,7 +4,9 @@
 //! filtration criteria on these windows using user-supplied parameters
 //! and output these reads.
 
-use crate::constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS};
+use crate::constants::shared::{
+    MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS, NO_RECORDS_FOUND_FOR_ANALYSIS,
+};
 use crate::{
     CurrRead, Error, F32Bw0and1, InputMods, InputWindowing, RequiredTag, assert_bounded_counter,
     assert_nonzero_counter, assert_record_data_capacity,
@@ -63,8 +65,11 @@ where
             writeln!(handle, "{read_id}")?;
         }
     }
+    handle.flush()?;
 
-    assert_nonzero_counter(idx, "records")?;
+    // when no records and/or no mods are found, we output no rows
+    // and also return an error.
+    assert_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
 
     Ok(())
 }

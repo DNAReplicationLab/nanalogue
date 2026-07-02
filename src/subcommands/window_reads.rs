@@ -6,7 +6,8 @@
 use crate::{
     AlignmentInfo, AlignmentInfoBuilder, BaseMod, CurrRead, Error, F32AbsValAtMost1, InputMods,
     InputWindowing, ModChar, OptionalTag, ReadState, assert_bounded_counter, assert_flag,
-    assert_nonzero_counter, assert_record_data_capacity, constants::shared::{MAX_RECORDS, MAX_RECORD_CAPACITY_BYTES}
+    assert_nonzero_counter, assert_record_data_capacity,
+    constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS, NO_RECORDS_FOUND_FOR_ANALYSIS},
 };
 use polars::prelude::*;
 use rust_htslib::bam::Record;
@@ -282,16 +283,21 @@ where
         "#contig\tref_win_start\tref_win_end\tread_id\twin_val\tstrand\t\
 base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
     )?;
+    handle.flush()?;
 
     let mut idx: u32 = 0;
-    let mut found_mods = false;
+    let mut found_windows = false;
 
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
         let record = r?;
         assert_bounded_counter(&mut idx, MAX_RECORDS, "window reads")?;
-        assert_record_data_capacity(record.inner().m_data, MAX_RECORD_CAPACITY_BYTES, "window reads")?;
+        assert_record_data_capacity(
+            record.inner().m_data,
+            MAX_RECORD_CAPACITY_BYTES,
+            "window reads",
+        )?;
 
         // set data in records
         let curr_read_state = CurrRead::default()
@@ -326,13 +332,23 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
                     {}\t{mod_strand}\t{}\t{win_start}\t{win_end}\t{mean_base_qual}",
                     result.base, result.mod_code,
                 )?;
-                found_mods = true;
+                found_windows = true;
             }
         }
     }
 
-    assert_nonzero_counter(idx, "records")?;
-    assert_flag(found_mods, "no mods found")?;
+    handle.flush()?;
+    // when no records and/or no mods are found, we output no rows
+    // and also return an error.
+    assert_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
+    assert_flag(
+        found_windows,
+        "No windowed data found. This could mean \
+no records were found (BAM file empty or filtering removed records)\n\
+or no mods were found or mods were found but reads are all shorter \
+than the window size chosen so no mods could not be windowed\n\
+or some other possibility.",
+    )?;
 
     Ok(())
 }
@@ -532,7 +548,11 @@ where
         // read records
         let record = r?;
         assert_bounded_counter(&mut idx, MAX_RECORDS, "window reads")?;
-        assert_record_data_capacity(record.inner().m_data, MAX_RECORD_CAPACITY_BYTES, "window reads")?;
+        assert_record_data_capacity(
+            record.inner().m_data,
+            MAX_RECORD_CAPACITY_BYTES,
+            "window reads",
+        )?;
 
         // set data in records
         let curr_read_state = CurrRead::default()
@@ -591,9 +611,12 @@ where
         write!(handle, "{}", serde_json::to_string(&entry)?)?;
     }
 
-    assert_nonzero_counter(idx, "records")?;
-
     writeln!(handle, "\n]")?;
+    handle.flush()?;
+
+    // when no records are found, we output a suitably empty json i.e. []
+    // and also return an error.
+    assert_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
 
     Ok(())
 }
@@ -862,7 +885,7 @@ mod stochastic_tests {
     /// This test creates a simulated BAM file without any modification information and verifies
     /// that `run_df` errors with `no mods found` when no modifications are present.
     #[test]
-    #[should_panic(expected = "no mods found")]
+    #[should_panic(expected = "No windowed data found.")]
     #[expect(
         clippy::let_underscore_untyped,
         reason = "these are expected to panic so we don't bother defining types"
@@ -1531,7 +1554,7 @@ mod stochastic_tests {
 
     /// Test that `run` (TSV) errors when there are zero reads.
     #[test]
-    #[should_panic(expected = "no records found!")]
+    #[should_panic(expected = "No records found as input for analysis.")]
     fn run_tsv_header_only_for_zero_reads() {
         let config_json = r#"{
             "contigs": {
@@ -1557,7 +1580,7 @@ mod stochastic_tests {
 
     /// Test that `run_json` errors when there are zero reads.
     #[test]
-    #[should_panic(expected = "no records found!")]
+    #[should_panic(expected = "No records found as input for analysis")]
     #[expect(
         clippy::let_underscore_untyped,
         reason = "these are expected to panic so we don't bother defining types"

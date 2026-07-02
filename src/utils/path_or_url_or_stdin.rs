@@ -1,7 +1,7 @@
 //! `PathOrURLOrStdin` enum for handling input sources
 //! Represents stdin, file paths, or URLs as input sources
 
-use crate::{Error, InputBam, InputBamBuilder};
+use crate::{Error, InputBam, InputBamBuilder, constants::shared::MAX_PATH_LENGTH};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
@@ -58,6 +58,19 @@ pub enum PathOrURLOrStdin {
 /// `file://` (which `hts_open` would happily dereference as a local file).
 const ALLOWED_NETWORK_SCHEMES: &[&str] = &["http", "https", "ftp"];
 
+/// Validate shared path/URL length constraints.
+fn assert_valid_path_or_url_len(len: usize) -> Result<(), Error> {
+    if len == 0 {
+        Err(Error::InvalidState("path or url is empty".to_owned()))
+    } else if len > usize::from(MAX_PATH_LENGTH) {
+        Err(Error::InvalidState(format!(
+            "path or url too long i.e. > {MAX_PATH_LENGTH}"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
 /// Shadow type used solely by serde to validate `PathOrURLOrStdin`
 /// deserialization. Routes the raw payload through the same allow-list /
 /// stdin-marker checks as [`PathOrURLOrStdin::from_str`].
@@ -82,10 +95,12 @@ impl TryFrom<PathOrURLOrStdinShadow> for PathOrURLOrStdin {
         match value {
             PathOrURLOrStdinShadow::Stdin => Ok(PathOrURLOrStdin::Stdin),
             PathOrURLOrStdinShadow::Path(p) => {
-                // Disallow the literal stdin marker inside Path; FromStr would
-                // route "-" to `Stdin`, so accepting it here would create an
-                // unreachable-via-FromStr variant state.
-                if p.as_os_str() == "-" {
+                let s = p.as_os_str();
+                assert_valid_path_or_url_len(s.len())?;
+                if s == "-" {
+                    // Disallow the literal stdin marker inside Path; FromStr would
+                    // route "-" to `Stdin`, so accepting it here would create an
+                    // unreachable-via-FromStr variant state.
                     Err(Error::InvalidState(
                         "`-` is reserved for Stdin and is not a valid Path variant".to_owned(),
                     ))
@@ -94,6 +109,8 @@ impl TryFrom<PathOrURLOrStdinShadow> for PathOrURLOrStdin {
                 }
             }
             PathOrURLOrStdinShadow::URL(u) => {
+                let s = u.as_str();
+                assert_valid_path_or_url_len(s.len())?;
                 if ALLOWED_NETWORK_SCHEMES.contains(&u.scheme()) {
                     Ok(PathOrURLOrStdin::URL(u))
                 } else {
@@ -149,23 +166,24 @@ impl FromStr for PathOrURLOrStdin {
     /// disallowed scheme in the serde shadow path. Direct string parsing is
     /// otherwise lenient and falls back to `Path` when URL parsing fails.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // Check for stdin marker
+        assert_valid_path_or_url_len(s.len())?;
         if s == "-" {
-            return Ok(PathOrURLOrStdin::Stdin);
-        }
-
-        // Try to parse as URL with allowed network schemes
-        if let Ok(parsed_url) = Url::parse(s) {
-            // Only accept known network schemes to avoid misclassifying local paths
-            if ALLOWED_NETWORK_SCHEMES.contains(&parsed_url.scheme()) {
-                return Ok(PathOrURLOrStdin::URL(parsed_url));
+            // stdin marker
+            Ok(PathOrURLOrStdin::Stdin)
+        } else {
+            // Try to parse as URL with allowed network schemes
+            if let Ok(parsed_url) = Url::parse(s) {
+                // Only accept known network schemes to avoid misclassifying local paths
+                if ALLOWED_NETWORK_SCHEMES.contains(&parsed_url.scheme()) {
+                    return Ok(PathOrURLOrStdin::URL(parsed_url));
+                }
+                // If it's a valid URL but with an unsupported scheme, fall through to treat as path
             }
-            // If it's a valid URL but with an unsupported scheme, fall through to treat as path
-        }
 
-        // Otherwise, treat as path (don't check existence to avoid TOCTOU)
-        let path = PathBuf::from(s);
-        Ok(PathOrURLOrStdin::Path(path))
+            // Otherwise, treat as path (don't check existence to avoid TOCTOU)
+            let path = PathBuf::from(s);
+            Ok(PathOrURLOrStdin::Path(path))
+        }
     }
 }
 

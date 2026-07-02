@@ -6,18 +6,17 @@ use crate::Error;
 /// Increment a counter and assert that it stays within a configured bound.
 ///
 /// # Errors
-/// Returns an error if the counter overflows or exceeds `max`.
+/// Returns an error if the counter exceeds `max`.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "no overflow as bounded by max"
+)]
 pub fn assert_bounded_counter(idx: &mut u32, max: u32, what: &str) -> Result<(), Error> {
-    *idx = idx.checked_add(1).ok_or_else(|| {
-        Error::InvalidState(format!("{what} record counter overflowed at u32::MAX"))
-    })?;
-
-    if *idx > max {
-        return Err(Error::InvalidState(format!(
-            "{what} record limit exceeded: {max}"
-        )));
+    if *idx < max {
+        *idx += 1;
+    } else {
+        return Err(Error::InvalidState(format!("{what} limit exceeded: {max}")));
     }
-
     Ok(())
 }
 
@@ -25,9 +24,9 @@ pub fn assert_bounded_counter(idx: &mut u32, max: u32, what: &str) -> Result<(),
 ///
 /// # Errors
 /// Returns an error if `idx` is zero.
-pub fn assert_nonzero_counter(idx: u32, what: &str) -> Result<(), Error> {
+pub fn assert_nonzero_counter(idx: u32, msg: &str) -> Result<(), Error> {
     if idx == 0 {
-        return Err(Error::InvalidState(format!("no {what} found!")));
+        return Err(Error::InvalidState(msg.to_owned()));
     }
 
     Ok(())
@@ -59,10 +58,53 @@ pub fn assert_flag(flag: bool, msg: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// Verify that a read id is valid.
+/// We apply stricter conditions than the BAM standard i.e. the BAM standard allows
+/// read ids up to 255 characters I believe, and allows the various quotes shown
+/// below, and allows a read id starting with a #. We deliberately apply stricter
+/// standards because we don't want to run into problems downstream
+/// e.g. in a table with the first column as read id, a read starting with a '#'
+/// could be interpreted as a comment.
+///
+/// # Errors
+/// - if empty
+/// - if above a max read id length
+/// - if non ASCII characters or strange characters
+/// - if starts with a #
+/// - if contains a quote-like character
+#[expect(clippy::else_if_without_else, reason = "simple enough structure")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "we've checked qname is not empty before accessing its first element"
+)]
+pub fn assert_valid_read_id(qname: &[u8], max_len: u8) -> Result<(), Error> {
+    if qname.is_empty() {
+        return Err(Error::InvalidReadID("read id is blank".to_owned()));
+    } else if qname.len() > usize::from(max_len) {
+        return Err(Error::InvalidState(format!(
+            "error in setting read id, length > {max_len}"
+        )));
+    }
+    for k in qname {
+        if (0..33).contains(k) || (127..).contains(k) || *k == b'`' || *k == b'"' || *k == b'\'' {
+            return Err(Error::InvalidReadID(
+                "read_id contains strange characters and/or quotes!".to_owned(),
+            ));
+        }
+    }
+    if qname[0] == b'#' {
+        return Err(Error::InvalidState(
+            "we do not accept read ids starting with a # symbol".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         assert_bounded_counter, assert_flag, assert_nonzero_counter, assert_record_data_capacity,
+        assert_valid_read_id,
     };
     use crate::Error;
     use crate::constants::shared::MAX_RECORD_CAPACITY_BYTES;
@@ -95,15 +137,14 @@ mod tests {
     fn assert_bounded_counter_errors_when_limit_exceeded() {
         let mut idx = 1;
 
-        assert_bounded_counter(&mut idx, 1, "peek").unwrap();
+        assert_bounded_counter(&mut idx, 1, "peek record").unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "peek record counter overflowed at u32::MAX")]
+    #[should_panic(expected = "peek record limit exceeded: 4294967295")]
     fn assert_bounded_counter_errors_on_overflow() {
         let mut idx = u32::MAX;
-
-        assert_bounded_counter(&mut idx, u32::MAX, "peek").unwrap();
+        assert_bounded_counter(&mut idx, u32::MAX, "peek record").unwrap();
     }
 
     #[test]
@@ -114,7 +155,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "no records found!")]
     fn assert_nonzero_counter_errors_on_zero() {
-        assert_nonzero_counter(0, "records").unwrap();
+        assert_nonzero_counter(0, "no records found!").unwrap();
     }
 
     #[test]
@@ -142,5 +183,51 @@ mod tests {
     #[should_panic(expected = "flag failed")]
     fn assert_flag_errors_on_false() {
         assert_flag(false, "flag failed").unwrap();
+    }
+
+    #[test]
+    fn assert_valid_read_id_accepts_valid_read_id() -> Result<(), Error> {
+        assert_valid_read_id(b"read-123/abc", 20)
+    }
+
+    #[test]
+    #[should_panic(expected = "read id is blank")]
+    fn assert_valid_read_id_rejects_blank_read_id() {
+        assert_valid_read_id(b"", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "error in setting read id, length > 4")]
+    fn assert_valid_read_id_rejects_overlength_read_id() {
+        assert_valid_read_id(b"read-123", 4).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
+    fn assert_valid_read_id_rejects_control_characters() {
+        assert_valid_read_id(b"read\n123", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
+    fn assert_valid_read_id_rejects_non_ascii_bytes() {
+        assert_valid_read_id(b"read\x7f123", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
+    fn assert_valid_read_id_rejects_quote_like_characters() {
+        assert_valid_read_id(b"read`123", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "we do not accept read ids starting with a # symbol")]
+    fn assert_valid_read_id_rejects_leading_hash() {
+        assert_valid_read_id(b"#read123", 20).unwrap();
+    }
+
+    #[test]
+    fn assert_valid_read_id_accepts_hash_in_middle() -> Result<(), Error> {
+        assert_valid_read_id(b"read#123", 20)
     }
 }

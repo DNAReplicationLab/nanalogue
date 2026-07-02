@@ -179,6 +179,7 @@ where
     writeln!(handle, "seq_len_median\t{seq_len_median}")?;
     writeln!(handle, "seq_len_n50\t{seq_len_n50}")?;
 
+    handle.flush()?;
     Ok(())
 }
 

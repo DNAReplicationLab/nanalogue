@@ -41,7 +41,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 8
+          "seq_len": 8,
+          "read_id": "xx"
         }"#;
 
         // Expected JSON after filtering for range 15-25
@@ -70,7 +71,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 8
+          "seq_len": 8,
+          "read_id": "xx"
         }"#;
 
         // Deserialize input, apply filter, and compare with expected
@@ -103,7 +105,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 3
+          "seq_len": 3,
+          "read_id": "xx"
         }"#;
 
         // Expected JSON after filtering with no overlap (26-60)
@@ -122,7 +125,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 3
+          "seq_len": 3,
+          "read_id": "xx"
         }"#;
 
         // Deserialize input, apply filter, and compare with expected
@@ -155,7 +159,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 3
+          "seq_len": 3,
+          "read_id": "xx"
         }"#;
 
         // Expected JSON after filtering with no overlap (0-15)
@@ -173,7 +178,8 @@ mod tests {
               "data": []
             }
           ],
-          "seq_len": 3
+          "seq_len": 3,
+          "read_id": "xx"
         }"#;
 
         // Deserialize input, apply filter, and compare with expected
@@ -209,7 +215,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 6
+          "seq_len": 6,
+          "read_id": "xx"
         }"#;
 
         // Expected JSON after filtering for range 20-30
@@ -230,7 +237,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 6
+          "seq_len": 6,
+          "read_id": "xx"
         }"#;
 
         // Deserialize input, apply filter, and compare with expected
@@ -265,7 +273,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 5
+          "seq_len": 5,
+          "read_id": "xx"
         }"#;
 
         // Expected JSON after filtering for range 20-30
@@ -286,7 +295,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 5
+          "seq_len": 5,
+          "read_id": "xx"
         }"#;
 
         // Deserialize input, apply filter, and compare with expected

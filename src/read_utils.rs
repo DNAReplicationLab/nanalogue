@@ -4,7 +4,9 @@
 use crate::{
     AllowedAGCTN, BaseMod, BaseMods, Contains as _, Error, F32Bw0and1, FiberAnnotation,
     FilterModsByRefCoords, GenomicBed3, GenomicStrandedBed3, InputModOptions, InputRegionOptions,
-    InputWindowing, ModChar, Ranges, ReadState, ThresholdState, constants::shared::MAX_MOD_TYPES, nanalogue_mm_ml_parser,
+    InputWindowing, ModChar, Ranges, ReadState, ThresholdState, assert_valid_read_id,
+    constants::shared::{MAX_CONTIGS, MAX_MOD_TYPES, MAX_READ_ID_LEN},
+    nanalogue_mm_ml_parser,
 };
 use bedrs::prelude::Intersect as _;
 use bedrs::{Coordinates as _, Strand};
@@ -175,14 +177,13 @@ impl CurrRead<NoData> {
     /// ```
     pub fn set_read_state_and_id(self, record: &Record) -> Result<CurrRead<OnlyAlignData>, Error> {
         // extract read id
-        let read_id = match str::from_utf8(record.qname()) {
-            Ok(v) => v.to_string(),
-            Err(e) => {
-                return Err(Error::InvalidReadID(format!(
-                    "error in setting read id, which possibly violates BAM requirements: {e}"
-                )));
-            }
+        let qname: &[u8] = record.qname();
+        assert_valid_read_id(qname, MAX_READ_ID_LEN)?;
+        let read_id = unsafe {
+            // we checked every character is in a subset of the ASCII range
+            String::from_utf8_unchecked(qname.to_vec())
         };
+
         // check for unsupported flags
         if record.is_paired()
             || record.is_proper_pair()
@@ -545,7 +546,21 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                         self.read_id()
                     )))
                 } else {
-                    Ok(Some((record.tid(), record.pos().try_into()?)))
+                    let tid = record.tid();
+                    // We assume here that htslib/rust-htslib label contigs consecutively
+                    // from 0 upwards. So if any index exceeds `MAX_CONTIGS`, then we assume
+                    // the total number of contigs is above our limit and error out.
+                    if tid >= i32::try_from(MAX_CONTIGS)? {
+                        return Err(Error::InvalidState(format!(
+                            "cannot process contigs more than {MAX_CONTIGS}"
+                        )));
+                    }
+                    if tid < 0 {
+                        return Err(Error::InvalidState(
+                            "contig id < 0, seems malformed!".to_owned(),
+                        ));
+                    }
+                    Ok(Some((tid, record.pos().try_into()?)))
                 }
             }
         }?;
@@ -762,6 +777,9 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     /// If the read does not intersect with the specified region, see
     /// [`CurrRead::seq_coords_from_ref_coords`]
     ///
+    /// # Panics
+    /// If u32->usize conversion fails, which is not possible in 32-bit platforms and higher.
+    ///
     /// # Example
     ///
     /// Example 1
@@ -826,18 +844,35 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
         let seq = record.seq().as_bytes();
         let qual = record.qual();
 
+        if seq.len() != qual.len() {
+            return Err(Error::InvalidState(
+                "seq and qual lengths are different".to_owned(),
+            ));
+        }
+        if seq.len()
+            > usize::try_from(u32::MAX)
+                .expect("no error in u32->usize conversion in 32-bit platforms and higher")
+        {
+            return Err(Error::InvalidState(format!(
+                "seq and/or qual are too long i.e. > {}",
+                u32::MAX
+            )));
+        }
+
         self.seq_coords_from_ref_coords(record, region)?
             .into_iter()
             .map(|x| {
                 x.map(|y| {
-                    let seq_base = *seq.get(y.1).ok_or_else(|| {
+                    let indx = usize::try_from(y.1)
+                        .expect("no error in u32->usize conversion in 32-bit platforms and higher");
+                    let seq_base = *seq.get(indx).ok_or_else(|| {
                         Error::UnavailableData(format!(
                             "sequence coordinate {} is out of bounds for sequence length {}",
                             y.1,
                             seq.len()
                         ))
                     })?;
-                    let qual_base = *qual.get(y.1).ok_or_else(|| {
+                    let qual_base = *qual.get(indx).ok_or_else(|| {
                         Error::UnavailableData(format!(
                             "quality coordinate {} is out of bounds for quality length {}",
                             y.1,
@@ -870,11 +905,22 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     ///   here may be erroneous.
     ///
     /// If the read does not intersect with the region, we return an `Error` (see below).
-    /// If the read does intersect with the region but we cannot retrieve any bases,
-    /// we return an empty vector (I am not sure if we will run into this scenario).
     ///
     /// # Errors
-    /// If the read does not intersect with the specified region, or if `usize` conversions fail.
+    /// * coords not in ascending order
+    /// * region does not intersect with read
+    /// * sequence is too long, has zero length
+    /// * upstream libraries return coordinates that don't fit in `u32`s
+    ///   (this shouldn't happen as we check if sequences are within `u32::MAX`)
+    /// * upstream libraries return weird coordinates like bases
+    ///   that are neither on the sequence nor on the reference
+    /// * incorrect number/missing/wrong coordinates
+    ///
+    /// # Panics
+    /// * unreachable: if sequence has negative length
+    /// * unreachable: u32->usize conversion
+    /// * if some invariants are violated. We use assertions to express our
+    ///   invariants. If these are violated, then our logic is wrong
     ///
     /// # Example
     ///
@@ -902,11 +948,34 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     ///
     /// }
     /// # Ok::<(), Error>(())
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "we explain each reason next to the relevant code block in comments `// arithmetic error:`"
+    )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "coordinate processing although simple requires lots of checks and this pushes the line count up"
+    )]
     pub fn seq_coords_from_ref_coords(
         &self,
         record: &Record,
         region: &GenomicBed3,
-    ) -> Result<Vec<Option<(bool, usize)>>, Error> {
+    ) -> Result<Vec<Option<(bool, u32)>>, Error> {
+        /// Helps us check if coords are in ascending order
+        fn update_coord(store: &mut i64, counter: &mut i64, update: i64) -> Result<(), Error> {
+            if *store < update {
+                *store = update;
+                // arithmetic error: caller has to ensure no overflow, and
+                // we ensure this in the invocations of this function.
+                *counter += 1;
+                Ok(())
+            } else {
+                Err(Error::InvalidState(
+                    "BAM/CRAM parsing problem: coords not in ascending order!".to_owned(),
+                ))
+            }
+        }
+
         let interval = {
             let intersected_region = region.intersect(&GenomicStrandedBed3::try_from(self)?);
             let Some(v) = intersected_region else {
@@ -916,50 +985,92 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
             };
             let start = i64::from(v.start());
             let end = i64::from(v.end());
-            (start < end)
+            (start < end && start >= 0)
                 .then_some(start..end)
-                .ok_or(Error::UnavailableData(
-                    "coord-retrieval: region does not intersect with read".to_owned(),
-                ))
+                .ok_or(Error::UnavailableData(String::from(
+                    "coord-retrieval: region does not intersect with read",
+                )))
         }?;
 
+        let seq_len: i64 = i64::try_from(record.seq_len())?;
+        // following block ensures `seq_len` is in `(1..=u32::MAX)`
+        match seq_len {
+            v if v > i64::from(u32::MAX) => {
+                return Err(Error::InvalidState(format!(
+                    "sequence is too long i.e. > {}",
+                    u32::MAX
+                )));
+            }
+            0 => {
+                return Err(Error::InvalidState(
+                    "zero-len sequences cannot be used here even with valid CIGAR strings"
+                        .to_owned(),
+                ));
+            }
+            v if v < 0 => unreachable!("negative length sequences detected!"),
+            _ => {}
+        }
+
         // Initialize coord calculation.
-        // We don't know how long the subset will be, we initialize with a guess
-        // of 2 * interval size
-        let window_size = interval
-            .end
-            .checked_sub(interval.start)
-            .ok_or_else(|| Error::Arithmetic(String::from("interval end before start")))?;
-        let s_capacity = window_size
-            .checked_mul(2)
-            .ok_or_else(|| Error::Arithmetic(String::from("interval size overflow")))?;
-        let mut s: Vec<Option<(bool, usize)>> = Vec::with_capacity(usize::try_from(s_capacity)?);
+        // We don't know how long the subset will be, we initialize with a guess of interval size
+        // arithmetic error: we've checked `interval.end > interval.start` already, and
+        // the i64 of intervals is built up from u32 produced by `GenomicStrandedBed3`.
+        let mut s: Vec<Option<(bool, u32)>> =
+            Vec::with_capacity(usize::try_from(interval.end - interval.start).expect(
+                "no error; interval is below u32::MAX and u32->usize will not fail in >= 32-bit platforms",
+            ));
 
         // we may have to trim the sequence if we hit a bunch of unaligned base
         // pairs right at the end e.g. a softclip.
-        let mut trim_end_bp: u64 = 0;
+        let mut trim_end_bp: usize = 0;
+
+        // record previous positions so we check we are always in ascending order
+        let mut seq_coord_prev: i64 = -1;
+        let mut ref_coord_prev: i64 = -1;
+        let mut seq_coord_first: i64 = -1;
+
+        // keep track of number of coordinates we are receiving
+        let mut seq_coord_count: i64 = 0;
+        let mut ref_coord_count: i64 = 0;
+        let mut match_or_mismatch_count: i64 = 0;
+        let mut insertion_count: i64 = 0;
+        let mut deletion_count: i64 = 0;
+
+        // TODO check if we get reference coordinates > contig end.
+        // This is not possible without looking up contig sizes.
+        // We can do this, but we've chosen not to to speed-up performance as the
+        // list of contigs could be very long.
 
         for w in record
             .aligned_pairs_full()
             .skip_while(|x| x[1].is_none_or(|y| !interval.contains(&y)))
             .take_while(|x| x[1].is_none_or(|y| interval.contains(&y)))
         {
-            #[expect(
-                clippy::arithmetic_side_effects,
-                reason = "coordinates far less than u64::MAX (2^64-1) so no chance of counter overflow"
-            )]
+            // arithmetic error guard: no overflow of various counters and `trim_end_bp`,
+            // as we check if loop is bounded using `seq_coord_count < seq_len` and
+            // `ref_coord_count` is smaller than interval size.
             match w {
-                [Some(x), Some(_)] => {
-                    s.push(Some((true, usize::try_from(x)?)));
+                [Some(x), Some(y)] => {
+                    // Match or mismatch
+                    s.push(Some((true, u32::try_from(x)?)));
                     trim_end_bp = 0;
+                    match_or_mismatch_count += 1;
+                    update_coord(&mut seq_coord_prev, &mut seq_coord_count, x)?;
+                    update_coord(&mut ref_coord_prev, &mut ref_coord_count, y)?;
                 }
                 [Some(x), None] => {
-                    s.push(Some((false, usize::try_from(x)?)));
+                    // Insertion or equivalent
+                    s.push(Some((false, u32::try_from(x)?)));
                     trim_end_bp += 1;
+                    insertion_count += 1;
+                    update_coord(&mut seq_coord_prev, &mut seq_coord_count, x)?;
                 }
-                [None, Some(_)] => {
+                [None, Some(y)] => {
+                    // Deletion or equivalent
                     s.push(None);
                     trim_end_bp = 0;
+                    deletion_count += 1;
+                    update_coord(&mut ref_coord_prev, &mut ref_coord_count, y)?;
                 }
                 [None, None] => {
                     return Err(Error::InvalidState(String::from(
@@ -967,16 +1078,100 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                     )));
                 }
             }
+            if seq_coord_first == -1 && (seq_coord_count == 1) {
+                seq_coord_first = i64::from(
+                    s.last()
+                        .expect("no error: count confirms at least one item")
+                        .expect("item exists")
+                        .1,
+                );
+            }
+            if seq_coord_count > seq_len || ref_coord_count > interval.end - interval.start {
+                return Err(Error::InvalidState(
+                    "incorrect number of coordinates received!".to_owned(),
+                ));
+            }
         }
 
-        // if last few bp in sequence are all unmapped, we remove them here.
-        let trim_end_bp_usize = usize::try_from(trim_end_bp).unwrap_or(usize::MAX);
-        for _ in 0..trim_end_bp_usize.min(s.len()) {
-            let _: Option<Option<(bool, usize)>> = s.pop();
+        // check counts are positive.
+        assert!(seq_coord_count >= 0, "bug: seq coord count is negative");
+        assert!(ref_coord_count >= 0, "bug: ref coord count is negative");
+        assert!(deletion_count >= 0, "bug: deletion count is negative");
+        assert!(insertion_count >= 0, "bug: insertion count is negative");
+
+        // arithmetic error: over or underflows are fine in following assertions as they will break
+        //   the assertions and that would mean the assertions work as intended.
+        // The three conditions below are redundant i.e. two are sufficient, but we are explicitly
+        // stating the three invariants so that the code is easier to reason about.
+        assert!(
+            seq_coord_count == ref_coord_count - deletion_count + insertion_count,
+            "base counts don't match between sequence and reference!"
+        );
+        assert!(
+            seq_coord_count == match_or_mismatch_count + insertion_count,
+            "sequence base count does not equal match or mismatch plus insertions!"
+        );
+        assert!(
+            ref_coord_count == match_or_mismatch_count + deletion_count,
+            "reference base count does not equal match or mismatch plus deletions!"
+        );
+
+        assert!(
+            interval.end > interval.start,
+            "we've checked end > start previously in the code"
+        );
+        assert!(
+            interval.start >= 0,
+            "we've checked start >= 0 previously in the code"
+        );
+        // arithmetic error protected by assertions
+        if ref_coord_count != interval.end - interval.start {
+            return Err(Error::InvalidState(
+                "failure from upstream libraries: missing sequence coordinates".to_owned(),
+            ));
+        }
+
+        assert!(
+            interval.end >= 1,
+            "we've checked start < end and start >= 0 previously in the code"
+        );
+        assert!(
+            seq_coord_prev >= -1,
+            "seq coord should be uninitialized (-1) or positive due to `update_coords`"
+        );
+        assert!(
+            seq_coord_prev <= i64::from(u32::MAX),
+            "indirect protection from `u32::try_from` as we populated `s`"
+        );
+        assert!(
+            seq_coord_first >= -1,
+            "seq coord first should be uninitialized (-1) or positive indirectly due to `update_coords`"
+        );
+        // arithmetic error: above assertions protect us
+        if !(ref_coord_prev == interval.end - 1
+            && (seq_coord_count == 0 || (seq_coord_prev - seq_coord_first == seq_coord_count - 1)))
+        {
+            return Err(Error::InvalidState(
+                "failure from upstream libraries: wrong sequence coordinates returned".to_owned(),
+            ));
+        }
+
+        assert!(
+            s.len() > trim_end_bp,
+            "bug: s.len() <= trim_end_bp; this should have been checked by this point already!"
+        );
+        if trim_end_bp > 0 {
+            // if last few bp in sequence are all unmapped, we remove them here.
+            // arithmetic error protected by assertion above
+            s.truncate(s.len() - trim_end_bp);
         }
 
         // Trim excess allocated capacity and return
         s.shrink_to(0);
+        assert!(
+            !s.is_empty(),
+            "must be true: if length > `trim_end_bp` and we trim, length is still > 0"
+        );
         Ok(s)
     }
     /// sets modification data using the BAM record
@@ -1055,34 +1250,44 @@ impl CurrRead<OnlyAlignDataComplete> {
     ///
     /// # Errors
     /// If a region filter is specified and we fail to convert current instance to Bed,
-    /// and if parsing the MM/ML BAM tags fails (presumably because they are malformed).
+    /// and if parsing the MM/ML BAM tags fails (presumably because they are malformed),
+    /// and if intersection produces interval with start > end.
+    ///
+    /// # Panics
+    /// - u32 to usize conversion
+    /// - if intersection produces malformed intervals i.e. start > end.
+    ///   (the above should error out first. If this error is somehow lost, only then will we hit
+    ///   the panic)
     pub fn set_mod_data_restricted_options<S: InputModOptions + InputRegionOptions>(
         self,
         record: &Record,
         mod_options: &S,
     ) -> Result<CurrRead<AlignAndModData>, Error> {
-        let read_id = self.read_id().to_owned();
         let seq_len = self.seq_len()?;
-        let l = usize::try_from(seq_len).map_err(|_err| {
-            Error::InvalidSeqLength(format!(
-                "sequence length {seq_len} exceeds platform usize capacity, read_id: {read_id}"
-            ))
-        })?;
+        let l = usize::try_from(seq_len)
+            .expect("u32->usize conversion will not fail for 32-bit platforms and higher");
         let w = mod_options.trim_read_ends_mod();
+
         let interval = if let Some(bed3) = mod_options.region_filter().as_ref() {
             let stranded_bed3 = GenomicStrandedBed3::try_from(&self)?;
             if let Some(v) = bed3.intersect(&stranded_bed3) {
+                if v.start() > v.end() {
+                    return Err(Error::InvalidState(String::from(
+                        "`bedrs` should not allow malformed intervals!",
+                    )));
+                }
                 if v.start() == stranded_bed3.start() && v.end() == stranded_bed3.end() {
-                    None
+                    None // No filtering needed
                 } else {
                     Some(v.start()..v.end())
                 }
             } else {
-                Some(0..0)
+                Some(0..0) // No intersection means discard all data
             }
         } else {
             None
         };
+
         Ok({
             let mut read = self.set_mod_data_restricted(
                 record,
@@ -1100,9 +1305,11 @@ impl CurrRead<OnlyAlignDataComplete> {
                         read.filter_mods_by_ref_pos(v.start, v.end)?;
                     }
                     Ordering::Greater => {
-                        return Err(Error::InvalidState(String::from(
-                            "`bedrs` should not allow malformed intervals!",
-                        )));
+                        // We already check for this when we construct the interval.
+                        // We've repeated the check as an `unreachable!()` panic for completeness.
+                        // We could have just used `{}` for this arm but that makes the code more
+                        // difficult to read in my opinion.
+                        unreachable!("bug: start > end hit while intersection intervals")
                     }
                 }
             }
@@ -1125,6 +1332,12 @@ impl CurrRead<AlignAndModData> {
     ///
     /// # Errors
     /// Returns an error if the window function returns an error.
+    ///
+    /// # Panics
+    /// * If more mods than `MAX_MOD_TYPES` are present; the way we receive and
+    ///   construct our data earlier in the code should forbid this.
+    /// * `checked_sub` ensures `win_size` <= `mod_data.len()` before windowing
+    /// * u32->usize ok as we enforce 32 bit platforms or higher in lib.rs
     #[expect(
         clippy::pattern_type_mismatch,
         reason = "suggested notation is verbose but I am not sure"
@@ -1153,11 +1366,11 @@ impl CurrRead<AlignAndModData> {
         // during ingress. To be future-proof etc., we should check these things
         // here but we do not as there is no way right now to test error checking
         // as there is no way to make CurrRead fall into these illegal states.
-        #[expect(
-            clippy::missing_panics_doc,
-            reason = "(1) checked_sub ensures win_size <= mod_data.len() before windowing, \
-(2) u32->usize ok as we enforce 32 bit platforms or higher in lib.rs"
-        )]
+        assert!(
+            v.len() <= usize::from(MAX_MOD_TYPES),
+            "bug: more than MAX_MOD_TYPES allowed. The way CurrRead is \
+populated should forbid this"
+        );
         for k in v {
             match k {
                 BaseMod {
@@ -1201,7 +1414,8 @@ impl CurrRead<AlignAndModData> {
     /// while the struct was created e.g. by modification threshold.
     ///
     /// # Panics
-    /// Panics if the number of modifications exceeds `u32::MAX` (approximately 4.2 billion).
+    /// Panics if the number of modifications exceeds `u32::MAX` (approximately 4.2 billion)
+    /// or if the number of types of mods exceeds [`crate::constants::shared::MAX_MOD_TYPES`].
     ///
     /// ```
     /// use nanalogue_core::{CurrRead, Error, ModChar, nanalogue_bam_reader, ThresholdState};
@@ -1232,6 +1446,7 @@ impl CurrRead<AlignAndModData> {
     #[must_use]
     pub fn base_count_per_mod(&self) -> HashMap<ModChar, u32> {
         let mut output = HashMap::<ModChar, u32>::new();
+        let mut mod_type_count: u8 = 0;
         #[expect(
             clippy::arithmetic_side_effects,
             reason = "u32::MAX approx 4.2 Gb, v unlikely 1 molecule is this modified"
@@ -1243,6 +1458,11 @@ impl CurrRead<AlignAndModData> {
                 .entry(ModChar::new(k.modification_type))
                 .and_modify(|e| *e += base_count)
                 .or_insert(base_count);
+            if mod_type_count >= MAX_MOD_TYPES {
+                unreachable!("CurrRead data insertion should guard us against this possibility");
+            } else {
+                mod_type_count += 1;
+            }
         }
         output
     }
@@ -1465,7 +1685,7 @@ impl FilterModsByRefCoords for CurrRead<AlignAndModData> {
 ///
 /// ```
 /// use nanalogue_core::{Error, CurrReadBuilder};
-/// let read = CurrReadBuilder::default().build()?;
+/// let read = CurrReadBuilder::default().read_id("some_read".into()).build()?;
 /// # Ok::<(), Error>(())
 /// ```
 ///
@@ -1941,6 +2161,8 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
     type Error = Error;
 
     fn try_from(serialized: CurrReadBuilder) -> Result<Self, Self::Error> {
+        assert_valid_read_id(serialized.read_id.as_bytes(), MAX_READ_ID_LEN)?;
+
         // Extract alignment information
         let (align_len, contig_id_and_start, contig_name, ref_range) = match (
             serialized.alignment_type.is_unmapped(),
@@ -2042,7 +2264,6 @@ fn reconstruct_base_mods(
     let mut seen_combinations = HashSet::new();
 
     for entry in mod_table {
-
         let mod_strand = if entry.is_strand_plus { '+' } else { '-' };
         let mod_type = entry.mod_code;
 
@@ -2097,7 +2318,6 @@ ascending needed even if reversed read)!",
         };
 
         let ranges = Ranges::from_annotations(annotations, seq_len, is_reverse);
-
 
         base_mods.push(BaseMod {
             modified_base: u8::try_from(char::from(entry.base))?,
@@ -2581,10 +2801,11 @@ mod test_serde {
     }
 
     #[test]
-    fn blank_json_record_roundtrip() -> Result<(), Error> {
-        let json_str = r"
+    fn json_record_with_only_read_id_succeeds_in_roundtrip() -> Result<(), Error> {
+        let json_str = r#"
             {
-            }";
+                "read_id": "xx"
+            }"#;
 
         // Deserialize JSON to CurrRead
         let curr_read: CurrRead<AlignAndModData> = serde_json::from_str(json_str)?;
@@ -2600,6 +2821,15 @@ mod test_serde {
         assert_eq!(curr_read, roundtrip_curr_read);
 
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "read id is blank")]
+    fn blank_json_record_fails_to_deserialize() {
+        let json_str = "{}";
+
+        // Deserialize JSON to CurrRead
+        let _: CurrRead<AlignAndModData> = serde_json::from_str(json_str).unwrap();
     }
 
     #[test]
@@ -2668,6 +2898,7 @@ mod test_serde {
     #[should_panic(expected = "invalid alignment coordinates")]
     fn invalid_align_coords_unmapped_with_reference_positions() {
         let invalid_json = r#"{
+            "read_id": "xx",
             "mod_table": [
                 {
                     "data": [[2, 3, 200]]
@@ -2684,6 +2915,7 @@ mod test_serde {
     #[should_panic(expected = "invalid mod coordinates")]
     fn invalid_sequence_length() {
         let invalid_json = r#"{
+            "read_id": "xx",
             "mod_table": [
                 {
                     "data": [[20, -1, 200]]
@@ -2699,6 +2931,10 @@ mod test_serde {
     #[test]
     #[should_panic(expected = "invalid value")]
     fn invalid_sequence_coordinate() {
+        // The failure here is the -1 in the sequence coordinate.
+        // As sequence coordinates are positive, this will fail
+        // during deserialization as the position datatype is
+        // something like u32.
         let invalid_json = r#"{
             "alignment_type": "primary_forward",
             "alignment": {
@@ -2751,6 +2987,7 @@ mod test_serde {
     #[should_panic(expected = "invalid alignment coordinates")]
     fn invalid_alignment_coordinates() {
         let invalid_json = r#"{
+            "read_id": "xx",
             "alignment_type": "primary_forward",
             "alignment": {
                 "start": 10,
@@ -2772,6 +3009,7 @@ mod test_serde {
     #[should_panic(expected = "invalid mod coordinates")]
     fn invalid_sorting_forward_alignment() {
         let invalid_json = r#"{
+            "read_id": "xx",
             "alignment_type": "primary_forward",
             "alignment": {
                 "start": 10,
@@ -2793,6 +3031,7 @@ mod test_serde {
     #[should_panic(expected = "invalid mod coordinates")]
     fn invalid_sorting_reverse_alignment() {
         let invalid_json = r#"{
+            "read_id": "xx",
             "alignment_type": "primary_reverse",
             "alignment": {
                 "start": 10,

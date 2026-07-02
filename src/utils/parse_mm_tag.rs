@@ -1,6 +1,9 @@
 //! MM-tag parsing helpers.
 
-use crate::{Error, ModChar, constants::shared::MAX_MOD_TYPES};
+use crate::{
+    Error, ModChar,
+    constants::shared::{MAX_MM_TAG_LENGTH, MAX_MOD_TYPES},
+};
 use std::{collections::HashSet, str, str::FromStr as _};
 
 /// Parsed representation of a single MM-tag group.
@@ -43,6 +46,16 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
     let mut seen_combinations = HashSet::new();
     let mut group_start = 0usize;
     let group_bytes = group.as_bytes();
+
+    // Checks `mm_text` is not too long.
+    // Other checks such as record size checks may stop this from ever triggering.
+    if group_bytes.len()
+        > usize::try_from(MAX_MM_TAG_LENGTH).expect("no error on 32-bit platforms and above")
+    {
+        return Err(Error::InvalidState(
+            "MM tag is too long to process".to_owned(),
+        ));
+    }
 
     for (index, byte) in group_bytes.iter().copied().enumerate() {
         if byte != b';' {
@@ -96,6 +109,12 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
         };
 
         // Check for duplicate strand, modification_type combinations
+        // NOTE: If MM data has mods like C+m, A+m, this will fire and
+        // reject the data. Whereas, if we do this check after rejecting
+        // a base as specified by the user, this data would be o.k.
+        // We let this be as C+m, A+m is very unlikely i.e. an experimental
+        // scenario where both cytosines and adenines are replaced by a 5-methyl cytosine.
+        // Two bases replaced by the _same_ kind of modification is very unlikely.
         if !seen_combinations.insert((mod_strand, mod_type)) {
             return Err(Error::InvalidDuplicates(format!(
                 "Duplicate strand '{mod_strand}' and modification_type '{mod_type}' combination found",
@@ -112,7 +131,9 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
         let mod_dists = str::from_utf8(raw_group)?
             .split(',')
             .skip(1)
-            .take(usize::try_from(u32::MAX - 1).expect("no error on 32-bit platforms and higher") + 1)
+            .take(
+                usize::try_from(u32::MAX - 1).expect("no error on 32-bit platforms and higher") + 1,
+            )
             .map(|entry| {
                 entry.parse::<u32>().map_err(|err| {
                     Error::InvalidModCoords(format!("invalid MM distance `{entry}`: {err}"))
@@ -120,11 +141,12 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
             })
             .collect::<Result<Vec<_>, Error>>()?;
 
-        if mod_dists.len()
-            == usize::try_from(u32::MAX).expect("no error on 32-bit platforms and higher")
-        {
-            return Err(Error::InvalidState("mod dists too long!".to_owned()));
-        }
+        assert!(
+            mod_dists.len()
+                < usize::try_from(MAX_MM_TAG_LENGTH)
+                    .expect("no error on 32-bit platforms and above"),
+            "no error as we have checked mm text does not exceed this length so no way the array exceeds the length"
+        );
 
         groups.push(ParsedMmGroup {
             mod_base,
