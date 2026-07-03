@@ -12,3 +12,5 @@ claude.md
 commit_message
 *.vuln.md
 *vuln.md
+/zig_htslib_exploration/zig-out
+/zig_htslib_exploration/.zig-cache
