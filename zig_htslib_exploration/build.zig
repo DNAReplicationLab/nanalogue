@@ -13,9 +13,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    exe.root_module.addIncludePath(.{ .cwd_relative = "htslib" });
-    exe.root_module.addLibraryPath(.{ .cwd_relative = "htslib" });
-    exe.root_module.addRPath(.{ .cwd_relative = "htslib" });
+    exe.root_module.addIncludePath(.{ .cwd_relative = "htslib_compiled/include" });
+    exe.root_module.addLibraryPath(.{ .cwd_relative = "htslib_compiled/lib" });
 
     exe.root_module.linkSystemLibrary("hts", .{});
     exe.root_module.linkSystemLibrary("z", .{});

@@ -14,3 +14,4 @@ commit_message
 *vuln.md
 /zig_htslib_exploration/zig-out
 /zig_htslib_exploration/.zig-cache
+/zig_htslib_exploration/htslib_compiled
