@@ -5,8 +5,8 @@
 use crate::constants::peek::MAX_RECORDS;
 use crate::constants::shared::{MAX_CONTIGS, MAX_MOD_TYPES, MAX_RECORD_CAPACITY_BYTES};
 use crate::{
-    AllowedAGCTN, CurrRead, Error, ModChar, assert_bounded_counter, assert_nonzero_counter,
-    assert_record_data_capacity,
+    AllowedAGCTN, CurrRead, Error, ModChar, ensure_bounded_counter, ensure_nonzero_counter,
+    ensure_record_data_capacity,
 };
 use rust_htslib::bam;
 use std::collections::HashSet;
@@ -91,8 +91,8 @@ where
     for record_result in records {
         let record = record_result?;
 
-        assert_bounded_counter(&mut idx, MAX_RECORDS, "peek")?;
-        assert_record_data_capacity(record.inner().m_data, MAX_RECORD_CAPACITY_BYTES, "peek")?;
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "peek")?;
+        ensure_record_data_capacity(record.inner().m_data, MAX_RECORD_CAPACITY_BYTES, "peek")?;
 
         // Convert to CurrRead to extract modification data
         // Skip zero-length sequences (CurrRead::try_from returns Error::ZeroSeqLen)
@@ -140,7 +140,7 @@ where
     }
 
     handle.flush()?;
-    assert_nonzero_counter(
+    ensure_nonzero_counter(
         idx,
         "No records found. Please check if the BAM/CRAM/SAM resource has at least one record",
     )?;

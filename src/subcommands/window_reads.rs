@@ -5,9 +5,9 @@
 
 use crate::{
     AlignmentInfo, AlignmentInfoBuilder, BaseMod, CurrRead, Error, F32AbsValAtMost1, InputMods,
-    InputWindowing, ModChar, OptionalTag, ReadState, assert_bounded_counter, assert_flag,
-    assert_nonzero_counter, assert_record_data_capacity,
+    InputWindowing, ModChar, OptionalTag, ReadState,
     constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS, NO_RECORDS_FOUND_FOR_ANALYSIS},
+    ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
 };
 use polars::prelude::*;
 use rust_htslib::bam::Record;
@@ -292,8 +292,8 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
     for r in bam_records {
         // read records
         let record = r?;
-        assert_bounded_counter(&mut idx, MAX_RECORDS, "window reads")?;
-        assert_record_data_capacity(
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "window reads")?;
+        ensure_record_data_capacity(
             record.inner().m_data,
             MAX_RECORD_CAPACITY_BYTES,
             "window reads",
@@ -340,8 +340,8 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
     handle.flush()?;
     // when no records and/or no mods are found, we output no rows
     // and also return an error.
-    assert_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
-    assert_flag(
+    ensure_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
+    ensure_flag(
         found_windows,
         "No windowed data found. This could mean \
 no records were found (BAM file empty or filtering removed records)\n\
@@ -559,8 +559,8 @@ where
     for r in bam_records {
         // read records
         let record = r?;
-        assert_bounded_counter(&mut idx, MAX_RECORDS, "window reads")?;
-        assert_record_data_capacity(
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "window reads")?;
+        ensure_record_data_capacity(
             record.inner().m_data,
             MAX_RECORD_CAPACITY_BYTES,
             "window reads",
@@ -628,7 +628,7 @@ where
 
     // when no records are found, we output a suitably empty json i.e. []
     // and also return an error.
-    assert_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
+    ensure_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
 
     Ok(())
 }

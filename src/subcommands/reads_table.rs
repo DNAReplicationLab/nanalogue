@@ -8,14 +8,15 @@
 
 use crate::{
     CurrRead, Error, InputMods, ModChar, OptionalTag, PathOrURLOrStdin, ReadState, SeqCoordCalls,
-    SeqDisplayOptions, ThresholdState, assert_bounded_counter, assert_nonzero_counter,
-    assert_record_data_capacity, assert_valid_read_id,
+    SeqDisplayOptions, ThresholdState,
     constants::{
         reads_table::{MAX_SEQ_SUMM_BYTES, MAX_SEQ_SUMM_SIZE_PER_LINE},
         shared::{
             MAX_READ_ID_LEN, MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS, NO_RECORDS_FOUND_FOR_ANALYSIS,
         },
     },
+    ensure_bounded_counter, ensure_nonzero_counter, ensure_record_data_capacity,
+    ensure_valid_read_id,
 };
 use polars::prelude::*;
 use rust_htslib::bam;
@@ -652,7 +653,7 @@ fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
                 "sequencing summary tsv row has no `read_id` field at column {read_id_idx}: `{line}`"
             ))
         })?;
-        assert_valid_read_id(read_id.as_bytes(), MAX_READ_ID_LEN)?;
+        ensure_valid_read_id(read_id.as_bytes(), MAX_READ_ID_LEN)?;
         let sequence_length_template: u32 = seq_len_field
             .ok_or_else(|| {
                 Error::InvalidState(format!(
@@ -739,8 +740,8 @@ where
     for r in bam_records {
         // read records
         let record = r?;
-        assert_bounded_counter(&mut idx, MAX_RECORDS, "reads table")?;
-        assert_record_data_capacity(
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "reads table")?;
+        ensure_record_data_capacity(
             record.inner().m_data,
             MAX_RECORD_CAPACITY_BYTES,
             "reads table",
@@ -938,7 +939,7 @@ where
 
     // when no records are found, we output no rows
     // and also return an error.
-    assert_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
+    ensure_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
 
     Ok(())
 }

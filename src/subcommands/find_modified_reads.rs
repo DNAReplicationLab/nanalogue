@@ -8,8 +8,8 @@ use crate::constants::shared::{
     MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS, NO_RECORDS_FOUND_FOR_ANALYSIS,
 };
 use crate::{
-    CurrRead, Error, F32Bw0and1, InputMods, InputWindowing, RequiredTag, assert_bounded_counter,
-    assert_nonzero_counter, assert_record_data_capacity,
+    CurrRead, Error, F32Bw0and1, InputMods, InputWindowing, RequiredTag, ensure_bounded_counter,
+    ensure_nonzero_counter, ensure_record_data_capacity,
 };
 use rust_htslib::bam::Record;
 use std::rc::Rc;
@@ -42,8 +42,8 @@ where
         // read records
         let record = r?;
 
-        assert_bounded_counter(&mut idx, MAX_RECORDS, "find modified reads")?;
-        assert_record_data_capacity(
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "find modified reads")?;
+        ensure_record_data_capacity(
             record.inner().m_data,
             MAX_RECORD_CAPACITY_BYTES,
             "find modified reads",
@@ -69,7 +69,7 @@ where
 
     // when no records and/or no mods are found, we output no rows
     // and also return an error.
-    assert_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
+    ensure_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
 
     Ok(())
 }

@@ -4,7 +4,7 @@
 //! read and alignment lengths etc. from a BAM file.
 
 use crate::constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS};
-use crate::{CurrRead, Error, ReadState, assert_bounded_counter, assert_record_data_capacity};
+use crate::{CurrRead, Error, ReadState, ensure_bounded_counter, ensure_record_data_capacity};
 use rust_htslib::bam;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
@@ -110,8 +110,8 @@ where
     for r in bam_records {
         // read records
         let record = r?;
-        assert_bounded_counter(&mut idx, MAX_RECORDS, "read stats")?;
-        assert_record_data_capacity(
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "read stats")?;
+        ensure_record_data_capacity(
             record.inner().m_data,
             MAX_RECORD_CAPACITY_BYTES,
             "read stats",

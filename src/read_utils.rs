@@ -4,9 +4,9 @@
 use crate::{
     AllowedAGCTN, BaseMod, BaseMods, Contains as _, Error, F32Bw0and1, FiberAnnotation,
     FilterModsByRefCoords, GenomicBed3, GenomicStrandedBed3, InputModOptions, InputRegionOptions,
-    InputWindowing, ModChar, Ranges, ReadState, ThresholdState, assert_valid_read_id,
+    InputWindowing, ModChar, Ranges, ReadState, ThresholdState,
     constants::shared::{MAX_CONTIGS, MAX_MOD_TYPES, MAX_READ_ID_LEN},
-    nanalogue_mm_ml_parser,
+    ensure_valid_read_id, nanalogue_mm_ml_parser,
 };
 use bedrs::prelude::Intersect as _;
 use bedrs::{Coordinates as _, Strand};
@@ -178,7 +178,7 @@ impl CurrRead<NoData> {
     pub fn set_read_state_and_id(self, record: &Record) -> Result<CurrRead<OnlyAlignData>, Error> {
         // extract read id
         let qname: &[u8] = record.qname();
-        assert_valid_read_id(qname, MAX_READ_ID_LEN)?;
+        ensure_valid_read_id(qname, MAX_READ_ID_LEN)?;
         let read_id = unsafe {
             // we checked every character is in a subset of the ASCII range
             String::from_utf8_unchecked(qname.to_vec())
@@ -2161,7 +2161,7 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
     type Error = Error;
 
     fn try_from(serialized: CurrReadBuilder) -> Result<Self, Self::Error> {
-        assert_valid_read_id(serialized.read_id.as_bytes(), MAX_READ_ID_LEN)?;
+        ensure_valid_read_id(serialized.read_id.as_bytes(), MAX_READ_ID_LEN)?;
 
         // Extract alignment information
         let (align_len, contig_id_and_start, contig_name, ref_range) = match (

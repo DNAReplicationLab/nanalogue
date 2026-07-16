@@ -129,9 +129,9 @@ pub use utils::{
     AllowedAGCTN, BaseMod, BaseMods, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1,
     FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
     OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
-    RestrictModCalledStrand, SeqCoordCalls, ThresholdState, assert_bounded_counter, assert_flag,
-    assert_nonzero_counter, assert_record_data_capacity, assert_valid_read_id, complement,
-    convert_seq_uppercase, mm_groups, revcomp,
+    RestrictModCalledStrand, SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase,
+    ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
+    ensure_valid_read_id, mm_groups, revcomp,
 };
 
 /// Genomic 3-column BED shorthand used with `bedrs` coordinate types in this crate.
@@ -310,7 +310,7 @@ where
     H: Fn(&u8, &char, &ModChar) -> bool,
 {
     // make sure record is not too large
-    assert_record_data_capacity(
+    ensure_record_data_capacity(
         record.inner().m_data,
         MAX_RECORD_CAPACITY_BYTES,
         "MM ML parsing",
@@ -658,7 +658,7 @@ fn load_read_ids_for_filtering<T: BufRead>(
         let temp_line = raw_line.map_err(|err| Error::InputOutputError(Box::new(err)))?;
         let line = temp_line.trim();
         if !line.is_empty() {
-            assert_valid_read_id(line.as_bytes(), MAX_READ_ID_LEN)?;
+            ensure_valid_read_id(line.as_bytes(), MAX_READ_ID_LEN)?;
             let _: bool = read_ids.insert(line.to_string());
         }
         if counter < max_read_ids {
