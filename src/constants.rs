@@ -40,7 +40,7 @@ pub mod shared {
     pub const MAX_CONTIGS: u32 = 1_000_000;
 
     /// Hard cap on the length of a path e.g. to a file or a URL
-    pub const MAX_PATH_LENGTH: u16 = 2_000;
+    pub const MAX_PATH_LENGTH: u16 = 900;
 
     /// Hard cap on the length of an array from an ML tag
     pub const MAX_ML_ARRAY_LENGTH: u32 = 100_000_000;
@@ -67,7 +67,7 @@ pub mod peek {
 /// Constants used by the `reads_table` subcommand/module.
 pub mod reads_table {
     /// Hard cap on the number of characters per line in the sequencing summary file.
-    pub const MAX_SEQ_SUMM_SIZE_PER_LINE: u16 = 1000;
+    pub const MAX_SEQ_SUMM_SIZE_PER_LINE: u16 = 1_000;
 
     /// Hard cap on sequencing summary file size.
     pub const MAX_SEQ_SUMM_BYTES: u64 = 10u64 * 1024u64 * 1024u64 * 1024u64;

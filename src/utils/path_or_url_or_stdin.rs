@@ -58,17 +58,24 @@ pub enum PathOrURLOrStdin {
 /// `file://` (which `hts_open` would happily dereference as a local file).
 const ALLOWED_NETWORK_SCHEMES: &[&str] = &["http", "https", "ftp"];
 
-/// Validate shared path/URL length constraints.
-fn assert_valid_path_or_url_len(len: usize) -> Result<(), Error> {
-    if len == 0 {
-        Err(Error::InvalidState("path or url is empty".to_owned()))
-    } else if len > usize::from(MAX_PATH_LENGTH) {
-        Err(Error::InvalidState(format!(
-            "path or url too long i.e. > {MAX_PATH_LENGTH}"
-        )))
-    } else {
-        Ok(())
+/// Validate shared path/URL.
+fn assert_valid_path_or_url(s: &str) -> Result<(), Error> {
+    if s.is_empty() {
+        return Err(Error::InvalidState("path or url is empty".to_owned()));
     }
+    if s.len() > usize::from(MAX_PATH_LENGTH) {
+        return Err(Error::InvalidState(format!(
+            "path or url too long i.e. > {MAX_PATH_LENGTH}"
+        )));
+    }
+    for k in s.as_bytes() {
+        if (0..32).contains(k) || (127..).contains(k) {
+            return Err(Error::InvalidState(
+                "path or url contains invalid characters".to_owned(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Shadow type used solely by serde to validate `PathOrURLOrStdin`
@@ -95,8 +102,10 @@ impl TryFrom<PathOrURLOrStdinShadow> for PathOrURLOrStdin {
         match value {
             PathOrURLOrStdinShadow::Stdin => Ok(PathOrURLOrStdin::Stdin),
             PathOrURLOrStdinShadow::Path(p) => {
-                let s = p.as_os_str();
-                assert_valid_path_or_url_len(s.len())?;
+                let Some(s) = p.as_os_str().to_str() else {
+                    return Err(Error::InvalidState("path is malformed!".to_owned()));
+                };
+                assert_valid_path_or_url(s)?;
                 if s == "-" {
                     // Disallow the literal stdin marker inside Path; FromStr would
                     // route "-" to `Stdin`, so accepting it here would create an
@@ -110,7 +119,7 @@ impl TryFrom<PathOrURLOrStdinShadow> for PathOrURLOrStdin {
             }
             PathOrURLOrStdinShadow::URL(u) => {
                 let s = u.as_str();
-                assert_valid_path_or_url_len(s.len())?;
+                assert_valid_path_or_url(s)?;
                 if ALLOWED_NETWORK_SCHEMES.contains(&u.scheme()) {
                     Ok(PathOrURLOrStdin::URL(u))
                 } else {
@@ -166,7 +175,7 @@ impl FromStr for PathOrURLOrStdin {
     /// disallowed scheme in the serde shadow path. Direct string parsing is
     /// otherwise lenient and falls back to `Path` when URL parsing fails.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        assert_valid_path_or_url_len(s.len())?;
+        assert_valid_path_or_url(s)?;
         if s == "-" {
             // stdin marker
             Ok(PathOrURLOrStdin::Stdin)
@@ -330,6 +339,42 @@ mod tests {
             matches!(result, PathOrURLOrStdin::Path(_)),
             "Expected Path variant for arbitrary string"
         );
+    }
+
+    #[test]
+    fn from_str_rejects_non_ascii_path() {
+        let err = PathOrURLOrStdin::from_str("/tmp/café.txt").unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn from_str_rejects_path_with_newline() {
+        let err = PathOrURLOrStdin::from_str("/tmp/file\nname.txt").unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn from_str_rejects_path_with_carriage_return() {
+        let err = PathOrURLOrStdin::from_str("/tmp/file\rname.txt").unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn from_str_rejects_path_with_nul() {
+        let err = PathOrURLOrStdin::from_str("/tmp/file\0name.txt").unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn from_str_rejects_too_long_path() {
+        let err = PathOrURLOrStdin::from_str(&"a".repeat(2000)).unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn from_str_rejects_empty_path() {
+        let err = PathOrURLOrStdin::from_str("").unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
     }
 
     #[test]

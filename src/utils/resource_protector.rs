@@ -70,20 +70,30 @@ pub fn assert_flag(flag: bool, msg: &str) -> Result<(), Error> {
 /// - if empty
 /// - if above a max read id length
 /// - if non ASCII characters or strange characters
-/// - if starts with a #
+/// - if starts with a reserved leading character
 /// - if contains a quote-like character
 #[expect(clippy::else_if_without_else, reason = "simple enough structure")]
-#[expect(
-    clippy::indexing_slicing,
-    reason = "we've checked qname is not empty before accessing its first element"
-)]
 pub fn assert_valid_read_id(qname: &[u8], max_len: u8) -> Result<(), Error> {
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the first branch returns on empty input, so later `qname[0]` is guarded"
+    )]
     if qname.is_empty() {
         return Err(Error::InvalidReadID("read id is blank".to_owned()));
     } else if qname.len() > usize::from(max_len) {
         return Err(Error::InvalidState(format!(
             "error in setting read id, length > {max_len}"
         )));
+    } else if qname.starts_with(b"#") {
+        return Err(Error::InvalidState(
+            "we do not accept read ids starting with a # symbol".to_owned(),
+        ));
+    } else if matches!(qname[0], b'=' | b'+' | b'-' | b'@') {
+        // These are the classic CSV/spreadsheet formula-injection trigger characters (Excel/Sheets).
+        // We don't want to deal with these issues.
+        return Err(Error::InvalidState(
+            "we do not accept read ids starting with reserved leading characters".to_owned(),
+        ));
     }
     for k in qname {
         if (0..33).contains(k) || (127..).contains(k) || *k == b'`' || *k == b'"' || *k == b'\'' {
@@ -91,11 +101,6 @@ pub fn assert_valid_read_id(qname: &[u8], max_len: u8) -> Result<(), Error> {
                 "read_id contains strange characters and/or quotes!".to_owned(),
             ));
         }
-    }
-    if qname[0] == b'#' {
-        return Err(Error::InvalidState(
-            "we do not accept read ids starting with a # symbol".to_owned(),
-        ));
     }
     Ok(())
 }
@@ -224,6 +229,50 @@ mod tests {
     #[should_panic(expected = "we do not accept read ids starting with a # symbol")]
     fn assert_valid_read_id_rejects_leading_hash() {
         assert_valid_read_id(b"#read123", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "we do not accept read ids starting with reserved leading characters"
+    )]
+    fn assert_valid_read_id_rejects_leading_equals() {
+        assert_valid_read_id(b"=read123", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "we do not accept read ids starting with reserved leading characters"
+    )]
+    fn assert_valid_read_id_rejects_leading_plus() {
+        assert_valid_read_id(b"+read123", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "we do not accept read ids starting with reserved leading characters"
+    )]
+    fn assert_valid_read_id_rejects_leading_hyphen() {
+        assert_valid_read_id("-read123".as_bytes(), 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "we do not accept read ids starting with reserved leading characters"
+    )]
+    fn assert_valid_read_id_rejects_leading_at_sign() {
+        assert_valid_read_id(b"@read123", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
+    fn assert_valid_read_id_rejects_leading_tab() {
+        assert_valid_read_id(b"\tread123", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
+    fn assert_valid_read_id_rejects_leading_nul() {
+        assert_valid_read_id(b"\0read123", 20).unwrap();
     }
 
     #[test]

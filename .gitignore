@@ -7,6 +7,7 @@ ignore*
 slurm*
 brainstorming*
 tmp*
+coverage*
 coderabbit.md
 claude.md
 commit_message

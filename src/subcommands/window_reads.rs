@@ -366,6 +366,12 @@ or some other possibility.",
 /// Likewise, if records are present but no modification windows are emitted, this function errors
 /// via [`run`] because an empty table would be ambiguous.
 ///
+/// # Panics
+/// If the output of `run` is malformed.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "we assert `buffer` length before any indexing access"
+)]
 pub fn run_df<F, D>(
     bam_records: D,
     window_options: InputWindowing,
@@ -377,7 +383,7 @@ where
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // Create a buffer to capture output
-    let mut buffer = Vec::new();
+    let mut buffer = Vec::<u8>::new();
 
     // Call run with the buffer
     run(
@@ -387,12 +393,6 @@ where
         mods,
         window_function,
     )?;
-
-    // Convert buffer to string and remove leading '#' from header
-    let output = String::from_utf8(buffer)?;
-    let output_without_hash = output
-        .strip_prefix('#')
-        .ok_or_else(|| Error::InvalidState("Output does not start with '#'".to_string()))?;
 
     // Define schema based on column types
     let schema_fields = vec![
@@ -411,9 +411,21 @@ where
     ];
 
     let schema = Schema::from_iter(schema_fields);
+    let header = format!(
+        "#{}",
+        schema
+            .iter_names()
+            .map(PlSmallStr::as_str)
+            .collect::<Vec<_>>()
+            .join("\t")
+    );
 
     // Parse the TSV data with the schema
-    let cursor = std::io::Cursor::new(output_without_hash.as_bytes());
+    assert!(
+        buffer.starts_with(header.as_bytes()),
+        "buffer does not start with the expected schema header"
+    );
+    let cursor = std::io::Cursor::new(&buffer[1..]);
     let df = CsvReadOptions::default()
         .with_has_header(true)
         .map_parse_options(|parse_options| parse_options.with_separator(b'\t'))

@@ -129,6 +129,16 @@ unused_results = "deny"
 [profile.dev]
 debug = false
 
+[profile.dev.package."*"]
+debug = false
+
+[profile.debugging]
+inherits = "dev"
+debug = true
+
+[profile.test]
+inherits = "dev"
+
 [profile.release]
 codegen-units = 1
 lto = "fat"
