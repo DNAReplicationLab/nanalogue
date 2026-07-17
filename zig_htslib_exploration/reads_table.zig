@@ -60,7 +60,6 @@ pub fn main(init: std.process.Init) !void {
 
     var stdout_buffer: [64 * 1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
-    const stdout = &stdout_writer.interface;
 
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
@@ -87,7 +86,12 @@ pub fn main(init: std.process.Init) !void {
     var align_len: i64 = 0;
     var seq_len: i32 = 0;
 
-    try stdout.print("{s}\n", .{"read_id\talign_length\tsequence_length_template\talignment_type"});
+    stdout_writer.interface.print("{s}\n", .{"read_id\talign_length\tsequence_length_template\talignment_type"}) catch |err| switch (err) {
+        error.WriteFailed => switch (stdout_writer.err.?) {
+            error.BrokenPipe => return,
+            else => |e| return e,
+        },
+    };
 
     while (c.sam_read1(fp, hdr, rec) >= 0) {
         const rec_view: *align(1) const Bam1CoreView = @ptrCast(rec);
@@ -109,14 +113,22 @@ pub fn main(init: std.process.Init) !void {
         count += 1;
         if (count > std.math.maxInt(u32)) return error.TooManyRecords;
 
-        try stdout.print("{s}\t{d}\t{d}\t{s}\n", .{ read_id, align_len, seq_len, blk: {
+        stdout_writer.interface.print("{s}\t{d}\t{d}\t{s}\n", .{ read_id, align_len, seq_len, blk: {
             const b = set_alignment(rec_view.core.flag) catch |err| {
                 return err;
             };
             break :blk b.name();
-        } });
+        } }) catch |err| switch (err) {
+            error.WriteFailed => switch (stdout_writer.err.?) {
+                error.BrokenPipe => return,
+                else => |e| return e,
+            },
+        };
     }
 
-    try stdout.flush();
+    stdout_writer.flush() catch |err| switch (err) {
+        error.BrokenPipe => return,
+        else => return err,
+    };
     assert(count > 0);
 }
