@@ -58,6 +58,10 @@ pub fn main(init: std.process.Init) !void {
     // do not want htslib logging to print messages
     c.hts_set_log_level(c.HTS_LOG_OFF);
 
+    var stdout_buffer: [64 * 1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
 
@@ -83,7 +87,7 @@ pub fn main(init: std.process.Init) !void {
     var align_len: i64 = 0;
     var seq_len: i32 = 0;
 
-    std.debug.print("{s}", .{"read_id\talign_length\tsequence_length_template\talignment_type"});
+    try stdout.print("{s}\n", .{"read_id\talign_length\tsequence_length_template\talignment_type"});
 
     while (c.sam_read1(fp, hdr, rec) >= 0) {
         const rec_view: *align(1) const Bam1CoreView = @ptrCast(rec);
@@ -96,14 +100,16 @@ pub fn main(init: std.process.Init) !void {
         // simple assertions for validity
         assert(align_len >= 0);
         assert(seq_len >= 0);
-        assert(rec_view.core.l_qname > 0);
-        assert(rec_view.core.l_qname > rec_view.core.l_extranul);
+        assert(rec_view.core.l_qname > rec_view.core.l_extranul + 1);
+
+        const qname_len = rec_view.core.l_qname - rec_view.core.l_extranul - 1;
+        const read_id = rec_view.data[0..qname_len];
 
         // increment counter and check it is not too large
         count += 1;
         if (count > std.math.maxInt(u32)) return error.TooManyRecords;
 
-        std.debug.print("{s}\t{d}\t{d}\t{s}\n", .{ rec_view.data[0 .. rec_view.core.l_qname - rec_view.core.l_extranul], align_len, seq_len, blk: {
+        try stdout.print("{s}\t{d}\t{d}\t{s}\n", .{ read_id, align_len, seq_len, blk: {
             const b = set_alignment(rec_view.core.flag) catch |err| {
                 return err;
             };
@@ -111,5 +117,6 @@ pub fn main(init: std.process.Init) !void {
         } });
     }
 
+    try stdout.flush();
     assert(count > 0);
 }
