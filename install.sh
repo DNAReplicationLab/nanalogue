@@ -1,6 +1,6 @@
 #!/bin/sh
 # Nanalogue install script - downloads and installs nanalogue binaries
-# Usage: curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
+# Usage: curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
 #
 # Options:
 #   -y          Non-interactive mode: use default install directory without prompting
@@ -9,9 +9,9 @@
 #   - Press Enter at the prompt to accept the default (/usr/local/bin)
 #   - Type a custom path at the prompt
 #   - Use -y flag to skip the prompt and use the default:
-#     curl -fsSL ... | sh -s -- -y
+#     curl --proto '=https' --tlsv1.2 -fsSL ... | sh -s -- -y
 #   - Or set the environment variable:
-#     export NANALOGUE_INSTALL_DIR=/your/path && curl -fsSL ... | sh
+#     export NANALOGUE_INSTALL_DIR=/your/path && curl --proto '=https' --tlsv1.2 -fsSL ... | sh
 #
 # Dependencies: curl or wget, unzip, jq, sha256sum or shasum
 
@@ -44,9 +44,9 @@ check_dependencies() {
 
 download() {
     if has_cmd curl; then
-        curl -fsSL -H "User-Agent: nanalogue-installer" --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$1" -o "$2"
+        curl --proto '=https' --tlsv1.2 -fsSL -H "User-Agent: nanalogue-installer" --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$1" -o "$2"
     else
-        wget -q --header="User-Agent: nanalogue-installer" --tries=3 --waitretry=2 --timeout=20 "$1" -O "$2"
+        wget -q --https-only --header="User-Agent: nanalogue-installer" --tries=3 --waitretry=2 --timeout=20 "$1" -O "$2"
     fi
 }
 
@@ -63,15 +63,15 @@ fetch() {
 
     if has_cmd curl; then
         if [ -n "$auth_header" ]; then
-            curl -fsSL -H "User-Agent: nanalogue-installer" -H "$auth_header" --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$url"
+            curl --proto '=https' --tlsv1.2 -fsSL -H "User-Agent: nanalogue-installer" -H "$auth_header" --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$url"
         else
-            curl -fsSL -H "User-Agent: nanalogue-installer" --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$url"
+            curl --proto '=https' --tlsv1.2 -fsSL -H "User-Agent: nanalogue-installer" --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 "$url"
         fi
     else
         if [ -n "$auth_header" ]; then
-            wget -qO- --header="User-Agent: nanalogue-installer" --header="$auth_header" --tries=3 --waitretry=2 --timeout=20 "$url"
+            wget -qO- --https-only --header="User-Agent: nanalogue-installer" --header="$auth_header" --tries=3 --waitretry=2 --timeout=20 "$url"
         else
-            wget -qO- --header="User-Agent: nanalogue-installer" --tries=3 --waitretry=2 --timeout=20 "$url"
+            wget -qO- --https-only --header="User-Agent: nanalogue-installer" --tries=3 --waitretry=2 --timeout=20 "$url"
         fi
     fi
 }
@@ -319,7 +319,7 @@ check_existing_install() {
 
     error "nanalogue is already installed at: $existing_path
   To update it, run:
-    export NANALOGUE_INSTALL_DIR=$existing_dir && curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh"
+    export NANALOGUE_INSTALL_DIR=$existing_dir && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh"
 }
 
 install_binary() {
