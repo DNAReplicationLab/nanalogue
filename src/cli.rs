@@ -4,6 +4,7 @@
 use crate::{
     Error, F32Bw0and1, GenomicBed3, GenomicRegion, ModChar, PathOrURLOrStdin, ReadStates,
     RestrictModCalledStrand, ThresholdState,
+    constants::cli::{MAX_DEFAULT_THREADS, MIN_DEFAULT_THREADS},
 };
 use clap::{Args, FromArgMatches};
 use derive_builder::Builder;
@@ -12,6 +13,39 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::str::FromStr;
+
+/// Convert detected CPU parallelism into a conservative default thread count.
+///
+/// We divide available parallelism by two because benchmarking on a 16-vCPU
+/// machine showed that 8 BAM-reading threads were faster than 16 for a workload
+/// of reading a 608 MiB BAM containing 100,000 simulated reads of roughly
+/// 10kb each, so using half the visible CPUs is a safer default.
+///
+/// # Panics
+/// Panics if converting the clamped thread count from `usize` to `u32` fails,
+/// or if the clamped thread count is zero, which could occur if the configured
+/// thread bounds are changed to permit zero.
+fn default_threads_from_available_parallelism(available_parallelism: NonZeroUsize) -> NonZeroU32 {
+    let default_threads = available_parallelism.get().div_ceil(2).clamp(
+        usize::from(MIN_DEFAULT_THREADS),
+        usize::from(MAX_DEFAULT_THREADS),
+    );
+    NonZeroU32::new(u32::try_from(default_threads).expect("clamped thread count fits in u32"))
+        .expect("clamped thread count is non-zero")
+}
+
+/// Determine the default BAM thread count from available CPU parallelism.
+///
+/// # Panics
+/// Panics if constructing the fallback [`NonZeroU32`] from
+/// [`MIN_DEFAULT_THREADS`] fails, or if
+/// [`default_threads_from_available_parallelism`] panics.
+fn default_threads() -> NonZeroU32 {
+    std::thread::available_parallelism().map_or(
+        NonZeroU32::new(u32::from(MIN_DEFAULT_THREADS)).expect("minimum thread count is non-zero"),
+        default_threads_from_available_parallelism,
+    )
+}
 
 /// Options to parse the input bam file and the filters that should be applied to the bam file.
 ///
@@ -185,8 +219,10 @@ pub struct InputBam {
     #[clap(skip)]
     #[builder(setter(into, strip_option))]
     pub read_id_set: Option<HashSet<String>>,
-    /// Number of threads used during some aspects of program execution
-    #[clap(long, default_value_t = NonZeroU32::new(2).expect("no error"))]
+    /// Number of threads used during some aspects of program execution.
+    /// Defaults to a conservative value based on available CPU parallelism,
+    /// capped between 2 and 8 threads.
+    #[clap(long, default_value_t = default_threads())]
     #[builder(setter(into))]
     pub threads: NonZeroU32,
     /// Include "zero-length" sequences e.g. sequences with "*" in the sequence
@@ -321,7 +357,7 @@ impl Default for InputBam {
             read_id: None,
             read_id_list: None,
             read_id_set: None,
-            threads: NonZeroU32::new(2).expect("no error"),
+            threads: default_threads(),
             include_zero_len: false,
             read_filter: None,
             sample_fraction: F32Bw0and1::one(),
@@ -782,6 +818,52 @@ pub enum SeqDisplayOptions {
         /// Region over which sequence must be shown
         region: GenomicBed3,
     },
+}
+
+#[cfg(test)]
+mod default_parallelism_tests {
+    use super::*;
+
+    /// Verify the adaptive thread default keeps the documented lower bound.
+    #[test]
+    fn default_threads_from_available_parallelism_respects_minimum() {
+        assert_eq!(
+            default_threads_from_available_parallelism(NonZeroUsize::new(1).expect("non-zero")),
+            NonZeroU32::new(u32::from(MIN_DEFAULT_THREADS)).expect("non-zero"),
+        );
+        assert_eq!(
+            default_threads_from_available_parallelism(NonZeroUsize::new(2).expect("non-zero")),
+            NonZeroU32::new(u32::from(MIN_DEFAULT_THREADS)).expect("non-zero"),
+        );
+    }
+
+    /// Verify the adaptive thread default scales up conservatively.
+    #[test]
+    fn default_threads_from_available_parallelism_scales_with_cpu_count() {
+        assert_eq!(
+            default_threads_from_available_parallelism(NonZeroUsize::new(4).expect("non-zero")),
+            NonZeroU32::new(2).expect("non-zero"),
+        );
+        assert_eq!(
+            default_threads_from_available_parallelism(NonZeroUsize::new(5).expect("non-zero")),
+            NonZeroU32::new(3).expect("non-zero"),
+        );
+        assert_eq!(
+            default_threads_from_available_parallelism(NonZeroUsize::new(16).expect("non-zero")),
+            NonZeroU32::new(8).expect("non-zero"),
+        );
+    }
+
+    /// Verify the adaptive thread default never exceeds the documented cap.
+    #[test]
+    fn default_threads_from_available_parallelism_respects_maximum() {
+        assert_eq!(
+            default_threads_from_available_parallelism(
+                NonZeroUsize::new(usize::MAX).expect("non-zero")
+            ),
+            NonZeroU32::new(u32::from(MAX_DEFAULT_THREADS)).expect("non-zero"),
+        );
+    }
 }
 
 #[cfg(test)]

@@ -10,6 +10,20 @@ pub mod shared {
     pub const MAX_RECORD_CAPACITY_BYTES: u32 = 32 * 1024 * 1024 - 1;
 }
 
+/// Constants used by CLI parsing and defaults.
+pub mod cli {
+    /// Minimum automatic thread count used for BAM processing defaults.
+    pub const MIN_DEFAULT_THREADS: u8 = 2;
+
+    /// Maximum automatic thread count used for BAM processing defaults.
+    pub const MAX_DEFAULT_THREADS: u8 = 8;
+
+    const _: () = assert!(
+        MIN_DEFAULT_THREADS <= MAX_DEFAULT_THREADS,
+        "MIN_DEFAULT_THREADS must be <= MAX_DEFAULT_THREADS"
+    );
+}
+
 /// Constants used by the `peek` subcommand/module.
 pub mod peek {
     /// Hard cap on the number of records processed by `peek`.
