@@ -8,7 +8,6 @@ const assert = std.debug.assert;
 // Prefix view of htslib's bam1_t.
 // We use this because @cImport makes bam1_t opaque due to bitfields.
 // This must match the leading layout of bam1_t in the htslib version we build against.
-// TODO: Add a comptime check that bam1_t's definition did not change in htslib.
 const Bam1CoreView = extern struct {
     core: c.bam1_core_t,
     id: u64,
@@ -60,6 +59,8 @@ pub fn main(init: std.process.Init) !void {
 
     var stdout_buffer: [64 * 1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    var flush_on_error = true;
+    errdefer if (flush_on_error) stdout_writer.flush() catch {};
 
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
@@ -82,7 +83,7 @@ pub fn main(init: std.process.Init) !void {
     const rec = c.bam_init1() orelse return error.RecordAllocFailed;
     defer c.bam_destroy1(rec);
 
-    var count: u64 = 0;
+    var count: u32 = 0;
     var align_len: i64 = 0;
     var seq_len: i32 = 0;
 
@@ -110,8 +111,11 @@ pub fn main(init: std.process.Init) !void {
         const read_id = rec_view.data[0..qname_len];
 
         // increment counter and check it is not too large
-        count += 1;
-        if (count > std.math.maxInt(u32)) return error.TooManyRecords;
+        if (count < std.math.maxInt(u32)) {
+            count += 1;
+        } else {
+            return error.TooManyRecords;
+        }
 
         stdout_writer.interface.print("{s}\t{d}\t{d}\t{s}\n", .{ read_id, align_len, seq_len, blk: {
             const b = set_alignment(rec_view.core.flag) catch |err| {
@@ -126,6 +130,7 @@ pub fn main(init: std.process.Init) !void {
         };
     }
 
+    flush_on_error = false;
     stdout_writer.flush() catch |err| switch (err) {
         error.BrokenPipe => return,
         else => return err,

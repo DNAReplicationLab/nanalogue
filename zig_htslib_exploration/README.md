@@ -28,6 +28,9 @@ to get submodules from within htslib.
 ```
 mkdir ../htslib_compiled
 
+# if you cloned htslib from git, generate ./configure first
+autoreconf -i
+
 # change the CC argument below to wherever you have untared the zig archive
 ./configure CC="$(realpath ~/zig/zig-x86_64-linux-0.16.0/zig) cc" --prefix=$(realpath ../htslib_compiled)
 
@@ -49,12 +52,24 @@ Cd to `zig_htslib_exploration` and run the following command.
 ~/zig/zig-x86_64-linux-0.16.0/zig  build
 ```
 
-## Running our pgoram
+## Running our programs
 
 From `zig_htslib_exploration`, do
 
 ```
-./zig-out/bin/reads_table <some_bam_file> 
+./zig-out/bin/reads_table <some_bam_file>
 ```
 
 This should produce a tabular output of read ids and sequence lengths.
+
+To convert a coordinate-sorted BAM to CRAM, do
+
+```
+./zig-out/bin/bam_to_cram <input.bam> <output.cram> <reference.fa> [threads]
+```
+
+For example, with the example files in `../examples/`:
+
+```
+./zig-out/bin/bam_to_cram ../examples/example_3.bam /tmp/example_3.cram ../examples/contigs.fa
+```
