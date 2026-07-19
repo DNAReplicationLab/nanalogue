@@ -220,8 +220,7 @@ pub struct InputBam {
     #[builder(setter(into, strip_option))]
     pub read_id_set: Option<HashSet<String>>,
     /// Number of threads used during some aspects of program execution.
-    /// Defaults to a conservative value based on available CPU parallelism,
-    /// capped between 2 and 8 threads.
+    /// Defaults to a conservative value based on available CPU parallelism.
     #[clap(long, default_value_t = default_threads())]
     #[builder(setter(into))]
     pub threads: NonZeroU32,

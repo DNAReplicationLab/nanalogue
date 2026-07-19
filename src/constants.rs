@@ -16,7 +16,7 @@ pub mod cli {
     pub const MIN_DEFAULT_THREADS: u8 = 2;
 
     /// Maximum automatic thread count used for BAM processing defaults.
-    pub const MAX_DEFAULT_THREADS: u8 = 8;
+    pub const MAX_DEFAULT_THREADS: u8 = 64;
 
     const _: () = assert!(
         MIN_DEFAULT_THREADS <= MAX_DEFAULT_THREADS,
