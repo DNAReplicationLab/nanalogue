@@ -87,14 +87,14 @@ It installs both `nanalogue` and `nanalogue_sim_bam` when available.
 For the available binary artifacts, see [GitHub Actions Artifacts](#github-actions-artifacts):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
 ```
 
 The script will prompt you for an install directory (default: `/usr/local/bin`).
 To skip the prompt and use the default directory:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh -s -- -y
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh -s -- -y
 ```
 
 To install to a custom directory, set the `NANALOGUE_INSTALL_DIR` environment variable.
@@ -102,7 +102,7 @@ Note that you may need to add the custom directory to your `PATH` for global acc
 In the example below, nanalogue is installed to `$HOME/.local/bin`:
 
 ```bash
-export NANALOGUE_INSTALL_DIR=$HOME/.local/bin && curl -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
+export NANALOGUE_INSTALL_DIR=$HOME/.local/bin && curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/main/install.sh | sh
 ```
 **Dependencies:** The install script requires:
 - `curl` or `wget`
@@ -163,7 +163,7 @@ cargo install nanalogue
 `cargo` is the rust package manager. If you do not have `cargo`,
 then follow these [instructions](https://doc.rust-lang.org/cargo/getting-started/installation.html)
 to get it. On Linux and macOS systems, the install command is as simple as
-`curl https://sh.rustup.rs -sSf | sh`
+`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 
 ### Using cargo locked
 
