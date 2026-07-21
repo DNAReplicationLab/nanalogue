@@ -359,13 +359,157 @@ where
     Ok(())
 }
 
+/// Read lines with a hard raw-byte cap.
+///
+/// The returned `u16` is the number of raw bytes consumed from `reader`,
+/// including any trailing line terminator bytes.
+///
+/// Contract for successful returns:
+/// - `bytes_read == 0` means EOF was reached before any bytes were consumed,
+///   and `line` is empty.
+/// - `bytes_read > 0 && line.is_empty()` can only occur for a blank physical
+///   line consisting solely of `\n` or `\r\n`.
+/// - Otherwise, `line` contains the line content with any trailing `\n` or
+///   `\r\n` removed.
+///
+/// # Errors
+///
+/// Returns an error if reading from `reader` fails, if the internal reader
+/// buffer is unexpectedly larger than `u16::MAX`, if a `\r` is not immediately
+/// followed by `\n`, if the line contains non-ASCII control characters other
+/// than `\t`, `\r`, and `\n`, or if consuming the next chunk would exceed
+/// `line_cap`.
+///
+/// # Panics
+///
+/// Panics only if internal invariants about buffer sizing, trim bookkeeping,
+/// or output-length accounting are violated.
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing,
+    reason = "(1) line & buffer lengths are checked for smallness, \
+(2) `bytes_to_consume` never exceeds buffer length and indexing only happens when it is > 0"
+)]
+pub(crate) fn read_line_capped<R: std::io::BufRead>(
+    reader: &mut R,
+    line: &mut String,
+    line_cap: u16,
+) -> Result<u16, Error> {
+    let mut total_bytes_read: u16 = 0;
+    let mut is_dangling_slash_r = false;
+
+    line.clear();
+    let is_newline_found = loop {
+        // `std::io` fills this buffer with data without stopping at new lines,
+        // so we get many lines into this.
+        // With `std::io::BufReader`, this buffered slice is typically modest in
+        // size rather than a huge chunk of memory, so using `fill_buf` here is
+        // acceptable for our defensive line-length checks i.e. we are not in
+        // danger of loading a huge amount of data like 1GB into this buffer.
+        let buffered = reader.fill_buf()?;
+        if u16::try_from(buffered.len()).is_err() {
+            return Err(Error::InvalidState(
+                "internal buffer unexpectedly large".to_owned(),
+            ));
+        }
+        let (bytes_to_consume, bytes_to_trim) = {
+            let mut counter: u16 = 0;
+            let mut bytes_to_trim: u16 = 0;
+            assert!(
+                u16::try_from(buffered.len()).is_ok(),
+                "repeating this check to ensure `buffered` is bounded and `counter` won't overflow"
+            );
+            for k in buffered {
+                counter += 1;
+                if *k == b'\n' {
+                    (is_dangling_slash_r, bytes_to_trim) =
+                        match (is_dangling_slash_r, bytes_to_trim) {
+                            (false | true, 0) => (false, 1),
+                            (true, 1) => (false, 2),
+                            _ => unreachable!(),
+                        };
+                    break;
+                } else if is_dangling_slash_r {
+                    return Err(Error::InvalidState(
+                        "\\r must be followed by \\n".to_owned(),
+                    ));
+                } else if *k == b'\r' {
+                    is_dangling_slash_r = true;
+                    bytes_to_trim = 1;
+                } else if !(*k == b'\t' || (32..127).contains(k)) {
+                    return Err(Error::InvalidState(
+                        "line has unusual characters!".to_owned(),
+                    ));
+                } else {
+                    // pass
+                }
+            }
+            assert!(
+                counter >= bytes_to_trim,
+                "`counter` cannot be smaller than `bytes_to_trim`!"
+            );
+            (counter, bytes_to_trim)
+        };
+        match bytes_to_consume {
+            0 => {
+                if is_dangling_slash_r {
+                    return Err(Error::InvalidState(
+                        "\\r must be followed by \\n".to_owned(),
+                    ));
+                }
+                break false;
+            }
+            v => {
+                // Reject the chunk before addition if it would push the running total
+                // beyond `line_cap`; this avoids silently saturating on `u16` overflow.
+                if v > line_cap.saturating_sub(total_bytes_read) {
+                    return Err(Error::InvalidState(format!(
+                        "line is too long (>{line_cap} bytes)"
+                    )));
+                }
+                total_bytes_read += v;
+                assert!(v >= bytes_to_trim, "`v` is less than `bytes_to_trim`");
+                assert!(
+                    usize::from(v) <= buffered.len(),
+                    "`v` cannot be greater than `buffered.len()`"
+                );
+                unsafe {
+                    // we've already checked bytes are a subset of valid ASCII
+                    line.push_str(str::from_utf8_unchecked(
+                        &buffered[..usize::from(v - bytes_to_trim)],
+                    ));
+                }
+                reader.consume(usize::from(v));
+                if bytes_to_trim > 0 && !is_dangling_slash_r {
+                    break true;
+                }
+            }
+        }
+    };
+    assert!(!line.ends_with('\n'), "line cannot end with a new line!");
+    assert!(!line.ends_with('\r'), "line cannot end with a new line!");
+    assert!(
+        line.len() <= usize::from(line_cap),
+        "`line` longer than `line_cap` bytes read",
+    );
+    assert!(
+        (is_newline_found && line.len() < usize::from(total_bytes_read))
+            || (!is_newline_found && line.len() == usize::from(total_bytes_read)),
+        "`line` must contain fewer or equal bytes than `total_bytes_read`",
+    );
+    Ok(total_bytes_read)
+}
+
 #[expect(clippy::panic, reason = "panic on error is standard practice in tests")]
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{DNARestrictive, uuid};
     use rust_htslib::bam::Read as _;
-    use std::str::FromStr as _;
+    use std::{
+        io::{BufReader, Cursor},
+        str::FromStr as _,
+    };
 
     /// Tests writing to a fasta file and check its contents
     #[test]
@@ -625,5 +769,34 @@ mod tests {
 
         std::fs::remove_file(&temp_path).expect("no error");
         std::fs::remove_file(format!("{}.bai", temp_path.display())).expect("no error");
+    }
+
+    #[test]
+    fn read_line_capped_rejects_slash_r_split_across_buffer_boundary() {
+        let payload = format!("{}\rX", "a".repeat(7));
+        let cursor = Cursor::new(payload.into_bytes());
+        let mut reader = BufReader::with_capacity(8, cursor);
+        let mut line = String::new();
+
+        let result = read_line_capped(&mut reader, &mut line, 64);
+
+        assert!(
+            matches!(result, Err(Error::InvalidState(msg)) if msg == "\\r must be followed by \\n"),
+            "\\r split across buffer boundary should fail"
+        );
+    }
+
+    #[test]
+    fn read_line_capped_accepts_slash_r_slash_n_split_across_buffer_boundary() {
+        let payload = format!("{}\r\n", "a".repeat(7));
+        let cursor = Cursor::new(payload.into_bytes());
+        let mut reader = BufReader::with_capacity(8, cursor);
+        let mut line = String::new();
+
+        let bytes_read = read_line_capped(&mut reader, &mut line, 64)
+            .expect("\\r\\n across buffer boundary should be accepted");
+
+        assert_eq!(line, "aaaaaaa");
+        assert_eq!(bytes_read, 9);
     }
 }

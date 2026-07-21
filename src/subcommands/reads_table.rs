@@ -17,6 +17,7 @@ use crate::{
     },
     ensure_bounded_counter, ensure_nonzero_counter, ensure_record_data_capacity,
     ensure_valid_read_id,
+    file_utils::read_line_capped,
 };
 use polars::prelude::*;
 use rust_htslib::bam;
@@ -27,7 +28,7 @@ use std::{
     },
     fmt,
     fs::File,
-    io::BufReader,
+    io::{BufReader, Cursor},
     iter,
     rc::Rc,
     str,
@@ -63,134 +64,6 @@ macro_rules! vec_csv {
     ( $b: expr ) => {
         join_display($b, ", ")?
     };
-}
-
-/// Read lines with a hard raw-byte cap.
-///
-/// The returned `u16` is the number of raw bytes consumed from `reader`,
-/// including any trailing line terminator bytes.
-///
-/// Contract for successful returns:
-/// - `bytes_read == 0` means EOF was reached before any bytes were consumed,
-///   and `line` is empty.
-/// - `bytes_read > 0 && line.is_empty()` can only occur for a blank physical
-///   line consisting solely of `\n` or `\r\n`.
-/// - Otherwise, `line` contains the line content with any trailing `\n` or
-///   `\r\n` removed.
-#[expect(
-    clippy::arithmetic_side_effects,
-    clippy::indexing_slicing,
-    reason = "(1) line & buffer lengths are checked for smallness, \
-(2) `bytes_to_consume` never exceeds buffer length and indexing only happens when it is > 0"
-)]
-fn read_line_capped<R: std::io::BufRead>(
-    reader: &mut R,
-    line: &mut String,
-    line_cap: u16,
-) -> Result<u16, Error> {
-    let mut total_bytes_read: u16 = 0;
-    let mut is_dangling_slash_r = false;
-
-    line.clear();
-    let is_newline_found = loop {
-        // `std::io` fills this buffer with data without stopping at new lines,
-        // so we get many lines into this.
-        // With `std::io::BufReader`, this buffered slice is typically modest in
-        // size rather than a huge chunk of memory, so using `fill_buf` here is
-        // acceptable for our defensive line-length checks i.e. we are not in
-        // danger of loading a huge amount of data like 1GB into this buffer.
-        let buffered = reader.fill_buf()?;
-        if u16::try_from(buffered.len()).is_err() {
-            return Err(Error::InvalidState(
-                "internal buffer unexpectedly large".to_owned(),
-            ));
-        }
-        let (bytes_to_consume, bytes_to_trim) = {
-            let mut counter: u16 = 0;
-            let mut bytes_to_trim: u16 = 0;
-            assert!(
-                u16::try_from(buffered.len()).is_ok(),
-                "repeating this check to ensure `buffered` is bounded and `counter` won't overflow"
-            );
-            for k in buffered {
-                counter += 1;
-                if *k == b'\n' {
-                    (is_dangling_slash_r, bytes_to_trim) =
-                        match (is_dangling_slash_r, bytes_to_trim) {
-                            (false | true, 0) => (false, 1),
-                            (true, 1) => (false, 2),
-                            _ => unreachable!(),
-                        };
-                    break;
-                } else if is_dangling_slash_r {
-                    return Err(Error::InvalidState(
-                        "\\r must be followed by \\n".to_owned(),
-                    ));
-                } else if *k == b'\r' {
-                    is_dangling_slash_r = true;
-                    bytes_to_trim = 1;
-                } else if !(*k == b'\t' || (32..127).contains(k)) {
-                    return Err(Error::InvalidState(
-                        "line has unusual characters!".to_owned(),
-                    ));
-                } else {
-                    // pass
-                }
-            }
-            assert!(
-                counter >= bytes_to_trim,
-                "`counter` cannot be smaller than `bytes_to_trim`!"
-            );
-            (counter, bytes_to_trim)
-        };
-        match bytes_to_consume {
-            0 => {
-                if is_dangling_slash_r {
-                    return Err(Error::InvalidState(
-                        "\\r must be followed by \\n".to_owned(),
-                    ));
-                }
-                break false;
-            }
-            v => {
-                // Reject the chunk before addition if it would push the running total
-                // beyond `line_cap`; this avoids silently saturating on `u16` overflow.
-                if v > line_cap.saturating_sub(total_bytes_read) {
-                    return Err(Error::InvalidState(format!(
-                        "line is too long (>{line_cap} bytes)"
-                    )));
-                }
-                total_bytes_read += v;
-                assert!(v >= bytes_to_trim, "`v` is less than `bytes_to_trim`");
-                assert!(
-                    usize::from(v) <= buffered.len(),
-                    "`v` cannot be greater than `buffered.len()`"
-                );
-                unsafe {
-                    // we've already checked bytes are a subset of valid ASCII
-                    line.push_str(str::from_utf8_unchecked(
-                        &buffered[..usize::from(v - bytes_to_trim)],
-                    ));
-                }
-                reader.consume(usize::from(v));
-                if bytes_to_trim > 0 && !is_dangling_slash_r {
-                    break true;
-                }
-            }
-        }
-    };
-    assert!(!line.ends_with('\n'), "line cannot end with a new line!");
-    assert!(!line.ends_with('\r'), "line cannot end with a new line!");
-    assert!(
-        line.len() <= usize::from(line_cap),
-        "`line` longer than `line_cap` bytes read",
-    );
-    assert!(
-        (is_newline_found && line.len() < usize::from(total_bytes_read))
-            || (!is_newline_found && line.len() == usize::from(total_bytes_read)),
-        "`line` must contain fewer or equal bytes than `total_bytes_read`",
-    );
-    Ok(total_bytes_read)
 }
 
 /// Declare a custom type for ease of use
@@ -482,6 +355,11 @@ impl Read {
     }
 }
 
+const _: () = assert!(
+    MAX_SEQ_SUMM_SIZE_PER_LINE <= u16::MAX - 2,
+    "MAX_SEQ_SUMM_SIZE_PER_LINE must leave room for CRLF bytes in line buffering"
+);
+
 /// Opens a TSV file, extracts '`read_id`' and '`sequence_length_template`' columns,
 /// and builds a `HashMap`.
 ///
@@ -495,7 +373,7 @@ impl Read {
 )]
 #[expect(
     clippy::arithmetic_side_effects,
-    reason = "we place assertions to avoid this"
+    reason = "we place assertions above the function and throughout it to avoid this"
 )]
 fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
     let mut data_map = HashMap::<String, Read>::new();
@@ -1045,7 +923,7 @@ where
     let schema = Schema::from_iter(schema_fields);
 
     // Parse the TSV data with the schema
-    let cursor = std::io::Cursor::new(&buffer[..]);
+    let cursor = Cursor::new(&buffer[..]);
     let df = CsvReadOptions::default()
         .with_has_header(true)
         .map_parse_options(|parse_options| {
@@ -1527,7 +1405,6 @@ mod sequencing_summary_tests {
     use super::*;
     use crate::uuid;
     use std::fs;
-    use std::io::Cursor;
     use std::path::{Path, PathBuf};
 
     fn write_temp_seq_summary(contents: &str) -> PathBuf {
@@ -1706,8 +1583,8 @@ mod sequencing_summary_tests {
     }
 
     #[test]
-    // also checks that line with # in seq summ but not at the start is not ignored
-    fn process_seq_summ_accepts_hash_in_read_id() {
+    // checks that read id with # in it is rejected
+    fn process_seq_summ_rejects_hash_in_read_id() {
         let temp_path = write_temp_seq_summary("read_id\tsequence_length_template\nre#ad1\t1234\n");
         let result = process_seq_summ(
             temp_path
@@ -1716,11 +1593,10 @@ mod sequencing_summary_tests {
         );
         remove_temp_file(&temp_path);
 
-        let data_map = result.expect("read_id containing `#` should parse successfully");
-        assert!(matches!(
-            data_map.get("re#ad1"),
-            Some(Read(ReadInstance::OnlyBc(1234)))
-        ));
+        assert!(
+            result.is_err(),
+            "read_id containing # should now be rejected"
+        );
     }
 
     #[test]
@@ -1869,35 +1745,6 @@ mod sequencing_summary_tests {
         remove_temp_file(&temp_path);
 
         assert!(result.is_err(), "\\r at EOF should fail");
-    }
-
-    #[test]
-    fn read_line_capped_rejects_slash_r_split_across_buffer_boundary() {
-        let payload = format!("{}\rX", "a".repeat(7));
-        let cursor = Cursor::new(payload.into_bytes());
-        let mut reader = BufReader::with_capacity(8, cursor);
-        let mut line = String::new();
-
-        let result = read_line_capped(&mut reader, &mut line, 64);
-
-        assert!(
-            matches!(result, Err(Error::InvalidState(msg)) if msg == "\\r must be followed by \\n"),
-            "\\r split across buffer boundary should fail"
-        );
-    }
-
-    #[test]
-    fn read_line_capped_accepts_slash_r_slash_n_split_across_buffer_boundary() {
-        let payload = format!("{}\r\n", "a".repeat(7));
-        let cursor = Cursor::new(payload.into_bytes());
-        let mut reader = BufReader::with_capacity(8, cursor);
-        let mut line = String::new();
-
-        let bytes_read = read_line_capped(&mut reader, &mut line, 64)
-            .expect("\\r\\n across buffer boundary should be accepted");
-
-        assert_eq!(line, "aaaaaaa");
-        assert_eq!(bytes_read, 9);
     }
 
     #[test]

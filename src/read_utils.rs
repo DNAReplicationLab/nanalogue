@@ -5,8 +5,8 @@ use crate::{
     AllowedAGCTN, BaseMod, BaseMods, Contains as _, Error, F32Bw0and1, FiberAnnotation,
     FilterModsByRefCoords, GenomicBed3, GenomicStrandedBed3, InputModOptions, InputRegionOptions,
     InputWindowing, ModChar, Ranges, ReadState, ThresholdState,
-    constants::shared::{MAX_CONTIGS, MAX_MOD_TYPES, MAX_READ_ID_LEN},
-    ensure_valid_read_id, nanalogue_mm_ml_parser,
+    constants::shared::{MAX_CONTIG_NAME_LENGTH, MAX_CONTIGS, MAX_MOD_TYPES, MAX_READ_ID_LEN},
+    ensure_valid_contig, ensure_valid_read_id, nanalogue_mm_ml_parser,
 };
 use bedrs::prelude::Intersect as _;
 use bedrs::{Coordinates as _, Strand};
@@ -652,7 +652,11 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                 "cannot set contig name again! read_id: {}",
                 self.read_id()
             ))),
-            (_, true) => Ok(Some(String::from(record.contig()))),
+            (_, true) => {
+                let contig = record.contig();
+                ensure_valid_contig(contig.as_bytes(), MAX_CONTIG_NAME_LENGTH)?;
+                Ok(Some(String::from(contig)))
+            }
         }?;
         Ok(self)
     }
@@ -2824,7 +2828,7 @@ mod test_serde {
     }
 
     #[test]
-    #[should_panic(expected = "read id is blank")]
+    #[should_panic(expected = "read_id is blank")]
     fn blank_json_record_fails_to_deserialize() {
         let json_str = "{}";
 

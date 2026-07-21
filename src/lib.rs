@@ -83,6 +83,7 @@ use crate::constants::shared::{
     MAX_ML_ARRAY_LENGTH, MAX_MM_TAG_LENGTH, MAX_READ_ID_LEN, MAX_READ_IDS_FOR_FILTERING,
     MAX_RECORD_CAPACITY_BYTES,
 };
+use crate::file_utils::read_line_capped;
 use bedrs::{Bed3, Coordinates as _, StrandedBed3};
 use rand::random;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
@@ -131,7 +132,7 @@ pub use utils::{
     OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
     RestrictModCalledStrand, SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase,
     ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
-    ensure_valid_read_id, mm_groups, revcomp,
+    ensure_valid_contig, ensure_valid_read_id, mm_groups, revcomp,
 };
 
 /// Genomic 3-column BED shorthand used with `bedrs` coordinate types in this crate.
@@ -642,25 +643,36 @@ where
     pub header: bam::HeaderView,
 }
 
+const _: () = assert!(
+    MAX_READ_ID_LEN <= u8::MAX - 2,
+    "MAX_READ_ID_LEN must leave room for CRLF bytes in read-id line buffering"
+);
+
 /// Loads read IDs from a text reader, enforcing a maximum on distinct IDs.
 #[expect(
     clippy::arithmetic_side_effects,
-    reason = "`counter` is bounded by `max_read_ids` so no problem"
+    reason = "`counter` is bounded by `max_read_ids`, and the nearby const assert guarantees `MAX_READ_ID_LEN + 2` cannot overflow"
 )]
 fn load_read_ids_for_filtering<T: BufRead>(
-    reader: T,
+    mut reader: T,
     max_read_ids: u32,
 ) -> Result<HashSet<String>, Error> {
     let mut read_ids = HashSet::new();
     let mut counter: u32 = 0;
 
-    for raw_line in reader.lines() {
-        let temp_line = raw_line.map_err(|err| Error::InputOutputError(Box::new(err)))?;
-        let line = temp_line.trim();
-        if !line.is_empty() {
-            ensure_valid_read_id(line.as_bytes(), MAX_READ_ID_LEN)?;
-            let _: bool = read_ids.insert(line.to_string());
+    let mut line = String::with_capacity((MAX_READ_ID_LEN + 2).into()); // allow 2 bytes for newline(s)
+    loop {
+        let bytes_read = read_line_capped(&mut reader, &mut line, (MAX_READ_ID_LEN + 2).into())?;
+        if bytes_read == 0 {
+            break;
         }
+        if line.is_empty() {
+            return Err(Error::InvalidState(
+                "blank line found in read id file!".to_owned(),
+            ));
+        }
+        ensure_valid_read_id(line.as_bytes(), MAX_READ_ID_LEN)?;
+        let _: bool = read_ids.insert(line.clone());
         if counter < max_read_ids {
             counter += 1;
         } else {
@@ -1824,14 +1836,23 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    fn load_read_ids_for_filtering_allows_empty_lines() {
-        let reader = Cursor::new("read_0\nread_1\n\nread_0\n\n");
+    fn load_read_ids_for_filtering_allows_slash_r_slash_n() {
+        let reader = Cursor::new("read_0\r\nread_1\nread_2\r\nread_3\n");
 
-        let read_id_set = load_read_ids_for_filtering(reader, 5).unwrap();
+        let read_id_set = load_read_ids_for_filtering(reader, 4).unwrap();
 
-        assert_eq!(read_id_set.len(), 2);
+        assert_eq!(read_id_set.len(), 4);
         assert!(read_id_set.contains("read_0"));
         assert!(read_id_set.contains("read_1"));
+        assert!(read_id_set.contains("read_2"));
+        assert!(read_id_set.contains("read_3"));
+    }
+
+    #[test]
+    #[should_panic(expected = "blank line found in read id file!")]
+    fn load_read_ids_for_filtering_disallows_empty_lines() {
+        let reader = Cursor::new("read_0\nread_1\n\nread_0\n");
+        drop(load_read_ids_for_filtering(reader, 5).unwrap());
     }
 
     #[test]
@@ -1842,16 +1863,57 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
+    #[should_panic(expected = "read_id contains forbidden characters")]
     fn load_read_ids_for_filtering_rejects_malformed_reads() {
         let reader = Cursor::new("read_0\nre ad_1\nread_2\n");
         drop(load_read_ids_for_filtering(reader, 3).unwrap());
     }
 
     #[test]
-    #[should_panic(expected = "we do not accept read ids starting with a # symbol")]
+    #[should_panic(expected = "read_id contains forbidden characters")]
+    fn load_read_ids_for_filtering_rejects_tabs() {
+        let reader = Cursor::new("read_0\nre\tad_1\nread_2\n");
+        drop(load_read_ids_for_filtering(reader, 3).unwrap());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "we do not accept read_id values starting with reserved leading characters"
+    )]
     fn load_read_ids_for_filtering_rejects_comments() {
         let reader = Cursor::new("#comment\nread_1\nread_2\n");
+        drop(load_read_ids_for_filtering(reader, 3).unwrap());
+    }
+
+    #[test]
+    fn load_read_ids_for_filtering_allows_max_length_read_with_newline() {
+        let max_len_read = "r".repeat(usize::from(MAX_READ_ID_LEN));
+        let reader = Cursor::new(format!("{max_len_read}\nread_1\r\n"));
+
+        let read_id_set = load_read_ids_for_filtering(reader, 2).unwrap();
+
+        assert_eq!(read_id_set.len(), 2);
+        assert!(read_id_set.contains(max_len_read.as_str()));
+        assert!(read_id_set.contains("read_1"));
+    }
+
+    #[test]
+    fn load_read_ids_for_filtering_allows_max_length_read_with_slash_r_slash_n() {
+        let max_len_read = "r".repeat(usize::from(MAX_READ_ID_LEN));
+        let reader = Cursor::new(format!("{max_len_read}\r\nread_1\n"));
+
+        let read_id_set = load_read_ids_for_filtering(reader, 2).unwrap();
+
+        assert_eq!(read_id_set.len(), 2);
+        assert!(read_id_set.contains(max_len_read.as_str()));
+        assert!(read_id_set.contains("read_1"));
+    }
+
+    #[test]
+    #[should_panic(expected = "line is too long")]
+    fn load_read_ids_for_filtering_rejects_long_reads() {
+        let long_read = "r".repeat(220);
+        let reader = Cursor::new(format!("read_0\n{long_read}\nread_2\n"));
         drop(load_read_ids_for_filtering(reader, 3).unwrap());
     }
 

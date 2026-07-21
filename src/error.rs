@@ -63,6 +63,8 @@ pub enum Error {
     InvalidBase(String),
     /// Read id of molecule is invalid
     InvalidReadID(String),
+    /// Contig name is invalid
+    InvalidContig(String),
     /// Modification type is invalid.
     InvalidModType(String),
     /// Modification type is empty
@@ -173,6 +175,7 @@ impl fmt::Display for Error {
             Self::InvalidSeq(v) => write!(f, "invalid sequence: `{}`", trunc_100(v)),
             Self::InvalidBase(v) => write!(f, "invalid base: `{}`", trunc_100(v)),
             Self::InvalidReadID(v) => write!(f, "invalid read id: `{}`", trunc_100(v)),
+            Self::InvalidContig(v) => write!(f, "invalid contig: `{}`", trunc_100(v)),
             Self::InvalidModType(v) => write!(f, "invalid mod type: `{}`", trunc_100(v)),
             Self::EmptyModType(v) => write!(f, "empty mod type: `{}`", trunc_100(v)),
             Self::RustHtslibError(v) => {
@@ -281,6 +284,7 @@ impl std::error::Error for Error {
             | Self::InvalidSeq(_)
             | Self::InvalidBase(_)
             | Self::InvalidReadID(_)
+            | Self::InvalidContig(_)
             | Self::InvalidModType(_)
             | Self::EmptyModType(_)
             | Self::OrdPairConversion(_)
@@ -494,6 +498,7 @@ mod tests {
             Error::InvalidSeq(String::from("payload")) => "invalid sequence: ";
             Error::InvalidBase(String::from("payload")) => "invalid base: ";
             Error::InvalidReadID(String::from("payload")) => "invalid read id: ";
+            Error::InvalidContig(String::from("payload")) => "invalid contig: ";
             Error::InvalidModType(String::from("payload")) => "invalid mod type: ";
             Error::EmptyModType(String::from("payload")) => "empty mod type: ";
             Error::OrdPairConversion(String::from("payload")) => "ordered pair conversion error: ";
@@ -714,6 +719,7 @@ mod tests {
             Error::InvalidSeq(String::from("payload")),
             Error::InvalidBase(String::from("payload")),
             Error::InvalidReadID(String::from("payload")),
+            Error::InvalidContig(String::from("payload")),
             Error::InvalidModType(String::from("payload")),
             Error::EmptyModType(String::from("payload")),
             Error::OrdPairConversion(String::from("payload")),

@@ -36,6 +36,9 @@ pub mod shared {
     /// Hard cap on length of a read id
     pub const MAX_READ_ID_LEN: u8 = 200;
 
+    /// Hard cap on length of a contig name.
+    pub const MAX_CONTIG_NAME_LENGTH: u8 = 200;
+
     /// Hard cap on the number of contigs.
     pub const MAX_CONTIGS: u32 = 1_000_000;
 

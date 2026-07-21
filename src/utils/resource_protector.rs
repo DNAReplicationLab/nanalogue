@@ -58,58 +58,102 @@ pub fn ensure_flag(flag: bool, msg: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// Verify that a read id is valid.
-/// We apply stricter conditions than the BAM standard i.e. the BAM standard allows
-/// read ids up to 255 characters I believe, and allows the various quotes shown
-/// below, and allows a read id starting with a #. We deliberately apply stricter
-/// standards because we don't want to run into problems downstream
-/// e.g. in a table with the first column as read id, a read starting with a '#'
-/// could be interpreted as a comment.
+/// Verify that a read-id-like or contig-like identifier is safe for downstream use.
+///
+/// This helper deliberately applies a stricter shared policy than the underlying
+/// BAM or reference-name specifications so that callers can avoid downstream
+/// issues such as comment parsing, spreadsheet formula injection, and awkward
+/// punctuation in text-based exports.
+#[expect(clippy::else_if_without_else, reason = "simple enough structure")]
+fn ensure_valid_identifier(value: &[u8], max_len: u8, what: &str) -> Result<(), Error> {
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the first branch returns on empty input, so later `value[0]` is guarded"
+    )]
+    if value.is_empty() {
+        return Err(Error::InvalidState(format!("{what} is blank")));
+    } else if value.len() > usize::from(max_len) {
+        return Err(Error::InvalidState(format!(
+            "error in setting {what}, length > {max_len}"
+        )));
+    } else if matches!(value[0], b'#' | b'*' | b'=' | b'+' | b'-' | b'@') {
+        // These are reserved either by our downstream safety rules or by the
+        // reference-name specification for the first character.
+        return Err(Error::InvalidState(format!(
+            "we do not accept {what} values starting with reserved leading characters"
+        )));
+    }
+    for byte in value {
+        if (0..33).contains(byte)
+            || (127..).contains(byte)
+            || matches!(
+                *byte,
+                b'#' | b'`'
+                    | b'"'
+                    | b'\''
+                    | b'\\'
+                    | b','
+                    | b'('
+                    | b')'
+                    | b'['
+                    | b']'
+                    | b'{'
+                    | b'}'
+                    | b'<'
+                    | b'>'
+            )
+        {
+            return Err(Error::InvalidState(format!(
+                "{what} contains forbidden characters"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Verify that a read id is valid under the crate's shared safe-identifier policy.
+///
+/// This policy is intentionally stricter than the BAM standard so that read ids
+/// remain safe to reuse in downstream text formats and user-facing outputs.
 ///
 /// # Errors
 /// - if empty
 /// - if above a max read id length
-/// - if non ASCII characters or strange characters
-/// - if starts with a reserved leading character
-/// - if contains a quote-like character
-#[expect(clippy::else_if_without_else, reason = "simple enough structure")]
+/// - if it contains non-ASCII, control, or forbidden punctuation characters
+/// - if it starts with a reserved leading character
 pub fn ensure_valid_read_id(qname: &[u8], max_len: u8) -> Result<(), Error> {
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "the first branch returns on empty input, so later `qname[0]` is guarded"
-    )]
-    if qname.is_empty() {
-        return Err(Error::InvalidReadID("read id is blank".to_owned()));
-    } else if qname.len() > usize::from(max_len) {
-        return Err(Error::InvalidState(format!(
-            "error in setting read id, length > {max_len}"
-        )));
-    } else if qname.starts_with(b"#") {
-        return Err(Error::InvalidState(
-            "we do not accept read ids starting with a # symbol".to_owned(),
-        ));
-    } else if matches!(qname[0], b'=' | b'+' | b'-' | b'@') {
-        // These are the classic CSV/spreadsheet formula-injection trigger characters (Excel/Sheets).
-        // We don't want to deal with these issues.
-        return Err(Error::InvalidState(
-            "we do not accept read ids starting with reserved leading characters".to_owned(),
-        ));
-    }
-    for k in qname {
-        if (0..33).contains(k) || (127..).contains(k) || *k == b'`' || *k == b'"' || *k == b'\'' {
-            return Err(Error::InvalidReadID(
-                "read_id contains strange characters and/or quotes!".to_owned(),
-            ));
-        }
-    }
-    Ok(())
+    ensure_valid_identifier(qname, max_len, "read_id").map_err(|err| {
+        let Error::InvalidState(msg) = err else {
+            unreachable!("shared identifier validator must return InvalidState")
+        };
+        Error::InvalidReadID(msg)
+    })
+}
+
+/// Verify that a contig name is valid under the crate's shared safe-identifier policy.
+///
+/// This policy is intentionally at least as strict as the reference-name
+/// specification and may reject additional punctuation for downstream safety.
+///
+/// # Errors
+/// - if empty
+/// - if above a max contig length
+/// - if it contains non-ASCII, control, or forbidden punctuation characters
+/// - if it starts with a reserved leading character
+pub fn ensure_valid_contig(contig: &[u8], max_len: u8) -> Result<(), Error> {
+    ensure_valid_identifier(contig, max_len, "contig").map_err(|err| {
+        let Error::InvalidState(msg) = err else {
+            unreachable!("shared identifier validator must return InvalidState")
+        };
+        Error::InvalidContig(msg)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
-        ensure_valid_read_id,
+        ensure_valid_contig, ensure_valid_read_id,
     };
     use crate::Error;
     use crate::constants::shared::MAX_RECORD_CAPACITY_BYTES;
@@ -196,44 +240,45 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "read id is blank")]
+    #[should_panic(expected = "read_id is blank")]
     fn ensure_valid_read_id_rejects_blank_read_id() {
         ensure_valid_read_id(b"", 20).unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "error in setting read id, length > 4")]
+    #[should_panic(expected = "error in setting read_id, length > 4")]
     fn ensure_valid_read_id_rejects_overlength_read_id() {
         ensure_valid_read_id(b"read-123", 4).unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
-    fn ensure_valid_read_id_rejects_control_characters() {
-        ensure_valid_read_id(b"read\n123", 20).unwrap();
+    fn ensure_valid_read_id_rejects_forbidden_characters() {
+        for rejected in [
+            b'"', b'\'', b'`', b'\t', b'\n', b'\r', b'\0', b'\\', b',', b'(', b')', b'[', b']',
+            b'{', b'}', b'<', b'>',
+        ] {
+            let read_id = [b'r', b'e', rejected, b'i', b'd', b'_', b'1'];
+            assert!(ensure_valid_read_id(&read_id, 20).is_err());
+        }
     }
 
     #[test]
-    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
+    #[should_panic(expected = "read_id contains forbidden characters")]
     fn ensure_valid_read_id_rejects_non_ascii_bytes() {
         ensure_valid_read_id(b"read\x7f123", 20).unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
-    fn ensure_valid_read_id_rejects_quote_like_characters() {
-        ensure_valid_read_id(b"read`123", 20).unwrap();
-    }
-
-    #[test]
-    #[should_panic(expected = "we do not accept read ids starting with a # symbol")]
+    #[should_panic(
+        expected = "we do not accept read_id values starting with reserved leading characters"
+    )]
     fn ensure_valid_read_id_rejects_leading_hash() {
         ensure_valid_read_id(b"#read123", 20).unwrap();
     }
 
     #[test]
     #[should_panic(
-        expected = "we do not accept read ids starting with reserved leading characters"
+        expected = "we do not accept read_id values starting with reserved leading characters"
     )]
     fn ensure_valid_read_id_rejects_leading_equals() {
         ensure_valid_read_id(b"=read123", 20).unwrap();
@@ -241,7 +286,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "we do not accept read ids starting with reserved leading characters"
+        expected = "we do not accept read_id values starting with reserved leading characters"
     )]
     fn ensure_valid_read_id_rejects_leading_plus() {
         ensure_valid_read_id(b"+read123", 20).unwrap();
@@ -249,7 +294,15 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "we do not accept read ids starting with reserved leading characters"
+        expected = "we do not accept read_id values starting with reserved leading characters"
+    )]
+    fn ensure_valid_read_id_rejects_leading_asterisk() {
+        ensure_valid_read_id(b"*read123", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "we do not accept read_id values starting with reserved leading characters"
     )]
     fn ensure_valid_read_id_rejects_leading_hyphen() {
         ensure_valid_read_id("-read123".as_bytes(), 20).unwrap();
@@ -257,26 +310,79 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "we do not accept read ids starting with reserved leading characters"
+        expected = "we do not accept read_id values starting with reserved leading characters"
     )]
     fn ensure_valid_read_id_rejects_leading_at_sign() {
         ensure_valid_read_id(b"@read123", 20).unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
+    #[should_panic(expected = "read_id contains forbidden characters")]
     fn ensure_valid_read_id_rejects_leading_tab() {
         ensure_valid_read_id(b"\tread123", 20).unwrap();
     }
 
     #[test]
-    #[should_panic(expected = "read_id contains strange characters and/or quotes!")]
+    #[should_panic(expected = "read_id contains forbidden characters")]
     fn ensure_valid_read_id_rejects_leading_nul() {
         ensure_valid_read_id(b"\0read123", 20).unwrap();
     }
 
     #[test]
-    fn ensure_valid_read_id_accepts_hash_in_middle() -> Result<(), Error> {
-        ensure_valid_read_id(b"read#123", 20)
+    #[should_panic(expected = "read_id contains forbidden characters")]
+    fn ensure_valid_read_id_rejects_hash_in_middle() {
+        ensure_valid_read_id(b"read#123", 20).unwrap();
+    }
+
+    #[test]
+    fn ensure_valid_contig_accepts_valid_contig() -> Result<(), Error> {
+        ensure_valid_contig(b"chr1_alt", 20)
+    }
+
+    #[test]
+    #[should_panic(expected = "contig is blank")]
+    fn ensure_valid_contig_rejects_blank_contig() {
+        ensure_valid_contig(b"", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "error in setting contig, length > 4")]
+    fn ensure_valid_contig_rejects_overlength_contig() {
+        ensure_valid_contig(b"chr123", 4).unwrap();
+    }
+
+    #[test]
+    fn ensure_valid_contig_rejects_forbidden_characters() {
+        for rejected in [
+            b'"', b'\'', b'`', b'\t', b'\n', b'\r', b'\0', b'\\', b',', b'(', b')', b'[', b']',
+            b'{', b'}', b'<', b'>',
+        ] {
+            let contig = [b'r', b'e', rejected, b'i', b'd', b'_', b'1'];
+            assert!(ensure_valid_contig(&contig, 20).is_err());
+        }
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "we do not accept contig values starting with reserved leading characters"
+    )]
+    fn ensure_valid_contig_rejects_leading_hash() {
+        ensure_valid_contig(b"#chr1", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "we do not accept contig values starting with reserved leading characters"
+    )]
+    fn ensure_valid_contig_rejects_reserved_leading_character() {
+        ensure_valid_contig(b"=chr1", 20).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "we do not accept contig values starting with reserved leading characters"
+    )]
+    fn ensure_valid_contig_rejects_leading_asterisk() {
+        ensure_valid_contig(b"*chr1", 20).unwrap();
     }
 }
