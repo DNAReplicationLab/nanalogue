@@ -1074,10 +1074,10 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
 /// let mut rng = rand::rng();
 /// let seq = generate_random_dna_sequence(100.try_into().expect("no error"), &mut rng);
 /// assert_eq!(seq.len(), 100);
-/// assert!(seq.iter().all(|&base| [b'A', b'C', b'G', b'T'].contains(&base)));
+/// assert!(seq.iter().all(|&base| b"ACGT".contains(&base)));
 /// ```
 pub fn generate_random_dna_sequence<R: Rng>(length: NonZeroU32, rng: &mut R) -> Vec<u8> {
-    const DNA_BASES: [u8; 4] = [b'A', b'C', b'G', b'T'];
+    const DNA_BASES: [u8; 4] = *b"ACGT";
     iter::repeat_with(|| {
         *DNA_BASES
             .get(rng.random_range(0..4))
@@ -1624,7 +1624,7 @@ mod random_dna_generation_test {
         let seq = generate_random_dna_sequence(NonZeroU32::new(100).unwrap(), &mut rand::rng());
         assert_eq!(seq.len(), 100);
         for base in seq {
-            assert!([b'A', b'C', b'G', b'T'].contains(&base));
+            assert!(b"ACGT".contains(&base));
         }
     }
 }
@@ -3405,7 +3405,7 @@ mod contig_generation_tests {
             assert_eq!(contig.name, format!("contig_0000{i}"));
             assert!((100..=200).contains(&contig.get_dna_restrictive().get().len()));
             for base in contig.get_dna_restrictive().get() {
-                assert!([b'A', b'C', b'G', b'T'].contains(base));
+                assert!(b"ACGT".contains(base));
             }
         }
     }
