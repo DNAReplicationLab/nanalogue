@@ -15,7 +15,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 5,
-            "end": 35
+            "end": 35,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -51,7 +53,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 5,
-            "end": 35
+            "end": 35,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -92,7 +96,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 30
+            "end": 30,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -115,7 +121,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 30
+            "end": 30,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -146,7 +154,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 30
+            "end": 30,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -169,7 +179,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 30
+            "end": 30,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -199,7 +211,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 40
+            "end": 40,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -225,7 +239,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 40
+            "end": 40,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -258,7 +274,9 @@ mod tests {
           "alignment_type": "primary_reverse",
           "alignment": {
             "start": 10,
-            "end": 40
+            "end": 40,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -283,7 +301,9 @@ mod tests {
           "alignment_type": "primary_reverse",
           "alignment": {
             "start": 10,
-            "end": 40
+            "end": 40,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {

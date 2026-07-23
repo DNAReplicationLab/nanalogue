@@ -81,7 +81,7 @@ compile_error!("This crate supports only 32-bit and 64-bit platforms.");
 
 use crate::constants::shared::{
     MAX_ML_ARRAY_LENGTH, MAX_MM_TAG_LENGTH, MAX_READ_ID_LEN, MAX_READ_IDS_FOR_FILTERING,
-    MAX_RECORD_CAPACITY_BYTES,
+    MAX_RECORD_CAPACITY_BYTES, MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
 };
 use crate::file_utils::read_line_capped;
 use bedrs::{Bed3, Coordinates as _, StrandedBed3};
@@ -199,6 +199,40 @@ pub unsafe fn init_ssl_certificates() {
     });
 }
 
+/// Estimate per-group mod annotation capacity, clamped to sequence length.
+fn approximate_mod_data_len(
+    mod_dists: &[u32],
+    is_implicit: bool,
+    seq_len: usize,
+) -> Result<usize, Error> {
+    if mod_dists.len() > usize::try_from(u32::MAX).expect("no error on 32-bit platforms or higher")
+    {
+        return Err(Error::InvalidState("mod_dists is too long".to_owned()));
+    }
+    let calculated_approx = if is_implicit {
+        // In implicit mode, there may be any number of bases
+        // after the MM data is over, which must be assumed as unmodified.
+        // So we cannot know the exact length of the data before actually
+        // parsing it, and this is just a lower bound of the length.
+        usize::try_from(
+            mod_dists
+                .iter()
+                .copied()
+                .try_fold(
+                    u32::try_from(mod_dists.len()).expect("no error as we've just checked this"),
+                    u32::checked_add,
+                )
+                .unwrap_or(
+                    u32::try_from(mod_dists.len()).expect("no error as we've just checked this"),
+                ),
+        )
+        .expect("no error on 32-bit platforms or higher")
+    } else {
+        mod_dists.len()
+    };
+    Ok(calculated_approx.min(seq_len))
+}
+
 /// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods`-like struct.
 ///
 /// Portions of this implementation are adapted from the published crate
@@ -208,7 +242,7 @@ pub unsafe fn init_ssl_certificates() {
 ///
 /// # Tag Variant Support
 ///
-/// We support MM/ML (standard) and Mm/Ml (fallback) tag variants, but no other variants.
+/// We support MM/ML (standard) and Mm/Ml (fallback mixed-case) tag variants, but no other variants.
 /// The specification recommends MM/ML, but we support the Mm/Ml variant as some sequencing
 /// technologies use this capitalization. Other mixed-case variants (e.g., mM/mL) and fully
 /// lowercase variants (mm/ml) are not recognized.
@@ -351,6 +385,7 @@ where
     }
 
     let mut num_mods_seen: usize = 0;
+    let mut total_mod_annotations: u64 = 0;
 
     let is_reverse = record.is_reverse();
 
@@ -464,40 +499,11 @@ where
             let mut dist_from_last_mod_base: u32 = 0;
 
             // declare vectors with an approximate with_capacity
-            let (mut modified_positions, mut modified_probabilities) = {
-                if mod_dists.len()
-                    > usize::try_from(u32::MAX).expect("no error on 32-bit platforms or higher")
-                {
-                    return Err(Error::InvalidState("mod_dists is too long".to_owned()));
-                }
-                let mod_data_len_approx = if is_implicit {
-                    // In implicit mode, there may be any number of bases
-                    // after the MM data is over, which must be assumed as unmodified.
-                    // So we cannot know the exact length of the data before actually
-                    // parsing it, and this is just a lower bound of the length.
-                    usize::try_from(
-                        mod_dists
-                            .iter()
-                            .copied()
-                            .try_fold(
-                                u32::try_from(mod_dists.len())
-                                    .expect("no error as we've just checked this"),
-                                u32::checked_add,
-                            )
-                            .unwrap_or(
-                                u32::try_from(mod_dists.len())
-                                    .expect("no error as we've just checked this"),
-                            ),
-                    )
-                    .expect("no error on 32-bit platforms or higher")
-                } else {
-                    mod_dists.len()
-                };
-                (
-                    Vec::<usize>::with_capacity(mod_data_len_approx),
-                    Vec::<u8>::with_capacity(mod_data_len_approx),
-                )
-            };
+            let mod_data_len_approx = approximate_mod_data_len(&mod_dists, is_implicit, seq_len)?;
+            let (mut modified_positions, mut modified_probabilities) = (
+                Vec::<usize>::with_capacity(mod_data_len_approx),
+                Vec::<u8>::with_capacity(mod_data_len_approx),
+            );
 
             #[expect(
                 clippy::arithmetic_side_effects,
@@ -564,8 +570,7 @@ where
 
             #[expect(
                 clippy::arithmetic_side_effects,
-                reason = "`seq_len - 1 - k` (protected as mod pos cannot exceed seq_len), \
-`k.0 + 1` (overflow unlikely as genomic coords << 2^63)"
+                reason = "`seq_len - 1 - k` (protected as mod pos cannot exceed seq_len)"
             )]
             #[expect(
                 clippy::indexing_slicing,
@@ -584,6 +589,19 @@ where
                         })
                     })
                     .collect::<Result<Vec<FiberAnnotation>, Error>>()?;
+                assert!(
+                    annotations.len() <= seq_len,
+                    "annotation count cannot exceed sequence length"
+                );
+
+                total_mod_annotations += u64::try_from(annotations.len())
+                    .expect("annotation count fits in u64 on supported targets");
+                if total_mod_annotations > u64::from(MAX_TOTAL_MOD_ANNOTATIONS_PER_READ) {
+                    return Err(Error::InvalidState(format!(
+                        "max total mod annotations per read exceeded {MAX_TOTAL_MOD_ANNOTATIONS_PER_READ}"
+                    )));
+                }
+
                 let mods = BaseMod {
                     modified_base: mod_base,
                     strand: mod_strand,
@@ -648,7 +666,8 @@ const _: () = assert!(
     "MAX_READ_ID_LEN must leave room for CRLF bytes in read-id line buffering"
 );
 
-/// Loads read IDs from a text reader, enforcing a maximum on distinct IDs.
+/// Loads read IDs from a text reader, deduplicating them into a set while
+/// enforcing a maximum number of input lines processed.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "`counter` is bounded by `max_read_ids`, and the nearby const assert guarantees `MAX_READ_ID_LEN + 2` cannot overflow"
@@ -945,7 +964,7 @@ mod mod_parse_tests {
     use rust_htslib::bam::Read as _;
 
     /// Tests if Mod BAM modification parsing is alright with fallback tag support.
-    /// Tests both MM/ML (standard uppercase) and Mm/Ml (fallback lowercase) tag variants.
+    /// Tests both MM/ML (standard uppercase) and Mm/Ml (fallback mixed-case) tag variants.
     /// Note: Only these specific variants are supported - fully lowercase (mm/ml) and
     /// other mixed-case variants (e.g., mM/mL) are not recognized.
     /// Some of the test cases here may be a repeat of the doctest above.
@@ -1208,6 +1227,16 @@ mod mod_parse_tests {
             |&_, &_, &_| true, // Accept all base/strand/tag combinations
             0,                 // No quality threshold
         )
+    }
+
+    #[test]
+    fn approximate_mod_data_len_clamps_large_implicit_distance_sums_to_seq_len() {
+        let seq_len = 20;
+        let mod_dists = vec![u32::MAX - 1];
+
+        let approx = approximate_mod_data_len(&mod_dists, true, seq_len).unwrap();
+
+        assert_eq!(approx, seq_len);
     }
 
     #[test]

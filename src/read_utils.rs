@@ -5,7 +5,10 @@ use crate::{
     AllowedAGCTN, BaseMod, BaseMods, Contains as _, Error, F32Bw0and1, FiberAnnotation,
     FilterModsByRefCoords, GenomicBed3, GenomicStrandedBed3, InputModOptions, InputRegionOptions,
     InputWindowing, ModChar, Ranges, ReadState, ThresholdState,
-    constants::shared::{MAX_CONTIG_NAME_LENGTH, MAX_CONTIGS, MAX_MOD_TYPES, MAX_READ_ID_LEN},
+    constants::shared::{
+        MAX_CONTIG_NAME_LENGTH, MAX_CONTIGS, MAX_MOD_TYPES, MAX_READ_ID_LEN,
+        MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
+    },
     ensure_valid_contig, ensure_valid_read_id, nanalogue_mm_ml_parser,
 };
 use bedrs::prelude::Intersect as _;
@@ -63,6 +66,21 @@ pub trait CurrReadStateOnlyAlign {}
 
 impl CurrReadStateOnlyAlign for OnlyAlignData {}
 impl CurrReadStateOnlyAlign for OnlyAlignDataComplete {}
+
+/// Validate a serialized or BAM-derived contig ID against supported bounds.
+fn ensure_valid_contig_id(contig_id: i32) -> Result<(), Error> {
+    if contig_id >= i32::try_from(MAX_CONTIGS)? {
+        return Err(Error::InvalidState(format!(
+            "cannot process contigs more than {MAX_CONTIGS}"
+        )));
+    }
+    if contig_id < 0 {
+        return Err(Error::InvalidState(
+            "contig id < 0, seems malformed!".to_owned(),
+        ));
+    }
+    Ok(())
+}
 
 /// Our main struct that receives and stores from one BAM record.
 /// Also has methods for processing this information.
@@ -547,19 +565,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                     )))
                 } else {
                     let tid = record.tid();
-                    // We assume here that htslib/rust-htslib label contigs consecutively
-                    // from 0 upwards. So if any index exceeds `MAX_CONTIGS`, then we assume
-                    // the total number of contigs is above our limit and error out.
-                    if tid >= i32::try_from(MAX_CONTIGS)? {
-                        return Err(Error::InvalidState(format!(
-                            "cannot process contigs more than {MAX_CONTIGS}"
-                        )));
-                    }
-                    if tid < 0 {
-                        return Err(Error::InvalidState(
-                            "contig id < 0, seems malformed!".to_owned(),
-                        ));
-                    }
+                    ensure_valid_contig_id(tid)?;
                     Ok(Some((tid, record.pos().try_into()?)))
                 }
             }
@@ -1982,6 +1988,9 @@ impl FilterModsByRefCoords for CurrRead<AlignAndModData> {
 ///     .mod_table([mod_table_entry_1, mod_table_entry_2].into()).build()?;
 /// # Ok::<(), Error>(())
 /// ```
+///
+/// For mapped reads, `alignment` must be present and contain both `contig`
+/// and `contig_id`. For unmapped reads, `alignment` must be absent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CurrReadBuilder {
@@ -2013,7 +2022,10 @@ impl Default for CurrReadBuilder {
     }
 }
 
-/// Alignment information for mapped reads
+/// Alignment information for mapped reads.
+///
+/// When deserializing mapped reads, `contig` and `contig_id` are required
+/// for successful conversion into [`CurrRead<AlignAndModData>`].
 ///
 /// See documentation of [`CurrReadBuilder`] on how to use
 /// this struct.
@@ -2173,22 +2185,24 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
             serialized.alignment.as_ref(),
         ) {
             (false, Some(alignment)) => {
-                let align_len = {
-                    if let Some(v) = alignment.end.checked_sub(alignment.start) {
-                        Ok(Some(v))
-                    } else {
-                        Err(Error::InvalidAlignCoords(format!(
-                            "is align end {0} < align start {1}? read {2} failed in `CurrRead` building!",
+                let align_len = alignment
+                    .end
+                    .checked_sub(alignment.start)
+                    .filter(|len| *len > 0)
+                    .ok_or_else(|| {
+                        Error::InvalidAlignCoords(format!(
+                            "is align end {0} <= align start {1}? read {2} failed in `CurrRead` building!",
                             alignment.end, alignment.start, serialized.read_id
-                        )))
-                    }
-                }?;
+                        ))
+                    })?;
+                ensure_valid_contig_id(alignment.contig_id)?;
                 let contig_id_and_start = Some((alignment.contig_id, alignment.start));
-                let contig_name = Some(alignment.contig.clone());
+                let contig = alignment.contig.clone();
+                ensure_valid_contig(contig.as_bytes(), MAX_CONTIG_NAME_LENGTH)?;
                 (
-                    align_len,
+                    Some(align_len),
                     contig_id_and_start,
-                    contig_name,
+                    Some(contig),
                     i64::from(alignment.start)..i64::from(alignment.end),
                 )
             }
@@ -2200,6 +2214,35 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
                 )));
             }
         };
+
+        if serialized.mod_table.len() > usize::from(MAX_MOD_TYPES) {
+            return Err(Error::InvalidState(format!(
+                "max mod table entries exceeded {MAX_MOD_TYPES}"
+            )));
+        }
+
+        let mut total_mod_annotations: u64 = 0;
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "total is bounded by MAX_TOTAL_MOD_ANNOTATIONS_PER_READ and each entry length is bounded by seq_len"
+        )]
+        for entry in &serialized.mod_table {
+            if entry.data.len()
+                > usize::try_from(serialized.seq_len)
+                    .expect("u32 always fits in usize on supported targets")
+            {
+                return Err(Error::InvalidModCoords(String::from(
+                    "in mod table, annotation count exceeds sequence length",
+                )));
+            }
+            total_mod_annotations += u64::try_from(entry.data.len())
+                .expect("no error as entry data length is smaller than sequence length");
+            if total_mod_annotations > u64::from(MAX_TOTAL_MOD_ANNOTATIONS_PER_READ) {
+                return Err(Error::InvalidState(format!(
+                    "max total mod annotations per read exceeded {MAX_TOTAL_MOD_ANNOTATIONS_PER_READ}"
+                )));
+            }
+        }
 
         // Reconstruct BaseMods from mod_table
         let base_mods = reconstruct_base_mods(
@@ -2655,6 +2698,57 @@ mod test_error_handling {
     }
 
     #[test]
+    fn curr_read_builder_rejects_too_many_mod_table_entries() {
+        let mod_table = (0..=u32::from(MAX_MOD_TYPES))
+            .map(|idx| ModTableEntry {
+                base: AllowedAGCTN::N,
+                is_strand_plus: true,
+                mod_code: ModChar::new(
+                    char::from_u32(1_000 + idx).expect("test code points are valid"),
+                ),
+                data: vec![],
+            })
+            .collect();
+
+        let err = CurrRead::<AlignAndModData>::try_from(CurrReadBuilder {
+            alignment_type: ReadState::Unmapped,
+            alignment: None,
+            mod_table,
+            read_id: "too_many_mod_rows".to_owned(),
+            mapq: 255,
+            seq_len: 1,
+        })
+        .unwrap_err();
+
+        assert!(matches!(err, Error::InvalidState(_)));
+        assert!(err.to_string().contains("max mod table entries exceeded"));
+    }
+
+    #[test]
+    fn curr_read_builder_rejects_mod_row_longer_than_sequence() {
+        let err = CurrRead::<AlignAndModData>::try_from(CurrReadBuilder {
+            alignment_type: ReadState::Unmapped,
+            alignment: None,
+            mod_table: vec![ModTableEntry {
+                base: AllowedAGCTN::T,
+                is_strand_plus: true,
+                mod_code: ModChar::new('T'),
+                data: vec![(0, -1, 10), (1, -1, 20)],
+            }],
+            read_id: "too_many_annotations".to_owned(),
+            mapq: 255,
+            seq_len: 1,
+        })
+        .unwrap_err();
+
+        assert!(matches!(err, Error::InvalidModCoords(_)));
+        assert!(
+            err.to_string()
+                .contains("annotation count exceeds sequence length")
+        );
+    }
+
+    #[test]
     fn seq_and_qual_on_ref_coords_handles_missing_qual_as_placeholder_bytes() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_6.sam")?;
         let record = reader.records().next().unwrap()?;
@@ -2988,6 +3082,26 @@ mod test_serde {
     }
 
     #[test]
+    fn mapped_json_with_required_alignment_fields_deserializes() -> Result<(), Error> {
+        let json = r#"{
+            "read_id": "xx",
+            "alignment_type": "primary_forward",
+            "alignment": {
+                "start": 10,
+                "end": 25,
+                "contig": "chr1",
+                "contig_id": 1
+            },
+            "mod_table": [],
+            "seq_len": 3
+        }"#;
+
+        let curr_read: CurrRead<AlignAndModData> = serde_json::from_str(json)?;
+        assert_eq!(curr_read.contig_id_and_start()?, (1, 10));
+        Ok(())
+    }
+
+    #[test]
     #[should_panic(expected = "invalid alignment coordinates")]
     fn invalid_alignment_coordinates() {
         let invalid_json = r#"{
@@ -2995,7 +3109,9 @@ mod test_serde {
             "alignment_type": "primary_forward",
             "alignment": {
                 "start": 10,
-                "end": 25
+                "end": 25,
+                "contig": "chr1",
+                "contig_id": 1
             },
             "mod_table": [
                 {
@@ -3017,7 +3133,9 @@ mod test_serde {
             "alignment_type": "primary_forward",
             "alignment": {
                 "start": 10,
-                "end": 40
+                "end": 40,
+                "contig": "chr1",
+                "contig_id": 1
             },
             "mod_table": [
                 {
@@ -3039,7 +3157,9 @@ mod test_serde {
             "alignment_type": "primary_reverse",
             "alignment": {
                 "start": 10,
-                "end": 40
+                "end": 40,
+                "contig": "chr1",
+                "contig_id": 1
             },
             "mod_table": [
                 {

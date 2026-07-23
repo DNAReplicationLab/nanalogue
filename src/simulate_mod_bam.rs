@@ -813,7 +813,11 @@ impl PerfectSeqMatchToNot {
                 let new_base = match current_base {
                     v @ (b'A' | b'C' | b'G' | b'T') => {
                         // Sample random bases until we get A/C/G/T different from the current
+                        let mut loop_guard_counter: u8 = 0;
                         loop {
+                            loop_guard_counter = loop_guard_counter.checked_add(1).expect(
+                                "do not expect probabilistic sampling errors while making bases",
+                            );
                             let candidate: AllowedAGCTN = rng.random();
                             let candidate_u8: u8 = candidate.into();
                             if candidate_u8 != v && candidate_u8 != b'N' {

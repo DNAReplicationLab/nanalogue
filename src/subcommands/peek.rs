@@ -3,10 +3,12 @@
 //! This function displays contigs, contig lengths and modification types after looking at the header and the given records
 
 use crate::constants::peek::MAX_RECORDS;
-use crate::constants::shared::{MAX_CONTIGS, MAX_MOD_TYPES, MAX_RECORD_CAPACITY_BYTES};
+use crate::constants::shared::{
+    MAX_CONTIG_NAME_LENGTH, MAX_CONTIGS, MAX_MOD_TYPES, MAX_RECORD_CAPACITY_BYTES,
+};
 use crate::{
     AllowedAGCTN, CurrRead, Error, ModChar, ensure_bounded_counter, ensure_nonzero_counter,
-    ensure_record_data_capacity,
+    ensure_record_data_capacity, ensure_valid_contig,
 };
 use rust_htslib::bam;
 use std::collections::HashSet;
@@ -72,11 +74,11 @@ where
     writeln!(handle, "contigs_and_lengths:")?;
     let target_names = header.target_names();
     for tid in 0..header.target_count() {
-        let name = std::str::from_utf8(
-            target_names
-                .get(tid as usize)
-                .ok_or_else(|| Error::InvalidSeqLength(format!("tid {tid} out of bounds")))?,
-        )?;
+        let name_bytes = target_names
+            .get(tid as usize)
+            .ok_or_else(|| Error::InvalidSeqLength(format!("tid {tid} out of bounds")))?;
+        ensure_valid_contig(name_bytes, MAX_CONTIG_NAME_LENGTH)?;
+        let name = std::str::from_utf8(name_bytes)?;
         let length = header.target_len(tid).ok_or_else(|| {
             Error::InvalidSeqLength(format!("target_len returned None for tid {tid}"))
         })?;
@@ -392,6 +394,17 @@ mod tests {
             bam_rc_records.rc_records.take(100),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn peek_rejects_invalid_header_contig_name() {
+        let overlong_contig = "a".repeat(usize::from(MAX_CONTIG_NAME_LENGTH) + 1);
+        let header_text =
+            format!("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:{overlong_contig}\tLN:100\n");
+        let header = bam::HeaderView::from_bytes(header_text.as_bytes());
+
+        let err = run(&mut Vec::new(), &header, std::iter::empty()).unwrap_err();
+        assert!(matches!(err, Error::InvalidContig(_)));
     }
 
     #[test]

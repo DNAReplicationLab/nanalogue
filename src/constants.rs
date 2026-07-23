@@ -30,6 +30,9 @@ pub mod shared {
     /// Hard cap on the number of types of mods per BAM record
     pub const MAX_MOD_TYPES: u8 = 100;
 
+    /// Hard cap on the total number of serialized modification annotations per read.
+    pub const MAX_TOTAL_MOD_ANNOTATIONS_PER_READ: u32 = u32::MAX;
+
     /// Hard cap on the number of lines in an external text file of read ids for e.g. filtering
     pub const MAX_READ_IDS_FOR_FILTERING: u32 = 1_000_000;
 
@@ -51,11 +54,24 @@ pub mod shared {
     /// Hard cap on the length of an MM tag
     pub const MAX_MM_TAG_LENGTH: u32 = 100_000_000;
 
+    /// Hard cap on the length of a genomic region string (e.g. chr1:1000-2000)
+    pub const MAX_GENOMIC_REGION_STRING_LENGTH: u8 = 255;
+
     /// Shared error message used when analysis commands receive zero records.
     pub const NO_RECORDS_FOUND_FOR_ANALYSIS: &str = concat!(
         "No records found as input for analysis. This could mean ",
         "the input genomics file (SAM/BAM/CRAM) has no records or that filtering\n",
         "removed records or some other possibility.",
+    );
+
+    // a region is just contig:num-num or a shorter string, so the length of the
+    // ":num-num" part is what we are asserting here. Even if num is in single-digit billions,
+    // this string is just 22 characters (10 + 10 + 1 + 1). So 26 is comfortably above
+    // any limit we can hit. When the program supports extremely large contigs, we would
+    // need to revise this.
+    const _: () = assert!(
+        MAX_GENOMIC_REGION_STRING_LENGTH - MAX_CONTIG_NAME_LENGTH > 26,
+        "genomic region must be large enough to accommodate coordinates"
     );
 }
 

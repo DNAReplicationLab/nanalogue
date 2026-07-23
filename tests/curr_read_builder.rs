@@ -3,7 +3,7 @@
 
 use nanalogue_core::{
     AlignmentInfoBuilder, CurrRead, CurrReadBuilder, Error, ModTableEntryBuilder, ReadState,
-    read_utils::AlignAndModData,
+    constants::shared::MAX_CONTIGS, read_utils::AlignAndModData,
 };
 
 #[cfg(test)]
@@ -352,6 +352,69 @@ mod tests {
                     .end(10)
                     .contig("chr1".into())
                     .contig_id(1)
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+    }
+
+    /// Alignment with end == start - should panic with `InvalidAlignCoords`
+    #[test]
+    #[should_panic(expected = "InvalidAlignCoords")]
+    fn alignment_end_equal_start() {
+        let _: CurrRead<AlignAndModData> = CurrReadBuilder::default()
+            .read_id("zero_length_align_read".into())
+            .seq_len(40)
+            .alignment_type(ReadState::PrimaryFwd)
+            .alignment(
+                AlignmentInfoBuilder::default()
+                    .start(10)
+                    .end(10)
+                    .contig("chr1".into())
+                    .contig_id(1)
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+    }
+
+    /// Negative contig IDs should panic with `InvalidState`
+    #[test]
+    #[should_panic(expected = "InvalidState")]
+    fn alignment_negative_contig_id() {
+        let _: CurrRead<AlignAndModData> = CurrReadBuilder::default()
+            .read_id("negative_contig_id_read".into())
+            .seq_len(40)
+            .alignment_type(ReadState::PrimaryFwd)
+            .alignment(
+                AlignmentInfoBuilder::default()
+                    .start(10)
+                    .end(20)
+                    .contig("chr1".into())
+                    .contig_id(-1)
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+    }
+
+    /// Contig IDs beyond the BAM path limit should panic with `InvalidState`
+    #[test]
+    #[should_panic(expected = "InvalidState")]
+    fn alignment_contig_id_exceeds_max() {
+        let _: CurrRead<AlignAndModData> = CurrReadBuilder::default()
+            .read_id("oversized_contig_id_read".into())
+            .seq_len(40)
+            .alignment_type(ReadState::PrimaryFwd)
+            .alignment(
+                AlignmentInfoBuilder::default()
+                    .start(10)
+                    .end(20)
+                    .contig("chr1".into())
+                    .contig_id(i32::try_from(MAX_CONTIGS).unwrap())
                     .build()
                     .unwrap(),
             )
