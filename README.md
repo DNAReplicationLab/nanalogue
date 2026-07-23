@@ -1,6 +1,6 @@
 # `nanalogue`
 
-Nanalogue = *N*ucleic Acid *Analogue*
+Nanalogue = *N*ucleotide and *Analogue*
 
 Nanalogue is a tool to parse or analyse BAM/Mod BAM files with a single-molecule focus.
 
@@ -78,7 +78,8 @@ to use this functionality in your library, please look at the documentation of t
 
 ## Pre-built Binaries
 
-Pre-built binaries for macOS and Linux are available:
+Pre-built binaries for macOS and Linux are available.
+Windows users should use Windows Subsystem for Linux (WSL).
 
 ### Quick Install Script
 
@@ -147,20 +148,22 @@ from the github repository. To download:
    - `binaries-musllinux_1_2_aarch64` - aarch64 Alpine/musl (static binaries)
    - `binaries-musllinux_1_2_arm` - 32-bit ARM / some Raspberry Pi models (static binaries)
    - `binaries-musllinux_1_2_powerpc64le` - PowerPC64LE Alpine/musl (static binaries)
-   - `binaries-manylinux_2_34_<arch>` - Newer Linux distributions (glibc 2.34+)
+   - `binaries-manylinux_2_34_<arch>` - x86_64 / aarch64 newer Linux distributions (glibc 2.34+)
    - `binaries-manylinux_2_29_<arch>` - RISC-V / PowerPC64LE Linux (glibc 2.29+)
-   - `binaries-manylinux_2_28_<arch>` - Modern Linux distributions (glibc 2.28+)
+   - `binaries-manylinux_2_28_<arch>` - x86_64 / aarch64 Modern Linux distributions (glibc 2.28+)
+   - `binaries-manylinux_2_17_<arch>` - x86_64 / aarch64 (glibc 2.17+, maximum compatibility)
    - `binaries-manylinux_2_17_armv7` - 32-bit ARM / some Raspberry Pi models (glibc 2.17+, maximum compatibility)
 
 ## Using Cargo
 
 Run the following command to install or update `nanalogue` for usage on the command line.
+Existing installs are overwritten if `--force` is used.
 
 ```bash
 cargo install nanalogue
 ```
 
-`cargo` is the rust package manager. If you do not have `cargo`,
+`cargo` is the Rust package manager. If you do not have `cargo`,
 then follow these [instructions](https://doc.rust-lang.org/cargo/getting-started/installation.html)
 to get it. On Linux and macOS systems, the install command is as simple as
 `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
@@ -210,6 +213,13 @@ restrict by one or several read ids (`--read-id` or `--read-id-list`),
 a specific mapping type (`--read-filter`), filter modification data suitably
 (`--mod-prob-filter`) etc.
 
+## Inputs
+
+The input can be a local path, a URL, or `-` for standard input i.e. if you want
+to pipe some command in. The input data format can be BAM/SAM/CRAM.
+BAM/CRAM indices allow faster access with a smaller data footprint in most commands
+when the user specifies a region on the command line.
+
 ## `nanalogue read-info`
 Prints information about reads in JSON, including BAM mapping quality (`mapq`). A sample output snippet follows.
 
@@ -229,10 +239,13 @@ Prints information about reads in JSON, including BAM mapping quality (`mapq`). 
 ]
 ```
 Please note that a `mapq` of 255 means that the mapping quality is unavailable,
-and a `mod_count` of "NA" means modifications are not present.
+and a `mod_count` of "NA" means modifications are not present or if filtering
+options of base, mod strand and/or mod tag were applied, could mean that no
+modifications were found after the filters were applied.
 
 With options like `--detailed` and `--detailed-pretty`, the modification information in the BAM file
-is converted to a more-usable JSON format; this detailed output also includes `mapq`. A sample output snippet follows.
+is converted to a more-usable JSON format; these two flags are mutually exclusive, and the
+detailed output also includes `mapq`. A sample output snippet follows.
 
 ```json
 [

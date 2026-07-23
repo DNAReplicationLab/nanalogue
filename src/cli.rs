@@ -10,7 +10,7 @@ use derive_builder::Builder;
 use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::num::NonZeroU32;
 use std::str::FromStr;
 
 /// Options to parse the input bam file and the filters that should be applied to the bam file.
@@ -739,12 +739,12 @@ pub struct InputWindowing {
     /// a window of a value 300 means create windows each with
     /// 300 cytosines irrespective of their modification status.
     #[clap(long)]
-    #[builder(field(ty = "usize", build = "NonZeroUsize::try_from(self.win)?"))]
-    pub win: NonZeroUsize,
+    #[builder(field(ty = "u32", build = "NonZeroU32::try_from(self.win)?"))]
+    pub win: NonZeroU32,
     /// step window by this size in units of base being queried.
     #[clap(long)]
-    #[builder(field(ty = "usize", build = "NonZeroUsize::try_from(self.step)?"))]
-    pub step: NonZeroUsize,
+    #[builder(field(ty = "u32", build = "NonZeroU32::try_from(self.step)?"))]
+    pub step: NonZeroU32,
 }
 
 /// Implements a default for `InputWindowing`.
@@ -753,8 +753,8 @@ pub struct InputWindowing {
 impl Default for InputWindowing {
     fn default() -> Self {
         InputWindowing {
-            win: NonZeroUsize::new(1).expect("no error"),
-            step: NonZeroUsize::new(1).expect("no error"),
+            win: NonZeroU32::new(1).expect("no error"),
+            step: NonZeroU32::new(1).expect("no error"),
         }
     }
 }
@@ -837,18 +837,18 @@ mod input_windowing_tests {
     #[test]
     fn input_windowing_default() {
         let windowing = InputWindowing::default();
-        assert_eq!(windowing.win, NonZeroUsize::new(1).unwrap());
-        assert_eq!(windowing.step, NonZeroUsize::new(1).unwrap());
+        assert_eq!(windowing.win, NonZeroU32::new(1).unwrap());
+        assert_eq!(windowing.step, NonZeroU32::new(1).unwrap());
     }
 
     #[test]
     fn input_windowing_custom_values() {
         let windowing = InputWindowing {
-            win: NonZeroUsize::new(300).unwrap(),
-            step: NonZeroUsize::new(150).unwrap(),
+            win: NonZeroU32::new(300).unwrap(),
+            step: NonZeroU32::new(150).unwrap(),
         };
-        assert_eq!(windowing.win, NonZeroUsize::new(300).unwrap());
-        assert_eq!(windowing.step, NonZeroUsize::new(150).unwrap());
+        assert_eq!(windowing.win, NonZeroU32::new(300).unwrap());
+        assert_eq!(windowing.step, NonZeroU32::new(150).unwrap());
     }
 
     #[test]

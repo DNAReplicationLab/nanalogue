@@ -18,7 +18,7 @@
 //!
 //! We process and calculate data associated with DNA/RNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous
-//! information.  We can process any type of DNA/RNA modifications occuring in any pattern
+//! information.  We can process any type of DNA/RNA modifications occurring in any pattern
 //! (single/multiple mods, spatially-isolated/non-isolated etc.). All we require is that
 //! the data is stored in a BAM file in the mod BAM format (i.e. using `MM/ML` tags as
 //! laid down in the [specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)).
@@ -34,7 +34,9 @@
 //! This is an executable that ships with nanalogue that can create a BAM file according to your
 //! specifications. Please run `nanalogue_sim_bam --help`. If you are a rust developer looking
 //! to use this functionality in your library, please look at the documentation of the module
-//! [`crate::simulate_mod_bam`].
+//! [`crate::simulate_mod_bam`]. The simulation tooling is intended for trusted,
+//! developer-controlled test inputs and allows large workloads by design, so requested
+//! simulations may consume substantial CPU time, memory, and disk space.
 //!
 //! This documentation is supplemented by a companion [cookbook](https://www.nanalogue.com).
 //!
@@ -79,6 +81,11 @@
 #[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64")))]
 compile_error!("This crate supports only 32-bit and 64-bit platforms.");
 
+use crate::constants::shared::{
+    MAX_ML_ARRAY_LENGTH, MAX_MM_TAG_LENGTH, MAX_READ_ID_LEN, MAX_READ_IDS_FOR_FILTERING,
+    MAX_RECORD_CAPACITY_BYTES, MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
+};
+use crate::file_utils::read_line_capped;
 use bedrs::{Bed3, Coordinates as _, StrandedBed3};
 use rand::random;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
@@ -86,7 +93,7 @@ use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::fs::File;
 use std::hash::{Hash as _, Hasher as _};
-use std::io::{BufRead as _, BufReader};
+use std::io::{BufRead, BufReader};
 use std::sync::Once;
 
 // Declare the modules.
@@ -126,7 +133,8 @@ pub use utils::{
     FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
     OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
     RestrictModCalledStrand, SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase,
-    get_u8_tag, mm_groups, revcomp,
+    ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
+    ensure_valid_contig, ensure_valid_read_id, mm_groups, revcomp,
 };
 
 /// Genomic 3-column BED shorthand used with `bedrs` coordinate types in this crate.
@@ -193,7 +201,41 @@ pub unsafe fn init_ssl_certificates() {
     });
 }
 
-/// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods` struct.
+/// Estimate per-group mod annotation capacity, clamped to sequence length.
+fn approximate_mod_data_len(
+    mod_dists: &[u32],
+    is_implicit: bool,
+    seq_len: usize,
+) -> Result<usize, Error> {
+    if mod_dists.len() > usize::try_from(u32::MAX).expect("no error on 32-bit platforms or higher")
+    {
+        return Err(Error::InvalidState("mod_dists is too long".to_owned()));
+    }
+    let calculated_approx = if is_implicit {
+        // In implicit mode, there may be any number of bases
+        // after the MM data is over, which must be assumed as unmodified.
+        // So we cannot know the exact length of the data before actually
+        // parsing it, and this is just a lower bound of the length.
+        usize::try_from(
+            mod_dists
+                .iter()
+                .copied()
+                .try_fold(
+                    u32::try_from(mod_dists.len()).expect("no error as we've just checked this"),
+                    u32::checked_add,
+                )
+                .unwrap_or(
+                    u32::try_from(mod_dists.len()).expect("no error as we've just checked this"),
+                ),
+        )
+        .expect("no error on 32-bit platforms or higher")
+    } else {
+        mod_dists.len()
+    };
+    Ok(calculated_approx.min(seq_len))
+}
+
+/// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods`-like struct.
 ///
 /// Portions of this implementation are adapted from the published crate
 /// `fibertools-rs` v0.8.2 (<https://crates.io/crates/fibertools-rs>), whose
@@ -202,13 +244,14 @@ pub unsafe fn init_ssl_certificates() {
 ///
 /// # Tag Variant Support
 ///
-/// We support MM/ML (standard) and Mm/Ml (fallback) tag variants, but no other variants.
+/// We support MM/ML (standard) and Mm/Ml (fallback mixed-case) tag variants, but no other variants.
 /// The specification recommends MM/ML, but we support the Mm/Ml variant as some sequencing
 /// technologies use this capitalization. Other mixed-case variants (e.g., mM/mL) and fully
 /// lowercase variants (mm/ml) are not recognized.
 ///
 /// Function should cover almost all mod bam cases, but will fail in the following scenarios:
-/// - If multiple mods are present on the same base e.g. methylation and hydroxymethylation,
+/// - A specific type of multiple mod notation that is not frequently used.
+///   If multiple mods are present on the same base e.g. methylation and hydroxymethylation,
 ///   most BAM files the author has come across use the notation MM:Z:C+m,...;C+h,...;,
 ///   which this function can parse. But the notation MM:Z:C+mh,...; is also allowed.
 ///   We do not parse this for now, please contribute code if you want to add this functionality!
@@ -278,7 +321,7 @@ pub unsafe fn init_ssl_certificates() {
 ///
 /// # Errors
 /// If MM/ML BAM tags are malformed, you will get `InvalidModProbs` or `InvalidModCoords`.
-/// Most integer overflows are dealt with using `except`, except one which gives `ArithmeticError`.
+/// Most integer overflows are dealt with using `expect`, except one which gives `ArithmeticError`.
 /// `InvalidDuplicates` occurs if the same tag, strand combination occurs many times.
 /// Please read the function documentation above as well, which explains some scenarios where
 /// even valid tags can be marked as malformed.
@@ -303,27 +346,48 @@ where
     G: Fn(&usize) -> bool,
     H: Fn(&u8, &char, &ModChar) -> bool,
 {
+    // make sure record is not too large
+    ensure_record_data_capacity(
+        record.inner().m_data,
+        MAX_RECORD_CAPACITY_BYTES,
+        "MM ML parsing",
+    )?;
+
     // Array to store all the different modifications within the MM tag
     let mut rtn: Vec<BaseMod> = Vec::new();
 
     // We allow `ML` or legacy `Ml`, but both may not coexist.
-    let ml_tag: Vec<u8> = {
-        let has_ml = record.aux(b"ML").is_ok();
-        let has_legacy_ml = record.aux(b"Ml").is_ok();
-        match (has_ml, has_legacy_ml) {
-            (true, true) => {
-                return Err(Error::InvalidState(
-                        "BAM record contains both `ML` and legacy `Ml` tags; refusing ambiguous modification probabilities"
-                            .to_owned(),
-                    ));
-            }
-            (false, true) => get_u8_tag(record, b"Ml"),
-            (true, false) => get_u8_tag(record, b"ML"),
-            (false, false) => Vec::<u8>::new(),
+    // We only allow an ArrayU8 (the normal ML:B:C should parse
+    // correctly as this datatype).
+    let ml_tag = match (record.aux(b"ML"), record.aux(b"Ml")) {
+        (Ok(_), Ok(_)) => {
+            return Err(Error::InvalidState(
+                "BAM record contains both `ML` and legacy `Ml` tags; refusing ambiguous modification probabilities"
+                    .to_owned(),
+            ));
+        }
+        (Err(_), Ok(Aux::ArrayU8(v))) | (Ok(Aux::ArrayU8(v)), Err(_)) => Some(v),
+        (Err(_), Err(_)) => None,
+        _ => {
+            return Err(Error::InvalidState(
+                "rust-htslib ML/Ml tag parsing failure: unexpected auxiliary tag type".to_owned(),
+            ));
         }
     };
+    let ml_tag_len = ml_tag.as_ref().map_or(0, bam::record::AuxArray::len);
+
+    // Checks `ml_tag` is not too long.
+    // Other checks such as record size checks may stop this from ever triggering.
+    if ml_tag_len
+        > usize::try_from(MAX_ML_ARRAY_LENGTH).expect("no error on 32-bit platforms and above")
+    {
+        return Err(Error::InvalidState(
+            "ML tag is too long to process".to_owned(),
+        ));
+    }
 
     let mut num_mods_seen: usize = 0;
+    let mut total_mod_annotations: u64 = 0;
 
     let is_reverse = record.is_reverse();
 
@@ -347,7 +411,17 @@ where
         }
     };
 
-    // if there is an MM tag iterate over all the regex matches
+    // Checks `mm_text` is not too long.
+    // Other checks such as record size checks may stop this from ever triggering.
+    if mm_text.len()
+        > usize::try_from(MAX_MM_TAG_LENGTH).expect("no error on 32-bit platforms and above")
+    {
+        return Err(Error::InvalidState(
+            "MM tag is too long to process".to_owned(),
+        ));
+    }
+
+    // if there is an MM tag, process the data
     if !mm_text.is_empty() {
         // base qualities; must reverse if rev comp.
         // NOTE this is always equal to number of bases in the sequence, otherwise
@@ -366,6 +440,22 @@ where
 
         let seq_len = forward_bases.len();
 
+        if seq_len >= usize::try_from(u32::MAX).expect("no error on 32-bit platforms or higher") {
+            return Err(Error::InvalidState(
+                "sequence longer than u32::MAX".to_owned(),
+            ));
+        }
+
+        if !base_qual.is_empty() && base_qual.len() != seq_len {
+            return Err(Error::InvalidState(
+                "base quality array is not the same size as sequence!".to_owned(),
+            ));
+        }
+
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "we've verified seq_len < u32::MAX above (& blocked < 32-bit platforms) so +1 will not overflow"
+        )]
         let pos_map = {
             let temp: Vec<Option<u32>> = {
                 if record.is_unmapped() {
@@ -374,6 +464,7 @@ where
                     record
                         .aligned_pairs_full()
                         .filter(|x| x[0].is_some())
+                        .take(seq_len + 1)
                         .map(|x| match x[1] {
                             None => Ok(None),
                             Some(v) => u32::try_from(v).map(Some).map_err(|e| {
@@ -388,11 +479,9 @@ where
             if temp.len() == seq_len {
                 temp
             } else {
-                return Err(Error::InvalidState(format!(
-                    "rust_htslib failure! seq coordinates malformed {} != {}",
-                    temp.len(),
-                    seq_len
-                )));
+                return Err(Error::InvalidState(
+                    "rust_htslib failure! seq coordinates malformed".to_owned(),
+                ));
             }
         };
 
@@ -409,28 +498,14 @@ where
 
             // find real positions in the forward sequence
             let mut cur_mod_idx: usize = 0;
-            let mut dist_from_last_mod_base: usize = 0;
+            let mut dist_from_last_mod_base: u32 = 0;
 
             // declare vectors with an approximate with_capacity
-            let (mut modified_positions, mut modified_probabilities) = {
-                let mod_data_len_approx = if is_implicit {
-                    // In implicit mode, there may be any number of bases
-                    // after the MM data is over, which must be assumed as unmodified.
-                    // So we cannot know the exact length of the data before actually
-                    // parsing it, and this is just a lower bound of the length.
-                    mod_dists
-                        .iter()
-                        .copied()
-                        .try_fold(mod_dists.len(), usize::checked_add)
-                        .unwrap_or(mod_dists.len())
-                } else {
-                    mod_dists.len()
-                };
-                (
-                    Vec::<usize>::with_capacity(mod_data_len_approx),
-                    Vec::<u8>::with_capacity(mod_data_len_approx),
-                )
-            };
+            let mod_data_len_approx = approximate_mod_data_len(&mod_dists, is_implicit, seq_len)?;
+            let (mut modified_positions, mut modified_probabilities) = (
+                Vec::<usize>::with_capacity(mod_data_len_approx),
+                Vec::<u8>::with_capacity(mod_data_len_approx),
+            );
 
             #[expect(
                 clippy::arithmetic_side_effects,
@@ -454,15 +529,14 @@ where
                             .expect("cur_mod_idx < mod_dists.len()")
                 {
                     let prob = ml_tag
-                        .get(cur_mod_idx..)
-                        .expect("cur_mod_idx < mod_dists.len() and ml_tag has same length")
-                        .get(num_mods_seen)
+                        .as_ref()
+                        .and_then(|tag| tag.get(num_mods_seen + cur_mod_idx))
                         .ok_or(Error::InvalidModProbs(
                             "ML tag appears to be insufficiently long!".into(),
                         ))?;
-                    if filter_mod_prob(prob) && is_seq_pos_pass {
+                    if filter_mod_prob(&prob) && is_seq_pos_pass {
                         modified_positions.push(cur_seq_idx);
-                        modified_probabilities.push(*prob);
+                        modified_probabilities.push(prob);
                     }
                     dist_from_last_mod_base = 0;
                     cur_mod_idx += 1;
@@ -496,14 +570,9 @@ where
                 )));
             }
 
-            // if data matches filters, add to struct.
-            modified_positions.shrink_to(0);
-            modified_probabilities.shrink_to(0);
-
             #[expect(
                 clippy::arithmetic_side_effects,
-                reason = "`seq_len - 1 - k` (protected as mod pos cannot exceed seq_len), \
-`k.0 + 1` (overflow unlikely as genomic coords << 2^63)"
+                reason = "`seq_len - 1 - k` (protected as mod pos cannot exceed seq_len)"
             )]
             #[expect(
                 clippy::indexing_slicing,
@@ -522,6 +591,19 @@ where
                         })
                     })
                     .collect::<Result<Vec<FiberAnnotation>, Error>>()?;
+                assert!(
+                    annotations.len() <= seq_len,
+                    "annotation count cannot exceed sequence length"
+                );
+
+                total_mod_annotations += u64::try_from(annotations.len())
+                    .expect("annotation count fits in u64 on supported targets");
+                if total_mod_annotations > u64::from(MAX_TOTAL_MOD_ANNOTATIONS_PER_READ) {
+                    return Err(Error::InvalidState(format!(
+                        "max total mod annotations per read exceeded {MAX_TOTAL_MOD_ANNOTATIONS_PER_READ}"
+                    )));
+                }
+
                 let mods = BaseMod {
                     modified_base: mod_base,
                     strand: mod_strand,
@@ -542,23 +624,9 @@ where
         }
     }
 
-    if num_mods_seen == ml_tag.len() {
+    if num_mods_seen == ml_tag_len {
         // needed so I can compare methods
         rtn.sort();
-
-        // Check for duplicate strand, modification_type combinations
-        let mut seen_combinations = HashSet::new();
-        for base_mod in &rtn {
-            let combination = (base_mod.strand, base_mod.modification_type);
-            if seen_combinations.contains(&combination) {
-                return Err(Error::InvalidDuplicates(format!(
-                    "Duplicate strand '{}' and modification_type '{}' combination found",
-                    base_mod.strand, base_mod.modification_type
-                )));
-            }
-            let _: bool = seen_combinations.insert(combination);
-        }
-
         Ok(BaseMods { base_mods: rtn })
     } else {
         Err(Error::InvalidModProbs(
@@ -595,12 +663,63 @@ where
     pub header: bam::HeaderView,
 }
 
+const _: () = assert!(
+    MAX_READ_ID_LEN <= u8::MAX - 2,
+    "MAX_READ_ID_LEN must leave room for CRLF bytes in read-id line buffering"
+);
+
+/// Loads read IDs from a text reader, deduplicating them into a set while
+/// enforcing a maximum number of input lines processed.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "`counter` is bounded by `max_read_ids`, and the nearby const assert guarantees `MAX_READ_ID_LEN + 2` cannot overflow"
+)]
+fn load_read_ids_for_filtering<T: BufRead>(
+    mut reader: T,
+    max_read_ids: u32,
+) -> Result<HashSet<String>, Error> {
+    let mut read_ids = HashSet::new();
+    let mut counter: u32 = 0;
+
+    let mut line = String::with_capacity((MAX_READ_ID_LEN + 2).into()); // allow 2 bytes for newline(s)
+    loop {
+        let bytes_read = read_line_capped(&mut reader, &mut line, (MAX_READ_ID_LEN + 2).into())?;
+        if bytes_read == 0 {
+            break;
+        }
+        if line.is_empty() {
+            return Err(Error::InvalidState(
+                "blank line found in read id file!".to_owned(),
+            ));
+        }
+        ensure_valid_read_id(line.as_bytes(), MAX_READ_ID_LEN)?;
+        let _: bool = read_ids.insert(line.clone());
+        if counter < max_read_ids {
+            counter += 1;
+        } else {
+            return Err(Error::InvalidState(
+                "too many lines in read id text input file for filtering".to_owned(),
+            ));
+        }
+    }
+
+    assert!(
+        read_ids.len()
+            <= usize::try_from(max_read_ids).expect("no problem on 32-bit platforms and higher"),
+        "bug: we should catch read id sets that are too long!"
+    );
+    Ok(read_ids)
+}
+
 impl<'a, R: bam::Read> BamRcRecords<'a, R> {
     /// Extracts `RcRecords` from a BAM Reader
     ///
     /// # Errors
     /// Returns an error if thread pool creation, BAM region fetching/processing,
     /// or read ID file processing fails.
+    ///
+    /// # Panics
+    /// One u32->usize conversion uses an expect; this is not expected to panic.
     pub fn new<T: InputRegionOptions>(
         bam_reader: &'a mut R,
         bam_opts: &mut InputBam,
@@ -626,17 +745,10 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
                     let file = File::open(file_path)
                         .map_err(|err| Error::InputOutputError(Box::new(err)))?;
                     let reader = BufReader::new(file);
-                    let mut read_ids = HashSet::new();
-
-                    for raw_line in reader.lines() {
-                        let temp_line =
-                            raw_line.map_err(|err| Error::InputOutputError(Box::new(err)))?;
-                        let line = temp_line.trim();
-                        if !line.is_empty() && !line.starts_with('#') {
-                            let _: bool = read_ids.insert(line.to_string());
-                        }
-                    }
-                    Some(read_ids)
+                    Some(load_read_ids_for_filtering(
+                        reader,
+                        MAX_READ_IDS_FOR_FILTERING,
+                    )?)
                 } else {
                     None
                 };
@@ -729,9 +841,9 @@ impl BamPreFilt for bam::Record {
     /// apply default filtration by read length
     fn pre_filt(&self, bam_opts: &InputBam) -> bool {
         self.filt_random_subset(bam_opts.sample_fraction, bam_opts.sample_seed)
-            & self.filt_by_len(bam_opts.min_seq_len, bam_opts.include_zero_len)
-            & self.filt_by_mapq(bam_opts.mapq_filter, bam_opts.exclude_mapq_unavail)
-            & {
+            && self.filt_by_len(bam_opts.min_seq_len, bam_opts.include_zero_len)
+            && self.filt_by_mapq(bam_opts.mapq_filter, bam_opts.exclude_mapq_unavail)
+            && {
                 if let Some(v) = bam_opts.read_id.as_ref() {
                     self.filt_by_read_id(v)
                 } else if let Some(read_id_set) = bam_opts.read_id_set.as_ref() {
@@ -740,21 +852,21 @@ impl BamPreFilt for bam::Record {
                     true
                 }
             }
-            & {
+            && {
                 if let Some(v) = bam_opts.min_align_len {
                     self.filt_by_align_len(v)
                 } else {
                     true
                 }
             }
-            & {
+            && {
                 if let Some(v) = bam_opts.read_filter.as_ref() {
                     self.filt_by_bitwise_or_flags(v)
                 } else {
                     true
                 }
             }
-            & {
+            && {
                 if let Some(v) = bam_opts.region_filter().as_ref() {
                     self.filt_by_region(v, bam_opts.is_full_overlap())
                 } else {
@@ -854,7 +966,7 @@ mod mod_parse_tests {
     use rust_htslib::bam::Read as _;
 
     /// Tests if Mod BAM modification parsing is alright with fallback tag support.
-    /// Tests both MM/ML (standard uppercase) and Mm/Ml (fallback lowercase) tag variants.
+    /// Tests both MM/ML (standard uppercase) and Mm/Ml (fallback mixed-case) tag variants.
     /// Note: Only these specific variants are supported - fully lowercase (mm/ml) and
     /// other mixed-case variants (e.g., mM/mL) are not recognized.
     /// Some of the test cases here may be a repeat of the doctest above.
@@ -1120,6 +1232,16 @@ mod mod_parse_tests {
     }
 
     #[test]
+    fn approximate_mod_data_len_clamps_large_implicit_distance_sums_to_seq_len() {
+        let seq_len = 20;
+        let mod_dists = vec![u32::MAX - 1];
+
+        let approx = approximate_mod_data_len(&mod_dists, true, seq_len).unwrap();
+
+        assert_eq!(approx, seq_len);
+    }
+
+    #[test]
     fn nanalogue_mm_ml_parser_rejects_overflowing_mm_distances() {
         let mm_value = "T+T,18446744073709551616;";
         let ml_values = Vec::from([100u8]);
@@ -1280,6 +1402,7 @@ mod bam_rc_record_tests {
     use rand::random_range;
     use rust_htslib::bam::record;
     use rust_htslib::bam::record::{Cigar, CigarString};
+    use std::io::Cursor;
 
     /// Creates 200 BAM records with names `read_0` .. `read_199` and runs
     /// `filt_random_subset` with fraction 0.5 and the given seed on each,
@@ -1730,6 +1853,99 @@ mod bam_rc_record_tests {
         // read_id_set should remain unchanged
         assert!(bam_opts.read_id_list.is_none());
         assert_eq!(bam_opts.read_id_set, Some(read_id_set));
+    }
+
+    #[test]
+    fn load_read_ids_for_filtering_allows_duplicate() {
+        let reader = Cursor::new("read_0\nread_1\nread_0\n");
+
+        let read_id_set = load_read_ids_for_filtering(reader, 3).unwrap();
+
+        assert_eq!(read_id_set.len(), 2);
+        assert!(read_id_set.contains("read_0"));
+        assert!(read_id_set.contains("read_1"));
+    }
+
+    #[test]
+    fn load_read_ids_for_filtering_allows_slash_r_slash_n() {
+        let reader = Cursor::new("read_0\r\nread_1\nread_2\r\nread_3\n");
+
+        let read_id_set = load_read_ids_for_filtering(reader, 4).unwrap();
+
+        assert_eq!(read_id_set.len(), 4);
+        assert!(read_id_set.contains("read_0"));
+        assert!(read_id_set.contains("read_1"));
+        assert!(read_id_set.contains("read_2"));
+        assert!(read_id_set.contains("read_3"));
+    }
+
+    #[test]
+    #[should_panic(expected = "blank line found in read id file!")]
+    fn load_read_ids_for_filtering_disallows_empty_lines() {
+        let reader = Cursor::new("read_0\nread_1\n\nread_0\n");
+        drop(load_read_ids_for_filtering(reader, 5).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "too many lines in read id text input file for filtering")]
+    fn load_read_ids_for_filtering_rejects_new_unique_past_limit() {
+        let reader = Cursor::new("read_0\nread_1\nread_2\n");
+        drop(load_read_ids_for_filtering(reader, 2).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "read_id contains forbidden characters")]
+    fn load_read_ids_for_filtering_rejects_malformed_reads() {
+        let reader = Cursor::new("read_0\nre ad_1\nread_2\n");
+        drop(load_read_ids_for_filtering(reader, 3).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "read_id contains forbidden characters")]
+    fn load_read_ids_for_filtering_rejects_tabs() {
+        let reader = Cursor::new("read_0\nre\tad_1\nread_2\n");
+        drop(load_read_ids_for_filtering(reader, 3).unwrap());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "we do not accept read_id values starting with reserved leading characters"
+    )]
+    fn load_read_ids_for_filtering_rejects_comments() {
+        let reader = Cursor::new("#comment\nread_1\nread_2\n");
+        drop(load_read_ids_for_filtering(reader, 3).unwrap());
+    }
+
+    #[test]
+    fn load_read_ids_for_filtering_allows_max_length_read_with_newline() {
+        let max_len_read = "r".repeat(usize::from(MAX_READ_ID_LEN));
+        let reader = Cursor::new(format!("{max_len_read}\nread_1\r\n"));
+
+        let read_id_set = load_read_ids_for_filtering(reader, 2).unwrap();
+
+        assert_eq!(read_id_set.len(), 2);
+        assert!(read_id_set.contains(max_len_read.as_str()));
+        assert!(read_id_set.contains("read_1"));
+    }
+
+    #[test]
+    fn load_read_ids_for_filtering_allows_max_length_read_with_slash_r_slash_n() {
+        let max_len_read = "r".repeat(usize::from(MAX_READ_ID_LEN));
+        let reader = Cursor::new(format!("{max_len_read}\r\nread_1\n"));
+
+        let read_id_set = load_read_ids_for_filtering(reader, 2).unwrap();
+
+        assert_eq!(read_id_set.len(), 2);
+        assert!(read_id_set.contains(max_len_read.as_str()));
+        assert!(read_id_set.contains("read_1"));
+    }
+
+    #[test]
+    #[should_panic(expected = "line is too long")]
+    fn load_read_ids_for_filtering_rejects_long_reads() {
+        let long_read = "r".repeat(220);
+        let reader = Cursor::new(format!("read_0\n{long_read}\nread_2\n"));
+        drop(load_read_ids_for_filtering(reader, 3).unwrap());
     }
 
     #[test]

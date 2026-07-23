@@ -2,7 +2,11 @@
 //!
 //! This module retrieves information about reads
 //! from a BAM file and converts it into JSON.
-use crate::{CurrRead, Error, InputMods, OptionalTag, ThresholdState};
+use crate::constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS};
+use crate::{
+    CurrRead, Error, InputMods, OptionalTag, ThresholdState, ensure_bounded_counter,
+    ensure_record_data_capacity,
+};
 use rust_htslib::bam;
 use std::rc::Rc;
 
@@ -11,6 +15,8 @@ use std::rc::Rc;
 ///
 /// # Errors
 /// Returns an error if BAM record reading, parsing, or writing to output fails.
+/// Unlike some other subcommands, blank BAM files are accepted here because an empty JSON array
+/// is self-explanatory.
 pub fn run<W, D>(
     handle: &mut W,
     bam_records: D,
@@ -36,12 +42,19 @@ where
     }
 
     let mut is_first_record_not_written = true;
+    let mut idx: u32 = 0;
 
     write!(handle, "[")?;
 
     // Go record by record in the BAM file, and print entries
     for k in bam_records {
         let record = k?;
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "read info")?;
+        ensure_record_data_capacity(
+            record.inner().m_data,
+            MAX_RECORD_CAPACITY_BYTES,
+            "read info",
+        )?;
 
         if is_first_record_not_written {
             writeln!(handle)?;
@@ -64,6 +77,7 @@ where
     }
 
     writeln!(handle, "\n]")?;
+    handle.flush()?;
     Ok(())
 }
 

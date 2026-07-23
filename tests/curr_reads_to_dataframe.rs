@@ -12,7 +12,9 @@ mod tests {
     /// Test unmapped read with minimal information (no mods)
     #[test]
     fn unmapped_minimal() -> Result<(), Error> {
-        let read = CurrReadBuilder::default().build()?;
+        let read = CurrReadBuilder::default()
+            .read_id("some_read".into())
+            .build()?;
         let df = curr_reads_to_dataframe(&[read])?;
 
         // No modifications means DataFrame should be empty

@@ -188,6 +188,14 @@ impl ThresholdState {
         if value.is_empty() {
             // allow all mods irrespective of their probabilities
             Ok(ThresholdState::GtEq(0))
+        } else if value.len() > 50 {
+            // Nominal guard on input string length.
+            // It's unlikely we'll get a,b as input where a and b are floating point numbers and
+            // the string length is larger than 50, so this is more to guard against misuse
+            // either accidental or intentional.
+            Err(Error::InvalidState(
+                "OrdPair conversion from very long string attempted!".to_owned(),
+            ))
         } else {
             let result: ThresholdState = OrdPair::<F32Bw0and1>::from_str(value)?.into();
             Ok(result)

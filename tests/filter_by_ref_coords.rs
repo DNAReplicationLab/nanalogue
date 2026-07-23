@@ -15,7 +15,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 5,
-            "end": 35
+            "end": 35,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -41,7 +43,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 8
+          "seq_len": 8,
+          "read_id": "xx"
         }"#;
 
         // Expected JSON after filtering for range 15-25
@@ -50,7 +53,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 5,
-            "end": 35
+            "end": 35,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -70,7 +75,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 8
+          "seq_len": 8,
+          "read_id": "xx"
         }"#;
 
         // Deserialize input, apply filter, and compare with expected
@@ -90,7 +96,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 30
+            "end": 30,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -103,7 +111,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 3
+          "seq_len": 3,
+          "read_id": "xx"
         }"#;
 
         // Expected JSON after filtering with no overlap (26-60)
@@ -112,7 +121,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 30
+            "end": 30,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -122,7 +133,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 3
+          "seq_len": 3,
+          "read_id": "xx"
         }"#;
 
         // Deserialize input, apply filter, and compare with expected
@@ -142,7 +154,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 30
+            "end": 30,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -155,7 +169,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 3
+          "seq_len": 3,
+          "read_id": "xx"
         }"#;
 
         // Expected JSON after filtering with no overlap (0-15)
@@ -164,7 +179,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 30
+            "end": 30,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -173,7 +190,8 @@ mod tests {
               "data": []
             }
           ],
-          "seq_len": 3
+          "seq_len": 3,
+          "read_id": "xx"
         }"#;
 
         // Deserialize input, apply filter, and compare with expected
@@ -193,7 +211,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 40
+            "end": 40,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -209,7 +229,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 6
+          "seq_len": 6,
+          "read_id": "xx"
         }"#;
 
         // Expected JSON after filtering for range 20-30
@@ -218,7 +239,9 @@ mod tests {
           "alignment_type": "primary_forward",
           "alignment": {
             "start": 10,
-            "end": 40
+            "end": 40,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -230,7 +253,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 6
+          "seq_len": 6,
+          "read_id": "xx"
         }"#;
 
         // Deserialize input, apply filter, and compare with expected
@@ -250,7 +274,9 @@ mod tests {
           "alignment_type": "primary_reverse",
           "alignment": {
             "start": 10,
-            "end": 40
+            "end": 40,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -265,7 +291,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 5
+          "seq_len": 5,
+          "read_id": "xx"
         }"#;
 
         // Expected JSON after filtering for range 20-30
@@ -274,7 +301,9 @@ mod tests {
           "alignment_type": "primary_reverse",
           "alignment": {
             "start": 10,
-            "end": 40
+            "end": 40,
+            "contig": "chr1",
+            "contig_id": 1
           },
           "mod_table": [
             {
@@ -286,7 +315,8 @@ mod tests {
               ]
             }
           ],
-          "seq_len": 5
+          "seq_len": 5,
+          "read_id": "xx"
         }"#;
 
         // Deserialize input, apply filter, and compare with expected

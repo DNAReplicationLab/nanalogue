@@ -2,7 +2,11 @@
 //! Handles parsing of genomic regions from standard string formats
 
 use super::ord_pair::OrdPair;
-use crate::{Error, GenomicBed3};
+use crate::{
+    Error, GenomicBed3,
+    constants::shared::{MAX_CONTIG_NAME_LENGTH, MAX_GENOMIC_REGION_STRING_LENGTH},
+    ensure_valid_contig,
+};
 use rust_htslib::bam;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -28,9 +32,7 @@ impl TryFrom<GenomicRegionShadow> for GenomicRegion {
 
     fn try_from(value: GenomicRegionShadow) -> Result<Self, Self::Error> {
         let (contig, coords) = value.0;
-        if contig.is_empty() {
-            return Err(Error::InvalidContigAndStart("contig is empty".to_owned()));
-        }
+        ensure_valid_contig(contig.as_bytes(), MAX_CONTIG_NAME_LENGTH)?;
         match coords {
             None => Ok(GenomicRegion((contig, None))),
             Some(c) => GenomicRegion::try_from((contig, (c.low(), c.high()))),
@@ -71,27 +73,26 @@ impl FromStr for GenomicRegion {
     type Err = Error;
 
     fn from_str(val_str: &str) -> Result<Self, Self::Err> {
+        if val_str.len() > usize::from(MAX_GENOMIC_REGION_STRING_LENGTH) {
+            return Err(Error::InvalidState(String::from(
+                "genomic region is too long!",
+            )));
+        }
         let mut colon_split: Vec<&str> = val_str.split(':').collect();
         match colon_split.len() {
             0 => unreachable!(),
             1 => {
-                if val_str.is_empty() {
-                    Err(Error::InvalidContigAndStart("contig is empty".to_owned()))
-                } else {
-                    Ok(GenomicRegion((val_str.to_string(), None)))
-                }
+                ensure_valid_contig(val_str.as_bytes(), MAX_CONTIG_NAME_LENGTH)?;
+                Ok(GenomicRegion((val_str.to_string(), None)))
             }
             _ => {
                 let interval_str = colon_split.pop().expect("no error");
                 let contig = colon_split.join(":");
-                if contig.is_empty() {
-                    Err(Error::InvalidContigAndStart("contig is empty".to_owned()))
-                } else {
-                    Ok(GenomicRegion((
-                        contig,
-                        Some(OrdPair::<u32>::from_interval(interval_str)?),
-                    )))
-                }
+                ensure_valid_contig(contig.as_bytes(), MAX_CONTIG_NAME_LENGTH)?;
+                Ok(GenomicRegion((
+                    contig,
+                    Some(OrdPair::<u32>::from_interval(interval_str)?),
+                )))
             }
         }
     }
@@ -330,14 +331,14 @@ mod tests {
 
     /// Tests `GenomicRegion` parsing with empty contig
     #[test]
-    #[should_panic(expected = "InvalidContigAndStart")]
+    #[should_panic(expected = "InvalidContig")]
     fn genomic_region_parsing_empty_contig() {
         let _: GenomicRegion = GenomicRegion::from_str("").unwrap();
     }
 
     /// Tests `GenomicRegion` parsing with empty contig before coordinates
     #[test]
-    #[should_panic(expected = "InvalidContigAndStart")]
+    #[should_panic(expected = "InvalidContig")]
     fn genomic_region_parsing_empty_contig_with_coordinates() {
         let _: GenomicRegion = GenomicRegion::from_str(":1000-2000").unwrap();
     }

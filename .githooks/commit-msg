@@ -37,6 +37,7 @@ ALLOWED_VERBS=(
   generates
   guards
   handles
+  hardens
   hides
   ignores
   improves

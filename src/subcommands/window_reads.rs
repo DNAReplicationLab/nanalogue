@@ -3,10 +3,11 @@
 //! In this module, we window data along molecules, and then output
 //! these windows
 
-use crate::BaseMod;
 use crate::{
-    AlignmentInfo, AlignmentInfoBuilder, CurrRead, Error, F32AbsValAtMost1, InputMods,
+    AlignmentInfo, AlignmentInfoBuilder, BaseMod, CurrRead, Error, F32AbsValAtMost1, InputMods,
     InputWindowing, ModChar, OptionalTag, ReadState,
+    constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS, NO_RECORDS_FOUND_FOR_ANALYSIS},
+    ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
 };
 use polars::prelude::*;
 use rust_htslib::bam::Record;
@@ -51,11 +52,15 @@ struct WindowedReadEntry {
     clippy::too_many_lines,
     reason = "dense windowing logic kept in one function for readability"
 )]
+#[expect(
+    clippy::shadow_reuse,
+    reason = "we have to cast u32 to usize so shadowing is fine in this case"
+)]
 fn compute_windowed_mod_data<F>(
     base_mod: &BaseMod,
     base_qual: &[u8],
-    win_size: usize,
-    slide_size: usize,
+    win_size: u32,
+    slide_size: u32,
     qname: &str,
     window_function: &F,
 ) -> Result<WindowedModTableEntry, Error>
@@ -64,6 +69,9 @@ where
 {
     // constant to mark windows with basecalled coordinates but no reference coordinates.
     const INVALID_REF_POS: i64 = -1;
+
+    let win_size = usize::try_from(win_size).expect("no error as platforms >= 32-bit");
+    let slide_size = usize::try_from(slide_size).expect("no error as platforms >= 32-bit");
 
     // We call positions as starts, ref_starts etc. as we are dealing with windows,
     // so better to start using window-like terminology
@@ -248,6 +256,10 @@ where
 ///
 /// # Errors
 /// Returns an error if BAM record reading, or output writing fails.
+/// This TSV command also errors on blank BAM files because otherwise empty output would be
+/// ambiguous between "no windows/modifications found" and "no reads were present".
+/// It also errors if records are present but no modification windows are ever emitted, because
+/// tabular output would still be ambiguous to an end user.
 ///
 pub fn run<W, F, D>(
     handle: &mut W,
@@ -271,11 +283,21 @@ where
         "#contig\tref_win_start\tref_win_end\tread_id\twin_val\tstrand\t\
 base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
     )?;
+    handle.flush()?;
+
+    let mut idx: u32 = 0;
+    let mut found_windows = false;
 
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
         let record = r?;
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "window reads")?;
+        ensure_record_data_capacity(
+            record.inner().m_data,
+            MAX_RECORD_CAPACITY_BYTES,
+            "window reads",
+        )?;
 
         // set data in records
         let curr_read_state = CurrRead::default()
@@ -310,9 +332,23 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
                     {}\t{mod_strand}\t{}\t{win_start}\t{win_end}\t{mean_base_qual}",
                     result.base, result.mod_code,
                 )?;
+                found_windows = true;
             }
         }
     }
+
+    handle.flush()?;
+    // when no records and/or no mods are found, we output no rows
+    // and also return an error.
+    ensure_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
+    ensure_flag(
+        found_windows,
+        "No windowed data found. This could mean \
+no records were found (BAM file empty or filtering removed records)\n\
+or no mods were found or mods were found but reads are all shorter \
+than the window size chosen so no mods could not be windowed\n\
+or some other possibility.",
+    )?;
 
     Ok(())
 }
@@ -325,7 +361,17 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
 ///
 /// # Errors
 /// Returns an error if BAM record reading, output writing, or `DataFrame` construction fails.
+/// Blank BAM files also create an error because this function delegates to [`run`], which treats
+/// empty input as ambiguous for TSV-style window output.
+/// Likewise, if records are present but no modification windows are emitted, this function errors
+/// via [`run`] because an empty table would be ambiguous.
 ///
+/// # Panics
+/// If the output of `run` is malformed.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "we assert `buffer` length before any indexing access"
+)]
 pub fn run_df<F, D>(
     bam_records: D,
     window_options: InputWindowing,
@@ -337,7 +383,7 @@ where
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // Create a buffer to capture output
-    let mut buffer = Vec::new();
+    let mut buffer = Vec::<u8>::new();
 
     // Call run with the buffer
     run(
@@ -347,12 +393,6 @@ where
         mods,
         window_function,
     )?;
-
-    // Convert buffer to string and remove leading '#' from header
-    let output = String::from_utf8(buffer)?;
-    let output_without_hash = output
-        .strip_prefix('#')
-        .ok_or_else(|| Error::InvalidState("Output does not start with '#'".to_string()))?;
 
     // Define schema based on column types
     let schema_fields = vec![
@@ -371,9 +411,21 @@ where
     ];
 
     let schema = Schema::from_iter(schema_fields);
+    let header = format!(
+        "#{}",
+        schema
+            .iter_names()
+            .map(PlSmallStr::as_str)
+            .collect::<Vec<_>>()
+            .join("\t")
+    );
 
     // Parse the TSV data with the schema
-    let cursor = std::io::Cursor::new(output_without_hash.as_bytes());
+    assert!(
+        buffer.starts_with(header.as_bytes()),
+        "buffer does not start with the expected schema header"
+    );
+    let cursor = std::io::Cursor::new(&buffer[1..]);
     let df = CsvReadOptions::default()
         .with_has_header(true)
         .map_parse_options(|parse_options| parse_options.with_separator(b'\t'))
@@ -472,6 +524,11 @@ where
 ///
 /// # Errors
 /// Returns an error if BAM record reading, or output writing fails.
+/// This JSON command errors on blank BAM files so callers can distinguish that case from a
+/// non-blank BAM whose per-read `mod_table` entries may legitimately be empty.
+/// Unlike [`run`] and [`run_df`], records with no modifications are acceptable here because the
+/// JSON is not tabular and still carries other per-read information, making the absence of mods
+/// clear to an end user.
 ///
 #[expect(
     clippy::missing_panics_doc,
@@ -494,6 +551,7 @@ where
     let slide_size = window_options.step.get();
 
     let mut is_first_record_written = vec![false].into_iter().chain(std::iter::repeat(true));
+    let mut idx: u32 = 0;
 
     write!(handle, "[")?;
 
@@ -501,6 +559,12 @@ where
     for r in bam_records {
         // read records
         let record = r?;
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "window reads")?;
+        ensure_record_data_capacity(
+            record.inner().m_data,
+            MAX_RECORD_CAPACITY_BYTES,
+            "window reads",
+        )?;
 
         // set data in records
         let curr_read_state = CurrRead::default()
@@ -560,6 +624,11 @@ where
     }
 
     writeln!(handle, "\n]")?;
+    handle.flush()?;
+
+    // when no records are found, we output a suitably empty json i.e. []
+    // and also return an error.
+    ensure_nonzero_counter(idx, NO_RECORDS_FOUND_FOR_ANALYSIS)?;
 
     Ok(())
 }
@@ -823,12 +892,17 @@ mod stochastic_tests {
         );
     }
 
-    /// Test that `run_df` produces an empty dataframe for BAM files with no modification data
+    /// Test that `run_df` errors for BAM files with no modification data.
     ///
     /// This test creates a simulated BAM file without any modification information and verifies
-    /// that `run_df` correctly returns an empty dataframe (no data rows, only column headers).
+    /// that `run_df` errors with `no mods found` when no modifications are present.
     #[test]
-    fn run_df_empty_for_no_mods() -> Result<(), Error> {
+    #[should_panic(expected = "No windowed data found.")]
+    #[expect(
+        clippy::let_underscore_untyped,
+        reason = "these are expected to panic so we don't bother defining types"
+    )]
+    fn run_df_empty_for_no_mods() {
         // Create simulation config with no modifications
         let config_json = r#"{
             "contigs": {
@@ -843,19 +917,8 @@ mod stochastic_tests {
             }]
         }"#;
 
-        let sim = create_test_simulation(config_json)?;
-        let df = run_window_analysis_with_threshold(&sim, 2, 1)?;
-
-        // Verify the dataframe is empty (no data rows)
-        assert_eq!(
-            df.height(),
-            0,
-            "DataFrame should have no rows for BAM with no modifications"
-        );
-
-        assert_expected_columns(&df);
-
-        Ok(())
+        let sim = create_test_simulation(config_json).expect("should create simulation");
+        let _ = run_window_analysis_with_threshold(&sim, 2, 1).unwrap();
     }
 
     /// Test that `run_df` produces a non-empty dataframe with modification data
@@ -1501,9 +1564,10 @@ mod stochastic_tests {
         Ok(())
     }
 
-    /// Test that `run` (TSV) outputs only the header line when there are zero reads
+    /// Test that `run` (TSV) errors when there are zero reads.
     #[test]
-    fn run_tsv_header_only_for_zero_reads() -> Result<(), Error> {
+    #[should_panic(expected = "No records found as input for analysis.")]
+    fn run_tsv_header_only_for_zero_reads() {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -1512,35 +1576,28 @@ mod stochastic_tests {
             "reads": []
         }"#;
 
-        let sim = create_test_simulation(config_json)?;
+        let sim = create_test_simulation(config_json).expect("should create simulation");
         let mut output = Vec::new();
-        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
+        let mut bam_reader = bam::Reader::from_path(sim.bam_path()).expect("should open bam");
         let bam_records = bam_reader.rc_records();
         let window_options: InputWindowing =
-            serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
+            serde_json::from_str("{\"win\": 2, \"step\": 1}").expect("should parse options");
         let mods = InputMods::default();
 
         run(&mut output, bam_records, window_options, &mods, |x| {
             analysis::threshold_and_mean(x).map(Into::into)
-        })?;
-
-        let output_str = String::from_utf8(output)?;
-        let lines: Vec<&str> = output_str.lines().collect();
-        assert_eq!(lines.len(), 1, "should only have the header line");
-        assert!(
-            lines
-                .first()
-                .expect("already asserted len == 1")
-                .starts_with("#contig"),
-            "the single line should be the header"
-        );
-
-        Ok(())
+        })
+        .unwrap();
     }
 
-    /// Test that `run_json` outputs an empty JSON array when there are zero reads
+    /// Test that `run_json` errors when there are zero reads.
     #[test]
-    fn run_json_empty_array_for_zero_reads() -> Result<(), Error> {
+    #[should_panic(expected = "No records found as input for analysis")]
+    #[expect(
+        clippy::let_underscore_untyped,
+        reason = "these are expected to panic so we don't bother defining types"
+    )]
+    fn run_json_empty_array_for_zero_reads() {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -1549,15 +1606,7 @@ mod stochastic_tests {
             "reads": []
         }"#;
 
-        let sim = create_test_simulation(config_json)?;
-        let entries = run_json_window_analysis_with_threshold(&sim, 2, 1)?;
-
-        assert_eq!(
-            entries.len(),
-            0,
-            "should have zero JSON records for zero reads"
-        );
-
-        Ok(())
+        let sim = create_test_simulation(config_json).expect("should create simulation");
+        let _ = run_json_window_analysis_with_threshold(&sim, 2, 1).unwrap();
     }
 }

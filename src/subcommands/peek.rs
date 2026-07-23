@@ -2,9 +2,14 @@
 //!
 //! This function displays contigs, contig lengths and modification types after looking at the header and the given records
 
-use crate::constants::peek::{MAX_CONTIGS, MAX_MODIFICATIONS, MAX_RECORDS};
-use crate::constants::shared::MAX_RECORD_CAPACITY_BYTES;
-use crate::{AllowedAGCTN, CurrRead, Error, ModChar};
+use crate::constants::peek::MAX_RECORDS;
+use crate::constants::shared::{
+    MAX_CONTIG_NAME_LENGTH, MAX_CONTIGS, MAX_MOD_TYPES, MAX_RECORD_CAPACITY_BYTES,
+};
+use crate::{
+    AllowedAGCTN, CurrRead, Error, ModChar, ensure_bounded_counter, ensure_nonzero_counter,
+    ensure_record_data_capacity, ensure_valid_contig,
+};
 use rust_htslib::bam;
 use std::collections::HashSet;
 use std::io;
@@ -42,19 +47,23 @@ use std::rc::Rc;
 /// - Reading or parsing BAM records fails
 /// - Converting modification data fails
 /// - Hard caps are hit
+/// - The BAM file is blank; this command errors on blank BAMs because `modifications: None`
+///   would otherwise be ambiguous between "no modifications found" and "no reads were present"
 ///
 /// # Panics
 ///
-/// This function converts some `u32` constants (e.g. record caps) to `usize`
-/// for comparisons with iterator indices.
-/// This conversion should never panic on supported targets because `usize` is
-/// at least 32 bits.
+/// - this function converts some `u32` constants (e.g. record caps) to `usize`
+///   for comparisons with iterator indices.
+///   This conversion should never panic on supported targets because `usize` is
+///   at least 32 bits.
+/// - `sorted_mods` guaranteed to be less in number than `MAX_MOD_TYPES`, so this assert shouldn't fail.
 pub fn run<W, D>(handle: &mut W, header: &bam::HeaderView, records: D) -> Result<(), Error>
 where
     W: io::Write,
     D: Iterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
 {
-    // Cap on number of contigs
+    // We check the total contig number here and error out if too many are found.
+    // No contigs found is fine as BAM may be unmapped.
     if header.target_count() > MAX_CONTIGS {
         return Err(Error::InvalidState(format!(
             "peek contig limit exceeded: > {MAX_CONTIGS}"
@@ -65,11 +74,11 @@ where
     writeln!(handle, "contigs_and_lengths:")?;
     let target_names = header.target_names();
     for tid in 0..header.target_count() {
-        let name = std::str::from_utf8(
-            target_names
-                .get(tid as usize)
-                .ok_or_else(|| Error::InvalidSeqLength(format!("tid {tid} out of bounds")))?,
-        )?;
+        let name_bytes = target_names
+            .get(tid as usize)
+            .ok_or_else(|| Error::InvalidSeqLength(format!("tid {tid} out of bounds")))?;
+        ensure_valid_contig(name_bytes, MAX_CONTIG_NAME_LENGTH)?;
+        let name = std::str::from_utf8(name_bytes)?;
         let length = header.target_len(tid).ok_or_else(|| {
             Error::InvalidSeqLength(format!("target_len returned None for tid {tid}"))
         })?;
@@ -79,23 +88,13 @@ where
 
     // 2. Collect modifications from records
     let mut modifications = HashSet::new();
+    let mut idx: u32 = 0;
 
-    for (record_idx, record_result) in records.enumerate() {
+    for record_result in records {
         let record = record_result?;
 
-        // Cap on number of records
-        if record_idx > usize::try_from(MAX_RECORDS).expect("MAX RECORDS set incorrectly") {
-            return Err(Error::InvalidState(format!(
-                "peek record limit exceeded: {MAX_RECORDS}"
-            )));
-        }
-
-        // Cap on record capacity as reported by HTSlib
-        if record.inner().m_data > MAX_RECORD_CAPACITY_BYTES {
-            return Err(Error::InvalidState(format!(
-                "peek record capacity limit exceeded: {MAX_RECORD_CAPACITY_BYTES}"
-            )));
-        }
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "peek")?;
+        ensure_record_data_capacity(record.inner().m_data, MAX_RECORD_CAPACITY_BYTES, "peek")?;
 
         // Convert to CurrRead to extract modification data
         // Skip zero-length sequences (CurrRead::try_from returns Error::ZeroSeqLen)
@@ -115,12 +114,10 @@ where
 
             // Create the modification string: base+strand+modification_type
             let mod_string = format!("{}{}{}", base, base_mod.strand, mod_char);
-            if modifications.insert(mod_string)
-                && modifications.len()
-                    > usize::try_from(MAX_MODIFICATIONS).expect("MAX_MODIFICATIONS set incorrectly")
+            if modifications.insert(mod_string) && modifications.len() > usize::from(MAX_MOD_TYPES)
             {
                 return Err(Error::InvalidState(format!(
-                    "peek modification limit exceeded: > {MAX_MODIFICATIONS}"
+                    "peek modification limit exceeded: > {MAX_MOD_TYPES}"
                 )));
             }
         }
@@ -135,11 +132,20 @@ where
         // Not a big slowdown to convert to Vecs as we have capped number of mods.
         let mut sorted_mods: Vec<_> = modifications.into_iter().collect();
         sorted_mods.sort();
+        assert!(
+            sorted_mods.len() <= usize::from(MAX_MOD_TYPES),
+            "bug: sorted mod types cannot be more than MAX_MOD_TYPES"
+        );
         for mod_string in sorted_mods {
             writeln!(handle, "{mod_string}")?;
         }
     }
 
+    handle.flush()?;
+    ensure_nonzero_counter(
+        idx,
+        "No records found. Please check if the BAM/CRAM/SAM resource has at least one record",
+    )?;
     Ok(())
 }
 
@@ -299,6 +305,59 @@ mod tests {
     }
 
     #[test]
+    fn peek_no_mods() {
+        use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
+
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100],
+                "repeated_seq": "ACGTACGTACGTACGT"
+            },
+            "reads": [{
+                "number": 20,
+                "mapq_range": [20, 30],
+                "base_qual_range": [20, 30],
+                "len_range": [0.8, 1.0]
+            }]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config).unwrap();
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+
+        let mut input_bam = InputBamBuilder::default()
+            .bam_path(PathOrURLOrStdin::Path(sim.bam_path().into()))
+            .build()
+            .expect("should build InputBam");
+
+        let bam_rc_records = BamRcRecords::new(
+            &mut reader,
+            &mut input_bam,
+            &mut InputMods::<OptionalTag>::default(),
+        )
+        .expect("should create BamRcRecords");
+
+        // Run peek
+        let mut output = Vec::new();
+        run(
+            &mut output,
+            &bam_rc_records.header,
+            bam_rc_records.rc_records.take(100),
+        )
+        .expect("peek should succeed");
+
+        let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
+
+        let expected = "contigs_and_lengths:\ncontig_00000\t100\n\nmodifications:\nNone\n";
+
+        assert_eq!(output_str, expected);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "No records found. Please check if the BAM/CRAM/SAM resource has at least one record"
+    )]
     fn peek_empty_file() {
         use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
 
@@ -334,13 +393,18 @@ mod tests {
             &bam_rc_records.header,
             bam_rc_records.rc_records.take(100),
         )
-        .expect("peek should succeed");
+        .unwrap();
+    }
 
-        let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
+    #[test]
+    fn peek_rejects_invalid_header_contig_name() {
+        let overlong_contig = "a".repeat(usize::from(MAX_CONTIG_NAME_LENGTH) + 1);
+        let header_text =
+            format!("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:{overlong_contig}\tLN:100\n");
+        let header = bam::HeaderView::from_bytes(header_text.as_bytes());
 
-        let expected = "contigs_and_lengths:\ncontig_00000\t100\n\nmodifications:\nNone\n";
-
-        assert_eq!(output_str, expected);
+        let err = run(&mut Vec::new(), &header, std::iter::empty()).unwrap_err();
+        assert!(matches!(err, Error::InvalidContig(_)));
     }
 
     #[test]

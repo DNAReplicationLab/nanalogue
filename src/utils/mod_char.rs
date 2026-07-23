@@ -7,7 +7,7 @@ use std::fmt;
 use std::str::FromStr;
 
 /// Our struct to hold a modification tag.
-/// The BAM file format uses the syntax `base+mod_code` in its ML tag
+/// The BAM file format uses the syntax `base+mod_code` in its MM tag
 /// to show which modification is represented e.g. C+m, A+a, T+T, ...
 /// This can be a letter or a number e.g. T+472232 represents `BrdU` as that is its `CheBI` code.
 /// As we rely on a fibertools-rs data structure to store mod information (`BaseMod`),

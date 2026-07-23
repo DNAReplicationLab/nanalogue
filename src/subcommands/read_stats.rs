@@ -3,7 +3,8 @@
 //! This module calculates statistics such as mean, median, N50
 //! read and alignment lengths etc. from a BAM file.
 
-use crate::{CurrRead, Error, ReadState};
+use crate::constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS};
+use crate::{CurrRead, Error, ReadState, ensure_bounded_counter, ensure_record_data_capacity};
 use rust_htslib::bam;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
@@ -78,6 +79,8 @@ fn get_stats_from_heap(
 ///
 /// # Errors
 /// Returns an error if BAM record reading, parsing, or calculating or writing statistics fails.
+/// Unlike some other subcommands, blank BAM files are accepted here because zero-valued summary
+/// statistics are self-explanatory.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "sums can overflow but only if _huge_ amounts of data i.e. total sequence bp = (2^64-1)"
@@ -101,11 +104,18 @@ where
     // total read length variables
     let mut seq_len_total = 0;
     let mut align_len_total = 0;
+    let mut idx: u32 = 0;
 
     // Go record by record in the BAM file,
     for r in bam_records {
         // read records
         let record = r?;
+        ensure_bounded_counter(&mut idx, MAX_RECORDS, "read stats")?;
+        ensure_record_data_capacity(
+            record.inner().m_data,
+            MAX_RECORD_CAPACITY_BYTES,
+            "read stats",
+        )?;
 
         let curr_read = CurrRead::default()
             .set_read_state_and_id(&record)?
@@ -169,6 +179,7 @@ where
     writeln!(handle, "seq_len_median\t{seq_len_median}")?;
     writeln!(handle, "seq_len_n50\t{seq_len_n50}")?;
 
+    handle.flush()?;
     Ok(())
 }
 

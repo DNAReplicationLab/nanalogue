@@ -5,6 +5,12 @@
 //! so please do not specify pre-existing BAM or FASTA files in the output
 //! path; if so, they will be overwritten.
 //!
+//! This module is intended for developer-controlled simulation and stress testing,
+//! not for processing untrusted inputs. Large configurations are allowed by design:
+//! configuration is deserialized eagerly and generated contigs/reads may consume
+//! substantial CPU time, memory, and disk space. Callers should use trusted
+//! configurations and ensure adequate local resources for the requested simulation.
+//!
 //! ## Example Usage
 //!
 //! We've shown how to construct `SimulationConfig` which contains input options
@@ -89,6 +95,9 @@
 //! //         generation, modification placement, etc.) use a deterministic RNG seeded with
 //! //         this value, producing identical output files across runs. If not set, the
 //! //         simulation is non-reproducible.
+//! //       * Simulation inputs are intentionally not capped to small sizes because this
+//! //         module is also used for large developer/test workloads. Resource usage scales
+//! //         with the requested simulation size, so only trusted configurations should be used.
 //!
 //! // Paths used here must not exist already as these are files created anew.
 //! let config: SimulationConfig = serde_json::from_str(&config_json)?;
@@ -813,7 +822,11 @@ impl PerfectSeqMatchToNot {
                 let new_base = match current_base {
                     v @ (b'A' | b'C' | b'G' | b'T') => {
                         // Sample random bases until we get A/C/G/T different from the current
+                        let mut loop_guard_counter: u8 = 0;
                         loop {
+                            loop_guard_counter = loop_guard_counter.checked_add(1).expect(
+                                "do not expect probabilistic sampling errors while making bases",
+                            );
                             let candidate: AllowedAGCTN = rng.random();
                             let candidate_u8: u8 = candidate.into();
                             if candidate_u8 != v && candidate_u8 != b'N' {
@@ -1539,6 +1552,8 @@ where
 /// automatically removes them when dropped.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TempBamSimulation {
+    /// Temporary directory containing simulation outputs
+    temp_dir: String,
     /// Path to bam file that will be created
     bam_path: String,
     /// Path to fasta file that will be created
@@ -1551,13 +1566,29 @@ impl TempBamSimulation {
     /// # Errors
     /// Returns an error if the simulation run fails
     pub fn new(config: SimulationConfig) -> Result<Self, Error> {
-        let temp_dir = std::env::temp_dir();
-        let bam_path = temp_dir.join(format!("{}.bam", uuid::v4_random()));
-        let fasta_path = temp_dir.join(format!("{}.fa", uuid::v4_random()));
+        let temp_dir_root = {
+            let temp = std::env::temp_dir();
+            if temp.is_dir() {
+                temp
+            } else {
+                return Err(Error::InvalidState(String::from(
+                    "the temp directory environmental variable is inaccessible",
+                )));
+            }
+        };
+        let temp_dir = temp_dir_root.join(uuid::v4_random());
+        #[expect(
+            clippy::create_dir,
+            reason = "we are not using create_dir_all here as we want to fail if the environmentally specified temporary directory does not exist"
+        )]
+        std::fs::create_dir(&temp_dir)?;
+
+        let bam_path = temp_dir.join("simulation.bam");
+        let fasta_path = temp_dir.join("simulation.fa");
 
         run(config, &bam_path, &fasta_path)?;
-
         Ok(Self {
+            temp_dir: temp_dir.to_string_lossy().to_string(),
             bam_path: bam_path.to_string_lossy().to_string(),
             fasta_path: fasta_path.to_string_lossy().to_string(),
         })
@@ -1579,9 +1610,7 @@ impl TempBamSimulation {
 impl Drop for TempBamSimulation {
     fn drop(&mut self) {
         // Ignore errors during cleanup - files may already be deleted
-        drop(std::fs::remove_file(&self.bam_path));
-        drop(std::fs::remove_file(&self.fasta_path));
-        drop(std::fs::remove_file(&(self.bam_path.clone() + ".bai")));
+        drop(std::fs::remove_dir_all(&self.temp_dir));
     }
 }
 

@@ -1,0 +1,10 @@
+[advisories]
+ignore = [
+    # as shown by our ../deny.toml, bincode is not actually compiled into our crate.
+    "RUSTSEC-2025-0141", # bincode unmaintained
+    "RUSTSEC-2025-0058", # custom_derive unmaintained
+    # Revisit `quick-xml` when polars is upgraded.
+    # as shown by our ../deny.toml, quick-xml is not actually compiled into our crate.
+    "RUSTSEC-2026-0194", # quick-xml quadratic runtime on duplicate attrs
+    "RUSTSEC-2026-0195", # quick-xml unbounded namespace-decl allocation
+]

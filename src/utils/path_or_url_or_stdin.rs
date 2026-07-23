@@ -1,7 +1,7 @@
 //! `PathOrURLOrStdin` enum for handling input sources
 //! Represents stdin, file paths, or URLs as input sources
 
-use crate::{Error, InputBam, InputBamBuilder};
+use crate::{Error, InputBam, InputBamBuilder, constants::shared::MAX_PATH_LENGTH};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
@@ -58,6 +58,26 @@ pub enum PathOrURLOrStdin {
 /// `file://` (which `hts_open` would happily dereference as a local file).
 const ALLOWED_NETWORK_SCHEMES: &[&str] = &["http", "https", "ftp"];
 
+/// Validate shared path/URL.
+fn assert_valid_path_or_url(s: &str) -> Result<(), Error> {
+    if s.is_empty() {
+        return Err(Error::InvalidState("path or url is empty".to_owned()));
+    }
+    if s.len() > usize::from(MAX_PATH_LENGTH) {
+        return Err(Error::InvalidState(format!(
+            "path or url too long i.e. > {MAX_PATH_LENGTH}"
+        )));
+    }
+    for k in s.as_bytes() {
+        if (0..32).contains(k) || (127..).contains(k) {
+            return Err(Error::InvalidState(
+                "path or url contains invalid characters".to_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Shadow type used solely by serde to validate `PathOrURLOrStdin`
 /// deserialization. Routes the raw payload through the same allow-list /
 /// stdin-marker checks as [`PathOrURLOrStdin::from_str`].
@@ -82,10 +102,14 @@ impl TryFrom<PathOrURLOrStdinShadow> for PathOrURLOrStdin {
         match value {
             PathOrURLOrStdinShadow::Stdin => Ok(PathOrURLOrStdin::Stdin),
             PathOrURLOrStdinShadow::Path(p) => {
-                // Disallow the literal stdin marker inside Path; FromStr would
-                // route "-" to `Stdin`, so accepting it here would create an
-                // unreachable-via-FromStr variant state.
-                if p.as_os_str() == "-" {
+                let Some(s) = p.as_os_str().to_str() else {
+                    return Err(Error::InvalidState("path is malformed!".to_owned()));
+                };
+                assert_valid_path_or_url(s)?;
+                if s == "-" {
+                    // Disallow the literal stdin marker inside Path; FromStr would
+                    // route "-" to `Stdin`, so accepting it here would create an
+                    // unreachable-via-FromStr variant state.
                     Err(Error::InvalidState(
                         "`-` is reserved for Stdin and is not a valid Path variant".to_owned(),
                     ))
@@ -94,6 +118,8 @@ impl TryFrom<PathOrURLOrStdinShadow> for PathOrURLOrStdin {
                 }
             }
             PathOrURLOrStdinShadow::URL(u) => {
+                let s = u.as_str();
+                assert_valid_path_or_url(s)?;
                 if ALLOWED_NETWORK_SCHEMES.contains(&u.scheme()) {
                     Ok(PathOrURLOrStdin::URL(u))
                 } else {
@@ -149,23 +175,24 @@ impl FromStr for PathOrURLOrStdin {
     /// disallowed scheme in the serde shadow path. Direct string parsing is
     /// otherwise lenient and falls back to `Path` when URL parsing fails.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // Check for stdin marker
+        assert_valid_path_or_url(s)?;
         if s == "-" {
-            return Ok(PathOrURLOrStdin::Stdin);
-        }
-
-        // Try to parse as URL with allowed network schemes
-        if let Ok(parsed_url) = Url::parse(s) {
-            // Only accept known network schemes to avoid misclassifying local paths
-            if ALLOWED_NETWORK_SCHEMES.contains(&parsed_url.scheme()) {
-                return Ok(PathOrURLOrStdin::URL(parsed_url));
+            // stdin marker
+            Ok(PathOrURLOrStdin::Stdin)
+        } else {
+            // Try to parse as URL with allowed network schemes
+            if let Ok(parsed_url) = Url::parse(s) {
+                // Only accept known network schemes to avoid misclassifying local paths
+                if ALLOWED_NETWORK_SCHEMES.contains(&parsed_url.scheme()) {
+                    return Ok(PathOrURLOrStdin::URL(parsed_url));
+                }
+                // If it's a valid URL but with an unsupported scheme, fall through to treat as path
             }
-            // If it's a valid URL but with an unsupported scheme, fall through to treat as path
-        }
 
-        // Otherwise, treat as path (don't check existence to avoid TOCTOU)
-        let path = PathBuf::from(s);
-        Ok(PathOrURLOrStdin::Path(path))
+            // Otherwise, treat as path (don't check existence to avoid TOCTOU)
+            let path = PathBuf::from(s);
+            Ok(PathOrURLOrStdin::Path(path))
+        }
     }
 }
 
@@ -312,6 +339,42 @@ mod tests {
             matches!(result, PathOrURLOrStdin::Path(_)),
             "Expected Path variant for arbitrary string"
         );
+    }
+
+    #[test]
+    fn from_str_rejects_non_ascii_path() {
+        let err = PathOrURLOrStdin::from_str("/tmp/café.txt").unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn from_str_rejects_path_with_newline() {
+        let err = PathOrURLOrStdin::from_str("/tmp/file\nname.txt").unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn from_str_rejects_path_with_carriage_return() {
+        let err = PathOrURLOrStdin::from_str("/tmp/file\rname.txt").unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn from_str_rejects_path_with_nul() {
+        let err = PathOrURLOrStdin::from_str("/tmp/file\0name.txt").unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn from_str_rejects_too_long_path() {
+        let err = PathOrURLOrStdin::from_str(&"a".repeat(2000)).unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn from_str_rejects_empty_path() {
+        let err = PathOrURLOrStdin::from_str("").unwrap_err();
+        assert!(matches!(err, Error::InvalidState(_)));
     }
 
     #[test]
