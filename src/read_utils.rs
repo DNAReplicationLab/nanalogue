@@ -1565,7 +1565,7 @@ where
         }
 
         write!(output_string, "\t\"alignment_type\": \"{}\"", self.state)?;
-        writeln!(output_string, "{}", &self.mod_data_section()?)?;
+        writeln!(output_string, "{}", self.mod_data_section()?)?;
         output_string.push('}');
         output_string.fmt(f)
     }

@@ -253,10 +253,7 @@ mod tests {
 
     #[test]
     fn ensure_valid_read_id_rejects_forbidden_characters() {
-        for rejected in [
-            b'"', b'\'', b'`', b'\t', b'\n', b'\r', b'\0', b'\\', b',', b'(', b')', b'[', b']',
-            b'{', b'}', b'<', b'>',
-        ] {
+        for rejected in *b"\"'`\t\n\r\0\\,()[]{}<>" {
             let read_id = [b'r', b'e', rejected, b'i', b'd', b'_', b'1'];
             assert!(ensure_valid_read_id(&read_id, 20).is_err());
         }
@@ -353,10 +350,7 @@ mod tests {
 
     #[test]
     fn ensure_valid_contig_rejects_forbidden_characters() {
-        for rejected in [
-            b'"', b'\'', b'`', b'\t', b'\n', b'\r', b'\0', b'\\', b',', b'(', b')', b'[', b']',
-            b'{', b'}', b'<', b'>',
-        ] {
+        for rejected in *b"\"'`\t\n\r\0\\,()[]{}<>" {
             let contig = [b'r', b'e', rejected, b'i', b'd', b'_', b'1'];
             assert!(ensure_valid_contig(&contig, 20).is_err());
         }
