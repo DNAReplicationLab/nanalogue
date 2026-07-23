@@ -5,6 +5,12 @@
 //! so please do not specify pre-existing BAM or FASTA files in the output
 //! path; if so, they will be overwritten.
 //!
+//! This module is intended for developer-controlled simulation and stress testing,
+//! not for processing untrusted inputs. Large configurations are allowed by design:
+//! configuration is deserialized eagerly and generated contigs/reads may consume
+//! substantial CPU time, memory, and disk space. Callers should use trusted
+//! configurations and ensure adequate local resources for the requested simulation.
+//!
 //! ## Example Usage
 //!
 //! We've shown how to construct `SimulationConfig` which contains input options
@@ -89,6 +95,9 @@
 //! //         generation, modification placement, etc.) use a deterministic RNG seeded with
 //! //         this value, producing identical output files across runs. If not set, the
 //! //         simulation is non-reproducible.
+//! //       * Simulation inputs are intentionally not capped to small sizes because this
+//! //         module is also used for large developer/test workloads. Resource usage scales
+//! //         with the requested simulation size, so only trusted configurations should be used.
 //!
 //! // Paths used here must not exist already as these are files created anew.
 //! let config: SimulationConfig = serde_json::from_str(&config_json)?;

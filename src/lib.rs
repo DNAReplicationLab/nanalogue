@@ -34,7 +34,9 @@
 //! This is an executable that ships with nanalogue that can create a BAM file according to your
 //! specifications. Please run `nanalogue_sim_bam --help`. If you are a rust developer looking
 //! to use this functionality in your library, please look at the documentation of the module
-//! [`crate::simulate_mod_bam`].
+//! [`crate::simulate_mod_bam`]. The simulation tooling is intended for trusted,
+//! developer-controlled test inputs and allows large workloads by design, so requested
+//! simulations may consume substantial CPU time, memory, and disk space.
 //!
 //! This documentation is supplemented by a companion [cookbook](https://www.nanalogue.com).
 //!
