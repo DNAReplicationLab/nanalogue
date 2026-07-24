@@ -6,11 +6,75 @@
 use clap::Parser;
 use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam};
 
+/// Detailed command-line help for configuring a simulation.
+const LONG_ABOUT: &str =
+    "Create a synthetic BAM or CRAM file, its alignment index, and a matching FASTA reference.
+This is intended for developers testing alignment parsers and base-modification tooling.
+
+The input is a JSON object with three top-level fields:
+  contigs  Configures the generated reference contigs.
+  reads    An array of read groups; each entry can use different settings.
+  seed     Optional random seed for reproducible output.
+
+Contig features:
+  number        Number of contigs to generate.
+  len_range     Inclusive [minimum, maximum] contig length in bases.
+  repeated_seq  Optional DNA motif to repeat instead of generating random DNA.
+
+Read-group features:
+  number             Number of reads in the group.
+  mapq_range         Inclusive mapping-quality range for mapped reads; unmapped reads use 0.
+  base_qual_range    Inclusive base-quality range.
+  len_range          [minimum, maximum] read length as fractions of contig length.
+  barcode            Optional DNA sequence added to both read ends.
+  delete             Optional fractional [start, end] region deleted from every read.
+  insert_middle      Optional DNA sequence inserted in the middle of every read.
+  mismatch           Optional fraction of bases changed at random.
+  mods               Optional array of base-modification configurations.
+
+Each modification selects a base, strand, and modification code. The win array gives
+repeating window sizes in occurrences of that base, while mod_range gives repeating
+[minimum, maximum] probability ranges for those windows.";
+
+/// Example and documentation links shown after the detailed help.
+const AFTER_LONG_HELP: &str = r#"EXAMPLE CONFIG (config.json):
+  {
+    "contigs": {
+      "number": 2,
+      "len_range": [1000, 2000],
+      "repeated_seq": "ACGT"
+    },
+    "reads": [{
+      "number": 100,
+      "mapq_range": [20, 40],
+      "base_qual_range": [20, 30],
+      "len_range": [0.2, 0.8],
+      "mods": [{
+        "base": "C",
+        "is_strand_plus": true,
+        "mod_code": "m",
+        "win": [10, 20],
+        "mod_range": [[0.7, 0.9], [0.1, 0.3]]
+      }]
+    }],
+    "seed": 42
+  }
+
+RUN:
+  nanalogue_sim_bam config.json output.bam reference.fasta
+  nanalogue_sim_bam config.json output.cram reference.fasta
+
+The alignment file, its index, and the FASTA are overwritten if they exist.
+
+For the complete configuration reference and more examples, see:
+  https://docs.rs/nanalogue/latest/nanalogue_core/simulate_mod_bam/index.html"#;
+
 /// Main command line parsing struct that gets paths to files to be created.
 #[derive(Parser, Debug)]
 #[command(author, version,
     about = "Simulate BAM or CRAM with or without modifications",
-    long_about = None)]
+    long_about = LONG_ABOUT,
+    after_long_help = AFTER_LONG_HELP)]
 struct Cli {
     /// Input JSON file path
     #[arg(value_name = "INPUT_JSON")]
@@ -59,9 +123,72 @@ fn run(cli: &Cli) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::error::ErrorKind;
     use nanalogue_core::uuid;
     use std::env;
     use std::fs;
+
+    /// Short help stays concise while detailed help includes a valid configuration.
+    #[test]
+    fn long_help_explains_configuration() {
+        let short_error = Cli::try_parse_from(["nanalogue_sim_bam", "-h"])
+            .expect_err("short help should exit through clap");
+        assert_eq!(short_error.kind(), ErrorKind::DisplayHelp);
+        let short_help = short_error.to_string();
+        assert!(
+            !short_help.contains("EXAMPLE CONFIG (config.json)"),
+            "short help should not contain the detailed example"
+        );
+
+        let long_error = Cli::try_parse_from(["nanalogue_sim_bam", "--help"])
+            .expect_err("long help should exit through clap");
+        assert_eq!(long_error.kind(), ErrorKind::DisplayHelp);
+        let long_help = long_error.to_string();
+
+        assert!(
+            long_help.contains("EXAMPLE CONFIG (config.json)"),
+            "long help should contain an example JSON config"
+        );
+        assert!(
+            long_help.contains("Read-group features:"),
+            "long help should explain read-group features"
+        );
+        assert!(
+            long_help.contains("nanalogue_sim_bam config.json output.bam reference.fasta"),
+            "long help should show how to run the BAM example"
+        );
+        assert!(
+            long_help.contains("nanalogue_sim_bam config.json output.cram reference.fasta"),
+            "long help should show how to run the CRAM example"
+        );
+        assert!(
+            long_help.contains("The alignment file, its index, and the FASTA are overwritten"),
+            "long help should warn that output files are overwritten"
+        );
+        assert!(
+            long_help.contains(
+                "https://docs.rs/nanalogue/latest/nanalogue_core/simulate_mod_bam/index.html"
+            ),
+            "long help should link to the complete configuration reference"
+        );
+
+        let (_, example_and_run) = long_help
+            .split_once("EXAMPLE CONFIG (config.json):\n")
+            .expect("long help should mark the example config");
+        let (indented_json, _) = example_and_run
+            .split_once("\n\nRUN:")
+            .expect("long help should mark the command following the config");
+        let json = indented_json
+            .lines()
+            .map(|line| {
+                line.strip_prefix("  ")
+                    .expect("each example JSON line should have help indentation")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let _: SimulationConfig =
+            serde_json::from_str(&json).expect("the example config should deserialize");
+    }
 
     /// Test that the run function successfully creates BAM, BAI, and FASTA files from valid JSON config
     #[test]
