@@ -29,10 +29,11 @@
 //! separate executable `nanalogue_sim_bam` exposes the `simulate_mod_bam` functionality
 //! (see below).
 //!
-//! For developers: if you are looking to make a custom BAM file containing synthetic, simulated
-//! DNA/RNA modification data to develop/test your tool, you may be interested in `nanalogue_sim_bam`.
-//! This is an executable that ships with nanalogue that can create a BAM file according to your
-//! specifications. Please run `nanalogue_sim_bam --help`. If you are a rust developer looking
+//! For developers: if you are looking to make a custom BAM or CRAM file containing synthetic,
+//! simulated DNA/RNA modification data to develop/test your tool, you may be interested in
+//! `nanalogue_sim_bam`. This is an executable that ships with nanalogue that can create an
+//! indexed BAM or CRAM file according to your specifications. Please run
+//! `nanalogue_sim_bam --help`. If you are a rust developer looking
 //! to use this functionality in your library, please look at the documentation of the module
 //! [`crate::simulate_mod_bam`]. The simulation tooling is intended for trusted,
 //! developer-controlled test inputs and allows large workloads by design, so requested
@@ -117,7 +118,7 @@ pub use error::Error;
 pub use file_utils::{
     nanalogue_bam_reader, nanalogue_bam_reader_from_stdin, nanalogue_bam_reader_from_url,
     nanalogue_indexed_bam_reader, nanalogue_indexed_bam_reader_from_url, write_bam_denovo,
-    write_fasta,
+    write_cram_denovo, write_fasta,
 };
 pub use read_utils::{
     AlignmentInfo, AlignmentInfoBuilder, CurrRead, CurrReadBuilder, ModTableEntryBuilder,

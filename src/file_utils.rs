@@ -1,10 +1,12 @@
 //! Utility functions for file I/O operations with BAM and FASTA files.
 
 use crate::{Error, GetDNARestrictive};
-use rust_htslib::bam;
+use rust_htslib::{bam, htslib};
+use std::ffi::CString;
 use std::fs::File;
 use std::io::Write as _;
-use std::path::Path;
+use std::num::NonZeroU32;
+use std::path::{Path, PathBuf};
 use url::Url;
 
 /// Opens BAM file.
@@ -253,6 +255,209 @@ where
     Ok(())
 }
 
+/// Build the alignment header shared by de novo BAM and CRAM output.
+fn denovo_alignment_header<J, K, L>(contigs: J, read_groups: K, comments: L) -> bam::Header
+where
+    J: IntoIterator<Item = (String, usize)>,
+    K: IntoIterator<Item = String>,
+    L: IntoIterator<Item = String>,
+{
+    let mut header = bam::Header::new();
+    for (name, length) in contigs {
+        let _: &mut _ = header.push_record(
+            bam::header::HeaderRecord::new(b"SQ")
+                .push_tag(b"SN", name)
+                .push_tag(b"LN", length),
+        );
+    }
+    for read_group in read_groups {
+        let _: &mut _ = header.push_record(
+            bam::header::HeaderRecord::new(b"RG")
+                .push_tag(b"ID", read_group)
+                .push_tag(b"PL", "ONT")
+                .push_tag(b"LB", "blank")
+                .push_tag(b"SM", "blank")
+                .push_tag(b"PU", "blank"),
+        );
+    }
+    for comment in comments {
+        let _: &mut _ = header.push_comment(comment.as_bytes());
+    }
+    header
+}
+
+/// Validate nanalogue's deterministic coordinate-and-strand order while writing records.
+fn write_sorted_reads<I, F>(reads: I, mut write: F) -> Result<(), Error>
+where
+    I: IntoIterator<Item = bam::Record>,
+    F: FnMut(&bam::Record) -> Result<(), Error>,
+{
+    let mut previous_key = (false, -1, -1, false);
+    for read in reads {
+        let current_key = (
+            read.is_unmapped(),
+            read.tid(),
+            read.pos(),
+            read.is_reverse(),
+        );
+        if previous_key > current_key {
+            return Err(Error::InvalidSorting(
+                "reads input to the de novo alignment writer have not been sorted properly"
+                    .to_string(),
+            ));
+        }
+        previous_key = current_key;
+        write(&read)?;
+    }
+    Ok(())
+}
+
+/// Convert a path to the null-terminated representation expected by `HTSlib`.
+fn path_to_c_string(path: &Path) -> Result<CString, Error> {
+    CString::new(path.as_os_str().as_encoded_bytes())
+        .map_err(|error| Error::InvalidState(error.to_string()))
+}
+
+/// Return the conventional sidecar path beside an output file.
+pub(crate) fn alignment_sidecar_path(output_path: &Path, suffix: &str) -> PathBuf {
+    let mut path = output_path.as_os_str().to_os_string();
+    path.push(suffix);
+    PathBuf::from(path)
+}
+
+/// Return the conventional CRAI path beside a CRAM output.
+fn crai_path(output_path: &Path) -> PathBuf {
+    alignment_sidecar_path(output_path, ".crai")
+}
+
+/// A CRAM stream whose index and final compression are explicitly completed.
+#[derive(Debug)]
+struct CramWriter {
+    /// Raw `HTSlib` output handle.
+    file: *mut htslib::htsFile,
+    /// Index path retained for the lifetime required by `HTSlib`.
+    index_path: CString,
+}
+
+impl CramWriter {
+    /// Open a CRAM 3.1 stream using an external FASTA reference.
+    fn open(output_path: &Path, reference_path: &Path, threads: NonZeroU32) -> Result<Self, Error> {
+        let output = path_to_c_string(output_path)?;
+        let index = path_to_c_string(&crai_path(output_path))?;
+        let reference = path_to_c_string(reference_path)?;
+        let mode = CString::new("wc").map_err(|error| Error::InvalidState(error.to_string()))?;
+        let version =
+            CString::new("3.1").map_err(|error| Error::InvalidState(error.to_string()))?;
+
+        // SAFETY: `output` and `mode` are valid NUL-terminated strings that outlive the call.
+        let file = unsafe { htslib::hts_open(output.as_ptr(), mode.as_ptr()) };
+        if file.is_null() {
+            return Err(Error::WriteOutput("failed to open CRAM output".into()));
+        }
+        let writer = Self {
+            file,
+            index_path: index,
+        };
+
+        // SAFETY: `writer.file` is a live handle from `hts_open`, and `version` lives across
+        // the FFI call.
+        if unsafe {
+            htslib::hts_set_opt(
+                writer.file,
+                htslib::hts_fmt_option_CRAM_OPT_VERSION,
+                version.as_ptr(),
+            )
+        } != 0
+        {
+            return Err(Error::WriteOutput(
+                "failed to select CRAM version 3.1".into(),
+            ));
+        }
+        // SAFETY: `writer.file` remains valid for both of these option-setting calls.
+        if unsafe { htslib::hts_set_opt(writer.file, htslib::hts_fmt_option_CRAM_OPT_EMBED_REF, 0) }
+            != 0
+            || unsafe {
+                htslib::hts_set_opt(writer.file, htslib::hts_fmt_option_CRAM_OPT_NO_REF, 0)
+            } != 0
+        {
+            return Err(Error::WriteOutput(
+                "failed to require external-reference CRAM compression".into(),
+            ));
+        }
+        // SAFETY: `writer.file` is valid and `reference` is a valid NUL-terminated string that
+        // outlives the call.
+        if unsafe { htslib::hts_set_fai_filename(writer.file, reference.as_ptr()) } != 0 {
+            return Err(Error::WriteOutput("failed to load FASTA reference".into()));
+        }
+        let thread_count = i32::try_from(threads.get())?;
+        // SAFETY: `writer.file` is valid and `thread_count` is a plain integer argument.
+        if unsafe { htslib::hts_set_threads(writer.file, thread_count) } != 0 {
+            return Err(Error::WriteOutput(
+                "failed to configure CRAM compression threads".into(),
+            ));
+        }
+        Ok(writer)
+    }
+
+    /// Write the header and begin constructing the CRAI.
+    fn write_header_and_start_index(&mut self, header: &mut bam::HeaderView) -> Result<(), Error> {
+        // SAFETY: `self.file` is a live HTSlib handle opened for CRAM output and `header`
+        // points to a valid header owned by Rust for the duration of the call.
+        if unsafe { htslib::sam_hdr_write(self.file, header.inner_ptr()) } != 0 {
+            return Err(Error::WriteOutput("failed to write CRAM header".into()));
+        }
+        // SAFETY: `self.file` is valid, `header` remains alive across the call, and
+        // `self.index_path` is retained in `self` precisely so its pointer stays valid.
+        if unsafe {
+            htslib::sam_idx_init(
+                self.file,
+                header.inner_ptr_mut(),
+                0,
+                self.index_path.as_ptr(),
+            )
+        } != 0
+        {
+            return Err(Error::WriteOutput("failed to initialize CRAI index".into()));
+        }
+        Ok(())
+    }
+
+    /// Write one record to the CRAM stream.
+    fn write(&mut self, header: &bam::HeaderView, record: &bam::Record) -> Result<(), Error> {
+        // SAFETY: `self.file` is valid, `header` matches the output stream, and `record`
+        // points to a live BAM record for the duration of the call.
+        if unsafe { htslib::sam_write1(self.file, header.inner_ptr(), record.inner()) } < 0 {
+            return Err(Error::WriteOutput("failed to write CRAM record".into()));
+        }
+        Ok(())
+    }
+
+    /// Save the CRAI and close the CRAM, reporting delayed write failures.
+    fn finish(mut self) -> Result<(), Error> {
+        // SAFETY: `self.file` is still a live handle whose index was initialized earlier.
+        if unsafe { htslib::sam_idx_save(self.file) } != 0 {
+            return Err(Error::WriteOutput("failed to save CRAI index".into()));
+        }
+        // SAFETY: `self.file` is a live HTSlib handle and is closed exactly once here.
+        let result = unsafe { htslib::hts_close(self.file) };
+        self.file = std::ptr::null_mut();
+        if result != 0 {
+            return Err(Error::WriteOutput("failed to finish CRAM output".into()));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for CramWriter {
+    fn drop(&mut self) {
+        if !self.file.is_null() {
+            // SAFETY: `self.file` is a live HTSlib handle and Drop only reaches this branch if
+            // ownership of the handle was not already consumed by `finish`.
+            let _: i32 = unsafe { htslib::hts_close(self.file) };
+        }
+    }
+}
+
 /// Writes a new BAM file with reads. Input reads have to be sorted.
 ///
 /// Although this function can be used for other tasks like subsetting
@@ -308,55 +513,60 @@ where
     L: IntoIterator<Item = String>,
     M: AsRef<Path> + ?Sized,
 {
-    let header = {
-        let mut header = bam::Header::new();
-        for k in contigs {
-            let _: &mut _ = header.push_record(
-                bam::header::HeaderRecord::new(b"SQ")
-                    .push_tag(b"SN", k.0)
-                    .push_tag(b"LN", k.1),
-            );
-        }
-        for k in read_groups {
-            let _: &mut _ = header.push_record(
-                bam::header::HeaderRecord::new(b"RG")
-                    .push_tag(b"ID", k)
-                    .push_tag(b"PL", "ONT")
-                    .push_tag(b"LB", "blank")
-                    .push_tag(b"SM", "blank")
-                    .push_tag(b"PU", "blank"),
-            );
-        }
-        for k in comments {
-            let _: &mut _ = header.push_comment(k.as_bytes());
-        }
-        header
-    };
+    let header = denovo_alignment_header(contigs, read_groups, comments);
 
     // Write BAM file ensuring reads are already sorted
     let mut writer = bam::Writer::from_path(output_path, &header, bam::Format::Bam)?;
-    let mut curr_read_key: (bool, i32, i64, bool);
-    let mut prev_read_key: (bool, i32, i64, bool) = (false, -1, -1, false);
-    for read in reads {
-        curr_read_key = (
-            read.is_unmapped(),
-            read.tid(),
-            read.pos(),
-            read.is_reverse(),
-        );
-        if prev_read_key > curr_read_key {
-            return Err(Error::InvalidSorting(
-                "reads input to write bam denovo have not been sorted properly".to_string(),
-            ));
-        }
-        prev_read_key = curr_read_key;
-        writer.write(&read)?;
-    }
+    write_sorted_reads(reads, |read| writer.write(read).map_err(Error::from))?;
     drop(writer); // Close BAM file before creating index
 
     bam::index::build(output_path, None, bam::index::Type::Bai, 2)?;
 
     Ok(())
+}
+
+/// Write coordinate-and-strand sorted records directly as CRAM 3.1 and create a CRAI index.
+///
+/// The FASTA reference must describe the same contigs used to construct the alignment header.
+/// MD and NM tags are not generated or explicitly stored; CRAM readers may reconstruct them.
+///
+/// # Errors
+///
+/// Returns an error if the CRAM or CRAI cannot be written, the reference cannot be loaded, or
+/// the input records do not follow nanalogue's deterministic coordinate-and-strand order.
+pub fn write_cram_denovo<I, J, K, L, M, N>(
+    reads: I,
+    contigs: J,
+    read_groups: K,
+    comments: L,
+    output_path: &M,
+    reference_path: &N,
+    threads: NonZeroU32,
+) -> Result<(), Error>
+where
+    I: IntoIterator<Item = bam::Record>,
+    J: IntoIterator<Item = (String, usize)>,
+    K: IntoIterator<Item = String>,
+    L: IntoIterator<Item = String>,
+    M: AsRef<Path> + ?Sized,
+    N: AsRef<Path> + ?Sized,
+{
+    let output = output_path.as_ref();
+    let reference = reference_path.as_ref();
+    let crai_path = crai_path(output);
+    let fai_path = alignment_sidecar_path(reference, ".fai");
+    if output == reference || crai_path == reference || output == fai_path || crai_path == fai_path
+    {
+        return Err(Error::InvalidState(
+            "CRAM, CRAI, and FASTA outputs must use different paths".into(),
+        ));
+    }
+    let header_template = denovo_alignment_header(contigs, read_groups, comments);
+    let mut header = bam::HeaderView::from_header(&header_template);
+    let mut writer = CramWriter::open(output, reference, threads)?;
+    writer.write_header_and_start_index(&mut header)?;
+    write_sorted_reads(reads, |read| writer.write(&header, read))?;
+    writer.finish()
 }
 
 /// Read lines with a hard raw-byte cap.
@@ -505,11 +715,31 @@ pub(crate) fn read_line_capped<R: std::io::BufRead>(
 mod tests {
     use super::*;
     use crate::{DNARestrictive, uuid};
-    use rust_htslib::bam::Read as _;
+    use rust_htslib::{bam::Read as _, faidx};
     use std::{
         io::{BufReader, Cursor},
         str::FromStr as _,
     };
+
+    fn temp_output_dir(label: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("nanalogue_{label}_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&path).expect("temp dir should be creatable");
+        path
+    }
+
+    fn write_test_reference(dir: &Path) -> PathBuf {
+        let fasta_path = dir.join("reference.fa");
+        write_fasta(
+            [(
+                "chr1".to_string(),
+                DNARestrictive::from_str("ACGTACGTACGT").expect("valid DNA"),
+            )],
+            &fasta_path,
+        )
+        .expect("reference FASTA should be written");
+        faidx::build(&fasta_path).expect("FASTA index should be written");
+        fasta_path
+    }
 
     /// Tests writing to a fasta file and check its contents
     #[test]
@@ -667,6 +897,22 @@ mod tests {
         drop(std::fs::remove_file(format!("{}.bai", temp_path.display())));
     }
 
+    /// Tests the forward-before-reverse tie-break in de novo alignment ordering.
+    #[test]
+    fn sorted_reads_reject_reverse_before_forward_at_same_coordinate() {
+        let mut reverse = bam::Record::new();
+        reverse.set_tid(0);
+        reverse.set_pos(50);
+        reverse.set_reverse();
+
+        let mut forward = bam::Record::new();
+        forward.set_tid(0);
+        forward.set_pos(50);
+
+        let result = write_sorted_reads(vec![reverse, forward], |_| Ok(()));
+        assert!(matches!(result, Err(Error::InvalidSorting(_))));
+    }
+
     /// Tests `write_bam_denovo` with sorted reads on same contig
     #[test]
     #[expect(
@@ -765,10 +1011,109 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("no error");
         assert_eq!(records.len(), 1);
-        assert!(records.first().expect("record exists").is_unmapped());
+        let record = records.first().expect("record exists");
+        assert!(record.is_unmapped());
+        assert_eq!(record.mapq(), 0);
 
         std::fs::remove_file(&temp_path).expect("no error");
         std::fs::remove_file(format!("{}.bai", temp_path.display())).expect("no error");
+    }
+
+    #[test]
+    fn write_cram_denovo_rejects_colliding_reference_sidecar_paths() {
+        let temp_dir = temp_output_dir("cram_collision");
+        let expected_error = "CRAM, CRAI, and FASTA outputs must use different paths";
+
+        // `write_cram_denovo` derives the CRAI as `<output>.crai`, so using
+        // `output.cram.crai` as the reference path makes the reference collide with
+        // the writer's own CRAI sidecar.
+        let crai_collision = write_cram_denovo(
+            Vec::<bam::Record>::new(),
+            [("chr1".to_string(), 12)],
+            ["rg1".to_string()],
+            Vec::<String>::new(),
+            &temp_dir.join("output.cram"),
+            &temp_dir.join("output.cram.crai"),
+            NonZeroU32::MIN,
+        );
+
+        assert!(matches!(
+            crai_collision,
+            Err(Error::InvalidState(msg)) if msg == expected_error
+        ));
+
+        // `write_cram_denovo` also rejects using the reference `.fai` path as the CRAM output,
+        // because that would make the CRAM overwrite the FASTA index sidecar.
+        let fai_collision = write_cram_denovo(
+            Vec::<bam::Record>::new(),
+            [("chr1".to_string(), 12)],
+            ["rg1".to_string()],
+            Vec::<String>::new(),
+            &temp_dir.join("reference.fa.fai"),
+            &temp_dir.join("reference.fa"),
+            NonZeroU32::MIN,
+        );
+
+        assert!(matches!(
+            fai_collision,
+            Err(Error::InvalidState(msg)) if msg == expected_error
+        ));
+        std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
+    }
+
+    #[test]
+    fn cram_writer_open_reports_output_open_failure() {
+        let temp_dir = temp_output_dir("cram_open_failure");
+        let fasta_path = write_test_reference(&temp_dir);
+        let missing_dir_output = temp_dir.join("missing").join("output.cram");
+
+        let result = CramWriter::open(&missing_dir_output, &fasta_path, NonZeroU32::MIN);
+
+        assert!(
+            matches!(result, Err(Error::WriteOutput(msg)) if msg == "failed to open CRAM output")
+        );
+        std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
+    }
+
+    #[test]
+    fn cram_writer_open_reports_missing_reference_failure() {
+        let temp_dir = temp_output_dir("cram_reference_failure");
+        let missing_reference = temp_dir.join("missing.fa");
+        let cram_path = temp_dir.join("output.cram");
+
+        let result = CramWriter::open(&cram_path, &missing_reference, NonZeroU32::MIN);
+
+        assert!(
+            matches!(result, Err(Error::WriteOutput(msg)) if msg == "failed to load FASTA reference")
+        );
+        drop(std::fs::remove_file(cram_path));
+        std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
+    }
+
+    #[test]
+    fn cram_writer_reports_index_init_failure() {
+        let temp_dir = temp_output_dir("cram_header_failure");
+        let fasta_path = write_test_reference(&temp_dir);
+        let cram_path = temp_dir.join("output.cram");
+        let mut writer =
+            CramWriter::open(&cram_path, &fasta_path, NonZeroU32::MIN).expect("writer should open");
+        // HTSlib does not require the CRAI name to match the CRAM name, only that it be a
+        // writable file path. We deliberately replace it with a directory path here so
+        // `sam_idx_init` fails deterministically and exercises the error branch.
+        writer.index_path = path_to_c_string(&temp_dir).expect("temp dir path should convert");
+        let header_template = denovo_alignment_header(
+            [("chr1".to_string(), 12)],
+            ["rg1".to_string()],
+            Vec::<String>::new(),
+        );
+        let mut header = bam::HeaderView::from_header(&header_template);
+
+        let result = writer.write_header_and_start_index(&mut header);
+
+        assert!(
+            matches!(result, Err(Error::WriteOutput(msg)) if msg == "failed to initialize CRAI index")
+        );
+        std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
     }
 
     #[test]

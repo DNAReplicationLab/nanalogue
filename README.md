@@ -25,7 +25,7 @@ tag variants; other mixed-case or lowercase variants are not recognized.
 ## Table of Contents
 
 - [Usage and documentation](#usage-and-documentation)
-  - [Simulate BAM files](#simulate-bam-files)
+  - [Simulate BAM or CRAM files](#simulate-bam-or-cram-files)
 - [Installation and Updates](#installation-and-updates)
   - [Pre-built Binaries](#pre-built-binaries)
     - [Quick Install Script](#quick-install-script)
@@ -65,14 +65,17 @@ The Rust library and command-line tools are the most mature among these.
 In addition to these resources, we are developing a
 companion cookbook [here](https://www.nanalogue.com).
 
-## Simulate BAM files
+## Simulate BAM or CRAM files
 
-For developers: if you are looking to make a custom BAM file containing synthetic, simulated
-DNA/RNA modification data to develop/test your tool, you may be interested in `nanalogue_sim_bam`.
-This is an executable that ships with nanalogue that can create a BAM file according to your
-specifications. Please run `nanalogue_sim_bam --help`. If you are a rust developer looking
-to use this functionality in your library, please look at the documentation of the module
-`nanalogue_core::simulate_mod_bam` in the docs.rs link [above](#usage-and-documentation).
+For developers: if you are looking to make a custom BAM or CRAM file containing synthetic,
+simulated DNA/RNA modification data to develop/test your tool, you may be interested in
+`nanalogue_sim_bam`. This is an executable that ships with nanalogue that can create an
+indexed BAM or CRAM file according to your specifications. Please run `nanalogue_sim_bam
+--help`. If you are a rust developer looking to use this functionality in your library,
+please look at the documentation of the module `nanalogue_core::simulate_mod_bam` in the
+docs.rs link [above](#usage-and-documentation). An alignment output ending in `.bam`
+creates a BAI, while one ending in `.cram` creates a CRAM 3.1 file, CRAI, and FAI for the
+generated FASTA reference.
 
 # Installation and Updates
 
@@ -407,7 +410,10 @@ None
 # Contributing
 
 Contributions are welcome! Please see [CONTRIBUTIONS.md](CONTRIBUTIONS.md)
-for guidelines on how to contribute to this project.
+for guidelines on how to contribute to this project. When running the test
+suite, note that some negative tests intentionally trigger HTSlib errors or
+warnings on stderr. These messages can appear during a successful test run and
+do not necessarily indicate a failing test.
 
 # Security
 

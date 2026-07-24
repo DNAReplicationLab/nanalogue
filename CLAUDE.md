@@ -5,7 +5,14 @@ the following commands in this order:
 - `cargo test -q` to make sure you pass cargo tests.
 - `cargo fmt` to format the code in the rust style.
 
+Note: some negative tests intentionally trigger HTSlib errors or warnings on
+stderr. These messages may appear during a successful `cargo test` run and are
+not by themselves evidence of a failure.
+
 ## Final review
+
+### If codex is available to you and you can communicate with the service
+
 - Run `codex review --uncommitted` with an unlimited timeout to see what the tool
 says as code review and incorporate its changes.
 - If you repeat codex review, deal with its previous comments first, then run it
@@ -14,6 +21,13 @@ again. Do not run multiple instances in parallel.
 changes if you think they are worth it, until it stops complaining or the
 remaining complaints are not worth fixing.
 - Then, run `cargo doc` to ensure the docs still form successfully.
+- If you cannot access codex or cannot login, then do not bother.
+
+### If you have access to the Oracle
+
+If you have access to a tool called the Oracle, then run it and ask it
+for its opinion on the code changes. And fix anything that you think
+is worth fixing.
 
 # Overall notes
 

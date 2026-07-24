@@ -1,8 +1,8 @@
-//! # Write Simulated Mod BAM
-//! Generates simulated BAM files with base modifications for testing purposes.
-//! Accepts JSON configuration to produce both BAM and FASTA reference files.
-//! Please note that both BAM files and FASTA files are created from scratch,
-//! so please do not specify pre-existing BAM or FASTA files in the output
+//! # Write Simulated Mod BAM or CRAM
+//! Generates simulated BAM or CRAM files with base modifications for testing purposes.
+//! Accepts JSON configuration to produce an alignment file and its FASTA reference.
+//! Please note that both alignment files and FASTA files are created from scratch,
+//! so please do not specify pre-existing alignment or FASTA files in the output
 //! path; if so, they will be overwritten.
 //!
 //! This module is intended for developer-controlled simulation and stress testing,
@@ -112,19 +112,20 @@
 //! # Ok::<(), Error>(())
 //! ```
 
+use crate::file_utils::alignment_sidecar_path;
 use crate::{
     AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, ModChar, OrdPair,
     ReadState, complement, revcomp, uuid,
 };
-use crate::{write_bam_denovo, write_fasta};
+use crate::{write_bam_denovo, write_cram_denovo, write_fasta};
 use derive_builder::Builder;
 use rand::Rng;
 use rand::RngExt as _;
 use rand::SeedableRng as _;
 use rand::rngs::StdRng;
 use rand::seq::IteratorRandom as _;
-use rust_htslib::bam;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
+use rust_htslib::{bam, faidx};
 use serde::{Deserialize, Serialize};
 use std::iter;
 use std::num::NonZeroU32;
@@ -1408,7 +1409,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             record.set_flags(u16::from(random_state));
             if random_state == ReadState::Unmapped {
                 record.set(&qname, None, &read_seq, &qual);
-                record.set_mapq(255);
+                record.set_mapq(0);
                 record.set_tid(-1);
                 record.set_pos(-1);
             } else {
@@ -1439,7 +1440,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
     Ok(reads)
 }
 
-/// Main function to generate simulated BAM file
+/// Main function to generate a simulated BAM or CRAM file
 ///
 /// # Example
 ///
@@ -1482,10 +1483,10 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 /// ```
 ///
 /// # Errors
-/// Returns an error if JSON parsing fails, read generation fails, or BAM/FASTA writing fails.
+/// Returns an error if JSON parsing fails, read generation fails, or alignment/FASTA writing fails.
 pub fn run<F>(
     config: SimulationConfig,
-    bam_output_path: &F,
+    alignment_output_path: &F,
     fasta_output_path: &F,
 ) -> Result<(), Error>
 where
@@ -1493,23 +1494,45 @@ where
 {
     if let Some(s) = config.seed {
         let mut rng = StdRng::seed_from_u64(s);
-        run_inner(config, bam_output_path, fasta_output_path, &mut rng)
+        run_inner(config, alignment_output_path, fasta_output_path, &mut rng)
     } else {
         let mut rng = rand::rng();
-        run_inner(config, bam_output_path, fasta_output_path, &mut rng)
+        run_inner(config, alignment_output_path, fasta_output_path, &mut rng)
     }
 }
 
-/// Generates simulated BAM and FASTA files using the provided RNG.
+/// Generates simulated alignment and FASTA files using the provided RNG.
 fn run_inner<F, R: Rng>(
     config: SimulationConfig,
-    bam_output_path: &F,
+    alignment_output_path: &F,
     fasta_output_path: &F,
     rng: &mut R,
 ) -> Result<(), Error>
 where
     F: AsRef<Path> + ?Sized,
 {
+    let alignment_path = alignment_output_path.as_ref();
+    let fasta_path = fasta_output_path.as_ref();
+    let write_cram = match alignment_path.extension().and_then(std::ffi::OsStr::to_str) {
+        Some(extension) if extension.eq_ignore_ascii_case("bam") => false,
+        Some(extension) if extension.eq_ignore_ascii_case("cram") => true,
+        _ => {
+            return Err(Error::InvalidState(
+                "alignment output path must end in .bam or .cram".into(),
+            ));
+        }
+    };
+    let alignment_index_path =
+        alignment_sidecar_path(alignment_path, if write_cram { ".crai" } else { ".bai" });
+    let fai_path = alignment_sidecar_path(fasta_path, ".fai");
+    if alignment_path == fasta_path
+        || alignment_index_path == fasta_path
+        || write_cram && (fai_path == alignment_path || alignment_index_path == fai_path)
+    {
+        return Err(Error::InvalidState(
+            "alignment, FASTA, and sidecar index outputs must use different paths".into(),
+        ));
+    }
     let contigs = match config.contigs.repeated_seq {
         Some(seq) => generate_contigs_denovo_repeated_seq(
             config.contigs.number,
@@ -1529,19 +1552,48 @@ where
         temp_reads
     };
 
-    write_bam_denovo(
-        reads,
-        contigs
-            .iter()
-            .map(|k| (k.name.clone(), k.get_dna_restrictive().get().len())),
-        read_groups,
-        vec![String::from("simulated BAM file, not real data")],
-        bam_output_path,
-    )?;
-    write_fasta(
-        contigs.into_iter().map(|k| (k.name.clone(), k)),
-        fasta_output_path,
-    )?;
+    let contig_header = contigs
+        .iter()
+        .map(|contig| {
+            (
+                contig.name.clone(),
+                contig.get_dna_restrictive().get().len(),
+            )
+        })
+        .collect::<Vec<_>>();
+    if write_cram {
+        write_fasta(
+            contigs.iter().map(|k| (k.name.clone(), k.seq.clone())),
+            fasta_output_path,
+        )?;
+        faidx::build(fasta_output_path.as_ref()).map_err(|error| {
+            Error::WriteOutput(format!("failed to create FASTA index: {error}"))
+        })?;
+        write_cram_denovo(
+            reads,
+            contig_header.clone(),
+            read_groups,
+            vec![String::from("simulated CRAM file, not real data")],
+            alignment_output_path,
+            fasta_output_path,
+            // The CLI/config path does not expose alignment-writer threading yet.
+            // Keep CRAM at one thread for now; if we surface this later, do so
+            // consistently for both BAM and CRAM output.
+            NonZeroU32::MIN,
+        )?;
+    } else {
+        write_bam_denovo(
+            reads,
+            contig_header,
+            read_groups,
+            vec![String::from("simulated BAM file, not real data")],
+            alignment_output_path,
+        )?;
+        write_fasta(
+            contigs.into_iter().map(|k| (k.name.clone(), k)),
+            fasta_output_path,
+        )?;
+    }
 
     Ok(())
 }
@@ -1760,6 +1812,118 @@ mod read_generation_no_mods_tests {
         std::fs::remove_file(&bam_path).unwrap();
         std::fs::remove_file(fasta_path).unwrap();
         std::fs::remove_file(bai_path).unwrap();
+    }
+
+    #[test]
+    fn run_rejects_invalid_alignment_extension() {
+        let config: SimulationConfig =
+            serde_json::from_str(r#"{"contigs":{"number":1,"len_range":[20,20]},"reads":[]}"#)
+                .unwrap();
+        let temp_dir = std::env::temp_dir().join(format!("bad_ext_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let result = run(
+            config,
+            &temp_dir.join("simulation.sam"),
+            &temp_dir.join("reference.fa"),
+        );
+
+        assert!(
+            matches!(result, Err(Error::InvalidState(msg)) if msg == "alignment output path must end in .bam or .cram")
+        );
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn run_rejects_bam_index_and_fasta_path_collision() {
+        let config: SimulationConfig =
+            serde_json::from_str(r#"{"contigs":{"number":1,"len_range":[20,20]},"reads":[]}"#)
+                .unwrap();
+        let temp_dir = std::env::temp_dir().join(format!("bam_collision_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let bam_path = temp_dir.join("simulation.bam");
+        let fasta_path = temp_dir.join("simulation.bam.bai");
+
+        let result = run(config, &bam_path, &fasta_path);
+
+        assert!(
+            matches!(result, Err(Error::InvalidState(msg)) if msg == "alignment, FASTA, and sidecar index outputs must use different paths")
+        );
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    /// Tests direct CRAM 3.1 simulation and creation of its reference and alignment indices.
+    #[test]
+    fn full_cram_generation() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 2,
+                "len_range": [200, 200],
+                "repeated_seq": "ACGT"
+            },
+            "reads": [{
+                "number": 1000,
+                "mapq_range": [10, 20],
+                "base_qual_range": [10, 20],
+                "len_range": [0.1, 0.8]
+            }],
+            "seed": 42
+        }"#;
+
+        let temp_dir = std::env::temp_dir().join(format!("cram_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let cram_path = temp_dir.join("simulation.cram");
+        let crai_path = temp_dir.join("simulation.cram.crai");
+        let fasta_path = temp_dir.join("reference.fa");
+        let fai_path = temp_dir.join("reference.fa.fai");
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        run(config, &cram_path, &fasta_path).unwrap();
+
+        assert!(cram_path.exists());
+        assert!(crai_path.exists());
+        assert!(fasta_path.exists());
+        assert!(fai_path.exists());
+        let prefix = std::fs::read(&cram_path).unwrap();
+        assert_eq!(prefix.get(..6), Some(&b"CRAM\x03\x01"[..]));
+
+        let mut reader = bam::Reader::from_path(&cram_path).unwrap();
+        reader.set_reference(&fasta_path).unwrap();
+        assert_eq!(reader.header().target_count(), 2);
+        let records = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(records.len(), 1000);
+        assert!(records.windows(2).all(|pair| {
+            let key = |record: &bam::Record| {
+                (
+                    record.is_unmapped(),
+                    record.tid(),
+                    record.pos(),
+                    record.is_reverse(),
+                )
+            };
+            pair.first()
+                .zip(pair.get(1))
+                .is_some_and(|(first, second)| key(first) <= key(second))
+        }));
+        assert!(
+            records
+                .iter()
+                .filter(|record| record.is_unmapped())
+                .all(|record| record.mapq() == 0)
+        );
+        assert!(
+            records
+                .iter()
+                .filter(|record| !record.is_unmapped())
+                .all(|record| (10..=20).contains(&record.mapq()))
+        );
+
+        let mut indexed_reader = bam::IndexedReader::from_path(&cram_path).unwrap();
+        indexed_reader.set_reference(&fasta_path).unwrap();
+        indexed_reader.fetch((0, 0, 200)).unwrap();
+        assert!(indexed_reader.records().next().is_some());
+
+        std::fs::remove_dir_all(temp_dir).unwrap();
     }
 
     /// Tests `TempBamSimulation` struct functionality without mods
@@ -2072,7 +2236,7 @@ mod read_generation_no_mods_tests {
                 // Verify unmapped read properties
                 assert_eq!(read.tid(), -1);
                 assert_eq!(read.pos(), -1);
-                assert_eq!(read.mapq(), 255);
+                assert_eq!(read.mapq(), 0);
             } else {
                 if read.is_reverse() {
                     has_reverse = true;

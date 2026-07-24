@@ -1,21 +1,25 @@
-//! # Nanalogue Simulate BAM
+//! # Nanalogue Simulate BAM or CRAM
 //!
-//! Companion tool to nanalogue which creates artificial BAM or mod BAM files
-//! for developers wishing to test BAM parsing or BAM modification data parsing.
+//! Companion tool to nanalogue which creates artificial BAM or CRAM (with or without
+//! modifications for developers wishing to test alignment parsing or modification
+//! data parsing).
 use clap::Parser;
 use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam};
 
 /// Main command line parsing struct that gets paths to files to be created.
 #[derive(Parser, Debug)]
 #[command(author, version,
-    about = "Simulate BAM with or without modifications. Aimed at developers who wish to test their BAM parsers",
+    about = "Simulate BAM or CRAM with or without modifications",
     long_about = None)]
 struct Cli {
     /// Input JSON file path
+    #[arg(value_name = "INPUT_JSON")]
     json: String,
-    /// Output mod BAM file path; if pre-existing, the file will be overwritten.
-    bam: String,
-    /// Output fasta file path; if pre-existing, the file will be overwritten.
+    /// Output .bam or .cram path; if pre-existing, the file will be overwritten.
+    #[arg(value_name = "OUTPUT_ALIGNMENT")]
+    alignment: String,
+    /// Output FASTA file path; if pre-existing, the file will be overwritten.
+    #[arg(value_name = "OUTPUT_FASTA")]
     fasta: String,
 }
 
@@ -41,11 +45,11 @@ fn main() {
 /// Simple wrapper around `simulate_mod_bam`.
 ///
 /// # Errors
-/// Returns errors from simulating BAM files
+/// Returns errors from simulating BAM or CRAM files.
 fn run(cli: &Cli) -> Result<(), Error> {
     let json_str = std::fs::read_to_string(&cli.json)?;
     let config: SimulationConfig = serde_json::from_str(&json_str)?;
-    simulate_mod_bam::run(config, &cli.bam, &cli.fasta)
+    simulate_mod_bam::run(config, &cli.alignment, &cli.fasta)
 }
 
 #[cfg(test)]
@@ -97,7 +101,7 @@ mod tests {
         // Create Cli struct with our test paths
         let cli = Cli {
             json: json_path.to_string_lossy().to_string(),
-            bam: bam_path.to_string_lossy().to_string(),
+            alignment: bam_path.to_string_lossy().to_string(),
             fasta: fasta_path.to_string_lossy().to_string(),
         };
 
@@ -141,7 +145,7 @@ mod tests {
 
         let cli = Cli {
             json: json_path.to_string_lossy().to_string(),
-            bam: temp_path.join("output.bam").to_string_lossy().to_string(),
+            alignment: temp_path.join("output.bam").to_string_lossy().to_string(),
             fasta: temp_path.join("output.fasta").to_string_lossy().to_string(),
         };
 
@@ -169,7 +173,7 @@ mod tests {
 
         let cli = Cli {
             json: json_path.to_string_lossy().to_string(),
-            bam: bam_path.to_string_lossy().to_string(),
+            alignment: bam_path.to_string_lossy().to_string(),
             fasta: fasta_path.to_string_lossy().to_string(),
         };
 
@@ -178,6 +182,76 @@ mod tests {
         assert!(result.is_err(), "run should fail with invalid JSON");
 
         // Clean up
+        fs::remove_dir_all(&temp_path).expect("failed to clean up temp dir");
+    }
+
+    #[test]
+    fn run_creates_cram_outputs_for_uppercase_extension() {
+        let temp_path = env::temp_dir().join(format!("nanalogue_test_{}", uuid::v4_random()));
+        fs::create_dir_all(&temp_path).expect("failed to create temp dir");
+
+        let json_config = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100],
+                "repeated_seq": "ACGT"
+            },
+            "reads": [{
+                "number": 5,
+                "mapq_range": [10, 20],
+                "base_qual_range": [20, 30],
+                "len_range": [0.5, 0.5]
+            }],
+            "seed": 7
+        }"#;
+        let json_path = temp_path.join("config.json");
+        fs::write(&json_path, json_config).expect("failed to write JSON config");
+        let cram_path = temp_path.join("output.CRAM");
+        let fasta_path = temp_path.join("output.fa");
+
+        let cli = Cli {
+            json: json_path.to_string_lossy().to_string(),
+            alignment: cram_path.to_string_lossy().to_string(),
+            fasta: fasta_path.to_string_lossy().to_string(),
+        };
+
+        run(&cli).expect("run should succeed with CRAM output");
+        assert!(cram_path.exists(), "CRAM file should be created");
+        assert!(
+            temp_path.join("output.CRAM.crai").exists(),
+            "CRAI index should be created"
+        );
+        assert!(
+            temp_path.join("output.fa.fai").exists(),
+            "FAI index should be created"
+        );
+
+        fs::remove_dir_all(&temp_path).expect("failed to clean up temp dir");
+    }
+
+    #[test]
+    fn run_rejects_invalid_alignment_extension() {
+        let temp_path = env::temp_dir().join(format!("nanalogue_test_{}", uuid::v4_random()));
+        fs::create_dir_all(&temp_path).expect("failed to create temp dir");
+
+        let json_path = temp_path.join("config.json");
+        fs::write(
+            &json_path,
+            r#"{"contigs":{"number":1,"len_range":[20,20]},"reads":[]}"#,
+        )
+        .expect("failed to write JSON config");
+
+        let cli = Cli {
+            json: json_path.to_string_lossy().to_string(),
+            alignment: temp_path.join("output.txt").to_string_lossy().to_string(),
+            fasta: temp_path.join("output.fa").to_string_lossy().to_string(),
+        };
+
+        let result = run(&cli);
+        assert!(
+            matches!(result, Err(Error::InvalidState(msg)) if msg == "alignment output path must end in .bam or .cram")
+        );
+
         fs::remove_dir_all(&temp_path).expect("failed to clean up temp dir");
     }
 
@@ -192,7 +266,7 @@ mod tests {
                 .join("nonexistent.json")
                 .to_string_lossy()
                 .to_string(),
-            bam: temp_path.join("output.bam").to_string_lossy().to_string(),
+            alignment: temp_path.join("output.bam").to_string_lossy().to_string(),
             fasta: temp_path.join("output.fasta").to_string_lossy().to_string(),
         };
 

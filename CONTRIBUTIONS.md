@@ -27,6 +27,10 @@ cargo build
 cargo test
 ```
 
+Note: some negative tests intentionally trigger HTSlib errors or warnings on stderr.
+These messages can appear during a successful test run and do not necessarily
+indicate a failing test.
+
 ## Code Quality Standards
 
 This project maintains high code quality standards. Before submitting a PR, ensure:
