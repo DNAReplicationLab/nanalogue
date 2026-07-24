@@ -841,13 +841,13 @@ mod stochastic_tests {
     use super::*;
     use crate::SimulationConfig;
     use crate::analysis;
-    use crate::simulate_mod_bam::TempBamSimulation;
+    use crate::simulate_mod_bam::{AlignmentFormat, TempBamSimulation};
     use rust_htslib::bam::{self, Read as _};
 
     /// Helper to create a simulation from JSON config
     fn create_test_simulation(config_json: &str) -> Result<TempBamSimulation, Error> {
         let config: SimulationConfig = serde_json::from_str(config_json)?;
-        TempBamSimulation::new(config)
+        TempBamSimulation::new(config, AlignmentFormat::Bam)
     }
 
     /// Helper to run window analysis with `threshold_and_mean` aggregation function

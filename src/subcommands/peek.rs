@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn peek_shows_simulated_example() {
-        use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
+        use crate::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
 
         let config_json = r#"{
             "contigs": {
@@ -273,7 +273,7 @@ mod tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut input_bam = InputBamBuilder::default()
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn peek_no_mods() {
-        use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
+        use crate::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
 
         let config_json = r#"{
             "contigs": {
@@ -323,7 +323,7 @@ mod tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut input_bam = InputBamBuilder::default()
@@ -359,7 +359,7 @@ mod tests {
         expected = "No records found. Please check if the BAM/CRAM/SAM resource has at least one record"
     )]
     fn peek_empty_file() {
-        use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
+        use crate::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
 
         let config_json = r#"{
             "contigs": {
@@ -371,7 +371,7 @@ mod tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut input_bam = InputBamBuilder::default()

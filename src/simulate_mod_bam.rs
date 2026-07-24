@@ -1611,26 +1611,52 @@ where
     Ok(())
 }
 
-/// Temporary BAM simulation with automatic cleanup
+/// Alignment format for temporary simulations.
 ///
-/// Creates temporary BAM and FASTA files for testing purposes and
-/// automatically removes them when dropped.
+/// This enum is non-exhaustive so additional alignment output formats, such as
+/// SAM, can be added in the future without breaking downstream matches.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AlignmentFormat {
+    /// Write BAM output.
+    Bam,
+    /// Write CRAM output.
+    Cram,
+}
+
+impl AlignmentFormat {
+    /// Returns the canonical filename extension for this alignment format.
+    #[must_use]
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Bam => "bam",
+            Self::Cram => "cram",
+        }
+    }
+}
+
+/// Temporary alignment simulation with automatic cleanup
+///
+/// Creates temporary BAM or CRAM alignment output plus a FASTA file for
+/// testing purposes and automatically removes them when dropped.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TempBamSimulation {
     /// Temporary directory containing simulation outputs
     temp_dir: String,
-    /// Path to bam file that will be created
+    /// Alignment format used for this simulation
+    format: AlignmentFormat,
+    /// Path to the alignment file that will be created (`.bam` or `.cram`)
     bam_path: String,
     /// Path to fasta file that will be created
     fasta_path: String,
 }
 
 impl TempBamSimulation {
-    /// Creates a new temporary BAM simulation from JSON configuration
+    /// Creates a new temporary alignment simulation from JSON configuration
     ///
     /// # Errors
     /// Returns an error if the simulation run fails
-    pub fn new(config: SimulationConfig) -> Result<Self, Error> {
+    pub fn new(config: SimulationConfig, format: AlignmentFormat) -> Result<Self, Error> {
         let temp_dir_root = {
             let temp = std::env::temp_dir();
             if temp.is_dir() {
@@ -1648,18 +1674,28 @@ impl TempBamSimulation {
         )]
         std::fs::create_dir(&temp_dir)?;
 
-        let bam_path = temp_dir.join("simulation.bam");
+        let bam_path = temp_dir.join(format!("simulation.{}", format.extension()));
         let fasta_path = temp_dir.join("simulation.fa");
 
         run(config, &bam_path, &fasta_path)?;
         Ok(Self {
             temp_dir: temp_dir.to_string_lossy().to_string(),
+            format,
             bam_path: bam_path.to_string_lossy().to_string(),
             fasta_path: fasta_path.to_string_lossy().to_string(),
         })
     }
 
-    /// Returns the path to the temporary BAM file
+    /// Returns the alignment format used for this simulation.
+    #[must_use]
+    pub fn format(&self) -> AlignmentFormat {
+        self.format
+    }
+
+    /// Returns the path to the temporary alignment file.
+    ///
+    /// Despite the name, this may be a `.bam` or `.cram` path depending on
+    /// the requested [`AlignmentFormat`].
     #[must_use]
     pub fn bam_path(&self) -> &str {
         &self.bam_path
@@ -1701,7 +1737,7 @@ mod seeded_simulation_tests {
 
     fn run_seeded_simulation(config_json: &str) -> Result<Vec<bam::Record>, Error> {
         let config: SimulationConfig = serde_json::from_str(config_json)?;
-        let temp = TempBamSimulation::new(config)?;
+        let temp = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
         let mut reader = crate::nanalogue_bam_reader(temp.bam_path())?;
         reader
             .records()
@@ -1941,6 +1977,49 @@ mod read_generation_no_mods_tests {
 
     /// Tests `TempBamSimulation` struct functionality without mods
     #[test]
+    fn temp_bam_simulation_remembers_format() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100]
+            },
+            "reads": [{
+                "number": 1,
+                "len_range": [0.5, 0.5]
+            }]
+        }"#;
+
+        let bam_config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let bam_sim = TempBamSimulation::new(bam_config, AlignmentFormat::Bam).unwrap();
+
+        assert!(matches!(bam_sim.format(), AlignmentFormat::Bam));
+        assert!(
+            Path::new(bam_sim.bam_path())
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("bam"))
+        );
+
+        let cram_config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let cram_sim = TempBamSimulation::new(cram_config, AlignmentFormat::Cram).unwrap();
+
+        assert!(matches!(cram_sim.format(), AlignmentFormat::Cram));
+        assert!(
+            Path::new(cram_sim.bam_path())
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("cram"))
+        );
+
+        let mut cram_reader = bam::Reader::from_path(cram_sim.bam_path()).unwrap();
+        cram_reader.set_reference(cram_sim.fasta_path()).unwrap();
+        let _: bam::Record = cram_reader
+            .records()
+            .next()
+            .expect("CRAM reader should yield at least one record")
+            .expect("first CRAM record should decode successfully");
+    }
+
+    /// Tests `TempBamSimulation` struct functionality without mods
+    #[test]
     fn temp_bam_simulation_struct_no_mods() {
         let config_json = r#"{
             "contigs": {
@@ -1957,7 +2036,7 @@ mod read_generation_no_mods_tests {
 
         // Create temporary simulation
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
 
         // Verify files exist
         assert!(Path::new(sim.bam_path()).exists());
@@ -1989,7 +2068,7 @@ mod read_generation_no_mods_tests {
 
         {
             let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-            let sim = TempBamSimulation::new(config).unwrap();
+            let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
             bam_path = sim.bam_path().to_string();
             fasta_path = sim.fasta_path().to_string();
 
@@ -2084,7 +2163,7 @@ mod read_generation_no_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Should have 50 + 75 + 25 = 150 reads total
@@ -2232,7 +2311,7 @@ mod read_generation_no_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut has_unmapped = false;
@@ -2457,7 +2536,7 @@ mod read_generation_barcodes {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         for record in reader.records() {
@@ -2600,7 +2679,7 @@ mod read_generation_with_mods_tests {
 
         // Create temporary simulation
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
 
         // Verify files exist
         assert!(Path::new(sim.bam_path()).exists());
@@ -2853,7 +2932,7 @@ mod read_generation_with_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut has_c_mod = false;
@@ -3386,7 +3465,7 @@ mod read_generation_with_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(json_str).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
 
         let mut bam = bam::Reader::from_path(sim.bam_path()).unwrap();
         let mut df_collection = Vec::new();
@@ -3555,7 +3634,7 @@ mod contig_generation_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Verify contig is exactly ACGTACGTACGTACGT (4 repeats)
@@ -3580,7 +3659,7 @@ mod contig_generation_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Verify 1bp contig works

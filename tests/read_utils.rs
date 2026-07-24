@@ -1,7 +1,7 @@
 //! Tests for `read_utils.rs` extracted from doctests
 
 use bedrs::{Bed3, Coordinates as _, Strand};
-use nanalogue_core::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
+use nanalogue_core::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
 use nanalogue_core::{
     CurrRead, Error, GenomicStrandedBed3, Intersects as _, ModChar, ReadState, ThresholdState,
     nanalogue_bam_reader, read_utils::OnlyAlignData,
@@ -103,7 +103,7 @@ mod tests {
         }]
     }"#;
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let simulated_bam = TempBamSimulation::new(config).unwrap();
+        let simulated_bam = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = nanalogue_bam_reader(simulated_bam.bam_path())?;
 
         let (sum, deviation_sq) = {
@@ -196,7 +196,7 @@ mod tests {
         }]
     }"#;
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = nanalogue_bam_reader(sim.bam_path())?;
 
         let (sum_seq_len, deviation_sequence_len_sq, sum_align_len, deviation_align_len_sq, count) = {
@@ -527,7 +527,7 @@ mod tests {
         }]
     }"#;
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = nanalogue_bam_reader(sim.bam_path())?;
         let mut cnt = 0;
 
@@ -581,7 +581,7 @@ mod tests {
         }]
     }"#;
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
         let mut reader = nanalogue_bam_reader(sim.bam_path()).unwrap();
 
         // We probe first contig 225-229, so if we have AAGCTAGCTG repeated

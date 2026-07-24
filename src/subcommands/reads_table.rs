@@ -1823,7 +1823,8 @@ mod stochastic_tests {
     use crate::{
         GenomicBed3,
         simulate_mod_bam::{
-            ContigConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder, TempBamSimulation,
+            AlignmentFormat, ContigConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder,
+            TempBamSimulation,
         },
     };
     use derive_builder::Builder;
@@ -2009,7 +2010,7 @@ mod stochastic_tests {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        let sim = TempBamSimulation::new(sim_config)?;
+        let sim = TempBamSimulation::new(sim_config, AlignmentFormat::Bam)?;
         let df = run_reads_table_generation(&sim, None, SeqDisplayOptions::No)?;
 
         // Verify the dataframe is not empty and has expected columns
@@ -2068,7 +2069,7 @@ mod stochastic_tests {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        let sim = TempBamSimulation::new(sim_config)?;
+        let sim = TempBamSimulation::new(sim_config, AlignmentFormat::Bam)?;
         let df = run_reads_table_generation(&sim, None, SeqDisplayOptions::No)?;
 
         // Verify the dataframe is not empty and has expected columns
@@ -2125,7 +2126,7 @@ mod stochastic_tests {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        let sim = TempBamSimulation::new(sim_config)?;
+        let sim = TempBamSimulation::new(sim_config, AlignmentFormat::Bam)?;
         let df = run_reads_table_generation(
             &sim,
             None,
@@ -2209,7 +2210,7 @@ mod stochastic_tests {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        let sim = TempBamSimulation::new(sim_config)?;
+        let sim = TempBamSimulation::new(sim_config, AlignmentFormat::Bam)?;
         let df = run_reads_table_generation(
             &sim,
             None,
@@ -2257,7 +2258,7 @@ mod stochastic_tests {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        TempBamSimulation::new(sim_config)
+        TempBamSimulation::new(sim_config, AlignmentFormat::Bam)
     }
 
     /// Helper function to test sequence retrieval from a specific region.
@@ -2434,8 +2435,8 @@ mod stochastic_tests_with_mods {
     use crate::{
         GenomicBed3, InputModsBuilder,
         simulate_mod_bam::{
-            ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder,
-            TempBamSimulation,
+            AlignmentFormat, ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder,
+            SimulationConfigBuilder, TempBamSimulation,
         },
     };
     use rust_htslib::bam::Read as _;
@@ -2482,7 +2483,7 @@ mod stochastic_tests_with_mods {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        TempBamSimulation::new(sim_config)
+        TempBamSimulation::new(sim_config, AlignmentFormat::Bam)
     }
 
     /// Helper function to test sequence retrieval from a specific region.
@@ -2779,7 +2780,7 @@ mod stochastic_tests_with_mods {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        TempBamSimulation::new(sim_config)
+        TempBamSimulation::new(sim_config, AlignmentFormat::Bam)
     }
 
     #[test]

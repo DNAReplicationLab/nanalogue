@@ -419,7 +419,7 @@ mod bam_input_option_retrieval_from_commands {
 mod find_modified_reads_tests {
     use clap::Parser as _;
     use nanalogue_core::commands;
-    use nanalogue_core::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
+    use nanalogue_core::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
     use nanalogue_core::{F32Bw0and1, OrdPair};
 
     /// Creates a probability interval [x1, x2] that will produce the desired modification density.
@@ -486,7 +486,7 @@ mod find_modified_reads_tests {
         );
 
         let config: SimulationConfig = serde_json::from_str(&config_json).unwrap();
-        TempBamSimulation::new(config).unwrap()
+        TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap()
     }
 
     /// Builds a `find-modified-reads` CLI command with the given parameters.
