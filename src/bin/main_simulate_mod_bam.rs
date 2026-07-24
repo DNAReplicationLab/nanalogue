@@ -10,6 +10,8 @@ use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam};
 const LONG_ABOUT: &str =
     "Create a synthetic BAM or CRAM file, its alignment index, and a matching FASTA reference.
 This is intended for developers testing alignment parsers and base-modification tooling.
+It generates a controlled subset of BAM/CRAM outputs and is not intended to
+cover all real-world variants, codecs, reference modes, or producer quirks.
 
 The input is a JSON object with three top-level fields:
   contigs  Configures the generated reference contigs.

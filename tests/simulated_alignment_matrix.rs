@@ -97,22 +97,14 @@ mod tests {
         })
     }
 
-    /// Open a plain BAM/CRAM reader, attaching the FASTA reference for CRAM.
+    /// Open a plain BAM/CRAM reader.
     fn open_reader(sim: &TempBamSimulation) -> Result<bam::Reader, Error> {
-        let mut reader = bam::Reader::from_path(sim.bam_path())?;
-        if matches!(sim.format(), AlignmentFormat::Cram) {
-            reader.set_reference(sim.fasta_path())?;
-        }
-        Ok(reader)
+        Ok(bam::Reader::from_path(sim.bam_path())?)
     }
 
-    /// Open an indexed BAM/CRAM reader, attaching the FASTA reference for CRAM.
+    /// Open an indexed BAM/CRAM reader.
     fn open_indexed_reader(sim: &TempBamSimulation) -> Result<bam::IndexedReader, Error> {
-        let mut reader = bam::IndexedReader::from_path(sim.bam_path())?;
-        if matches!(sim.format(), AlignmentFormat::Cram) {
-            reader.set_reference(sim.fasta_path())?;
-        }
-        Ok(reader)
+        Ok(bam::IndexedReader::from_path(sim.bam_path())?)
     }
 
     /// Summarize one BAM/CRAM record using stable comparison fields.

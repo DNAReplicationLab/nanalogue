@@ -11,6 +11,12 @@
 //! substantial CPU time, memory, and disk space. Callers should use trusted
 //! configurations and ensure adequate local resources for the requested simulation.
 //!
+//! The simulator produces a controlled subset of BAM/CRAM files suitable for
+//! deterministic testing and developer experiments. Successful simulation-based
+//! coverage should not be interpreted as exhaustive coverage of all real-world
+//! BAM/CRAM variants, codecs, compression modes, reference-handling modes, or
+//! producer-specific quirks.
+//!
 //! ## Example Usage
 //!
 //! We've shown how to construct `SimulationConfig` which contains input options
@@ -1937,7 +1943,6 @@ mod read_generation_no_mods_tests {
         assert_eq!(prefix.get(..6), Some(&b"CRAM\x03\x01"[..]));
 
         let mut reader = bam::Reader::from_path(&cram_path).unwrap();
-        reader.set_reference(&fasta_path).unwrap();
         assert_eq!(reader.header().target_count(), 2);
         let records = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(records.len(), 1000);
@@ -1968,7 +1973,6 @@ mod read_generation_no_mods_tests {
         );
 
         let mut indexed_reader = bam::IndexedReader::from_path(&cram_path).unwrap();
-        indexed_reader.set_reference(&fasta_path).unwrap();
         indexed_reader.fetch((0, 0, 200)).unwrap();
         assert!(indexed_reader.records().next().is_some());
 
@@ -2010,7 +2014,6 @@ mod read_generation_no_mods_tests {
         );
 
         let mut cram_reader = bam::Reader::from_path(cram_sim.bam_path()).unwrap();
-        cram_reader.set_reference(cram_sim.fasta_path()).unwrap();
         let _: bam::Record = cram_reader
             .records()
             .next()
