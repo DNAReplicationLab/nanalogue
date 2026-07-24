@@ -373,7 +373,10 @@ impl CramWriter {
                 "failed to select CRAM version 3.1".into(),
             ));
         }
-        // SAFETY: `writer.file` remains valid for both of these option-setting calls.
+        #[expect(
+            clippy::undocumented_unsafe_blocks,
+            reason = "`writer.file` remains valid for both of these option-setting calls"
+        )]
         if unsafe { htslib::hts_set_opt(writer.file, htslib::hts_fmt_option_CRAM_OPT_EMBED_REF, 0) }
             != 0
             || unsafe {
@@ -683,8 +686,9 @@ pub(crate) fn read_line_capped<R: std::io::BufRead>(
                     usize::from(v) <= buffered.len(),
                     "`v` cannot be greater than `buffered.len()`"
                 );
+                // SAFETY: the buffered bytes were already checked to be a
+                // subset of valid ASCII before this unchecked UTF-8 conversion.
                 unsafe {
-                    // we've already checked bytes are a subset of valid ASCII
                     line.push_str(str::from_utf8_unchecked(
                         &buffered[..usize::from(v - bytes_to_trim)],
                     ));

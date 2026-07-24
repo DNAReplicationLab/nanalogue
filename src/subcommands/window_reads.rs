@@ -101,6 +101,10 @@ where
                     .expect("no error as we've checked data len >= win size"),
             ) {
                 Ok(val) => val,
+                #[expect(
+                    clippy::print_stderr,
+                    reason = "warning output to stderr is intentional here"
+                )]
                 Err(e) => {
                     eprintln!(
                         "Warning: Skipping {win_size} window starting at {qname}:{window_idx} due to error: {e}"

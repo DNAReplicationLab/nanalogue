@@ -856,10 +856,23 @@ impl PerfectSeqMatchToNot {
         }
 
         // Step 4: Apply insert_middle (add new tuples with 'I' operation)
+        #[expect(
+            clippy::integer_division,
+            reason = "middle insertion uses deterministic floor division on seqs of len > 1"
+        )]
+        #[expect(
+            clippy::integer_division_remainder_used,
+            reason = "middle insertion uses deterministic floor division on seqs of len > 1"
+        )]
         if let Some(insert_seq) = self.insert_middle {
+            if bases_and_ops.len() <= 1 {
+                return Err(Error::InvalidState(
+                    "cannot insert into a bases-and-operations sequence of length 0 or 1".into(),
+                ));
+            }
             let middle = bases_and_ops.len() / 2;
             let insert_bases = insert_seq.get_dna_restrictive().get();
-            let insertions: Vec<(u8, u8)> = insert_bases.iter().map(|&b| (b, b'I')).collect();
+            let insertions: Vec<(u8, u8)> = insert_bases.iter().map(|&base| (base, b'I')).collect();
 
             drop(
                 bases_and_ops
@@ -1128,13 +1141,13 @@ pub fn add_barcode(read_seq: &[u8], barcode: DNARestrictive, read_state: ReadSta
         | ReadState::Unmapped => {
             // Forward/Unmapped: barcode + read_seq + reverse_complement(barcode)
             let revcomp_bc = revcomp(bc_bytes);
-            [bc_bytes, read_seq, &revcomp_bc[..]].concat()
+            [bc_bytes, read_seq, &*revcomp_bc].concat()
         }
         ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
             // Reverse: complement(barcode) + read_seq + reverse(barcode)
             let comp_bc: Vec<u8> = bc_bytes.iter().map(|&b| complement(b)).collect();
             let rev_bc: Vec<u8> = bc_bytes.iter().copied().rev().collect();
-            [&comp_bc[..], read_seq, &rev_bc[..]].concat()
+            [&*comp_bc, read_seq, &*rev_bc].concat()
         }
     }
 }
@@ -3329,6 +3342,14 @@ mod read_generation_with_mods_tests {
         clippy::too_many_lines,
         reason = "test requires setup, iteration, and multiple assertions for thorough validation"
     )]
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "forward and reverse aligned reads are asserted to have non-negative reference positions before modulo checks"
+    )]
+    #[expect(
+        clippy::modulo_arithmetic,
+        reason = "we assert aligned reference positions are non-negative before modulo checks"
+    )]
     #[test]
     fn mismatch_mod_check() {
         let json_str = r#"{
@@ -3410,10 +3431,18 @@ mod read_generation_with_mods_tests {
             if read_id.starts_with("0.") {
                 // Group 0: no mismatch, mod positions should follow 4n+1 (forward) or 4n+2 (reverse)
                 if alignment_type.contains("forward") {
+                    assert!(
+                        ref_position >= 0,
+                        "aligned forward reads must have non-negative reference positions"
+                    );
                     if ref_position % 4 != 1 {
                         group0_forward_position_violations += 1;
                     }
                 } else if alignment_type.contains("reverse") {
+                    assert!(
+                        ref_position >= 0,
+                        "aligned reverse reads must have non-negative reference positions"
+                    );
                     if ref_position % 4 != 2 {
                         group0_reverse_position_violations += 1;
                     }
@@ -3430,10 +3459,18 @@ mod read_generation_with_mods_tests {
             } else if read_id.starts_with("1.") {
                 // Group 1: 100% mismatch, mod positions should NOT follow expected patterns
                 if alignment_type.contains("forward") {
+                    assert!(
+                        ref_position >= 0,
+                        "aligned forward reads must have non-negative reference positions"
+                    );
                     if ref_position % 4 == 1 {
                         group1_forward_position_violations += 1;
                     }
                 } else if alignment_type.contains("reverse") {
+                    assert!(
+                        ref_position >= 0,
+                        "aligned reverse reads must have non-negative reference positions"
+                    );
                     if ref_position % 4 == 2 {
                         group1_reverse_position_violations += 1;
                     }
@@ -3836,7 +3873,9 @@ mod perfect_seq_match_to_not_tests {
     }
 
     #[test]
-    #[should_panic(expected = "SimulateDNASeqCIGAREndProblem")]
+    #[should_panic(
+        expected = "cannot insert into a bases-and-operations sequence of length 0 or 1"
+    )]
     fn build_with_insert_almost_whole_length() {
         let mut rng = rand::rng();
         let insert_seq = DNARestrictive::from_str("AATT").unwrap();
@@ -3862,7 +3901,9 @@ mod perfect_seq_match_to_not_tests {
     }
 
     #[test]
-    #[should_panic(expected = "SimulateDNASeqCIGAREndProblem")]
+    #[should_panic(
+        expected = "cannot insert into a bases-and-operations sequence of length 0 or 1"
+    )]
     fn build_with_insert_almost_whole_length_with_barcode() {
         let mut rng = rand::rng();
         let insert_seq = DNARestrictive::from_str("AATT").unwrap();

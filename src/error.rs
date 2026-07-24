@@ -449,7 +449,7 @@ mod tests {
 
     /// Helper to create a `TryFromCharError` suitable for conversion tests.
     fn sample_try_from_char_error() -> TryFromCharError {
-        match u8::try_from('💥') {
+        match u8::try_from('\u{1f4a5}') {
             Ok(_) => unreachable!("expected out-of-range char conversion to fail"),
             Err(error) => error,
         }
@@ -533,6 +533,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::non_ascii_literal,
+        reason = "non-ascii characters are intentional here"
+    )]
     fn trunc_100_preserves_boundary_and_truncates_unicode() {
         assert_eq!(trunc_100(""), "");
         assert_eq!(trunc_100("x"), "x");

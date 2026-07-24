@@ -207,7 +207,10 @@ impl fmt::Display for ReadInstance {
                         v if !v.is_empty() => format!("\t{v}"),
                         _ => String::new(),
                     },
-                    match vec_csv!(sq.iter().map(|v| unsafe {
+                    match vec_csv!(sq.iter().map(|v|
+                        // SAFETY: `rust-htslib` guarantees only printable sequence
+                        // characters here, and the `BaseFmt` remapping preserves ASCII.
+                        unsafe {
                         String::from_utf8_unchecked(
                             v.clone()
                                 .into_iter()
@@ -923,7 +926,7 @@ where
     let schema = Schema::from_iter(schema_fields);
 
     // Parse the TSV data with the schema
-    let cursor = Cursor::new(&buffer[..]);
+    let cursor = Cursor::new(&*buffer);
     let df = CsvReadOptions::default()
         .with_has_header(true)
         .map_parse_options(|parse_options| {
@@ -1557,6 +1560,10 @@ mod sequencing_summary_tests {
     }
 
     #[test]
+    #[expect(
+        clippy::non_ascii_literal,
+        reason = "non-ascii characters are intentional here"
+    )]
     fn process_seq_summ_weird_chars_fail() {
         let weird_char_case = "read_id\tsequence_length_template\nA💚A\t1234\n";
         let temp_path = write_temp_seq_summary(weird_char_case);

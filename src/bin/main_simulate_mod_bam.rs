@@ -33,6 +33,10 @@ fn main() {
     let cli = Cli::parse();
 
     // call the run function and get the result
+    #[expect(
+        clippy::print_stderr,
+        reason = "reporting command failure to stderr is intentional here"
+    )]
     match run(&cli) {
         Ok(()) => {}
         Err(e) => {

@@ -26,8 +26,8 @@ fn main() {
         nanalogue_core::init_ssl_certificates();
     }
 
-    // we do not want to print `htslib` errors but want to deal with
-    // them using our own error handling.
+    // SAFETY: we assume it is safe. We do not want to print `htslib` errors
+    // but want to deal with them using our own error handling.
     unsafe {
         htslib::hts_set_log_level(0);
     }
@@ -40,6 +40,10 @@ fn main() {
     let handle = io::BufWriter::new(stdout);
 
     // call the run function and get the result
+    #[expect(
+        clippy::print_stderr,
+        reason = "reporting command failure to stderr is intentional here"
+    )]
     match commands::run(cli, handle) {
         Ok(()) => {}
         // Broken pipe is normal when piping to tools like `head`;

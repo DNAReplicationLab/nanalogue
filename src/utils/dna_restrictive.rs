@@ -101,6 +101,8 @@ impl fmt::Display for DNARestrictive {
     /// assert_eq!(val_1.to_string(), String::from("ACGTACGT"));
     /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // SAFETY: `DNARestrictive` guarantees `self.0` contains only `A/C/G/T`
+        // bytes, so cloning it into a `String` is valid UTF-8.
         unsafe { String::from_utf8_unchecked(self.0.clone()).fmt(f) }
     }
 }

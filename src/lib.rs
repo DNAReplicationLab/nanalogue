@@ -177,25 +177,35 @@ static SSL_INIT: Once = Once::new();
 pub unsafe fn init_ssl_certificates() {
     SSL_INIT.call_once(|| {
         let probe = openssl_probe::probe();
-        // SAFETY: Caller guarantees no other threads have been spawned, so no
-        // concurrent `getenv` can race with these `setenv` calls. Pre-existing
-        // values are preserved.
-        unsafe {
-            if let Some(cert_file) = probe.cert_file.as_deref() {
-                if std::env::var_os("SSL_CERT_FILE").is_none() {
+        if let Some(cert_file) = probe.cert_file.as_deref() {
+            if std::env::var_os("SSL_CERT_FILE").is_none() {
+                // SAFETY: Caller guarantees no other threads have been spawned,
+                // so no concurrent `getenv` can race with this `setenv` call.
+                // Pre-existing values are preserved.
+                unsafe {
                     std::env::set_var("SSL_CERT_FILE", cert_file);
                 }
-                // libcurl statically linked into rust-htslib checks
-                // CURL_CA_BUNDLE rather than SSL_CERT_FILE. Use the probed
-                // path directly so the value comes from the filesystem probe.
-                if std::env::var_os("CURL_CA_BUNDLE").is_none() {
+            }
+            // libcurl statically linked into rust-htslib checks
+            // CURL_CA_BUNDLE rather than SSL_CERT_FILE. Use the probed
+            // path directly so the value comes from the filesystem probe.
+            if std::env::var_os("CURL_CA_BUNDLE").is_none() {
+                // SAFETY: Caller guarantees no other threads have been spawned,
+                // so no concurrent `getenv` can race with this `setenv` call.
+                // Pre-existing values are preserved.
+                unsafe {
                     std::env::set_var("CURL_CA_BUNDLE", cert_file);
                 }
             }
-            if !probe.cert_dir.is_empty()
-                && std::env::var_os("SSL_CERT_DIR").is_none()
-                && let Ok(joined) = std::env::join_paths(&probe.cert_dir)
-            {
+        }
+        if !probe.cert_dir.is_empty()
+            && std::env::var_os("SSL_CERT_DIR").is_none()
+            && let Ok(joined) = std::env::join_paths(&probe.cert_dir)
+        {
+            // SAFETY: Caller guarantees no other threads have been spawned, so
+            // no concurrent `getenv` can race with this `setenv` call.
+            // Pre-existing values are preserved.
+            unsafe {
                 std::env::set_var("SSL_CERT_DIR", joined);
             }
         }
@@ -1561,8 +1571,8 @@ mod bam_rc_record_tests {
 
         for _ in 1..=10000 {
             let mut record = record::Record::new();
-            let seq_len: usize = random_range(2..=10000);
-            let match_len = seq_len / 2;
+            let match_len: usize = random_range(1..=5000);
+            let seq_len = match_len * 2;
             let hard_clip_len = seq_len - match_len;
 
             record.set(

@@ -81,6 +81,14 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::integer_division,
+        reason = "we check within a large tolerance so integer division is fine"
+    )]
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "we check within a large tolerance so integer division is fine"
+    )]
     fn set_seq_len_random() -> Result<(), Error> {
         // creates 2 contigs of 1000 bp each and reads of random
         // mapping, position etc. with lengths b/w 10-20% of contig size.
@@ -163,6 +171,14 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::integer_division,
+        reason = "we check within a large tolerance so integer division is fine"
+    )]
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "we check within a large tolerance so integer division is fine"
+    )]
     fn set_align_len_random() -> Result<(), Error> {
         // creates 2 contigs of 1000 bp each and reads of random
         // mapping, position etc. with lengths b/w 10-20% of contig size.
@@ -705,6 +721,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::non_ascii_literal,
+        reason = "non-ascii characters are intentional here"
+    )]
     fn basecount_per_mod() -> Result<(), Error> {
         let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
         let first_count = HashMap::from([(ModChar::new('T'), 0)]);
@@ -729,6 +749,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::non_ascii_literal,
+        reason = "non-ascii characters are intentional here"
+    )]
     fn try_from_record_for_curr_read() -> Result<(), Error> {
         // Test the TryFrom<Record> implementation for CurrRead<AlignAndModData>.
         // This implementation uses ThresholdState::GtEq(128), which may differ from
