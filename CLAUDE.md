@@ -5,9 +5,26 @@ the following commands in this order:
 - `cargo test -q` to make sure you pass cargo tests.
 - `cargo fmt` to format the code in the rust style.
 
-Note: some negative tests intentionally trigger HTSlib errors or warnings on
-stderr. These messages may appear during a successful `cargo test` run and are
-not by themselves evidence of a failure.
+Note: some tests deliberately construct invalid scenarios to verify that the
+program fails safely, which may cause HTSlib to emit errors or warnings on
+stderr. Do not interpret these messages as failures unless the tests themselves
+fail.
+
+During testing, some simulated CRAM files may use an external FASTA reference
+generated locally on the system where the tests are being run. Because HTSlib
+may try EBI before the local reference recorded in the CRAM header, offline
+tests can print harmless network errors. Use
+`REF_PATH=/path/that/does/not/exist cargo test` to suppress HTSlib's implicit
+EBI M5 lookup while retaining fallback to the accessible local `UR` reference.
+
+If the pinned `hts-sys`/bindgen build has Clang compatibility trouble, use
+matching Clang and libclang 18–21 and avoid Clang 22. `CLANG_PATH` must name the
+Clang executable, while `LIBCLANG_PATH` must name the directory containing the
+matching libclang shared library. Retry with `CLANG_PATH=/usr/bin/clang-18` and
+`LIBCLANG_PATH=/usr/lib/llvm-18/lib`; if those paths do not exist, search for
+another Clang 18–21 installation and ask the user if none is available. Newer
+HTSlib versions may change CRAM reference resolution, while newer
+`hts-sys`/bindgen versions may support Clang 22.
 
 ## Final review
 
@@ -38,11 +55,3 @@ i.e. not with this commit we do blah blah.
 Any docs or plans you make must go into brainstorming/ . you must never commit anything in brainstorming/
 
 Use the quiet version of cargo commands wherever possible.
-
-This project should use Clang 18-21 only and avoid Clang 22 if present.
-For any `cargo` command in this repo, set CLANG paths like below if the cargo commands do not work.
-If cargo commands do not work and the paths below do not exist, try searching for clangs 18-21.
-If you still cannot find the paths, then talk to the user.
-- `CLANG_PATH=/usr/bin/clang-18`
-- `LIBCLANG_PATH=/usr/lib/llvm-18/lib`
-

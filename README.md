@@ -33,6 +33,8 @@ tag variants; other mixed-case or lowercase variants are not recognized.
     - [GitHub Actions Artifacts](#github-actions-artifacts)
   - [Using Cargo](#using-cargo)
     - [Cargo locked](#using-cargo-locked)
+    - [Building from a Git checkout](#building-from-a-git-checkout)
+    - [Building and testing notes](#building-and-testing-notes)
   - [Using Docker](#using-docker)
 - [Commands](#commands)
   - [`nanalogue read-info`](#nanalogue-read-info)
@@ -182,12 +184,34 @@ cargo install nanalogue --locked
 This uses the exact versions of dependencies specified in the package's `Cargo.lock` file,
 and fixes install problems due to newer packages.
 
-If you are building from a Git checkout instead of an installed crate, make sure
-Git submodules are initialized so if any sources are vendored, they become available:
+### Building from a Git checkout
+
+You can also use Cargo to build a copy of `nanalogue` from source code obtained
+directly from Git. After obtaining a Git checkout, build it with:
 
 ```bash
-git submodule update --init --recursive
+cargo build
 ```
+
+### Building and testing notes
+
+If the pinned `hts-sys`/bindgen build has Clang compatibility trouble, use
+matching Clang and libclang 18–21 and avoid Clang 22 with this dependency stack.
+Set `CLANG_PATH` to the Clang executable and `LIBCLANG_PATH` to the directory
+containing the matching libclang shared library. You may not encounter this
+issue if Clang 22 is not installed on your system, or if a newer
+`hts-sys`/bindgen version has resolved the incompatibility.
+
+When running the test suite, note that some tests deliberately construct
+invalid scenarios to verify that the program fails safely. HTSlib may therefore
+emit errors or warnings even when all tests pass. Some simulated CRAM tests also
+use an external FASTA generated locally; because HTSlib may try EBI before using
+the reference recorded in the CRAM header, offline runs can print harmless
+network errors. Use `REF_PATH=/path/that/does/not/exist cargo test` to suppress
+HTSlib's implicit EBI M5 lookup while retaining fallback to the accessible
+local `UR` reference, and do not treat HTSlib messages as failures unless the
+tests themselves fail. Newer HTSlib versions may change this reference-resolution
+behavior.
 
 ## Using Docker
 
