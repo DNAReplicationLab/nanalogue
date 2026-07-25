@@ -46,6 +46,7 @@
 //!         "base": "T",
 //!         "is_strand_plus": true,
 //!         "mod_code": "T",
+//!         "mm_suffix": "?",
 //!         "win": [4, 5],
 //!         "mod_range": [[0.1, 0.2], [0.3, 0.4]]
 //!     }]
@@ -97,6 +98,10 @@
 //! //         e.g. if there are three window values and two mod ranges, then
 //! //         windows repeat in cycles of 3 whereas mod ranges will repeat in cycles of 2.
 //! //         You can use such inputs if this is what you want.
+//! //       * "mm_suffix" is optional per mod entry. It controls the trailing mark on
+//! //         the MM tag group: "?" (explicit, default), "." (implicit), or "none"
+//! //         (implicit, no trailing mark). e.g. with "none" the group is emitted as
+//! //         "T+T,0,0,..." instead of "T+T?,0,0,...".
 //! //       * "seed" is optional. If set, all random operations (contig generation, read
 //! //         generation, modification placement, etc.) use a deterministic RNG seeded with
 //! //         this value, producing identical output files across runs. If not set, the
@@ -120,7 +125,7 @@
 
 use crate::file_utils::alignment_sidecar_path;
 use crate::{
-    AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, ModChar, OrdPair,
+    AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, MmSuffix, ModChar, OrdPair,
     ReadState, complement, revcomp, uuid,
 };
 use crate::{write_bam_denovo, write_cram_denovo, write_fasta};
@@ -409,6 +414,22 @@ pub struct ReadConfig {
 ///     .mod_range(vec![(0.4, 0.8), (0.5, 0.7)]).build()?;
 /// # Ok::<(), Error>(())
 /// ```
+///
+/// To emit an implicit (no `?`) MM tag group instead of the default explicit
+/// form, set `mm_suffix` on the builder or in JSON:
+/// ```
+/// use nanalogue_core::{Error, MmSuffix};
+/// use nanalogue_core::simulate_mod_bam::ModConfigBuilder;
+///
+/// let mod_config_c = ModConfigBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .mm_suffix(MmSuffix::None) // or .mm_suffix("none".parse()?)
+///     .win(vec![2, 3])
+///     .mod_range(vec![(0.4, 0.8), (0.5, 0.7)]).build()?;
+/// # Ok::<(), Error>(())
+/// ```
 #[derive(Builder, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 #[builder(default, build_fn(error = "Error"), pattern = "owned", derive(Clone))]
@@ -422,6 +443,10 @@ pub struct ModConfig {
     /// Modification code (character or numeric)
     #[builder(field(ty = "String", build = "self.mod_code.parse()?"))]
     pub mod_code: ModChar,
+    /// Trailing mark style for the MM tag group emitted by the simulator.
+    /// `"?"` (explicit, default), `"."` (implicit), or `"none"` (implicit,
+    /// no trailing mark). See [`MmSuffix`].
+    pub mm_suffix: MmSuffix,
     /// Vector of window sizes for modification density variation.
     /// e.g. if you want reads with a window of 100 bases with each
     /// modified with a probability in the range 0.4-0.6 and the next
@@ -525,6 +550,7 @@ impl Default for ModConfig {
             base: AllowedAGCTN::C,
             is_strand_plus: true,
             mod_code: ModChar::new('m'),
+            mm_suffix: MmSuffix::default(),
             win: vec![NonZeroU32::new(1).unwrap()],
             mod_range: vec![ord_pair_f32_bw0and1!(0.0, 1.0)],
         }
@@ -1074,7 +1100,15 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
             let mod_len = output.len();
             ml_vec.append(&mut output);
             let zero_offsets = iter::repeat_n("0", mod_len).collect::<Vec<_>>().join(",");
-            mm_str += format!("{}{}{}?,{};", base as char, strand, mod_code, zero_offsets).as_str();
+            mm_str += format!(
+                "{}{}{}{},{};",
+                base as char,
+                strand,
+                mod_code,
+                mod_config.mm_suffix.suffix_str(),
+                zero_offsets
+            )
+            .as_str();
         }
     }
     ml_vec.shrink_to_fit();
@@ -2845,6 +2879,181 @@ mod read_generation_with_mods_tests {
             t_probs.iter().all(|&x| x == "0"),
             "All T modifications should have a gap pos of 0"
         );
+    }
+
+    /// Tests `generate_random_dna_modification` with a `.` (implicit dot) suffix.
+    /// The MM group should be emitted as `C+m.,...` instead of `C+m?,...`.
+    #[test]
+    fn generate_random_dna_modification_dot_suffix() {
+        let seq = DNARestrictive::from_str("ACGTCGCGATCG").unwrap();
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .mm_suffix(MmSuffix::Dot)
+            .win(vec![2])
+            .mod_range(vec![(0.5, 0.5)])
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // ML is unaffected by the suffix
+        assert_eq!(ml_vec.len(), 4);
+        assert!(ml_vec.iter().all(|&x| x == 128u8));
+
+        // MM should use the dot suffix, not the question mark
+        assert!(
+            mm_str.contains("C+m.,"),
+            "expected `C+m.,` in MM string `{mm_str}`"
+        );
+        assert!(
+            !mm_str.contains("C+m?"),
+            "did not expect `C+m?` in MM string `{mm_str}`"
+        );
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m.,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 4);
+        assert!(probs.iter().all(|&x| x == "0"));
+    }
+
+    /// Tests `generate_random_dna_modification` with a `none` (no mark) suffix.
+    /// The MM group should be emitted as `C+m,...` (no trailing mark before the comma).
+    #[test]
+    fn generate_random_dna_modification_none_suffix() {
+        let seq = DNARestrictive::from_str("ACGTCGCGATCG").unwrap();
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .mm_suffix(MmSuffix::None)
+            .win(vec![2])
+            .mod_range(vec![(0.5, 0.5)])
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // ML is unaffected by the suffix
+        assert_eq!(ml_vec.len(), 4);
+        assert!(ml_vec.iter().all(|&x| x == 128u8));
+
+        // MM should have no trailing mark: `C+m,` directly
+        assert!(
+            mm_str.contains("C+m,"),
+            "expected `C+m,` in MM string `{mm_str}`"
+        );
+        assert!(
+            !mm_str.contains("C+m?") && !mm_str.contains("C+m."),
+            "did not expect a `?` or `.` suffix in MM string `{mm_str}`"
+        );
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 4);
+        assert!(probs.iter().all(|&x| x == "0"));
+    }
+
+    /// Tests `generate_random_dna_modification` with multiple mods using
+    /// *different* suffixes in the same call, verifying per-mod independence.
+    #[test]
+    fn generate_random_dna_modification_mixed_suffixes() {
+        let seq = DNARestrictive::from_str("ACGTACGT").unwrap();
+
+        let mod_config_c = ModConfigBuilder::default()
+            .base('C')
+            .mod_code('m'.into())
+            .mm_suffix(MmSuffix::Dot)
+            .win(vec![1])
+            .mod_range(vec![(0.8, 0.8)])
+            .build()
+            .unwrap();
+
+        let mod_config_t = ModConfigBuilder::default()
+            .base('T')
+            .is_strand_plus(false)
+            .mod_code('t'.into())
+            .mm_suffix(MmSuffix::None)
+            .win(vec![1])
+            .mod_range(vec![(0.4, 0.4)])
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) =
+            generate_random_dna_modification(&[mod_config_c, mod_config_t], &seq, &mut rng);
+
+        // C group should use dot suffix, T group should have no mark
+        assert!(
+            mm_str.contains("C+m.,"),
+            "expected `C+m.,` in MM string `{mm_str}`"
+        );
+        assert!(
+            mm_str.contains("T-t,"),
+            "expected `T-t,` (no mark) in MM string `{mm_str}`"
+        );
+        assert!(
+            !mm_str.contains('?'),
+            "did not expect any `?` in MM string `{mm_str}`"
+        );
+
+        // ML values are unaffected by suffix choice
+        assert_eq!(
+            ml_vec,
+            vec![204u8, 204u8, 102u8, 102u8],
+            "ML values should be 204,204,102,102 regardless of suffix"
+        );
+    }
+
+    /// Tests that deserializing a JSON mod entry with an explicit `mm_suffix`
+    /// produces the expected `MmSuffix`, and that an invalid value is rejected.
+    #[test]
+    fn mod_config_deserializes_mm_suffix() {
+        let valid: ModConfig = serde_json::from_str(
+            r#"{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "mm_suffix": "none",
+                "win": [2],
+                "mod_range": [[0.5, 0.5]]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(valid.mm_suffix, MmSuffix::None);
+
+        let default: ModConfig = serde_json::from_str(
+            r#"{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "win": [2],
+                "mod_range": [[0.5, 0.5]]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(default.mm_suffix, MmSuffix::QuestionMark);
+
+        let invalid = serde_json::from_str::<ModConfig>(
+            r#"{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "mm_suffix": "!",
+                "win": [2],
+                "mod_range": [[0.5, 0.5]]
+            }"#,
+        );
+        assert!(invalid.is_err(), "invalid mm_suffix should be rejected");
     }
 
     /// Tests `generate_random_dna_modification` with N base (all bases)

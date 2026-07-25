@@ -36,7 +36,9 @@ Read-group features:
 
 Each modification selects a base, strand, and modification code. The win array gives
 repeating window sizes in occurrences of that base, while mod_range gives repeating
-[minimum, maximum] probability ranges for those windows.";
+[minimum, maximum] probability ranges for those windows.
+The optional mm_suffix field controls the trailing mark on the MM tag group:
+\"?\" (explicit, default), \".\" (implicit), or \"none\" (implicit, no trailing mark).";
 
 /// Example and documentation links shown after the detailed help.
 const AFTER_LONG_HELP: &str = r#"EXAMPLE CONFIG (config.json):

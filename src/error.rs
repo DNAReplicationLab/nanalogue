@@ -69,6 +69,8 @@ pub enum Error {
     InvalidModType(String),
     /// Modification type is empty
     EmptyModType(String),
+    /// MM tag suffix is invalid (must be `?`, `.`, or `none`).
+    InvalidMmSuffix(String),
     /// Some error from the rust htslib library we use to read BAM files
     RustHtslibError(Box<rust_htslib::errors::Error>),
     /// Error upon conversion from integer
@@ -178,6 +180,7 @@ impl fmt::Display for Error {
             Self::InvalidContig(v) => write!(f, "invalid contig: `{}`", trunc_100(v)),
             Self::InvalidModType(v) => write!(f, "invalid mod type: `{}`", trunc_100(v)),
             Self::EmptyModType(v) => write!(f, "empty mod type: `{}`", trunc_100(v)),
+            Self::InvalidMmSuffix(v) => write!(f, "invalid MM suffix: `{}`", trunc_100(v)),
             Self::RustHtslibError(v) => {
                 write!(f, "rust_htslib error: `{v}`\n{PEEK_AND_HEADER_HELP}")
             }
@@ -287,6 +290,7 @@ impl std::error::Error for Error {
             | Self::InvalidContig(_)
             | Self::InvalidModType(_)
             | Self::EmptyModType(_)
+            | Self::InvalidMmSuffix(_)
             | Self::OrdPairConversion(_)
             | Self::InvalidDuplicates(_)
             | Self::InvalidState(_)
@@ -501,6 +505,7 @@ mod tests {
             Error::InvalidContig(String::from("payload")) => "invalid contig: ";
             Error::InvalidModType(String::from("payload")) => "invalid mod type: ";
             Error::EmptyModType(String::from("payload")) => "empty mod type: ";
+            Error::InvalidMmSuffix(String::from("payload")) => "invalid MM suffix: ";
             Error::OrdPairConversion(String::from("payload")) => "ordered pair conversion error: ";
             Error::InvalidDuplicates(String::from("payload")) => "duplicates detected: ";
             Error::WriteOutput(String::from("payload")) => "error while writing output: ";
@@ -726,6 +731,7 @@ mod tests {
             Error::InvalidContig(String::from("payload")),
             Error::InvalidModType(String::from("payload")),
             Error::EmptyModType(String::from("payload")),
+            Error::InvalidMmSuffix(String::from("payload")),
             Error::OrdPairConversion(String::from("payload")),
             Error::InvalidDuplicates(String::from("payload")),
             Error::InvalidState(String::from("payload")),

@@ -131,8 +131,8 @@ pub use subcommands::{
 pub use utils::uuid;
 pub use utils::{
     AllowedAGCTN, BaseMod, BaseMods, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1,
-    FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
-    OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
+    FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, MmSuffix,
+    ModChar, OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
     RestrictModCalledStrand, SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase,
     ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
     ensure_valid_contig, ensure_valid_read_id, mm_groups, revcomp,
