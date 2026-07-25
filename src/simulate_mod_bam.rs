@@ -1741,9 +1741,12 @@ mod seeded_simulation_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
 
-    fn run_seeded_simulation(config_json: &str) -> Result<Vec<bam::Record>, Error> {
+    fn run_seeded_simulation(
+        config_json: &str,
+        format: AlignmentFormat,
+    ) -> Result<Vec<bam::Record>, Error> {
         let config: SimulationConfig = serde_json::from_str(config_json)?;
-        let temp = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
+        let temp = TempBamSimulation::new(config, format)?;
         let mut reader = crate::nanalogue_bam_reader(temp.bam_path())?;
         reader
             .records()
@@ -1751,8 +1754,10 @@ mod seeded_simulation_tests {
             .map_err(Error::from)
     }
 
-    #[test]
-    fn seeded_simulation_is_reproducible() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn seeded_simulation_is_reproducible(#[case] format: AlignmentFormat) -> Result<(), Error> {
         let config_json = r#"{
           "contigs": { "number": 2, "len_range": [500, 1000],
                        "repeated_seq": "ATCGAATT" },
@@ -1767,15 +1772,19 @@ mod seeded_simulation_tests {
           "seed": 12345
         }"#;
 
-        let run_a = run_seeded_simulation(config_json)?;
-        let run_b = run_seeded_simulation(config_json)?;
-        assert_eq!(run_a, run_b, "same seed must produce identical BAM records");
+        let run_a = run_seeded_simulation(config_json, format)?;
+        let run_b = run_seeded_simulation(config_json, format)?;
+        assert_eq!(run_a, run_b, "same seed must produce identical records");
 
         Ok(())
     }
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "arithmetic in generated rstest case bodies operates on small test data"
+)]
 mod read_generation_no_mods_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
@@ -1980,8 +1989,10 @@ mod read_generation_no_mods_tests {
     }
 
     /// Tests `TempBamSimulation` struct functionality without mods
-    #[test]
-    fn temp_bam_simulation_remembers_format() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn temp_bam_simulation_remembers_format(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -1993,37 +2004,32 @@ mod read_generation_no_mods_tests {
             }]
         }"#;
 
-        let bam_config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let bam_sim = TempBamSimulation::new(bam_config, AlignmentFormat::Bam).unwrap();
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
 
-        assert!(matches!(bam_sim.format(), AlignmentFormat::Bam));
+        assert_eq!(
+            std::mem::discriminant(&sim.format()),
+            std::mem::discriminant(&format)
+        );
         assert!(
-            Path::new(bam_sim.bam_path())
+            Path::new(sim.bam_path())
                 .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("bam"))
+                .is_some_and(|ext| ext.eq_ignore_ascii_case(format.extension()))
         );
 
-        let cram_config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let cram_sim = TempBamSimulation::new(cram_config, AlignmentFormat::Cram).unwrap();
-
-        assert!(matches!(cram_sim.format(), AlignmentFormat::Cram));
-        assert!(
-            Path::new(cram_sim.bam_path())
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("cram"))
-        );
-
-        let mut cram_reader = bam::Reader::from_path(cram_sim.bam_path()).unwrap();
-        let _: bam::Record = cram_reader
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+        let _: bam::Record = reader
             .records()
             .next()
-            .expect("CRAM reader should yield at least one record")
-            .expect("first CRAM record should decode successfully");
+            .expect("reader should yield at least one record")
+            .expect("first record should decode successfully");
     }
 
     /// Tests `TempBamSimulation` struct functionality without mods
-    #[test]
-    fn temp_bam_simulation_struct_no_mods() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn temp_bam_simulation_struct_no_mods(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -2039,7 +2045,7 @@ mod read_generation_no_mods_tests {
 
         // Create temporary simulation
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
 
         // Verify files exist
         assert!(Path::new(sim.bam_path()).exists());
@@ -2053,8 +2059,10 @@ mod read_generation_no_mods_tests {
     }
 
     /// Tests `TempBamSimulation` automatic cleanup
-    #[test]
-    fn temp_bam_simulation_cleanup() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn temp_bam_simulation_cleanup(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -2071,7 +2079,7 @@ mod read_generation_no_mods_tests {
 
         {
             let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-            let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+            let sim = TempBamSimulation::new(config, format).unwrap();
             bam_path = sim.bam_path().to_string();
             fasta_path = sim.fasta_path().to_string();
 
@@ -2117,27 +2125,37 @@ mod read_generation_no_mods_tests {
     }
 
     /// Tests invalid JSON structure causing empty reads generation
-    #[test]
-    fn run_empty_reads_error() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_empty_reads_error(#[case] format: AlignmentFormat) {
         let invalid_json = r#"{ "reads": [] }"#; // Empty reads array
         let temp_dir = std::env::temp_dir();
-        let bam_path = temp_dir.join(format!("{}.bam", uuid::v4_random()));
+        let bam_path = temp_dir.join(format!("{}.{}", uuid::v4_random(), format.extension()));
         let fasta_path = temp_dir.join(format!("{}.fa", uuid::v4_random()));
 
         let config: SimulationConfig = serde_json::from_str(invalid_json).unwrap();
         let result = run(config, &bam_path, &fasta_path);
-        // With empty reads, this should succeed but produce an empty BAM (valid)
+        // With empty reads, this should succeed but produce an empty alignment (valid)
         // So we won't assert error here, just test it doesn't crash
         drop(result);
-        let bai_path = bam_path.with_extension("bam.bai");
+        let index_path = match format {
+            AlignmentFormat::Bam => bam_path.with_extension("bam.bai"),
+            AlignmentFormat::Cram => bam_path.with_extension("cram.crai"),
+        };
         drop(std::fs::remove_file(&bam_path));
         drop(std::fs::remove_file(&fasta_path));
-        drop(std::fs::remove_file(&bai_path));
+        drop(std::fs::remove_file(&index_path));
+        if matches!(format, AlignmentFormat::Cram) {
+            drop(std::fs::remove_file(fasta_path.with_extension("fa.fai")));
+        }
     }
 
     /// Tests multiple read groups in BAM generation
-    #[test]
-    fn multiple_read_groups_work() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn multiple_read_groups_work(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -2166,7 +2184,7 @@ mod read_generation_no_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Should have 50 + 75 + 25 = 150 reads total
@@ -2298,8 +2316,10 @@ mod read_generation_no_mods_tests {
     }
 
     /// Tests different read states (unmapped, secondary, supplementary)
-    #[test]
-    fn different_read_states_work() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn different_read_states_work(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -2314,7 +2334,7 @@ mod read_generation_no_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut has_unmapped = false;
@@ -2524,8 +2544,10 @@ mod read_generation_barcodes {
     }
 
     /// Tests read generation with barcode
-    #[test]
-    fn generate_reads_denovo_with_barcode_works() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn generate_reads_denovo_with_barcode_works(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -2539,7 +2561,7 @@ mod read_generation_barcodes {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         for record in reader.records() {
@@ -2569,6 +2591,12 @@ mod read_generation_barcodes {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::integer_division_remainder_used,
+    clippy::modulo_arithmetic,
+    reason = "generated rstest case bodies retain the existing test arithmetic and setup"
+)]
 mod read_generation_with_mods_tests {
     use super::*;
     use crate::{CurrRead, ThresholdState, curr_reads_to_dataframe};
@@ -2658,8 +2686,10 @@ mod read_generation_with_mods_tests {
     }
 
     /// Tests `TempBamSimulation` struct functionality with mods
-    #[test]
-    fn temp_bam_simulation_struct_with_mods() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn temp_bam_simulation_struct_with_mods(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -2682,7 +2712,7 @@ mod read_generation_with_mods_tests {
 
         // Create temporary simulation
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
 
         // Verify files exist
         assert!(Path::new(sim.bam_path()).exists());
@@ -2891,12 +2921,10 @@ mod read_generation_with_mods_tests {
         assert_eq!(ml_vec, expected_pattern);
     }
     /// Tests multiple simultaneous modifications on different bases
-    #[expect(
-        clippy::similar_names,
-        reason = "has_c_mod, has_a_mod, has_t_mod are clear in context"
-    )]
-    #[test]
-    fn multiple_simultaneous_modifications_work() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn multiple_simultaneous_modifications_work(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -2935,7 +2963,7 @@ mod read_generation_with_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut has_c_mod = false;
@@ -3420,20 +3448,10 @@ mod read_generation_with_mods_tests {
     /// For a "ACGT" repeated contig, C's are at positions 1, 5, 9, 13, ... (form 4n+1).
     /// On reverse complement, G's become C's at positions 2, 6, 10, 14, ... (form 4n+2).
     /// With 100% mismatch, positions should be shifted and no longer follow these patterns.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "test requires setup, iteration, and multiple assertions for thorough validation"
-    )]
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "forward and reverse aligned reads are asserted to have non-negative reference positions before modulo checks"
-    )]
-    #[expect(
-        clippy::modulo_arithmetic,
-        reason = "we assert aligned reference positions are non-negative before modulo checks"
-    )]
-    #[test]
-    fn mismatch_mod_check() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn mismatch_mod_check(#[case] format: AlignmentFormat) {
         let json_str = r#"{
             "contigs": {
                 "number": 1,
@@ -3468,7 +3486,7 @@ mod read_generation_with_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(json_str).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
 
         let mut bam = bam::Reader::from_path(sim.bam_path()).unwrap();
         let mut df_collection = Vec::new();
@@ -3622,8 +3640,10 @@ mod contig_generation_tests {
     use rust_htslib::bam::Read as _;
 
     /// Tests edge case: repeated sequence contig generation
-    #[test]
-    fn edge_case_repeated_sequence_exact_length() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn edge_case_repeated_sequence_exact_length(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -3637,7 +3657,7 @@ mod contig_generation_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Verify contig is exactly ACGTACGTACGTACGT (4 repeats)
@@ -3646,8 +3666,10 @@ mod contig_generation_tests {
     }
 
     /// Tests edge case: minimum contig size (1 bp)
-    #[test]
-    fn edge_case_minimum_contig_size() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn edge_case_minimum_contig_size(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -3662,7 +3684,7 @@ mod contig_generation_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Verify 1bp contig works

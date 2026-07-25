@@ -152,6 +152,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::simulate_mod_bam::AlignmentFormat;
     use crate::{BamRcRecords, InputBamBuilder, InputMods, OptionalTag, PathOrURLOrStdin};
     use std::fs;
 
@@ -231,9 +232,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn peek_shows_simulated_example() {
-        use crate::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn peek_shows_simulated_example(#[case] format: AlignmentFormat) {
+        use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
 
         let config_json = r#"{
             "contigs": {
@@ -273,7 +276,7 @@ mod tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut input_bam = InputBamBuilder::default()
@@ -304,9 +307,11 @@ mod tests {
         assert_eq!(output_str, expected);
     }
 
-    #[test]
-    fn peek_no_mods() {
-        use crate::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn peek_no_mods(#[case] format: AlignmentFormat) {
+        use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
 
         let config_json = r#"{
             "contigs": {
@@ -323,7 +328,7 @@ mod tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut input_bam = InputBamBuilder::default()
@@ -354,12 +359,14 @@ mod tests {
         assert_eq!(output_str, expected);
     }
 
-    #[test]
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
     #[should_panic(
         expected = "No records found. Please check if the BAM/CRAM/SAM resource has at least one record"
     )]
-    fn peek_empty_file() {
-        use crate::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
+    fn peek_empty_file(#[case] format: AlignmentFormat) {
+        use crate::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
 
         let config_json = r#"{
             "contigs": {
@@ -371,7 +378,7 @@ mod tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut input_bam = InputBamBuilder::default()

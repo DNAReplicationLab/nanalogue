@@ -28,6 +28,9 @@ openssl-probe = "=0.2.1"
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = "0.1.48"
 
+[dev-dependencies]
+rstest = "=0.26.1"
+
 [lib]
 name = "nanalogue_core" 
 path = "src/lib.rs"

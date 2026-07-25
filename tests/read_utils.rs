@@ -12,6 +12,9 @@ use std::collections::{HashMap, hash_map::Entry};
 #[cfg(test)]
 #[expect(
     clippy::panic,
+    clippy::arithmetic_side_effects,
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
     reason = "panic is acceptable in test code for assertion failures"
 )]
 mod tests {
@@ -80,16 +83,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    #[expect(
-        clippy::integer_division,
-        reason = "we check within a large tolerance so integer division is fine"
-    )]
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "we check within a large tolerance so integer division is fine"
-    )]
-    fn set_seq_len_random() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn set_seq_len_random(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // creates 2 contigs of 1000 bp each and reads of random
         // mapping, position etc. with lengths b/w 10-20% of contig size.
         let config_json = r#"{
@@ -103,7 +100,7 @@ mod tests {
         }]
     }"#;
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let simulated_bam = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let simulated_bam = TempBamSimulation::new(config, format).unwrap();
         let mut reader = nanalogue_bam_reader(simulated_bam.bam_path())?;
 
         let (sum, deviation_sq) = {
@@ -170,16 +167,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    #[expect(
-        clippy::integer_division,
-        reason = "we check within a large tolerance so integer division is fine"
-    )]
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "we check within a large tolerance so integer division is fine"
-    )]
-    fn set_align_len_random() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn set_align_len_random(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // creates 2 contigs of 1000 bp each and reads of random
         // mapping, position etc. with lengths b/w 10-20% of contig size.
         // then, with a barcode, the alignment length is the same but the
@@ -196,7 +187,7 @@ mod tests {
         }]
     }"#;
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = nanalogue_bam_reader(sim.bam_path())?;
 
         let (sum_seq_len, deviation_sequence_len_sq, sum_align_len, deviation_align_len_sq, count) = {
@@ -510,8 +501,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn seq_on_ref_coords_2() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn seq_on_ref_coords_2(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // make a random BAM file but contigs are all just a 10 bp
         // sequence repeated to fill the required length.
         // so, we can easily check sequence retrieval.
@@ -527,7 +520,7 @@ mod tests {
         }]
     }"#;
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = nanalogue_bam_reader(sim.bam_path())?;
         let mut cnt = 0;
 
@@ -562,8 +555,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn seq_on_ref_coords_2_but_barcode() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn seq_on_ref_coords_2_but_barcode(#[case] format: AlignmentFormat) {
         // make a random BAM file but contigs are all just a 10 bp
         // sequence repeated to fill the required length, but with a
         // barcode. Occasionally we will get a barcode in the region,
@@ -581,7 +576,7 @@ mod tests {
         }]
     }"#;
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = nanalogue_bam_reader(sim.bam_path()).unwrap();
 
         // We probe first contig 225-229, so if we have AAGCTAGCTG repeated

@@ -126,6 +126,7 @@ fn run(cli: &Cli) -> Result<(), Error> {
 mod tests {
     use super::*;
     use clap::error::ErrorKind;
+    use nanalogue_core::simulate_mod_bam::AlignmentFormat;
     use nanalogue_core::uuid;
     use std::env;
     use std::fs;
@@ -192,9 +193,11 @@ mod tests {
             serde_json::from_str(&json).expect("the example config should deserialize");
     }
 
-    /// Test that the run function successfully creates BAM, BAI, and FASTA files from valid JSON config
-    #[test]
-    fn run_creates_output_files() {
+    /// Test that the run function successfully creates alignment, index, and FASTA files.
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_creates_output_files(#[case] format: AlignmentFormat) {
         // Create temporary directory for test files
         let temp_path = env::temp_dir().join(format!("nanalogue_test_{}", uuid::v4_random()));
         fs::create_dir_all(&temp_path).expect("failed to create temp dir");
@@ -228,7 +231,12 @@ mod tests {
         fs::write(&json_path, json_config).expect("failed to write JSON config");
 
         // Create paths for output files
-        let bam_path = temp_path.join("output.bam");
+        let (alignment_name, index_name) = if matches!(format, AlignmentFormat::Bam) {
+            ("output.bam", "output.bam.bai")
+        } else {
+            ("output.cram", "output.cram.crai")
+        };
+        let bam_path = temp_path.join(alignment_name);
         let fasta_path = temp_path.join("output.fasta");
 
         // Create Cli struct with our test paths
@@ -242,21 +250,24 @@ mod tests {
         run(&cli).expect("run should succeed with valid config");
 
         // Verify output files were created
-        assert!(bam_path.exists(), "BAM file should be created");
+        assert!(bam_path.exists(), "alignment file should be created");
         assert!(fasta_path.exists(), "FASTA file should be created");
 
-        // Verify BAI index file was created
-        let bai_path = temp_path.join("output.bam.bai");
-        assert!(bai_path.exists(), "BAI index file should be created");
+        // Verify the alignment index file was created
+        let bai_path = temp_path.join(index_name);
+        assert!(bai_path.exists(), "alignment index file should be created");
 
         // Verify files are not empty
         let bam_meta = fs::metadata(&bam_path).expect("failed to get BAM metadata");
         let fasta_meta = fs::metadata(&fasta_path).expect("failed to get FASTA metadata");
-        let index_meta = fs::metadata(&bai_path).expect("failed to get BAI metadata");
+        let index_meta = fs::metadata(&bai_path).expect("failed to get index metadata");
 
-        assert!(bam_meta.len() > 0, "BAM file should not be empty");
+        assert!(bam_meta.len() > 0, "alignment file should not be empty");
         assert!(fasta_meta.len() > 0, "FASTA file should not be empty");
-        assert!(index_meta.len() > 0, "BAI index file should not be empty");
+        assert!(
+            index_meta.len() > 0,
+            "alignment index file should not be empty"
+        );
 
         // Clean up
         fs::remove_dir_all(&temp_path).expect("failed to clean up temp dir");

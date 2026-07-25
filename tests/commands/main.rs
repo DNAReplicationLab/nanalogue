@@ -450,6 +450,7 @@ mod find_modified_reads_tests {
     fn create_two_group_simulation(
         group0: GroupModConfig,
         group1: GroupModConfig,
+        format: AlignmentFormat,
     ) -> TempBamSimulation {
         fn format_mod_spec(
             config: &GroupModConfig,
@@ -486,7 +487,7 @@ mod find_modified_reads_tests {
         );
 
         let config: SimulationConfig = serde_json::from_str(&config_json).unwrap();
-        TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap()
+        TempBamSimulation::new(config, format).unwrap()
     }
 
     /// Builds a `find-modified-reads` CLI command with the given parameters.
@@ -549,11 +550,14 @@ mod find_modified_reads_tests {
     /// Test `all-dens-between`: finds reads where ALL windowed densities are within [low, high].
     /// - Group 0: All densities at 0.9 (outside range 0.3-0.7)
     /// - Group 1: All densities at 0.5 (within range 0.3-0.7)
-    #[test]
-    fn find_modified_reads_all_dens_between() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn find_modified_reads_all_dens_between(#[case] format: AlignmentFormat) {
         let sim = create_two_group_simulation(
             GroupModConfig::SingleWindow(0.9.try_into().unwrap()),
             GroupModConfig::SingleWindow(0.5.try_into().unwrap()),
+            format,
         );
 
         let cli = build_find_modified_reads_cli(
@@ -570,11 +574,14 @@ mod find_modified_reads_tests {
     /// Test `any-dens-above`: finds reads where at least one window has density >= high.
     /// - Group 0: All densities at 0.3 (none >= 0.7)
     /// - Group 1: All densities at 0.9 (all >= 0.7)
-    #[test]
-    fn find_modified_reads_any_dens_above() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn find_modified_reads_any_dens_above(#[case] format: AlignmentFormat) {
         let sim = create_two_group_simulation(
             GroupModConfig::SingleWindow(0.3.try_into().unwrap()),
             GroupModConfig::SingleWindow(0.9.try_into().unwrap()),
+            format,
         );
 
         let cli = build_find_modified_reads_cli(
@@ -591,11 +598,14 @@ mod find_modified_reads_tests {
     /// Test `any-dens-below`: finds reads where at least one window has density <= low.
     /// - Group 0: All densities at 0.7 (none <= 0.3)
     /// - Group 1: All densities at 0.1 (all <= 0.3)
-    #[test]
-    fn find_modified_reads_any_dens_below() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn find_modified_reads_any_dens_below(#[case] format: AlignmentFormat) {
         let sim = create_two_group_simulation(
             GroupModConfig::SingleWindow(0.7.try_into().unwrap()),
             GroupModConfig::SingleWindow(0.1.try_into().unwrap()),
+            format,
         );
 
         let cli = build_find_modified_reads_cli(
@@ -613,11 +623,14 @@ mod find_modified_reads_tests {
     /// is <= low AND at least one window is >= high.
     /// - Group 0: All densities at 0.5 (no extremes)
     /// - Group 1: Alternating pattern with densities at 0.1 and 0.9 (both extremes present)
-    #[test]
-    fn find_modified_reads_any_dens_below_and_any_dens_above() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn find_modified_reads_any_dens_below_and_any_dens_above(#[case] format: AlignmentFormat) {
         let sim = create_two_group_simulation(
             GroupModConfig::SingleWindow(0.5.try_into().unwrap()),
             GroupModConfig::DualWindow((0.1, 0.9).try_into().unwrap()),
+            format,
         );
 
         let cli = build_find_modified_reads_cli(
@@ -634,11 +647,14 @@ mod find_modified_reads_tests {
     /// Test `dens-range-above`: finds reads where max(densities) - min(densities) >= threshold.
     /// - Group 0: All densities at 0.5 (range = 0)
     /// - Group 1: Alternating pattern with densities at 0.1 and 0.9 (range = 0.8)
-    #[test]
-    fn find_modified_reads_dens_range_above() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn find_modified_reads_dens_range_above(#[case] format: AlignmentFormat) {
         let sim = create_two_group_simulation(
             GroupModConfig::SingleWindow(0.5.try_into().unwrap()),
             GroupModConfig::DualWindow((0.1, 0.9).try_into().unwrap()),
+            format,
         );
 
         let cli = build_find_modified_reads_cli(
@@ -655,11 +671,14 @@ mod find_modified_reads_tests {
     /// Test `any-abs-grad-above`: finds reads where |gradient| >= threshold.
     /// - Group 0: Uniform densities at 0.5 (gradient = 0)
     /// - Group 1: Sharp transition from 0.1 to 0.9 (high gradient)
-    #[test]
-    fn find_modified_reads_any_abs_grad_above() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn find_modified_reads_any_abs_grad_above(#[case] format: AlignmentFormat) {
         let sim = create_two_group_simulation(
             GroupModConfig::SingleWindow(0.5.try_into().unwrap()),
             GroupModConfig::DualWindow((0.1, 0.9).try_into().unwrap()),
+            format,
         );
 
         let cli = build_find_modified_reads_cli(

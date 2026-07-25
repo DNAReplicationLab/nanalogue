@@ -72,6 +72,7 @@ The project uses extensive clippy lints (see `Cargo.toml` for the full list). Yo
 - Update existing tests if behavior changes
 - Include both unit tests and integration tests where appropriate
 - Test edge cases and error conditions
+- Tests using `TempBamSimulation` need named BAM and CRAM `rstest` cases unless explicitly comparing formats.
 
 ### Documentation
 
