@@ -38,7 +38,10 @@ Each modification selects a base, strand, and modification code. The win array g
 repeating window sizes in occurrences of that base, while mod_range gives repeating
 [minimum, maximum] probability ranges for those windows.
 The optional mm_suffix field controls the trailing mark on the MM tag group:
-\"?\" (explicit, default), \".\" (implicit), or \"none\" (implicit, no trailing mark).";
+\"?\" (explicit, default), \".\" (implicit), or \"none\" (implicit, no trailing mark).
+The optional drop array specifies how many bases to drop (skip) at the start of each
+window cycle. Dropped bases get no ML value and appear as non-zero gaps in the MM
+distance array. Each drop value must be <= the minimum win value.";
 
 /// Example and documentation links shown after the detailed help.
 const AFTER_LONG_HELP: &str = r#"EXAMPLE CONFIG (config.json):
@@ -58,7 +61,8 @@ const AFTER_LONG_HELP: &str = r#"EXAMPLE CONFIG (config.json):
         "is_strand_plus": true,
         "mod_code": "m",
         "win": [10, 20],
-        "mod_range": [[0.7, 0.9], [0.1, 0.3]]
+        "mod_range": [[0.7, 0.9], [0.1, 0.3]],
+        "drop": [2, 5]
       }]
     }],
     "seed": 42

@@ -48,7 +48,8 @@
 //!         "mod_code": "T",
 //!         "mm_suffix": "?",
 //!         "win": [4, 5],
-//!         "mod_range": [[0.1, 0.2], [0.3, 0.4]]
+//!         "mod_range": [[0.1, 0.2], [0.3, 0.4]],
+//!         "drop": [1, 2]
 //!     }]
 //!   }],
 //!   "seed": 42
@@ -102,6 +103,14 @@
 //! //         the MM tag group: "?" (explicit, default), "." (implicit), or "none"
 //! //         (implicit, no trailing mark). e.g. with "none" the group is emitted as
 //! //         "T+T,0,0,..." instead of "T+T?,0,0,...".
+//! //       * "drop" is optional per mod entry. It is an array of counts specifying
+//! //         how many bases to drop (skip) at the start of each window cycle.
+//! //         Dropped bases get no ML value and appear as non-zero gaps in the MM
+//! //         distance array. e.g. with win=[5] and drop=[2], the first 2 of every
+//! //         5 target bases are dropped, producing 3 ML values and a distance like
+//! //         "C+m?,2,0,0". Defaults to empty (no drops). Each drop value must be
+//! //         <= the minimum win value. "First" means first in the mod-data direction
+//! //         (read sequence direction, not reference direction).
 //! //       * "seed" is optional. If set, all random operations (contig generation, read
 //! //         generation, modification placement, etc.) use a deterministic RNG seeded with
 //! //         this value, producing identical output files across runs. If not set, the
@@ -430,6 +439,22 @@ pub struct ReadConfig {
 ///     .mod_range(vec![(0.4, 0.8), (0.5, 0.7)]).build()?;
 /// # Ok::<(), Error>(())
 /// ```
+///
+/// To drop (skip) the first N bases in each window — producing non-zero MM
+/// distances and fewer ML values — set `drop` on the builder or in JSON:
+/// ```
+/// use nanalogue_core::Error;
+/// use nanalogue_core::simulate_mod_bam::ModConfigBuilder;
+///
+/// let mod_config_c = ModConfigBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .win(vec![5, 3])
+///     .drop(vec![2, 1])
+///     .mod_range(vec![(0.4, 0.8), (0.5, 0.7)]).build()?;
+/// # Ok::<(), Error>(())
+/// ```
 #[derive(Builder, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 #[builder(default, build_fn(error = "Error"), pattern = "owned", derive(Clone))]
@@ -460,8 +485,13 @@ pub struct ModConfig {
     /// 100 thymidines specifically.
     #[builder(field(
         ty = "Vec<u32>",
-        build = "self.win.iter().map(|&x| NonZeroU32::new(x).ok_or(Error::Zero(\"cannot use zero-\
-sized windows in builder\".to_owned()))).collect::<Result<Vec<NonZeroU32>,_>>()?"
+        build = "{
+            if self.win.is_empty() {
+                return Err(Error::InvalidState(\"win must contain at least one window value\".to_owned()));
+            }
+            self.win.iter().map(|&x| NonZeroU32::new(x).ok_or(Error::Zero(\"cannot use zero-\
+sized windows in builder\".to_owned()))).collect::<Result<Vec<NonZeroU32>,_>>()?
+        }"
     ))]
     pub win: Vec<NonZeroU32>,
     /// Vector of modification density range e.g. [[0.4, 0.6], [0.1, 0.2]].
@@ -471,6 +501,17 @@ sized windows in builder\".to_owned()))).collect::<Result<Vec<NonZeroU32>,_>>()?
         build = "self.mod_range.iter().map(|&x| OF::try_from(x)).collect::<Result<Vec<OF>, _>>()?"
     ))]
     pub mod_range: Vec<OrdPair<F32Bw0and1>>,
+    /// Number of bases to drop (skip) at the start of each window cycle.
+    /// Dropped bases get no ML value and appear as non-zero gaps in the MM
+    /// distance array. Cycles alongside `win` and `mod_range`.
+    /// Defaults to empty (no drops), preserving current behaviour.
+    /// Each `drop[i]` must be ≤ the minimum value in `win`; otherwise an
+    /// error is returned at build time.
+    /// NOTE: "bases" here refer to bases of interest set in the `base` field,
+    /// and "first" means first in the mod-data direction (read sequence
+    /// direction, not reference direction).
+    #[builder(field(ty = "Vec<u32>", build = "validate_drop(&self.drop, &self.win)?"))]
+    pub drop: Vec<u32>,
 }
 
 /// Represents a contig with name and sequence.
@@ -553,7 +594,89 @@ impl Default for ModConfig {
             mm_suffix: MmSuffix::default(),
             win: vec![NonZeroU32::new(1).unwrap()],
             mod_range: vec![ord_pair_f32_bw0and1!(0.0, 1.0)],
+            drop: Vec::new(),
         }
+    }
+}
+
+/// Validates that every `drop` value is ≤ the minimum `win` value.
+///
+/// Since `drop` and `win` cycle independently, every `drop[i]` will
+/// eventually be paired with every `win[j]`. Therefore every `drop[i]`
+/// must be ≤ `min(win)` to guarantee no window is ever asked to drop more
+/// bases than it contains.
+///
+/// # Errors
+/// Returns `Error::InvalidState` if any `drop` value exceeds `min(win)`,
+/// or if `drop` is non-empty while `win` is empty.
+fn validate_drop(drop: &[u32], win: &[u32]) -> Result<Vec<u32>, Error> {
+    validate_drop_inner(drop, win)?;
+    Ok(drop.to_vec())
+}
+
+/// Shared validation logic used by both the builder and post-deserialization
+/// validation. Does not clone the drop vector.
+///
+/// # Errors
+/// Returns `Error::InvalidState` if any `drop` value exceeds `min(win)`,
+/// or if `drop` is non-empty while `win` is empty.
+fn validate_drop_inner(drop: &[u32], win: &[u32]) -> Result<(), Error> {
+    if drop.is_empty() {
+        return Ok(());
+    }
+    let min_win = win.iter().copied().min().ok_or(Error::InvalidState(
+        "drop specified but win is empty".to_owned(),
+    ))?;
+    for &d in drop {
+        if d > min_win {
+            return Err(Error::InvalidState(format!(
+                "drop value {d} exceeds minimum window size {min_win}; \
+                 no drop value may exceed the smallest window"
+            )));
+        }
+    }
+    Ok(())
+}
+
+impl ModConfig {
+    /// Validates this mod configuration, checking that all `drop` values are
+    /// ≤ the minimum `win` value.
+    ///
+    /// This is called automatically by [`SimulationConfig::validate`], which
+    /// runs at the start of [`run`]. It ensures configs deserialized from JSON
+    /// (which bypass the builder) are also validated.
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidState` if `win` is empty, or if any `drop` value
+    /// exceeds `min(win)`.
+    fn validate(&self) -> Result<(), Error> {
+        if self.win.is_empty() {
+            return Err(Error::InvalidState(
+                "win must contain at least one window value".to_owned(),
+            ));
+        }
+        let win_u32: Vec<u32> = self.win.iter().map(|w| w.get()).collect();
+        validate_drop_inner(&self.drop, &win_u32)
+    }
+}
+
+impl SimulationConfig {
+    /// Validates the full simulation configuration, including all mod configs
+    /// in all read groups.
+    ///
+    /// This runs at the start of [`run`] to catch invalid configurations that
+    /// were deserialized from JSON (bypassing the builder's validation).
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidState` if any mod config has a `drop` value
+    /// exceeding the minimum `win` value.
+    fn validate(&self) -> Result<(), Error> {
+        for read_config in &self.reads {
+            for mod_config in &read_config.mods {
+                mod_config.validate()?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -999,7 +1122,7 @@ impl PerfectSeqMatchToNot {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use std::str::FromStr;
 /// use nanalogue_core::{DNARestrictive, Error};
 /// use nanalogue_core::simulate_mod_bam::{ModConfigBuilder, generate_random_dna_modification};
@@ -1043,7 +1166,11 @@ impl PerfectSeqMatchToNot {
 /// # Ok::<(), Error>(())
 /// ```
 ///
-pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
+#[expect(
+    clippy::too_many_lines,
+    reason = "base dropping adds branching that pushes the function slightly over the line limit"
+)]
+fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
     mod_configs: &[ModConfig],
     seq: &S,
     rng: &mut R,
@@ -1067,15 +1194,37 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
                 .filter(|&(&a, &b)| a == b)
                 .count()
         };
+        // Total count of bases of interest before any are consumed. Used to
+        // emit an all-unmodified MM group when every base is dropped with an
+        // implicit suffix (`.` or none).
+        let total_count = u32::try_from(count).unwrap_or(u32::MAX);
         let mut output: Vec<u8> = Vec::with_capacity(count);
+        // Distances: one per modified base. The first modified base after
+        // one or more dropped bases gets a non-zero distance; the rest get 0.
+        let mut distances: Vec<u32> = Vec::with_capacity(count);
+        // Running gap counter — accumulates dropped bases and is emitted as
+        // the distance for the next modified base, then reset to 0.
+        let mut gap: u32 = 0;
+
+        // If drop is empty, cycle 0 so no bases are dropped.
+        let drop_iter: Vec<u32> = if mod_config.drop.is_empty() {
+            vec![0]
+        } else {
+            mod_config.drop.clone()
+        };
+
         for k in mod_config
             .win
             .iter()
             .cycle()
             .zip(mod_config.mod_range.iter().cycle())
+            .zip(drop_iter.iter().cycle())
         {
-            let low = u8::from(k.1.low());
-            let high = u8::from(k.1.high());
+            let win_size = k.0.0;
+            let mod_range = k.0.1;
+            let drop_count = k.1;
+            let low = u8::from(mod_range.low());
+            let high = u8::from(mod_range.high());
             #[expect(
                 clippy::redundant_else,
                 reason = "so that the clippy arithmetic lint fits better with the code"
@@ -1087,26 +1236,72 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
             if count == 0 {
                 break;
             } else {
-                for _ in 0..k.0.get() {
+                // Phase 1: drop the first `drop_count` bases (no ML values).
+                // The gap accumulates and will be emitted as the distance
+                // for the next modified base.
+                let drop_u32 = *drop_count;
+                let drop_for_this_window =
+                    usize::try_from(drop_u32).unwrap_or(usize::MAX).min(count);
+                gap = gap.saturating_add(u32::try_from(drop_for_this_window).unwrap_or(u32::MAX));
+                count -= drop_for_this_window;
+                if count == 0 {
+                    break;
+                }
+
+                // Phase 2: generate ML values for the remaining bases in
+                // this window. The first modified base gets the accumulated
+                // gap as its distance; subsequent ones get 0.
+                let modified_in_window = usize::try_from(win_size.get().saturating_sub(drop_u32))
+                    .unwrap_or(usize::MAX)
+                    .min(count);
+                for i in 0..modified_in_window {
                     output.push(rng.random_range(low..=high));
+                    distances.push(if i == 0 { gap } else { 0 });
                     count -= 1;
                     if count == 0 {
                         break;
                     }
                 }
+                // Gap has been consumed by the first modified base.
+                // Only reset if at least one modified base was generated;
+                // otherwise the gap carries forward to the next window.
+                if modified_in_window > 0 {
+                    gap = 0;
+                }
             }
         }
         if !output.is_empty() {
-            let mod_len = output.len();
             ml_vec.append(&mut output);
-            let zero_offsets = iter::repeat_n("0", mod_len).collect::<Vec<_>>().join(",");
+            let offsets = distances
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
             mm_str += format!(
                 "{}{}{}{},{};",
                 base as char,
                 strand,
                 mod_code,
                 mod_config.mm_suffix.suffix_str(),
-                zero_offsets
+                offsets
+            )
+            .as_str();
+        }
+        // All bases were dropped. With an implicit suffix (`.` or none),
+        // dropped bases are unmodified, so emit a single distance equal to
+        // the total count of bases of interest. No ML values are produced.
+        // With `?` (explicit), all-dropped means "data missing" → emit nothing.
+        if distances.is_empty()
+            && total_count > 0
+            && matches!(mod_config.mm_suffix, MmSuffix::Dot | MmSuffix::None)
+        {
+            mm_str += format!(
+                "{}{}{}{},{};",
+                base as char,
+                strand,
+                mod_code,
+                mod_config.mm_suffix.suffix_str(),
+                total_count
             )
             .as_str();
         }
@@ -1306,7 +1501,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 /// DNA sequences directly in the first argument i.e. you can use any `struct` that implements
 /// `GetDNARestrictive`.
 ///
-/// ```
+/// ```ignore
 /// use nanalogue_core::Error;
 /// use nanalogue_core::simulate_mod_bam::{ContigBuilder, ReadConfigBuilder, generate_reads_denovo};
 /// use rand::Rng;
@@ -1343,7 +1538,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
     clippy::cast_possible_truncation,
     reason = "read length calculated as a fraction of contig length, managed with trunc()"
 )]
-pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
+fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
     contigs: &[S],
     read_config: &ReadConfig,
     read_group: &str,
@@ -1545,6 +1740,7 @@ pub fn run<F>(
 where
     F: AsRef<Path> + ?Sized,
 {
+    config.validate()?;
     if let Some(s) = config.seed {
         let mut rng = StdRng::seed_from_u64(s);
         run_inner(config, alignment_output_path, fasta_output_path, &mut rng)
@@ -1822,6 +2018,30 @@ mod seeded_simulation_tests {
 mod read_generation_no_mods_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
+
+    /// Doctest-equivalent for `generate_reads_denovo` (the doc example is
+    /// `ignore`d because the function is `pub(crate)`).
+    #[test]
+    fn generate_reads_denovo_doc_example() {
+        let contigs = vec![
+            ContigBuilder::default()
+                .name("chr1")
+                .seq("ACGTACGTACGTACGT".into())
+                .build()
+                .unwrap(),
+        ];
+
+        let read_config = ReadConfigBuilder::default()
+            .number(10)
+            .mapq_range((10, 20))
+            .base_qual_range((20, 30))
+            .len_range((0.2, 0.5))
+            .build()
+            .unwrap();
+        let mut rng = rand::rng();
+        let reads = generate_reads_denovo(&contigs, &read_config, "RG1", &mut rng).unwrap();
+        assert_eq!(reads.len(), 10);
+    }
 
     /// Tests read generation with desired properties but no modifications
     #[test]
@@ -2772,6 +2992,40 @@ mod read_generation_with_mods_tests {
         assert_eq!(ml_vec.len(), 0);
     }
 
+    /// Doctest-equivalent for `generate_random_dna_modification` (the doc
+    /// example is `ignore`d because the function is `pub(crate)`).
+    #[test]
+    fn generate_random_dna_modification_doc_example() {
+        let seq = DNARestrictive::from_str("ACGTCGCGATCGACGTCGCGATCG").unwrap();
+        let mod_config_c = ModConfigBuilder::default()
+            .base('C')
+            .is_strand_plus(true)
+            .mod_code("m".into())
+            .win(vec![2, 3])
+            .mod_range(vec![(0.8, 0.8), (0.4, 0.4)])
+            .build()
+            .unwrap();
+        let mod_config_a = ModConfigBuilder::default()
+            .base('A')
+            .is_strand_plus(false)
+            .mod_code("20000".into())
+            .win([2].into())
+            .mod_range(vec![(0.2, 0.2)])
+            .build()
+            .unwrap();
+        let mod_config = vec![mod_config_c, mod_config_a];
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&mod_config, &seq, &mut rng);
+        assert_eq!(
+            mm_str,
+            String::from("C+m?,0,0,0,0,0,0,0,0;A-20000?,0,0,0,0;")
+        );
+        assert_eq!(
+            ml_vec,
+            vec![204, 204, 102, 102, 102, 204, 204, 102, 51, 51, 51, 51]
+        );
+    }
+
     /// Tests `generate_random_dna_modification` with single modification config
     #[test]
     fn generate_random_dna_modification_single_mod() {
@@ -3128,6 +3382,503 @@ mod read_generation_with_mods_tests {
             204, 204, 204, 102, 102, 204, 204, 204, 102, 102, 204, 204, 204, 102, 102, 204,
         ];
         assert_eq!(ml_vec, expected_pattern);
+    }
+
+    /// Tests `generate_random_dna_modification` with `drop` — the first N
+    /// bases in each window are dropped (no ML value, non-zero MM distance).
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "test validates length before indexing"
+    )]
+    #[test]
+    fn generate_random_dna_modification_with_drop() {
+        // 8 C's, win=[4], drop=[2]
+        // Window 1: drop first 2 C's, modify next 2 → distances [2, 0]
+        // Window 2: drop first 2 C's, modify next 2 → distances [2, 0]
+        // But the gap carries: after window 1's 2 modified bases,
+        // window 2 drops 2 again → first modified base gets gap=2.
+        let seq = DNARestrictive::from_str("CCCCCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([4].into())
+            .drop([2].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // 8 C's, 2 dropped per window of 4 → 4 modified total
+        assert_eq!(
+            ml_vec.len(),
+            4,
+            "Should have 4 ML values (2 dropped per window"
+        );
+        assert!(
+            ml_vec.iter().all(|&x| x == 128u8),
+            "All ML should be 128 (0.5)"
+        );
+
+        let distances: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(distances.len(), 4, "Should have 4 distance entries");
+        assert_eq!(
+            distances[0], "2",
+            "First mod after dropping 2 -> distance 2"
+        );
+        assert_eq!(distances[1], "0", "Second mod in window -> distance 0");
+        assert_eq!(distances[2], "2", "First mod of window 2 -> distance 2");
+        assert_eq!(distances[3], "0", "Second mod of window 2 -> distance 0");
+    }
+
+    /// Tests that empty `drop` (default) produces identical output to the
+    /// old behaviour — all distances 0, all bases modified.
+    #[test]
+    fn generate_random_dna_modification_empty_drop_matches_no_drop() {
+        let seq = DNARestrictive::from_str("CCCCCCCC").unwrap();
+
+        let config_no_drop = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([4].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let config_empty_drop = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([4].into())
+            .drop(vec![])
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng1 = rand::rng();
+        let (mm1, ml1) = generate_random_dna_modification(&[config_no_drop], &seq, &mut rng1);
+
+        let mut rng2 = rand::rng();
+        let (mm2, ml2) = generate_random_dna_modification(&[config_empty_drop], &seq, &mut rng2);
+
+        assert_eq!(mm1, mm2, "MM strings should be identical");
+        assert_eq!(ml1, ml2, "ML vectors should be identical");
+        // All distances should be 0
+        assert!(mm1.contains("C+m?,0,0,0,0,0,0,0,0;"));
+    }
+
+    /// Tests drop with carryover — when an entire window is dropped, the
+    /// gap carries forward to the next window's first modified base.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "test validates length before indexing"
+    )]
+    #[test]
+    fn generate_random_dna_modification_drop_carryover() {
+        // 6 C's, win=[3, 3], drop=[3, 1]
+        // Window 1: all 3 dropped (no ML), gap = 3
+        // Window 2: drop 1, modify 2 → first mod gets gap 3+1=4, second gets 0
+        let seq = DNARestrictive::from_str("CCCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([3, 3].into())
+            .drop([3, 1].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(ml_vec.len(), 2, "Should have 2 ML values");
+        let distances: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(distances.len(), 2, "Should have 2 distance entries");
+        assert_eq!(distances[0], "4", "Gap carryover: 3+1=4");
+        assert_eq!(distances[1], "0", "Second mod -> distance 0");
+    }
+
+    /// Tests trailing dropped bases — when the sequence ends during a drop
+    /// section, no spurious MM/ML entries are produced.
+    #[test]
+    fn generate_random_dna_modification_drop_trailing() {
+        // 5 C's, win=[5], drop=[3]
+        // Window 1: drop first 3, modify next 2 → distances [3, 0]
+        // No more bases → done. Trailing is clean.
+        let seq = DNARestrictive::from_str("CCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([5].into())
+            .drop([3].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(ml_vec.len(), 2, "Should have 2 ML values");
+        assert!(mm_str.contains("C+m?,3,0;"), "MM should be C+m?,3,0;");
+    }
+
+    /// Tests that `drop` works with different `mm_suffix` variants.
+    #[test]
+    fn generate_random_dna_modification_drop_with_suffixes() {
+        let seq = DNARestrictive::from_str("CCCC").unwrap();
+
+        for (suffix, expected_prefix) in [
+            (MmSuffix::QuestionMark, "C+m?,"),
+            (MmSuffix::Dot, "C+m.,"),
+            (MmSuffix::None, "C+m,"),
+        ] {
+            let mod_config = ModConfigBuilder::default()
+                .base('C')
+                .mod_code("m".into())
+                .mm_suffix(suffix)
+                .win([4].into())
+                .drop([1].into())
+                .mod_range([(0.5, 0.5)].into())
+                .build()
+                .unwrap();
+
+            let mut rng = rand::rng();
+            let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+            assert_eq!(ml_vec.len(), 3, "Should have 3 ML values for {suffix:?}");
+            assert!(
+                mm_str.starts_with(expected_prefix),
+                "MM should start with {expected_prefix} for {suffix:?}, got {mm_str}"
+            );
+            assert!(
+                mm_str.contains("1,0,0;"),
+                "MM should contain distances 1,0,0 for {suffix:?}, got {mm_str}"
+            );
+        }
+    }
+
+    /// Tests that `drop` cycling with different length than `win` works.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "test validates length before indexing"
+    )]
+    #[test]
+    fn generate_random_dna_modification_drop_cycling_diff_length() {
+        // 10 C's, win=[5], drop=[1, 2] (drop cycles independently)
+        // Window 1 (win=5, drop=1): drop 1, modify 4 → distances [1, 0, 0, 0]
+        // Window 2 (win=5, drop=2): drop 2, modify 3 → distances [2, 0, 0]
+        let seq = DNARestrictive::from_str("CCCCCCCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([5].into())
+            .drop([1, 2].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(ml_vec.len(), 7, "Should have 7 ML values (4+3)");
+        let distances: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(distances.len(), 7, "Should have 7 distance entries");
+        assert_eq!(distances[0], "1", "Window 1 first mod -> distance 1");
+        assert_eq!(distances[4], "2", "Window 2 first mod -> distance 2");
+    }
+
+    /// Tests that `drop` larger than `min(win)` produces a build-time error.
+    #[test]
+    fn drop_exceeding_min_win_errors() {
+        let result = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([3, 5].into())
+            .drop([4].into()) // 4 > min(3, 5) = 3
+            .mod_range([(0.5, 0.5)].into())
+            .build();
+        assert!(
+            result.is_err(),
+            "drop value exceeding min(win) should error at build time"
+        );
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("exceeds minimum window size"),
+            "Error should mention exceeding minimum window size, got: {err_msg}"
+        );
+    }
+
+    /// Tests that the builder rejects an empty `win` vector.
+    #[test]
+    fn builder_rejects_empty_win() {
+        let result = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win(vec![])
+            .mod_range([(0.5, 0.5)].into())
+            .build();
+        assert!(result.is_err(), "empty win should error at build time");
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("win must contain at least one window value"),
+            "Error should mention empty win, got: {err_msg}"
+        );
+    }
+
+    /// Tests that `run` rejects a JSON config with an explicit empty `win`
+    /// array, for both BAM and CRAM formats.
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_rejects_empty_win_from_json(#[case] format: AlignmentFormat) {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100],
+                "repeated_seq": "ACGT"
+            },
+            "reads": [{
+                "number": 5,
+                "len_range": [0.5, 0.5],
+                "mods": [{
+                    "base": "C",
+                    "mod_code": "m",
+                    "win": [],
+                    "mod_range": [[0.5, 0.5]]
+                }]
+            }]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config, format);
+        assert!(
+            sim.is_err(),
+            "run should reject empty win via JSON validation"
+        );
+        let err_msg = format!("{}", sim.unwrap_err());
+        assert!(
+            err_msg.contains("win must contain at least one window value"),
+            "Error should mention empty win, got: {err_msg}"
+        );
+    }
+
+    /// Tests that `drop` deserializes from JSON and defaults to empty.
+    #[test]
+    fn mod_config_deserializes_drop() {
+        let with_drop: ModConfig = serde_json::from_str(
+            r#"{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "win": [5],
+                "mod_range": [[0.5, 0.5]],
+                "drop": [2]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(with_drop.drop, vec![2]);
+
+        let default: ModConfig = serde_json::from_str(
+            r#"{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "win": [5],
+                "mod_range": [[0.5, 0.5]]
+            }"#,
+        )
+        .unwrap();
+        assert!(default.drop.is_empty(), "drop should default to empty");
+    }
+
+    /// Tests that `drop` equal to `win` (all bases dropped in a window)
+    /// produces no ML values for that window and carries the gap forward.
+    #[test]
+    fn generate_random_dna_modification_drop_equals_win() {
+        // 6 C's, win=[3, 3], drop=[3, 0]
+        // Window 1: all 3 dropped, gap=3
+        // Window 2: drop 0, modify 3 → distances [3, 0, 0]
+        let seq = DNARestrictive::from_str("CCCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([3, 3].into())
+            .drop([3, 0].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(
+            ml_vec.len(),
+            3,
+            "Should have 3 ML values (all from window 2)"
+        );
+        assert!(
+            mm_str.contains("C+m?,3,0,0;"),
+            "MM should be C+m?,3,0,0; got {mm_str}"
+        );
+    }
+
+    /// Tests trailing dropped bases — the sequence ends inside a window's
+    /// drop phase, so the last partial window contributes no modifications.
+    #[test]
+    fn generate_random_dna_modification_drop_partial_trailing() {
+        // 6 C's, win=[4], drop=[2]
+        // Window 1: drop 2, modify 2 -> distances [2, 0], 2 ML values
+        // Window 2: drop 2 (only 2 C's left), no modify -> trailing drop, no ML
+        let seq = DNARestrictive::from_str("CCCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([4].into())
+            .drop([2].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(ml_vec.len(), 2, "Should have 2 ML values (only window 1)");
+        assert!(
+            mm_str.contains("C+m?,2,0;"),
+            "MM should be C+m?,2,0; got {mm_str}"
+        );
+    }
+
+    /// Tests that all bases dropped across all windows produces no MM/ML
+    /// group at all for that mod, while a second mod group still works.
+    #[test]
+    fn generate_random_dna_modification_all_dropped() {
+        // 4 C's, win=[2], drop=[2] -> all C's dropped, no C+m group
+        // 4 A's, win=[1], drop=[0] -> all A's modified, A+a group present
+        let seq = DNARestrictive::from_str("ACACACAC").unwrap();
+
+        let mod_config_c = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([2].into())
+            .drop([2].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mod_config_a = ModConfigBuilder::default()
+            .base('A')
+            .mod_code("a".into())
+            .win([1].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) =
+            generate_random_dna_modification(&[mod_config_c, mod_config_a], &seq, &mut rng);
+
+        // C group should be absent (all dropped)
+        assert!(
+            !mm_str.contains("C+m"),
+            "C+m group should be absent (all bases dropped), got {mm_str}"
+        );
+        // A group should be present
+        assert!(
+            mm_str.contains("A+a?"),
+            "A+a group should be present, got {mm_str}"
+        );
+        // ML should only have A values (4 A's, all modified)
+        assert_eq!(ml_vec.len(), 4, "Should have 4 ML values (all from A mods)");
+    }
+
+    /// Tests that all-dropped bases with the `.` (implicit) suffix emit a
+    /// single-distance MM group declaring all bases unmodified, with no ML.
+    /// 100 bp ACGT repeat → 25 T's, win=[4,4], drop=[4,4], suffix=Dot.
+    #[test]
+    fn generate_random_dna_modification_all_dropped_dot_suffix() {
+        let seq = DNARestrictive::from_str(&"ACGT".repeat(25)).unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('T')
+            .mod_code("T".into())
+            .mm_suffix(MmSuffix::Dot)
+            .win(vec![4, 4])
+            .drop(vec![4, 4])
+            .mod_range(vec![(0.5, 0.5)])
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(
+            mm_str, "T+T.,25;",
+            "expected all-dropped dot-suffix MM group, got {mm_str}"
+        );
+        assert!(ml_vec.is_empty(), "no ML values expected, got {ml_vec:?}");
+    }
+
+    /// Tests that JSON deserialization + `run()` rejects invalid drop values
+    /// (drop > min(win)). This covers the path that bypasses the builder.
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_rejects_invalid_drop_from_json(#[case] format: AlignmentFormat) {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100],
+                "repeated_seq": "ACGT"
+            },
+            "reads": [{
+                "number": 5,
+                "len_range": [0.5, 0.5],
+                "mods": [{
+                    "base": "C",
+                    "mod_code": "m",
+                    "win": [3],
+                    "mod_range": [[0.5, 0.5]],
+                    "drop": [5]
+                }]
+            }]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config, format);
+        assert!(
+            sim.is_err(),
+            "run should reject drop=5 with win=3 via JSON validation"
+        );
+        let err_msg = format!("{}", sim.unwrap_err());
+        assert!(
+            err_msg.contains("exceeds minimum window size"),
+            "Error should mention exceeding minimum window size, got: {err_msg}"
+        );
     }
     /// Tests multiple simultaneous modifications on different bases
     #[rstest::rstest]
