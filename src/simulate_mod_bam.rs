@@ -1288,20 +1288,20 @@ fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
             .as_str();
         }
         // All bases were dropped. With an implicit suffix (`.` or none),
-        // dropped bases are unmodified, so emit a single distance equal to
-        // the total count of bases of interest. No ML values are produced.
+        // dropped bases are unmodified, so emit an empty coordinate list.
+        // No ML values are produced.
         // With `?` (explicit), all-dropped means "data missing" → emit nothing.
-        if distances.is_empty()
+        if count == 0
+            && distances.is_empty()
             && total_count > 0
             && matches!(mod_config.mm_suffix, MmSuffix::Dot | MmSuffix::None)
         {
             mm_str += format!(
-                "{}{}{}{},{};",
+                "{}{}{}{};",
                 base as char,
                 strand,
                 mod_code,
-                mod_config.mm_suffix.suffix_str(),
-                total_count
+                mod_config.mm_suffix.suffix_str()
             )
             .as_str();
         }
@@ -1676,8 +1676,14 @@ fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             record.set_mpos(-1);
             record.set_mtid(-1);
             record.push_aux(b"RG", Aux::String(read_group))?;
-            if !mod_prob_mm_tag.is_empty() && !mod_pos_ml_tag.is_empty() {
+            assert!(
+                mod_pos_ml_tag.is_empty() || !mod_prob_mm_tag.is_empty(),
+                "bug: generated ML values without an MM group"
+            );
+            if !mod_prob_mm_tag.is_empty() {
                 record.push_aux(b"MM", Aux::String(mod_prob_mm_tag.as_str()))?;
+            }
+            if !mod_pos_ml_tag.is_empty() {
                 record.push_aux(b"ML", Aux::ArrayU8((&mod_pos_ml_tag).into()))?;
             }
             record
@@ -2856,6 +2862,127 @@ mod read_generation_with_mods_tests {
     use crate::{CurrRead, ThresholdState, curr_reads_to_dataframe};
     use rust_htslib::bam::Read as _;
 
+    /// Simulates ten full-length reads whose 25 T bases are all dropped, then
+    /// parses their modification data into a `DataFrame`.
+    fn all_dropped_t_mods_dataframe(suffix: MmSuffix) -> polars::prelude::DataFrame {
+        let contigs = ContigConfigBuilder::default()
+            .number(1)
+            .len_range((100, 100))
+            .repeated_seq("ACGT".into())
+            .build()
+            .unwrap();
+        let mods = vec![
+            ModConfigBuilder::default()
+                .base('T')
+                .mod_code("T".into())
+                .mm_suffix(suffix)
+                .win(vec![4, 4])
+                .drop(vec![4, 4])
+                .mod_range(vec![(0.5, 0.5)])
+                .build()
+                .unwrap(),
+        ];
+        let reads = vec![
+            ReadConfigBuilder::default()
+                .number(10)
+                .len_range((1.0, 1.0))
+                .mods(mods)
+                .build()
+                .unwrap(),
+        ];
+        let config = SimulationConfigBuilder::default()
+            .contigs(contigs)
+            .reads(reads)
+            .seed(42u64)
+            .build()
+            .unwrap();
+        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let mut bam = bam::Reader::from_path(sim.bam_path()).unwrap();
+        let curr_reads = bam
+            .records()
+            .map(|record_result| {
+                let record = record_result.unwrap();
+                CurrRead::default()
+                    .try_from_only_alignment(&record)
+                    .unwrap()
+                    .set_mod_data(&record, ThresholdState::GtEq(0), 0)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(curr_reads.len(), 10, "simulation should generate ten reads");
+        curr_reads_to_dataframe(&curr_reads).unwrap()
+    }
+
+    /// Checks the parsed fields shared by the implicit all-dropped cases.
+    fn assert_all_dropped_implicit_t_dataframe(df: &polars::prelude::DataFrame) {
+        assert_eq!(df.height(), 250);
+        assert!(
+            df.column("mod_quality")
+                .unwrap()
+                .u32()
+                .unwrap()
+                .into_iter()
+                .all(|probability| probability == Some(0))
+        );
+        assert!(
+            df.column("mod_code")
+                .unwrap()
+                .str()
+                .unwrap()
+                .into_iter()
+                .all(|mod_code| mod_code == Some("T"))
+        );
+        assert!(
+            df.column("base")
+                .unwrap()
+                .str()
+                .unwrap()
+                .into_iter()
+                .all(|base| base == Some("T"))
+        );
+        assert!(
+            df.column("is_strand_plus")
+                .unwrap()
+                .bool()
+                .unwrap()
+                .into_iter()
+                .all(|is_strand_plus| is_strand_plus == Some(true))
+        );
+        let distinct_read_ids = df
+            .column("read_id")
+            .unwrap()
+            .str()
+            .unwrap()
+            .into_no_null_iter()
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(distinct_read_ids.len(), 10);
+    }
+
+    /// Explicit missing-data suffixes should produce no calls for dropped bases.
+    #[test]
+    fn all_dropped_question_mark_suffix_has_no_dataframe_rows() {
+        let df = all_dropped_t_mods_dataframe(MmSuffix::QuestionMark);
+
+        assert_eq!(df.height(), 0);
+    }
+
+    /// Dot suffixes should report every dropped base as implicitly unmodified.
+    #[test]
+    fn all_dropped_dot_suffix_has_zero_probability_rows() {
+        let df = all_dropped_t_mods_dataframe(MmSuffix::Dot);
+
+        assert_all_dropped_implicit_t_dataframe(&df);
+    }
+
+    /// Suffix-free groups should report every dropped base as implicitly unmodified.
+    #[test]
+    fn all_dropped_no_suffix_has_zero_probability_rows() {
+        let df = all_dropped_t_mods_dataframe(MmSuffix::None);
+
+        assert_all_dropped_implicit_t_dataframe(&df);
+    }
+
     /// Tests read generation with desired properties but with modifications
     #[test]
     fn generate_reads_denovo_with_mods_works() {
@@ -3816,8 +3943,8 @@ mod read_generation_with_mods_tests {
         assert_eq!(ml_vec.len(), 4, "Should have 4 ML values (all from A mods)");
     }
 
-    /// Tests that all-dropped bases with the `.` (implicit) suffix emit a
-    /// single-distance MM group declaring all bases unmodified, with no ML.
+    /// Tests that all-dropped bases with the `.` (implicit) suffix emit an
+    /// empty-coordinate MM group declaring all bases unmodified, with no ML.
     /// 100 bp ACGT repeat → 25 T's, win=[4,4], drop=[4,4], suffix=Dot.
     #[test]
     fn generate_random_dna_modification_all_dropped_dot_suffix() {
@@ -3837,7 +3964,7 @@ mod read_generation_with_mods_tests {
         let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
 
         assert_eq!(
-            mm_str, "T+T.,25;",
+            mm_str, "T+T.;",
             "expected all-dropped dot-suffix MM group, got {mm_str}"
         );
         assert!(ml_vec.is_empty(), "no ML values expected, got {ml_vec:?}");
