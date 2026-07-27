@@ -457,6 +457,12 @@ where
             ));
         }
 
+        if seq_len == 0 {
+            return Err(Error::ZeroSeqLen(
+                "zero length sequences cannot be used for mod tag parsing".to_owned(),
+            ));
+        }
+
         if !base_qual.is_empty() && base_qual.len() != seq_len {
             return Err(Error::InvalidState(
                 "base quality array is not the same size as sequence!".to_owned(),
