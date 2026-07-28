@@ -6,6 +6,8 @@ cd "$repo_root"
 
 ./github_workflow_scripts/check-repo-guardrails.sh
 node github_workflow_scripts/check-cargo-lints.ts
+node github_workflow_scripts/check-strange-characters.ts --cached-only
+node github_workflow_scripts/check-committed-secrets.ts --cached-only
 
 if git diff --cached --name-only --diff-filter=ACMR -- '*.md' | grep -q .; then
   node github_workflow_scripts/check-md-links.mjs --cached-only

@@ -39,6 +39,14 @@ jobs:
         env:
           TOOLCHAIN: ${{ matrix.toolchain }}
         run: rustup update "$TOOLCHAIN" && rustup default "$TOOLCHAIN"
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: '24.15.0'
+      - name: Check repository text hygiene
+        run: |
+          node github_workflow_scripts/check-strange-characters.ts
+          node github_workflow_scripts/check-committed-secrets.ts
       - name: Delete cargo.lock
         run: rm Cargo.lock
       - name: Build
