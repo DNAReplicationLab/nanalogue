@@ -81,12 +81,12 @@
 #[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64")))]
 compile_error!("This crate supports only 32-bit and 64-bit platforms.");
 
+use crate::bedrs::{Bed3, Coordinates as _, StrandedBed3};
 use crate::constants::shared::{
     MAX_ML_ARRAY_LENGTH, MAX_MM_TAG_LENGTH, MAX_READ_ID_LEN, MAX_READ_IDS_FOR_FILTERING,
     MAX_RECORD_CAPACITY_BYTES, MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
 };
 use crate::file_utils::read_line_capped;
-use bedrs::{Bed3, Coordinates as _, StrandedBed3};
 use rand::random;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
 use std::collections::HashSet;
@@ -98,6 +98,7 @@ use std::sync::Once;
 
 // Declare the modules.
 pub mod analysis;
+pub mod bedrs;
 pub mod cli;
 pub mod commands;
 pub mod constants;

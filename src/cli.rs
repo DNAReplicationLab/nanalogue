@@ -919,7 +919,7 @@ mod input_mods_required_tag_tests {
 #[cfg(test)]
 mod input_bam_tests {
     use super::*;
-    use bedrs::Coordinates as _;
+    use crate::bedrs::Coordinates as _;
 
     #[test]
     fn input_bam_is_full_overlap() {
