@@ -2,6 +2,17 @@
 
 This project includes code adapted from third-party open source software.
 
+## bedrs
+
+This project includes a minimal adaptation of the published `bedrs` v0.2.26
+crate in `src/bedrs.rs`. Unused functionality was removed.
+
+- Crate page: <https://crates.io/crates/bedrs>
+- Repository: <https://github.com/noamteyssier/bedrs>
+- Reference crate checksum: `e80a9ee52ad2ad5233b261be535926bea4a3fdfd068fd7d4cb48c8edd7518173`
+- Reference source commit: `f71d798d5a7dc21a7b731a1de6f0858fc37ee667`
+- License: MIT; see `licenses/bedrs-LICENSE`
+
 ## fibertools-rs
 
 Portions of this project are adapted from the published crate `fibertools-rs` v0.8.2.

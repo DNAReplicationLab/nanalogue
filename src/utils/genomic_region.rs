@@ -282,7 +282,7 @@ impl TryFrom<(String, (u32, u32))> for GenomicRegion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrs::Coordinates as _;
+    use crate::bedrs::Coordinates as _;
 
     /// Tests comprehensive `GenomicRegion` parsing
     #[expect(

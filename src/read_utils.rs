@@ -1,6 +1,8 @@
 //! Implements `CurrRead` Struct for processing information
 //! and the mod information in the BAM file using a parser implemented in
 //! another module.
+use crate::bedrs::prelude::Intersect as _;
+use crate::bedrs::{Coordinates as _, Strand};
 use crate::{
     AllowedAGCTN, BaseMod, BaseMods, Contains as _, Error, F32Bw0and1, FiberAnnotation,
     FilterModsByRefCoords, GenomicBed3, GenomicStrandedBed3, InputModOptions, InputRegionOptions,
@@ -11,8 +13,6 @@ use crate::{
     },
     ensure_valid_contig, ensure_valid_read_id, nanalogue_mm_ml_parser,
 };
-use bedrs::prelude::Intersect as _;
-use bedrs::{Coordinates as _, Strand};
 use bio_types::genome::AbstractInterval as _;
 use derive_builder::Builder;
 use polars::{df, prelude::DataFrame};
@@ -723,7 +723,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     /// # Example
     ///
     /// ```
-    /// use bedrs::Bed3;
+    /// use nanalogue_core::bedrs::Bed3;
     /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
     /// use rust_htslib::bam::Read;
     ///
@@ -795,7 +795,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     /// Example 1
     ///
     /// ```
-    /// use bedrs::Bed3;
+    /// use nanalogue_core::bedrs::Bed3;
     /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
     /// use rust_htslib::bam::Read;
     ///
@@ -824,7 +824,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     /// Example 2
     ///
     /// ```
-    /// use bedrs::Bed3;
+    /// use nanalogue_core::bedrs::Bed3;
     /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
     /// use rust_htslib::bam::Read;
     ///
@@ -935,7 +935,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     /// # Example
     ///
     /// ```
-    /// use bedrs::Bed3;
+    /// use nanalogue_core::bedrs::Bed3;
     /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
     /// use rust_htslib::bam::Read;
     ///
@@ -1574,8 +1574,8 @@ where
 /// Converts `CurrRead` to `StrandedBed3`
 ///
 /// ```
-/// use bedrs::{Coordinates, Strand};
-/// use bedrs::prelude::StrandedBed3;
+/// use nanalogue_core::bedrs::{Coordinates, Strand};
+/// use nanalogue_core::bedrs::StrandedBed3;
 /// use nanalogue_core::{CurrRead, Error, nanalogue_bam_reader};
 /// use rust_htslib::bam::Read;
 /// let mut reader = nanalogue_bam_reader(&"examples/example_1.bam")?;
