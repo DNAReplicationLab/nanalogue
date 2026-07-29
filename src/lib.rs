@@ -148,9 +148,9 @@ static SSL_INIT: Once = Once::new();
 /// Initialize SSL certificate paths for HTTPS support.
 ///
 /// This function automatically detects and configures SSL certificate locations
-/// to enable HTTPS file access through libcurl. It uses the `openssl-probe`
-/// crate to find system CA certificate bundles directly, rather than going
-/// through the `SSL_CERT_FILE` environment variable.
+/// to enable HTTPS file access through libcurl. It probes for system CA
+/// certificate bundles directly, rather than going through the
+/// `SSL_CERT_FILE` environment variable.
 ///
 /// # Safety
 ///
@@ -175,25 +175,25 @@ static SSL_INIT: Once = Once::new();
 /// certificate bundle, enabling HTTPS connections.
 pub unsafe fn init_ssl_certificates() {
     SSL_INIT.call_once(|| {
-        let probe = openssl_probe::probe();
+        let (cert_file, cert_dir) = utils::openssl_probe::probe();
         // SAFETY: Caller guarantees no other threads have been spawned, so no
         // concurrent `getenv` can race with these `setenv` calls. Pre-existing
         // values are preserved.
         unsafe {
-            if let Some(cert_file) = probe.cert_file.as_deref() {
+            if let Some(cert_file_path) = cert_file.as_deref() {
                 if std::env::var_os("SSL_CERT_FILE").is_none() {
-                    std::env::set_var("SSL_CERT_FILE", cert_file);
+                    std::env::set_var("SSL_CERT_FILE", cert_file_path);
                 }
                 // libcurl statically linked into rust-htslib checks
                 // CURL_CA_BUNDLE rather than SSL_CERT_FILE. Use the probed
                 // path directly so the value comes from the filesystem probe.
                 if std::env::var_os("CURL_CA_BUNDLE").is_none() {
-                    std::env::set_var("CURL_CA_BUNDLE", cert_file);
+                    std::env::set_var("CURL_CA_BUNDLE", cert_file_path);
                 }
             }
-            if !probe.cert_dir.is_empty()
+            if !cert_dir.is_empty()
                 && std::env::var_os("SSL_CERT_DIR").is_none()
-                && let Ok(joined) = std::env::join_paths(&probe.cert_dir)
+                && let Ok(joined) = std::env::join_paths(&cert_dir)
             {
                 std::env::set_var("SSL_CERT_DIR", joined);
             }

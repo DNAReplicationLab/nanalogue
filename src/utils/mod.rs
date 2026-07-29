@@ -13,6 +13,7 @@ pub mod filter_by_ref_coords;
 pub mod genomic_region;
 pub mod intersects;
 pub mod mod_char;
+pub(crate) mod openssl_probe;
 pub mod ord_pair;
 pub mod parse_mm_tag;
 pub mod path_or_url_or_stdin;

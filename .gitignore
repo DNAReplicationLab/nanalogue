@@ -1,4 +1,5 @@
 /target
+.agents/
 .pi*
 cargo.def
 cargo.img
