@@ -10,7 +10,7 @@ repository = "https://github.com/DNAReplicationLab/nanalogue.git"
 homepage = "https://www.nanalogue.com"
 categories = ["command-line-utilities", "science::bioinformatics::sequence-analysis", "science::bioinformatics::genomics"]
 keywords = ["modbam", "bam", "dna", "dna_methylation", "rna"]
-exclude = [".github/", ".gitignore", "github_workflow_scripts/", "AGENTS.md", "CLAUDE.md"]
+exclude = [".agents/", ".githooks/", ".github/", ".gitignore", "github_workflow_scripts/", "AGENTS.md", "CLAUDE.md"]
 
 [dependencies]
 rust-htslib = { version = "=1.0.0", features = ["libdeflate"] } 
@@ -22,7 +22,6 @@ rand = "=0.10.1"
 url = { version = "=2.5.8", features = [ "serde" ] }
 derive_builder = "=0.20.2"
 polars = { version = "=0.53.0", default-features = false, features = ["csv"] }
-openssl-probe = "=0.2.1"
 
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = "0.1.48"

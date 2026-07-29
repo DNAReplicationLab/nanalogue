@@ -1652,7 +1652,6 @@ dependencies = [
  "clap",
  "derive_builder",
  "mimalloc",
- "openssl-probe",
  "polars",
  "rand 0.10.1",
  "rust-htslib",
