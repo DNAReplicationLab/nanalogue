@@ -245,10 +245,10 @@ fn approximate_mod_data_len(
 ///
 /// # Tag Variant Support
 ///
-/// We support MM/ML (standard) and Mm/Ml (fallback mixed-case) tag variants, but no other variants.
-/// The specification recommends MM/ML, but we support the Mm/Ml variant as some sequencing
-/// technologies use this capitalization. Other mixed-case variants (e.g., mM/mL) and fully
-/// lowercase variants (mm/ml) are not recognized.
+/// We support standard `MM`/`ML` tags plus the legacy `Mm` and `Ml` spellings on a per-tag basis.
+/// The specification recommends MM/ML. Records that carry both variants of the same tag are
+/// rejected, and fully lowercase or other mixed-case variants (e.g., `mm/ml` or `mM/mL`) are
+/// not recognized.
 ///
 /// Function should cover almost all mod bam cases, but will fail in the following scenarios:
 /// - A specific type of multiple mod notation that is not frequently used.
@@ -967,9 +967,9 @@ mod mod_parse_tests {
     use rust_htslib::bam::Read as _;
 
     /// Tests if Mod BAM modification parsing is alright with fallback tag support.
-    /// Tests both MM/ML (standard uppercase) and Mm/Ml (fallback mixed-case) tag variants.
-    /// Note: Only these specific variants are supported - fully lowercase (mm/ml) and
-    /// other mixed-case variants (e.g., mM/mL) are not recognized.
+    /// Tests standard `MM`/`ML` tags plus legacy `Mm` and `Ml` spellings on a per-tag basis.
+    /// Note: records that carry both variants of the same tag are rejected, and fully lowercase
+    /// or other mixed-case spellings (e.g., `mm/ml` or `mM/mL`) are not recognized.
     /// Some of the test cases here may be a repeat of the doctest above.
     #[test]
     #[expect(clippy::too_many_lines, reason = "Comprehensive integration test")]
