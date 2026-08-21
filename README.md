@@ -1,6 +1,6 @@
 # `nanalogue`
 
-Nanalogue = *N*ucleotide and *Analogue*
+Nanalogue = *N*ucleic Acid *Analogue*
 
 Nanalogue is a tool to parse or analyse BAM/Mod BAM files with a single-molecule focus.
 
