@@ -768,7 +768,7 @@ where
         "{}{}read_id\talign_length\tsequence_length_template\talignment_type{}{}{}",
         is_seq_summ_data
             .then_some(format!("# seq summ file: {seq_summ_path}\n"))
-            .map_or(String::new(), |v| v),
+            .unwrap_or(String::new()),
         mods.clone()
             .map_or("", |_| "# mod-unmod threshold is 0.5\n"),
         mods.map_or("", |_| "\tmod_count"),
