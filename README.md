@@ -19,7 +19,8 @@ quite general and can be applied to almost any BAM file.
 We can process many types of DNA/RNA modifications occurring in any pattern (single/multiple mods,
 spatially-isolated/non-isolated etc.). All we require is that the data is stored
 in a BAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
-[specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)). We currently support standard `MM`/`ML` tags plus the legacy `Mm` and `Ml` spellings on a per-tag basis. Records that carry both variants of the same tag, as well as fully lowercase or other mixed-case spellings such as `mm/ml` or `mM/mL`, are not recognized.
+[specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)). We currently support standard `MM/ML` and fallback `Mm/Ml`
+tag variants; other mixed-case or lowercase variants are not recognized.
 
 ## Table of Contents
 
@@ -69,17 +70,16 @@ companion cookbook [here](https://www.nanalogue.com).
 For developers: if you are looking to make a custom BAM file containing synthetic, simulated
 DNA/RNA modification data to develop/test your tool, you may be interested in `nanalogue_sim_bam`.
 This is an executable that ships with nanalogue that can create a BAM file according to your
-specifications. It is intended for trusted developer-controlled test inputs and can consume
-substantial CPU, memory, and disk space on large workloads. Please run `nanalogue_sim_bam --help`.
-If you are a rust developer looking to use this functionality in your library, please look at the
-documentation of the module `nanalogue_core::simulate_mod_bam` in the docs.rs link [above](#usage-and-documentation).
+specifications. Please run `nanalogue_sim_bam --help`. If you are a rust developer looking
+to use this functionality in your library, please look at the documentation of the module
+`nanalogue_core::simulate_mod_bam` in the docs.rs link [above](#usage-and-documentation).
 
 # Installation and Updates
 
 ## Pre-built Binaries
 
 Pre-built binaries for macOS and Linux are available.
-Windows users are not directly supported; use Docker instead.
+Windows users should use Windows Subsystem for Linux (WSL).
 
 ### Quick Install Script
 
