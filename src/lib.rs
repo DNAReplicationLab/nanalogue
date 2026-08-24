@@ -14,13 +14,13 @@
 //! which makes it difficult to gain insight from them. Nanalogue hopes to make it easy
 //! to extract and process this information, with a particular focus on single-molecule
 //! aspects and DNA/RNA modifications. Despite this focus, some of nanalogue's commands
-//! and functions are quite general and can be applied to almost any BAM file.
+//! and functions are quite general and can be applied to almost any BAM/SAM/CRAM file.
 //!
 //! We process and calculate data associated with DNA/RNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous
 //! information.  We can process any type of DNA/RNA modifications occurring in any pattern
 //! (single/multiple mods, spatially-isolated/non-isolated etc.). All we require is that
-//! the data is stored in a BAM file in the mod BAM format (i.e. using `MM/ML` tags as
+//! the data is stored in a BAM/SAM/CRAM file in the mod BAM format (i.e. using `MM/ML` tags as
 //! laid down in the [specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)).
 //!
 //! Nanalogue is both an executable that can be run from the command line and a library

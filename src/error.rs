@@ -1,9 +1,9 @@
 //! # Error
 //!
 //! Covers all errors in our module. These errors arise from us processing
-//! and calculating data associated with DNA molecules, their alignments to
+//! and calculating data associated with DNA/RNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous
-//! information. We convert errors from other packages to this error type so that
+//! information. We convert errors from other packages to this type so that
 //! error handling in our package becomes easier.
 
 use crate::F32Bw0and1;
