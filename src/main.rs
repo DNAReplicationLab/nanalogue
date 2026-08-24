@@ -2,7 +2,7 @@
 //!
 //! We process and calculate data associated with DNA/RNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous
-//! information from BAM files.
+//! information from BAM/SAM/CRAM files.
 use clap::Parser as _;
 use nanalogue_core::commands;
 use rust_htslib::htslib;
