@@ -21,7 +21,6 @@ spatially-isolated/non-isolated etc.). All we require is that the data is stored
 in a BAM/SAM/CRAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
 [specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)). We currently support standard `MM/ML` and fallback `Mm/Ml`
 tag variants; other mixed-case or lowercase variants are not recognized.
-Records containing both spellings of the same tag in one BAM record (for example, both `MM` and `Mm`) are rejected.
 
 ## Table of Contents
 
@@ -80,7 +79,7 @@ to use this functionality in your library, please look at the documentation of t
 ## Pre-built Binaries
 
 Pre-built binaries for macOS and Linux are available.
-Windows users should use Docker instead.
+Windows users should use Windows subsystem for Linux (WSL) or [Docker](#using-docker) instead.
 
 ### Quick Install Script
 
