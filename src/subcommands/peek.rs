@@ -447,7 +447,6 @@ mod tests {
     /// running. Run explicitly and serially with:
     ///
     /// ```text
-    /// cargo test -- --ignored --test-threads=1 peek_remote_pacbio
     /// cargo test -- --ignored --test-threads=1 peek_remote_pacbio_hg002_grch38
     /// ```
     ///

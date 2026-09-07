@@ -2,6 +2,8 @@
 //!
 //! Companion tool to nanalogue which creates artificial BAM or mod BAM files
 //! for developers wishing to test BAM parsing or BAM modification data parsing.
+//! The simulation tooling is intended for trusted developer-controlled test inputs and may
+//! consume substantial CPU time, memory, and disk space.
 use clap::Parser;
 use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam};
 
