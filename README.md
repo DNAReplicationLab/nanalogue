@@ -417,9 +417,8 @@ For security concerns and vulnerability reporting, please see [SECURITY.md](SECU
 
 # Third-Party Notices
 
-This repository vendors a small number of third-party crates to keep the build
-reproducible and to work around toolchain-specific issues in the HTSlib Rust
-bindings. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the full
+This repository vendors a small number of third-party crates.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the full
 list of vendored crates, their local paths, their license files, and the patch
 files that show the exact changes from upstream.
 

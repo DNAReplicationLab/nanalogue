@@ -1597,7 +1597,17 @@ impl Drop for TempSimulationDir {
 ///
 /// Creates temporary BAM and FASTA files for testing purposes and
 /// automatically removes them when dropped.
-#[derive(Debug, Serialize, Deserialize)]
+///
+/// This type deliberately does **not** implement `Deserialize`. It owns a
+/// private disposable directory that `Drop` recursively deletes, and the only
+/// safe way to obtain one is [`TempBamSimulation::new`] (or `new_in`), which
+/// create that directory themselves. Deserializing caller-provided path
+/// metadata would instead create cleanup ownership of a directory the object
+/// never created, so dropping it would `remove_dir_all` an arbitrary
+/// caller-chosen path; a serialization round-trip would create two owners of
+/// the same directory. `Serialize` is retained because it only reads state and
+/// cannot construct a new owner.
+#[derive(Debug, Serialize)]
 pub struct TempBamSimulation {
     /// Temporary directory containing simulation outputs
     temp_dir: PathBuf,
@@ -1665,6 +1675,50 @@ impl Drop for TempBamSimulation {
         // Ignore errors during cleanup - files may already be deleted
         drop(std::fs::remove_dir_all(&self.temp_dir));
     }
+}
+
+#[cfg(test)]
+mod temp_bam_simulation_ownership {
+    use super::TempBamSimulation;
+
+    /// Compile-time assertion that `$x` does not implement any of the traits
+    /// `$t`. Fails to compile if it does.
+    ///
+    /// Inlined from `static_assertions::assert_not_impl_any!` (v1.1.0) so this
+    /// single ownership check needs no extra dev-dependency. The trick is a
+    /// blanket `AmbiguousIfImpl<()>` impl for all types plus a specialized
+    /// `AmbiguousIfImpl<Invalid>` impl per checked trait; if `$x` implements any
+    /// `$t`, the `_` in `AmbiguousIfImpl<_>` becomes ambiguous and inference
+    /// fails.
+    macro_rules! assert_not_impl_any {
+        ($x:ty: $($t:path),+ $(,)?) => {
+            const _: fn() = || {
+                trait AmbiguousIfImpl<A> {
+                    fn some_item() {}
+                }
+
+                impl<T: ?Sized> AmbiguousIfImpl<()> for T {}
+
+                $({
+                    struct Invalid;
+
+                    impl<T: ?Sized + $t> AmbiguousIfImpl<Invalid> for T {}
+                })+
+
+                let _ = <$x as AmbiguousIfImpl<_>>::some_item;
+            };
+        };
+    }
+
+    // Compile-time regression for the resource-ownership flaw in
+    // [`TempBamSimulation`]; see that struct's docstring for why it must not
+    // implement `Deserialize`.
+    //
+    // `DeserializeOwned` is `for<'de> Deserialize<'de>`: it is implemented for
+    // `TempBamSimulation` exactly when the `Deserialize` derive is present. This
+    // assertion fails to compile while that derive remains on the owning type,
+    // and compiles once it is removed, locking the fix in.
+    assert_not_impl_any!(TempBamSimulation: serde::de::DeserializeOwned);
 }
 
 #[cfg(test)]
