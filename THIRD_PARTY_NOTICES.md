@@ -118,3 +118,45 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## static_assertions
+
+This project includes a minimal adaptation of the published crate
+`static_assertions` v1.1.0, specifically the `assert_not_impl_any!` macro
+inlined into the `temp_bam_simulation_ownership` test module in
+`src/simulate_mod_bam.rs`. The macro is reproduced verbatim except for removing
+the upstream `#[allow(dead_code)]` attribute (this repository denies
+`allow_attributes`) and relocating the upstream explanatory inline comments
+into the macro's doc comment.
+
+- Crate page: <https://crates.io/crates/static_assertions>
+- Repository: <https://github.com/nvzqz/static-assertions-rs>
+- License declared by the published crate metadata: MIT OR Apache-2.0
+- Copied license: `licenses/static_assertions-LICENSE` (MIT)
+- Source copied on: 2026-09-08
+- Source file: <https://crates.io/crates/static_assertions/1.1.0/code/src/assert_impl.rs>
+- Reference source tag: `v1.1.0`
+
+```text
+MIT License
+
+Copyright (c) 2017 Nikolai Vazquez
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
