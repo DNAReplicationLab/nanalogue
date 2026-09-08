@@ -129,7 +129,7 @@ use serde::{Deserialize, Serialize};
 use std::iter;
 use std::num::NonZeroU32;
 use std::ops::RangeInclusive;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 
 /// We need a shorthand for this for a one-liner we use
@@ -1546,6 +1546,39 @@ where
     Ok(())
 }
 
+/// Removes a newly created simulation directory unless ownership is transferred.
+#[derive(Debug)]
+struct TempSimulationDir {
+    /// Exact path to remove on drop.
+    path: PathBuf,
+    /// Whether this guard still owns cleanup responsibility.
+    remove_on_drop: bool,
+}
+
+impl TempSimulationDir {
+    /// Takes temporary ownership of a newly created simulation directory.
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            remove_on_drop: true,
+        }
+    }
+
+    /// Transfers cleanup responsibility to a successful simulation object.
+    fn transfer(mut self) -> PathBuf {
+        self.remove_on_drop = false;
+        self.path.clone()
+    }
+}
+
+impl Drop for TempSimulationDir {
+    fn drop(&mut self) {
+        if self.remove_on_drop {
+            drop(std::fs::remove_dir_all(&self.path));
+        }
+    }
+}
+
 /// Temporary BAM simulation with automatic cleanup
 ///
 /// Creates temporary BAM and FASTA files for testing purposes and
@@ -1553,7 +1586,7 @@ where
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TempBamSimulation {
     /// Temporary directory containing simulation outputs
-    temp_dir: String,
+    temp_dir: PathBuf,
     /// Path to bam file that will be created
     bam_path: String,
     /// Path to fasta file that will be created
@@ -1576,19 +1609,25 @@ impl TempBamSimulation {
                 )));
             }
         };
-        let temp_dir = temp_dir_root.join(uuid::v4_random());
+        Self::new_in(config, &temp_dir_root)
+    }
+
+    /// Creates a temporary BAM simulation beneath the given directory.
+    fn new_in(config: SimulationConfig, temp_dir_root: &Path) -> Result<Self, Error> {
+        let temp_dir_path = temp_dir_root.join(uuid::v4_random());
         #[expect(
             clippy::create_dir,
             reason = "we are not using create_dir_all here as we want to fail if the environmentally specified temporary directory does not exist"
         )]
-        std::fs::create_dir(&temp_dir)?;
+        std::fs::create_dir(&temp_dir_path)?;
+        let temp_dir = TempSimulationDir::new(temp_dir_path);
 
-        let bam_path = temp_dir.join("simulation.bam");
-        let fasta_path = temp_dir.join("simulation.fa");
+        let bam_path = temp_dir.path.join("simulation.bam");
+        let fasta_path = temp_dir.path.join("simulation.fa");
 
         run(config, &bam_path, &fasta_path)?;
         Ok(Self {
-            temp_dir: temp_dir.to_string_lossy().to_string(),
+            temp_dir: temp_dir.transfer(),
             bam_path: bam_path.to_string_lossy().to_string(),
             fasta_path: fasta_path.to_string_lossy().to_string(),
         })
@@ -1809,21 +1848,61 @@ mod read_generation_no_mods_tests {
 
         let bam_path: String;
         let fasta_path: String;
+        let temp_dir: PathBuf;
 
         {
             let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
             let sim = TempBamSimulation::new(config).unwrap();
             bam_path = sim.bam_path().to_string();
             fasta_path = sim.fasta_path().to_string();
+            temp_dir = Path::new(&bam_path).parent().unwrap().to_path_buf();
 
             // Files should exist while sim is in scope
             assert!(Path::new(&bam_path).exists());
             assert!(Path::new(&fasta_path).exists());
+            assert!(temp_dir.exists());
         } // sim is dropped here
 
-        // Files should be cleaned up after drop
+        // The complete simulation directory should be cleaned up after drop
         assert!(!Path::new(&bam_path).exists());
         assert!(!Path::new(&fasta_path).exists());
+        assert!(!temp_dir.exists());
+    }
+
+    /// Tests failed `TempBamSimulation` construction cleans up its directory.
+    #[test]
+    fn temp_bam_simulation_failed_construction_cleanup() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [50, 50]
+            },
+            "reads": [{
+                "number": 1,
+                "len_range": [0.0, 0.0]
+            }]
+        }"#;
+        let test_root =
+            std::env::temp_dir().join(format!("nanalogue_failed_simulation_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&test_root).unwrap();
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let error = TempBamSimulation::new_in(config, &test_root).unwrap_err();
+        let leaked_paths: Vec<_> = std::fs::read_dir(&test_root)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+
+        for path in &leaked_paths {
+            std::fs::remove_dir_all(path).unwrap();
+        }
+        std::fs::remove_dir(&test_root).unwrap();
+
+        assert!(matches!(error, Error::InvalidState(_)));
+        assert!(
+            leaked_paths.is_empty(),
+            "failed construction leaked temporary paths: {leaked_paths:?}"
+        );
     }
 
     /// Tests error when generating reads with empty contigs slice
