@@ -38,6 +38,10 @@ path = "src/main.rs"
 name = "nanalogue_sim_bam"
 path = "src/bin/main_simulate_mod_bam.rs"
 
+[[bench]]
+name = "gradient_windows"
+harness = false
+
 [lints.clippy]
 pedantic = "deny"
 allow_attributes = "deny"
