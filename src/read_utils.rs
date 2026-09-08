@@ -1176,8 +1176,6 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
             s.truncate(s.len() - trim_end_bp);
         }
 
-        // Trim excess allocated capacity and return
-        s.shrink_to(0);
         assert!(
             !s.is_empty(),
             "must be true: if length > `trim_end_bp` and we trim, length is still > 0"

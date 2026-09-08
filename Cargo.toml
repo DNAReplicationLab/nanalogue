@@ -39,6 +39,10 @@ name = "nanalogue_sim_bam"
 path = "src/bin/main_simulate_mod_bam.rs"
 
 [[bench]]
+name = "seq_coords_capacity"
+harness = false
+
+[[bench]]
 name = "gradient_windows"
 harness = false
 
