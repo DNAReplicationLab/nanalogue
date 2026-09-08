@@ -8,6 +8,8 @@ the following commands in this order:
 ## Final review
 - Run `codex review --uncommitted` with an unlimited timeout to see what the tool
 says as code review and incorporate its changes.
+- If `codex` is unavailable in an orb, use the oracle when it is available. If
+  neither review agent is available, ask the user which review agent to use.
 - If you repeat codex review, deal with its previous comments first, then run it
 again. Do not run multiple instances in parallel.
 - Keep repeating the cycle of running the code agent above and incorporating its
@@ -31,4 +33,3 @@ If cargo commands do not work and the paths below do not exist, try searching fo
 If you still cannot find the paths, then talk to the user.
 - `CLANG_PATH=/usr/bin/clang-18`
 - `LIBCLANG_PATH=/usr/lib/llvm-18/lib`
-

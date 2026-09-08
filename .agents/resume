@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# No services or authentication require reconnection. Check the persisted
+# development environment so a broken snapshot fails visibly on wake.
+source "$HOME/.cargo/env"
+command -v cargo >/dev/null
+command -v clang-19 >/dev/null
+
+echo "Orb environment ready."
