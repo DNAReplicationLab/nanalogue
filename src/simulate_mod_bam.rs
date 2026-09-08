@@ -1277,6 +1277,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 ///
 /// # Errors
 /// Returns an error if the contigs input slice is empty,
+/// if a modification configuration has an empty window or probability-range schedule,
 /// if parameters are such that zero read lengths are produced,
 /// or if BAM record creation fails, such as when making RG, MM, or ML tags.
 #[expect(
@@ -1297,6 +1298,19 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 ) -> Result<Vec<bam::Record>, Error> {
     if contigs.is_empty() {
         return Err(Error::UnavailableData("no contigs found".to_owned()));
+    }
+
+    for (index, mod_config) in read_config.mods.iter().enumerate() {
+        if mod_config.win.is_empty() {
+            return Err(Error::InvalidState(format!(
+                "modification config {index} has an empty win schedule"
+            )));
+        }
+        if mod_config.mod_range.is_empty() {
+            return Err(Error::InvalidState(format!(
+                "modification config {index} has an empty mod_range schedule"
+            )));
+        }
     }
 
     let mut reads = Vec::new();
@@ -2393,6 +2407,143 @@ mod read_generation_with_mods_tests {
     use super::*;
     use crate::{CurrRead, ThresholdState, curr_reads_to_dataframe};
     use rust_htslib::bam::Read as _;
+
+    /// Generates one full-length read with the supplied modification configuration.
+    fn generate_single_read(mod_config: ModConfig) -> Result<bam::Record, Error> {
+        let contigs = [ContigBuilder::default()
+            .name("all_c")
+            .seq("CCCC".into())
+            .build()
+            .unwrap()];
+        let config = ReadConfigBuilder::default()
+            .number(1)
+            .len_range((1.0, 1.0))
+            .mods(vec![mod_config])
+            .build()
+            .unwrap();
+
+        generate_reads_denovo(&contigs, &config, "1", &mut rand::rng())
+            .map(|mut reads| reads.pop().expect("one read was requested"))
+    }
+
+    /// Ensures serde input with either empty schedule fails at the generation boundary.
+    #[test]
+    fn serde_empty_modification_schedules_are_rejected_during_generation() {
+        for (json, expected_message) in [
+            (
+                r#"{"base":"C","mod_code":"m","win":[],"mod_range":[[1,1]]}"#,
+                "modification config 0 has an empty win schedule",
+            ),
+            (
+                r#"{"base":"C","mod_code":"m","win":[1],"mod_range":[]}"#,
+                "modification config 0 has an empty mod_range schedule",
+            ),
+        ] {
+            let mod_config: ModConfig = serde_json::from_str(json).unwrap();
+            let err = generate_single_read(mod_config).unwrap_err();
+            assert!(matches!(err, Error::InvalidState(message) if message == expected_message));
+        }
+    }
+
+    /// Ensures builder input with either empty schedule fails during generation.
+    #[test]
+    fn builder_empty_modification_schedules_are_rejected_during_generation() {
+        for (mod_config, expected_message) in [
+            (
+                ModConfigBuilder::default()
+                    .base('C')
+                    .mod_code("m".into())
+                    .win(vec![])
+                    .mod_range(vec![(1.0, 1.0)])
+                    .build()
+                    .unwrap(),
+                "modification config 0 has an empty win schedule",
+            ),
+            (
+                ModConfigBuilder::default()
+                    .base('C')
+                    .mod_code("m".into())
+                    .win(vec![1])
+                    .mod_range(vec![])
+                    .build()
+                    .unwrap(),
+                "modification config 0 has an empty mod_range schedule",
+            ),
+        ] {
+            let err = generate_single_read(mod_config).unwrap_err();
+            assert!(matches!(err, Error::InvalidState(message) if message == expected_message));
+        }
+    }
+
+    /// Ensures direct public-field construction cannot bypass schedule validation.
+    #[test]
+    fn directly_constructed_empty_modification_schedules_are_rejected() {
+        for (mod_config, expected_message) in [
+            (
+                ModConfig {
+                    win: Vec::new(),
+                    ..ModConfig::default()
+                },
+                "modification config 0 has an empty win schedule",
+            ),
+            (
+                ModConfig {
+                    mod_range: Vec::new(),
+                    ..ModConfig::default()
+                },
+                "modification config 0 has an empty mod_range schedule",
+            ),
+        ] {
+            let err = generate_single_read(mod_config).unwrap_err();
+            assert!(matches!(err, Error::InvalidState(message) if message == expected_message),);
+        }
+    }
+
+    /// Ensures all schedules are validated before generation consumes randomness.
+    #[test]
+    fn invalid_later_modification_schedule_does_not_consume_rng() {
+        let contigs = [ContigBuilder::default()
+            .name("all_c")
+            .seq("CCCC".into())
+            .build()
+            .unwrap()];
+        let config = ReadConfigBuilder::default()
+            .number(1)
+            .len_range((1.0, 1.0))
+            .mods(vec![
+                ModConfig::default(),
+                ModConfig {
+                    mod_range: Vec::new(),
+                    ..ModConfig::default()
+                },
+            ])
+            .build()
+            .unwrap();
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut untouched_rng = StdRng::seed_from_u64(42);
+
+        let err = generate_reads_denovo(&contigs, &config, "1", &mut rng).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidState(message) if message == "modification config 1 has an empty mod_range schedule")
+        );
+        assert_eq!(rng.random::<u64>(), untouched_rng.random::<u64>());
+    }
+
+    /// Ensures a valid modification schedule still produces both BAM modification tags.
+    #[test]
+    fn valid_modification_schedule_still_emits_tags() {
+        let mod_config = ModConfigBuilder::default()
+            .base('N')
+            .mod_code("m".into())
+            .win(vec![1])
+            .mod_range(vec![(1.0, 1.0)])
+            .build()
+            .unwrap();
+
+        let read = generate_single_read(mod_config).unwrap();
+        assert!(matches!(read.aux(b"MM"), Ok(Aux::String("N+m?,0,0,0,0;"))));
+        assert!(matches!(read.aux(b"ML"), Ok(Aux::ArrayU8(values)) if values.iter().eq([255; 4])));
+    }
 
     /// Tests read generation with desired properties but with modifications
     #[test]
