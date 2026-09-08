@@ -312,7 +312,7 @@ where
                 Err(Error::RustHtslibError(err))
                     if matches!(err.as_ref(), RHError::BamInvalidIndex { .. }) =>
                 {
-                    println!("# cannot find index file. region retrieval could be slower.");
+                    eprintln!("# cannot find index file. region retrieval could be slower.");
                     run_on_bam(cli, handle, nanalogue_bam_reader(&v)?)
                 }
                 Err(e) => Err(e),
@@ -324,7 +324,7 @@ where
                 Err(Error::RustHtslibError(err))
                     if matches!(err.as_ref(), RHError::BamInvalidIndex { .. }) =>
                 {
-                    println!("# cannot find index file. region retrieval could be slower.");
+                    eprintln!("# cannot find index file. region retrieval could be slower.");
                     run_on_bam(cli, handle, nanalogue_bam_reader_from_url(&v)?)
                 }
                 Err(e) => Err(e),
