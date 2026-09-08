@@ -30,8 +30,8 @@ fn get_stats_from_heap(
     let mut counter: u64 = 0;
     let mut longest: u64 = 0;
     let mut shortest: u64 = 0;
-    let mut median: u64 = 0;
-    let mut n50: u64 = 0;
+    let mut median: Option<u64> = None;
+    let mut n50: Option<u64> = None;
     let mut running_total_length: u64 = 0;
     let heap_size: u64 = input.len().try_into().expect("heap cannot be this large");
 
@@ -49,12 +49,12 @@ fn get_stats_from_heap(
         // of the two lengths in the middle of the pack. We don't do this as
         // we assume lots of reads so there's no point in making such an accurate
         // calculation.
-        if median == 0 && counter > heap_size.div_ceil(2).saturating_sub(1) {
-            median = v;
+        if median.is_none() && counter == heap_size.div_ceil(2).saturating_sub(1) {
+            median = Some(v);
         }
 
-        if n50 == 0 && running_total_length > total_length.div_ceil(2) {
-            n50 = v;
+        if n50.is_none() && running_total_length >= total_length.div_ceil(2) {
+            n50 = Some(v);
         }
 
         shortest = v;
@@ -71,7 +71,14 @@ fn get_stats_from_heap(
     // we will not need a precision < 1 bp.
     let mean = total_length.checked_div(counter).unwrap_or(0u64);
 
-    (counter, mean, longest, shortest, median, n50)
+    (
+        counter,
+        mean,
+        longest,
+        shortest,
+        median.unwrap_or(0),
+        n50.unwrap_or(0),
+    )
 }
 
 /// Reads the input BAM file and prints statistics
@@ -193,6 +200,44 @@ mod tests {
     }
 
     #[test]
+    fn median_boundary_cases() {
+        let cases: &[(&str, &[u64], u64)] = &[
+            ("empty", &[], 0),
+            ("singleton", &[10], 10),
+            ("odd", &[30, 20, 10], 20),
+            ("even", &[40, 30, 20, 10], 30),
+            ("repeated", &[8, 8, 8, 8], 8),
+        ];
+
+        for &(name, lengths, expected_median) in cases {
+            let heap = lengths.iter().copied().collect();
+            let total_length = lengths.iter().sum();
+            let (_, _, _, _, median, _) = get_stats_from_heap(heap, total_length);
+
+            assert_eq!(median, expected_median, "failed case: {name}");
+        }
+    }
+
+    #[test]
+    fn n50_boundary_cases() {
+        let cases: &[(&str, &[u64], u64)] = &[
+            ("empty", &[], 0),
+            ("singleton", &[10], 10),
+            ("repeated", &[8, 8, 8, 8], 8),
+            ("exact half", &[6, 3, 3], 6),
+            ("odd-total exact half", &[3, 2], 3),
+        ];
+
+        for &(name, lengths, expected_n50) in cases {
+            let heap = lengths.iter().copied().collect();
+            let total_length = lengths.iter().sum();
+            let (_, _, _, _, _, n50) = get_stats_from_heap(heap, total_length);
+
+            assert_eq!(n50, expected_n50, "failed case: {name}");
+        }
+    }
+
+    #[test]
     fn read_stats_example_1() -> Result<(), Error> {
         let mut output = Vec::new();
 
@@ -215,12 +260,12 @@ mod tests {
         align_len_mean	29
         align_len_max	48
         align_len_min	8
-        align_len_median	8
+        align_len_median	33
         align_len_n50	48
         seq_len_mean	34
         seq_len_max	48
         seq_len_min	8
-        seq_len_median	33
+        seq_len_median	48
         seq_len_n50	48
 ",
         );

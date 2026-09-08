@@ -70,9 +70,11 @@ companion cookbook [here](https://www.nanalogue.com).
 For developers: if you are looking to make a custom BAM file containing synthetic, simulated
 DNA/RNA modification data to develop/test your tool, you may be interested in `nanalogue_sim_bam`.
 This is an executable that ships with nanalogue that can create a BAM file according to your
-specifications. Please run `nanalogue_sim_bam --help`. If you are a rust developer looking
-to use this functionality in your library, please look at the documentation of the module
-`nanalogue_core::simulate_mod_bam` in the docs.rs link [above](#usage-and-documentation).
+specifications. Please run `nanalogue_sim_bam --help`. This simulation tooling is intended for
+trusted developer-controlled test inputs and may consume substantial CPU time, memory, and disk
+space. If you are a rust developer looking to use this functionality in your library, please look
+at the documentation of the module `nanalogue_core::simulate_mod_bam` in the docs.rs link
+[above](#usage-and-documentation).
 
 # Installation and Updates
 

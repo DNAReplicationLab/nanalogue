@@ -42,6 +42,10 @@ path = "src/bin/main_simulate_mod_bam.rs"
 name = "seq_coords_capacity"
 harness = false
 
+[[bench]]
+name = "gradient_windows"
+harness = false
+
 [lints.clippy]
 pedantic = "deny"
 allow_attributes = "deny"
