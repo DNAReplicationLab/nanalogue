@@ -178,13 +178,13 @@ static SSL_INIT: Once = Once::new();
 pub unsafe fn init_ssl_certificates() {
     SSL_INIT.call_once(|| {
         let (cert_file, cert_dir) = utils::openssl_probe::probe();
-        if let Some(cert_file) = cert_file.as_deref() {
+        if let Some(cert_file_path) = cert_file.as_deref() {
             if std::env::var_os("SSL_CERT_FILE").is_none() {
                 // SAFETY: Caller guarantees no other threads have been spawned,
                 // so no concurrent `getenv` can race with this `setenv` call.
                 // Pre-existing values are preserved.
                 unsafe {
-                    std::env::set_var("SSL_CERT_FILE", cert_file);
+                    std::env::set_var("SSL_CERT_FILE", cert_file_path);
                 }
             }
             // libcurl statically linked into rust-htslib checks
@@ -195,7 +195,7 @@ pub unsafe fn init_ssl_certificates() {
                 // so no concurrent `getenv` can race with this `setenv` call.
                 // Pre-existing values are preserved.
                 unsafe {
-                    std::env::set_var("CURL_CA_BUNDLE", cert_file);
+                    std::env::set_var("CURL_CA_BUNDLE", cert_file_path);
                 }
             }
         }

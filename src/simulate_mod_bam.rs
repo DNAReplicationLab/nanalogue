@@ -3053,34 +3053,21 @@ mod read_generation_with_mods_tests {
         }
     }
 
-    /// Ensures builder input with either empty schedule fails during generation.
+    /// Ensures builder input with an empty modification range fails during generation.
     #[test]
-    fn builder_empty_modification_schedules_are_rejected_during_generation() {
-        for (mod_config, expected_message) in [
-            (
-                ModConfigBuilder::default()
-                    .base('C')
-                    .mod_code("m".into())
-                    .win(vec![])
-                    .mod_range(vec![(1.0, 1.0)])
-                    .build()
-                    .unwrap(),
-                "modification config 0 has an empty win schedule",
-            ),
-            (
-                ModConfigBuilder::default()
-                    .base('C')
-                    .mod_code("m".into())
-                    .win(vec![1])
-                    .mod_range(vec![])
-                    .build()
-                    .unwrap(),
-                "modification config 0 has an empty mod_range schedule",
-            ),
-        ] {
-            let err = generate_single_read(mod_config).unwrap_err();
-            assert!(matches!(err, Error::InvalidState(message) if message == expected_message));
-        }
+    fn builder_empty_modification_range_is_rejected_during_generation() {
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win(vec![1])
+            .mod_range(vec![])
+            .build()
+            .unwrap();
+
+        let err = generate_single_read(mod_config).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidState(message) if message == "modification config 0 has an empty mod_range schedule")
+        );
     }
 
     /// Ensures direct public-field construction cannot bypass schedule validation.

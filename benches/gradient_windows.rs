@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use nanalogue_core::analysis::threshold_and_gradient;
 
 /// Number of deterministic candidate values in the input.
-const DATA_LEN: usize = 16_384;
+const DATA_LEN: usize = 0x4000;
 /// Number of candidates in each overlapping window.
 const WINDOW_SIZE: usize = 1_024;
 /// Number of complete window scans per timed sample.
@@ -14,9 +14,19 @@ const REPETITIONS: usize = 4;
 /// Odd sample count so the reported median is an observed duration.
 const SAMPLES: usize = 11;
 
+const _: () = {
+    assert!(DATA_LEN > 0, "zero sized data len");
+    assert!(WINDOW_SIZE > 0, "zero sized window");
+    assert!(DATA_LEN > WINDOW_SIZE, "data smaller than window size");
+    assert!(REPETITIONS > 0, "zero repetitions found");
+    assert!(SAMPLES >= 3, "fewer than three samples found");
+    assert!(SAMPLES & 1 == 1, "sample count must be odd");
+};
+
 /// Calculates every overlapping window repeatedly and returns a checksum.
 fn run_windows(data: &[u8]) -> f32 {
     let mut checksum = 0.0;
+    assert!(data.len() > WINDOW_SIZE, "data shorter than window size");
     for _ in 0..REPETITIONS {
         for window in data.windows(WINDOW_SIZE) {
             checksum += black_box(threshold_and_gradient(black_box(window)).unwrap().val());
@@ -28,6 +38,15 @@ fn run_windows(data: &[u8]) -> f32 {
 #[expect(
     clippy::cast_precision_loss,
     reason = "benchmark reporting converts bounded durations and work counts to f64"
+)]
+#[expect(
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "integer quotient and remainder generate test data and select the observed median"
+)]
+#[expect(
+    clippy::print_stdout,
+    reason = "the benchmark reports its measurements to stdout"
 )]
 fn main() {
     let data: Vec<u8> = (0..DATA_LEN)
