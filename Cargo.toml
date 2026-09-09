@@ -49,6 +49,10 @@ harness = false
 name = "gradient_windows"
 harness = false
 
+[[bench]]
+name = "basemods_to_seq_coord_calls"
+harness = false
+
 [lints.clippy]
 alloc_instead_of_core = "deny"
 allow_attributes = "deny"

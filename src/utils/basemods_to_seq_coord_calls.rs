@@ -1,6 +1,6 @@
 //! `BaseModsToSeqCoordCalls` trait, converts mod data in the fibertools
 //! `BaseMods` struct into essentially an array of length = sequence length where every
-//! entry is a `Vec` of `u8` containing modification probability per mod.
+//! entry is a slice of `u8` containing modification probability per mod.
 
 use crate::BaseMods;
 use crate::{Error, ModChar};
@@ -11,16 +11,20 @@ use crate::{Error, ModChar};
 /// * `mod_types` is a `Vec` of tuples of [`ModChar`], `bool`,
 ///   which mean modification type, and whether the calls are on the basecalled
 ///   strand or the opposite.
-/// * `mod calls` is a `Vec` holding a `Vec` of mod calls per position,
-///   and whose length equals length of the sequence.
+/// * `mod_calls` is a flat, row-major `Vec` of mod calls. Each sequence position
+///   occupies one row whose width is the number of modification types.
+///   For example, a five-position read with three modification types is stored as
+///   `pos_1_mod_1, pos_1_mod_2, pos_1_mod_3, pos_2_mod_1, pos_2_mod_2, ...,
+///   pos_5_mod_3`. Thus, for zero-based indices, the flat index is
+///   `position * number_of_mod_types + modification_type_index`.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct SeqCoordCalls {
     /// Types of modification + strand combination (max 8)
     mod_types: Vec<(ModChar, bool)>,
 
-    /// Mod calls per position
-    mod_calls: Vec<Vec<u8>>,
+    /// Mod calls in sequence-position-major order
+    mod_calls: Vec<u8>,
 }
 
 impl SeqCoordCalls {
@@ -74,8 +78,8 @@ impl SeqCoordCalls {
     #[must_use]
     pub fn collapse_mod_calls(&self) -> Vec<bool> {
         self.mod_calls
-            .iter()
-            .map(|k| k.iter().any(|x| *x > 0))
+            .chunks_exact(self.mod_types.len())
+            .map(|row| row.iter().any(|quality| *quality > 0))
             .collect()
     }
 
@@ -186,7 +190,9 @@ impl SeqCoordCalls {
     /// ```
     #[must_use]
     pub fn mod_calls(&self, pos: usize) -> Option<&[u8]> {
-        self.mod_calls.get(pos).map(|v| &**v)
+        let row_start = pos.checked_mul(self.mod_types.len())?;
+        let row_end = row_start.checked_add(self.mod_types.len())?;
+        self.mod_calls.get(row_start..row_end)
     }
 }
 
@@ -300,15 +306,21 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
             ));
         }
 
-        let mut mod_list = vec![vec![0u8; seq_lengths.len()]; *seq_len];
+        let row_width = seq_lengths.len();
+        let storage_len = seq_len
+            .checked_mul(row_width)
+            .expect("mod call matrix dimensions fit in usize");
+        let mut mod_list = vec![0u8; storage_len];
 
         for (k, item) in pos_qual.into_iter().enumerate() {
             for l in item {
+                let index =
+                    l.0.checked_mul(row_width)
+                        .and_then(|row_start| row_start.checked_add(k))
+                        .expect("we've checked all pos < seq_len and allocated every row");
                 *mod_list
-                    .get_mut(l.0)
-                    .expect("we've checked all pos < seq_len and all seq_len equal")
-                    .get_mut(k)
-                    .expect("we've set vector length to `seq_lengths.len()`") = l.1;
+                    .get_mut(index)
+                    .expect("we've allocated seq_len rows of row_width elements") = l.1;
             }
         }
 
@@ -548,6 +560,107 @@ mod tests {
         // Test collapse_mod_calls
         let collapsed = seq_coord_calls.collapse_mod_calls();
         assert_eq!(collapsed, vec![true, false, true, false, false]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn flat_storage_preserves_position_rows() -> Result<(), Error> {
+        let expected_rows = [
+            [11, 0, 31],
+            [0, 21, 0],
+            [12, 0, 32],
+            [0, 22, 0],
+            [0, 0, 0],
+            [0, 23, 0],
+        ];
+        let base_mods = BaseMods {
+            base_mods: vec![
+                BaseMod {
+                    modified_base: b'C',
+                    strand: '+',
+                    modification_type: 'a',
+                    ranges: Ranges {
+                        annotations: vec![
+                            FiberAnnotation {
+                                pos: 0,
+                                qual: 11,
+                                ref_pos: None,
+                            },
+                            FiberAnnotation {
+                                pos: 2,
+                                qual: 12,
+                                ref_pos: None,
+                            },
+                        ],
+                        seq_len: 6,
+                        reverse: false,
+                    },
+                    record_is_reverse: false,
+                },
+                BaseMod {
+                    modified_base: b'C',
+                    strand: '-',
+                    modification_type: 'b',
+                    ranges: Ranges {
+                        annotations: vec![
+                            FiberAnnotation {
+                                pos: 1,
+                                qual: 21,
+                                ref_pos: None,
+                            },
+                            FiberAnnotation {
+                                pos: 3,
+                                qual: 22,
+                                ref_pos: None,
+                            },
+                            FiberAnnotation {
+                                pos: 5,
+                                qual: 23,
+                                ref_pos: None,
+                            },
+                        ],
+                        seq_len: 6,
+                        reverse: false,
+                    },
+                    record_is_reverse: false,
+                },
+                BaseMod {
+                    modified_base: b'C',
+                    strand: '+',
+                    modification_type: 'c',
+                    ranges: Ranges {
+                        annotations: vec![
+                            FiberAnnotation {
+                                pos: 0,
+                                qual: 31,
+                                ref_pos: None,
+                            },
+                            FiberAnnotation {
+                                pos: 2,
+                                qual: 32,
+                                ref_pos: None,
+                            },
+                        ],
+                        seq_len: 6,
+                        reverse: false,
+                    },
+                    record_is_reverse: false,
+                },
+            ],
+        };
+
+        let seq_coord_calls = SeqCoordCalls::try_from(&base_mods)?;
+
+        assert_eq!(seq_coord_calls.mod_calls, expected_rows.concat());
+        for (pos, expected) in expected_rows.iter().enumerate() {
+            assert_eq!(seq_coord_calls.mod_calls(pos), Some(expected.as_slice()));
+        }
+        assert_eq!(seq_coord_calls.mod_calls(expected_rows.len()), None);
+        assert_eq!(
+            seq_coord_calls.collapse_mod_calls(),
+            vec![true, true, true, true, false, true]
+        );
 
         Ok(())
     }
