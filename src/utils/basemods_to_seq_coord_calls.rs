@@ -1,6 +1,6 @@
 //! `BaseModsToSeqCoordCalls` trait, converts mod data in the fibertools
 //! `BaseMods` struct into essentially an array of length = sequence length where every
-//! entry is a `Vec` of `u8` containing modification probability per mod.
+//! entry is a slice of `u8` containing modification probability per mod.
 
 use crate::BaseMods;
 use crate::{Error, ModChar};
@@ -11,16 +11,20 @@ use crate::{Error, ModChar};
 /// * `mod_types` is a `Vec` of tuples of [`ModChar`], `bool`,
 ///   which mean modification type, and whether the calls are on the basecalled
 ///   strand or the opposite.
-/// * `mod calls` is a `Vec` holding a `Vec` of mod calls per position,
-///   and whose length equals length of the sequence.
+/// * `mod_calls` is a flat, row-major `Vec` of mod calls. Each sequence position
+///   occupies one row whose width is the number of modification types.
+///   For example, a five-position read with three modification types is stored as
+///   `pos_1_mod_1, pos_1_mod_2, pos_1_mod_3, pos_2_mod_1, pos_2_mod_2, ...,
+///   pos_5_mod_3`. Thus, for zero-based indices, the flat index is
+///   `position * number_of_mod_types + modification_type_index`.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct SeqCoordCalls {
     /// Types of modification + strand combination (max 8)
     mod_types: Vec<(ModChar, bool)>,
 
-    /// Mod calls per position
-    mod_calls: Vec<Vec<u8>>,
+    /// Mod calls in sequence-position-major order
+    mod_calls: Vec<u8>,
 }
 
 impl SeqCoordCalls {
@@ -74,8 +78,8 @@ impl SeqCoordCalls {
     #[must_use]
     pub fn collapse_mod_calls(&self) -> Vec<bool> {
         self.mod_calls
-            .iter()
-            .map(|k| k.iter().any(|x| *x > 0))
+            .chunks_exact(self.mod_types.len())
+            .map(|row| row.iter().any(|quality| *quality > 0))
             .collect()
     }
 
@@ -137,8 +141,6 @@ impl SeqCoordCalls {
     /// The order corresponds to the modification types returned by [`mod_types()`](Self::mod_types).
     /// A value of `0` indicates no modification detected at that position for that type.
     ///
-    /// Returns `None` if the position is out of bounds.
-    ///
     /// # Arguments
     ///
     /// * `pos` - The sequence position (0-based index)
@@ -173,20 +175,33 @@ impl SeqCoordCalls {
     /// let seq_coord_calls = SeqCoordCalls::try_from(&base_mods).unwrap();
     ///
     /// // Position 0: T+ modified (100), C+m not modified (0)
-    /// assert_eq!(seq_coord_calls.mod_calls(0), Some(&[100u8, 0u8][..]));
+    /// assert_eq!(seq_coord_calls.mod_calls(0), &[100u8, 0u8]);
     ///
     /// // Position 1: Neither modification present
-    /// assert_eq!(seq_coord_calls.mod_calls(1), Some(&[0u8, 0u8][..]));
+    /// assert_eq!(seq_coord_calls.mod_calls(1), &[0u8, 0u8]);
     ///
     /// // Position 2: T+ not modified (0), C+m modified (200)
-    /// assert_eq!(seq_coord_calls.mod_calls(2), Some(&[0u8, 200u8][..]));
-    ///
-    /// // Out of bounds returns None
-    /// assert_eq!(seq_coord_calls.mod_calls(5), None);
+    /// assert_eq!(seq_coord_calls.mod_calls(2), &[0u8, 200u8]);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `pos` is outside the sequence.
     #[must_use]
-    pub fn mod_calls(&self, pos: usize) -> Option<&[u8]> {
-        self.mod_calls.get(pos).map(|v| &**v)
+    pub fn mod_calls(&self, pos: usize) -> &[u8] {
+        let row_start = pos
+            .checked_mul(self.mod_types.len())
+            .expect("sequence position calculation overflowed");
+        let row_end = row_start
+            .checked_add(self.mod_types.len())
+            .expect("sequence position calculation overflowed");
+        assert!(
+            row_end <= self.mod_calls.len(),
+            "sequence position is out of bounds"
+        );
+        self.mod_calls
+            .get(row_start..row_end)
+            .expect("row bounds were checked above")
     }
 }
 
@@ -246,8 +261,8 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
     /// // - Position 0: T+ has qual=100, C+m has qual=0
     /// // - Position 2: T+ has qual=0, C+m has qual=200
     /// // - Other positions: both have qual=0
-    /// assert_eq!(seq_coord_calls.mod_calls(0), Some(&[100u8, 0u8][..]));
-    /// assert_eq!(seq_coord_calls.mod_calls(2), Some(&[0u8, 200u8][..]));
+    /// assert_eq!(seq_coord_calls.mod_calls(0), &[100u8, 0u8]);
+    /// assert_eq!(seq_coord_calls.mod_calls(2), &[0u8, 200u8]);
     /// ```
     fn try_from(value: &BaseMods) -> Result<Self, Error> {
         let (seq_lengths, mod_type_collection, pos_qual) = value
@@ -300,15 +315,21 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
             ));
         }
 
-        let mut mod_list = vec![vec![0u8; seq_lengths.len()]; *seq_len];
+        let row_width = seq_lengths.len();
+        let storage_len = seq_len
+            .checked_mul(row_width)
+            .expect("mod call matrix dimensions fit in usize");
+        let mut mod_list = vec![0u8; storage_len];
 
         for (k, item) in pos_qual.into_iter().enumerate() {
             for l in item {
+                let index =
+                    l.0.checked_mul(row_width)
+                        .and_then(|row_start| row_start.checked_add(k))
+                        .expect("we've checked all pos < seq_len and allocated every row");
                 *mod_list
-                    .get_mut(l.0)
-                    .expect("we've checked all pos < seq_len and all seq_len equal")
-                    .get_mut(k)
-                    .expect("we've set vector length to `seq_lengths.len()`") = l.1;
+                    .get_mut(index)
+                    .expect("we've allocated seq_len rows of row_width elements") = l.1;
             }
         }
 
@@ -375,15 +396,14 @@ mod tests {
         assert!(mod_types.first().expect("has 1 element").1); // + strand
 
         // Test mod_calls for each position
-        assert_eq!(seq_coord_calls.mod_calls(0), Some(&[4u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(1), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(2), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(3), Some(&[7u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(4), Some(&[9u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(5), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(6), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(7), Some(&[6u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(8), None); // Out of bounds
+        assert_eq!(seq_coord_calls.mod_calls(0), &[4u8]);
+        assert_eq!(seq_coord_calls.mod_calls(1), &[0u8]);
+        assert_eq!(seq_coord_calls.mod_calls(2), &[0u8]);
+        assert_eq!(seq_coord_calls.mod_calls(3), &[7u8]);
+        assert_eq!(seq_coord_calls.mod_calls(4), &[9u8]);
+        assert_eq!(seq_coord_calls.mod_calls(5), &[0u8]);
+        assert_eq!(seq_coord_calls.mod_calls(6), &[0u8]);
+        assert_eq!(seq_coord_calls.mod_calls(7), &[6u8]);
 
         // Test collapse_mod_calls
         let collapsed = seq_coord_calls.collapse_mod_calls();
@@ -450,19 +470,18 @@ mod tests {
         assert!(mod_types.first().expect("has 1 element").1); // + strand
 
         // Test mod_calls for positions with modifications
-        assert_eq!(seq_coord_calls.mod_calls(12), Some(&[3u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(13), Some(&[3u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(16), Some(&[4u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(19), Some(&[3u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(20), Some(&[182u8][..]));
+        assert_eq!(seq_coord_calls.mod_calls(12), &[3u8]);
+        assert_eq!(seq_coord_calls.mod_calls(13), &[3u8]);
+        assert_eq!(seq_coord_calls.mod_calls(16), &[4u8]);
+        assert_eq!(seq_coord_calls.mod_calls(19), &[3u8]);
+        assert_eq!(seq_coord_calls.mod_calls(20), &[182u8]);
 
         // Test mod_calls for positions without modifications
         for k in 0..33 {
             if [12, 13, 16, 19, 20].iter().all(|x| *x != k) {
-                assert_eq!(seq_coord_calls.mod_calls(k), Some(&[0u8][..]));
+                assert_eq!(seq_coord_calls.mod_calls(k), &[0u8]);
             }
         }
-        assert_eq!(seq_coord_calls.mod_calls(33), None); // Out of bounds
 
         // Test collapse_mod_calls
         let collapsed = seq_coord_calls.collapse_mod_calls();
@@ -539,15 +558,115 @@ mod tests {
         assert!(mod_types.get(1).expect("has 2 elements").1);
 
         // Test mod_calls - each position should have 2 values (one for each mod type)
-        assert_eq!(seq_coord_calls.mod_calls(0), Some(&[100u8, 0u8][..])); // T modified, C not
-        assert_eq!(seq_coord_calls.mod_calls(1), Some(&[0u8, 0u8][..])); // Neither modified
-        assert_eq!(seq_coord_calls.mod_calls(2), Some(&[0u8, 200u8][..])); // C modified, T not
-        assert_eq!(seq_coord_calls.mod_calls(3), Some(&[0u8, 0u8][..])); // Neither modified
-        assert_eq!(seq_coord_calls.mod_calls(4), Some(&[0u8, 0u8][..])); // Neither modified
+        assert_eq!(seq_coord_calls.mod_calls(0), &[100u8, 0u8]); // T modified, C not
+        assert_eq!(seq_coord_calls.mod_calls(1), &[0u8, 0u8]); // Neither modified
+        assert_eq!(seq_coord_calls.mod_calls(2), &[0u8, 200u8]); // C modified, T not
+        assert_eq!(seq_coord_calls.mod_calls(3), &[0u8, 0u8]); // Neither modified
+        assert_eq!(seq_coord_calls.mod_calls(4), &[0u8, 0u8]); // Neither modified
 
         // Test collapse_mod_calls
         let collapsed = seq_coord_calls.collapse_mod_calls();
         assert_eq!(collapsed, vec![true, false, true, false, false]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn flat_storage_preserves_position_rows() -> Result<(), Error> {
+        let expected_rows = [
+            [11, 0, 31],
+            [0, 21, 0],
+            [12, 0, 32],
+            [0, 22, 0],
+            [0, 0, 0],
+            [0, 23, 0],
+        ];
+        let base_mods = BaseMods {
+            base_mods: vec![
+                BaseMod {
+                    modified_base: b'C',
+                    strand: '+',
+                    modification_type: 'a',
+                    ranges: Ranges {
+                        annotations: vec![
+                            FiberAnnotation {
+                                pos: 0,
+                                qual: 11,
+                                ref_pos: None,
+                            },
+                            FiberAnnotation {
+                                pos: 2,
+                                qual: 12,
+                                ref_pos: None,
+                            },
+                        ],
+                        seq_len: 6,
+                        reverse: false,
+                    },
+                    record_is_reverse: false,
+                },
+                BaseMod {
+                    modified_base: b'C',
+                    strand: '-',
+                    modification_type: 'b',
+                    ranges: Ranges {
+                        annotations: vec![
+                            FiberAnnotation {
+                                pos: 1,
+                                qual: 21,
+                                ref_pos: None,
+                            },
+                            FiberAnnotation {
+                                pos: 3,
+                                qual: 22,
+                                ref_pos: None,
+                            },
+                            FiberAnnotation {
+                                pos: 5,
+                                qual: 23,
+                                ref_pos: None,
+                            },
+                        ],
+                        seq_len: 6,
+                        reverse: false,
+                    },
+                    record_is_reverse: false,
+                },
+                BaseMod {
+                    modified_base: b'C',
+                    strand: '+',
+                    modification_type: 'c',
+                    ranges: Ranges {
+                        annotations: vec![
+                            FiberAnnotation {
+                                pos: 0,
+                                qual: 31,
+                                ref_pos: None,
+                            },
+                            FiberAnnotation {
+                                pos: 2,
+                                qual: 32,
+                                ref_pos: None,
+                            },
+                        ],
+                        seq_len: 6,
+                        reverse: false,
+                    },
+                    record_is_reverse: false,
+                },
+            ],
+        };
+
+        let seq_coord_calls = SeqCoordCalls::try_from(&base_mods)?;
+
+        assert_eq!(seq_coord_calls.mod_calls, expected_rows.concat());
+        for (pos, expected) in expected_rows.iter().enumerate() {
+            assert_eq!(seq_coord_calls.mod_calls(pos), expected);
+        }
+        assert_eq!(
+            seq_coord_calls.collapse_mod_calls(),
+            vec![true, true, true, true, false, true]
+        );
 
         Ok(())
     }
@@ -585,6 +704,40 @@ mod tests {
         assert!(!mod_types.first().expect("has 1 element").1); // - strand
 
         Ok(())
+    }
+
+    /// Returns one modification type with no annotated calls for a one-base sequence.
+    fn base_mods_without_annotations() -> BaseMods {
+        BaseMods {
+            base_mods: vec![BaseMod {
+                modified_base: b'C',
+                strand: '+',
+                modification_type: 'm',
+                ranges: Ranges {
+                    annotations: vec![],
+                    seq_len: 1,
+                    reverse: false,
+                },
+                record_is_reverse: false,
+            }],
+        }
+    }
+
+    #[test]
+    fn empty_annotations_produce_zero_row() {
+        let base_mods = base_mods_without_annotations();
+        let seq_coord_calls = SeqCoordCalls::try_from(&base_mods).expect("valid BaseMods");
+
+        assert_eq!(seq_coord_calls.mod_calls(0), &[0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "sequence position is out of bounds")]
+    fn mod_calls_panics_outside_sequence() {
+        let base_mods = base_mods_without_annotations();
+        let seq_coord_calls = SeqCoordCalls::try_from(&base_mods).expect("valid BaseMods");
+
+        let _out_of_bounds = seq_coord_calls.mod_calls(1);
     }
 
     #[test]
@@ -671,8 +824,7 @@ mod tests {
             }],
         };
         let seq_coord_calls = SeqCoordCalls::try_from(&valid)?;
-        assert_eq!(seq_coord_calls.mod_calls(4), Some(&[100u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(5), None);
+        assert_eq!(seq_coord_calls.mod_calls(4), &[100u8]);
 
         // But `pos == seq_len` is just outside the valid half-open range and must
         // be rejected as an out-of-range annotation coordinate.
