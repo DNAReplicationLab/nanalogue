@@ -63,7 +63,7 @@ const EMBEDDED_URL_CREDENTIALS = /\bhttps?:\/\/[^/\s:@]+:[^@\s/]+@[^\s"'`<>]+/g;
 const ALLOWED_LOCAL_TEST_USERNAME = "example-user-test";
 const ALLOWED_LOCAL_TEST_PASSWORD = "example-password-test";
 const CONTEXTUAL_SECRET =
-    /\b(?:api[_-]?key|access[_-]?key|client[_-]?secret|private[_-]?key|password|passwd|secret|token)\b\s*[:=]\s*(?:"([^"\n]+)"|'([^'\n]+)'|([A-Za-z0-9_+/@:=-]+))/gi;
+    /(["']?)\b(?:api[_-]?key|access[_-]?key|client[_-]?secret|private[_-]?key|password|passwd|secret|token)\b\1\s*[:=]\s*(?:"([^"\n]+)"|'([^'\n]+)'|([A-Za-z0-9_+/@:=-]+))/gi;
 const PLACEHOLDER_VALUES = new Set([
     "changeme",
     "dummy",
@@ -213,7 +213,7 @@ for (const file of listRepositoryFiles()) {
 
     CONTEXTUAL_SECRET.lastIndex = 0;
     for (const match of content.matchAll(CONTEXTUAL_SECRET)) {
-        const value = match[1] ?? match[2] ?? match[3];
+        const value = match[2] ?? match[3] ?? match[4];
         if (!resemblesSecret(value)) continue;
         addFinding(findings, seen, {
             file,
