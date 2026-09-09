@@ -9,6 +9,9 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use url::Url;
 
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt as _;
+
 /// Opens BAM file.
 ///
 /// # Errors
@@ -361,6 +364,27 @@ fn output_path_identity(path: &Path) -> Result<PathBuf, Error> {
     }
 }
 
+/// Return the filesystem identity of an existing path without opening it.
+#[cfg(unix)]
+fn existing_path_identity(path: &Path) -> Result<Option<(u64, u64)>, Error> {
+    assert!(
+        !path.as_os_str().as_encoded_bytes().is_empty(),
+        "path must not be empty"
+    );
+    assert!(
+        path.as_os_str().as_encoded_bytes().len() <= 10_000,
+        "path must not exceed 10,000 bytes"
+    );
+
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+
+    Ok(Some((metadata.dev(), metadata.ino())))
+}
+
 /// Return whether paths identify pairwise-distinct filesystem locations.
 pub(crate) fn output_paths_are_distinct(paths: &[&Path]) -> Result<bool, Error> {
     assert!(!paths.is_empty(), "paths must not be empty");
@@ -385,6 +409,19 @@ pub(crate) fn output_paths_are_distinct(paths: &[&Path]) -> Result<bool, Error> 
             return Ok(false);
         }
         lexical_paths.push(*path);
+    }
+
+    #[cfg(unix)]
+    {
+        let mut existing_identities = Vec::with_capacity(paths.len());
+        for path in paths {
+            if let Some(identity) = existing_path_identity(path)? {
+                if existing_identities.contains(&identity) {
+                    return Ok(false);
+                }
+                existing_identities.push(identity);
+            }
+        }
     }
 
     let mut identities = Vec::with_capacity(paths.len());
@@ -1166,6 +1203,54 @@ mod tests {
         assert_eq!(
             std::fs::read(&reference_path).expect("reference sentinel should remain readable"),
             b"reference sentinel"
+        );
+        std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_paths_check_lexical_duplicates_before_filesystem_identity() {
+        let temp_dir = temp_output_dir("lexical_collision_precedence");
+        let path = temp_dir.join("self-referential");
+        std::os::unix::fs::symlink(&path, &path)
+            .expect("self-referential symlink should be creatable");
+
+        let result = output_paths_are_distinct(&[&path, &path]);
+
+        assert!(matches!(result, Ok(false)));
+        std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_cram_denovo_rejects_hard_link_to_reference_before_writing() {
+        let temp_dir = temp_output_dir("cram_hard_link_collision");
+        let reference_path = write_test_reference(&temp_dir);
+        let original_reference = std::fs::read(&reference_path)
+            .expect("reference contents should be readable before writing");
+        let output_path = temp_dir.join("output.cram");
+        std::fs::hard_link(&reference_path, &output_path)
+            .expect("hard link to reference should be creatable");
+
+        let result = write_cram_denovo(
+            Vec::<bam::Record>::new(),
+            [("chr1".to_string(), 12)],
+            ["rg1".to_string()],
+            Vec::<String>::new(),
+            &output_path,
+            &reference_path,
+            NonZeroU32::MIN,
+        );
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidState(msg))
+                if msg == "CRAM, CRAI, and FASTA outputs must use different paths"
+        ));
+        assert_eq!(
+            std::fs::read(&reference_path).expect("reference contents should remain readable"),
+            original_reference,
+            "reference contents must remain unchanged"
         );
         std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
     }
