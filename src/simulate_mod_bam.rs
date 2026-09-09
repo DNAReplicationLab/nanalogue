@@ -150,7 +150,7 @@ use serde::{Deserialize, Serialize};
 use std::iter;
 use std::num::NonZeroU32;
 use std::ops::RangeInclusive;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr as _;
 
 /// We need a shorthand for this for a one-liner we use
@@ -1526,6 +1526,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 ///
 /// # Errors
 /// Returns an error if the contigs input slice is empty,
+/// if a modification configuration has an empty window or probability-range schedule,
 /// if parameters are such that zero read lengths are produced,
 /// or if BAM record creation fails, such as when making RG, MM, or ML tags.
 #[expect(
@@ -1546,6 +1547,19 @@ fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 ) -> Result<Vec<bam::Record>, Error> {
     if contigs.is_empty() {
         return Err(Error::UnavailableData("no contigs found".to_owned()));
+    }
+
+    for (index, mod_config) in read_config.mods.iter().enumerate() {
+        if mod_config.win.is_empty() {
+            return Err(Error::InvalidState(format!(
+                "modification config {index} has an empty win schedule"
+            )));
+        }
+        if mod_config.mod_range.is_empty() {
+            return Err(Error::InvalidState(format!(
+                "modification config {index} has an empty mod_range schedule"
+            )));
+        }
     }
 
     let mut reads = Vec::new();
@@ -1853,41 +1867,58 @@ where
     Ok(())
 }
 
-/// Alignment format for temporary simulations.
-///
-/// This enum is non-exhaustive so additional alignment output formats, such as
-/// SAM, can be added in the future without breaking downstream matches.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum AlignmentFormat {
-    /// Write BAM output.
-    Bam,
-    /// Write CRAM output.
-    Cram,
+/// Removes a newly created simulation directory unless ownership is transferred.
+#[derive(Debug)]
+struct TempSimulationDir {
+    /// Exact path to remove on drop.
+    path: PathBuf,
+    /// Whether this guard still owns cleanup responsibility.
+    remove_on_drop: bool,
 }
 
-impl AlignmentFormat {
-    /// Returns the canonical filename extension for this alignment format.
-    #[must_use]
-    fn extension(self) -> &'static str {
-        match self {
-            Self::Bam => "bam",
-            Self::Cram => "cram",
+impl TempSimulationDir {
+    /// Takes temporary ownership of a newly created simulation directory.
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            remove_on_drop: true,
+        }
+    }
+
+    /// Transfers cleanup responsibility to a successful simulation object.
+    fn transfer(mut self) -> PathBuf {
+        self.remove_on_drop = false;
+        self.path.clone()
+    }
+}
+
+impl Drop for TempSimulationDir {
+    fn drop(&mut self) {
+        if self.remove_on_drop {
+            drop(std::fs::remove_dir_all(&self.path));
         }
     }
 }
 
-/// Temporary alignment simulation with automatic cleanup
+/// Temporary BAM simulation with automatic cleanup
 ///
-/// Creates temporary BAM or CRAM alignment output plus a FASTA file for
-/// testing purposes and automatically removes them when dropped.
-#[derive(Debug, Serialize, Deserialize)]
+/// Creates temporary BAM and FASTA files for testing purposes and
+/// automatically removes them when dropped.
+///
+/// This type deliberately does **not** implement `Deserialize`. It owns a
+/// private disposable directory that `Drop` recursively deletes, and the only
+/// safe way to obtain one is [`TempBamSimulation::new`] (or `new_in`), which
+/// create that directory themselves. Deserializing caller-provided path
+/// metadata would instead create cleanup ownership of a directory the object
+/// never created, so dropping it would `remove_dir_all` an arbitrary
+/// caller-chosen path; a serialization round-trip would create two owners of
+/// the same directory. `Serialize` is retained because it only reads state and
+/// cannot construct a new owner.
+#[derive(Debug, Serialize)]
 pub struct TempBamSimulation {
     /// Temporary directory containing simulation outputs
-    temp_dir: String,
-    /// Alignment format used for this simulation
-    format: AlignmentFormat,
-    /// Path to the alignment file that will be created (`.bam` or `.cram`)
+    temp_dir: PathBuf,
+    /// Path to bam file that will be created
     bam_path: String,
     /// Path to fasta file that will be created
     fasta_path: String,
@@ -1909,20 +1940,25 @@ impl TempBamSimulation {
                 )));
             }
         };
-        let temp_dir = temp_dir_root.join(uuid::v4_random());
+        Self::new_in(config, &temp_dir_root)
+    }
+
+    /// Creates a temporary BAM simulation beneath the given directory.
+    fn new_in(config: SimulationConfig, temp_dir_root: &Path) -> Result<Self, Error> {
+        let temp_dir_path = temp_dir_root.join(uuid::v4_random());
         #[expect(
             clippy::create_dir,
             reason = "we are not using create_dir_all here as we want to fail if the environmentally specified temporary directory does not exist"
         )]
-        std::fs::create_dir(&temp_dir)?;
+        std::fs::create_dir(&temp_dir_path)?;
+        let temp_dir = TempSimulationDir::new(temp_dir_path);
 
-        let bam_path = temp_dir.join(format!("simulation.{}", format.extension()));
-        let fasta_path = temp_dir.join("simulation.fa");
+        let bam_path = temp_dir.path.join("simulation.bam");
+        let fasta_path = temp_dir.path.join("simulation.fa");
 
         run(config, &bam_path, &fasta_path)?;
         Ok(Self {
-            temp_dir: temp_dir.to_string_lossy().to_string(),
-            format,
+            temp_dir: temp_dir.transfer(),
             bam_path: bam_path.to_string_lossy().to_string(),
             fasta_path: fasta_path.to_string_lossy().to_string(),
         })
@@ -1955,6 +1991,50 @@ impl Drop for TempBamSimulation {
         // Ignore errors during cleanup - files may already be deleted
         drop(std::fs::remove_dir_all(&self.temp_dir));
     }
+}
+
+#[cfg(test)]
+mod temp_bam_simulation_ownership {
+    use super::TempBamSimulation;
+
+    /// Compile-time assertion that `$x` does not implement any of the traits
+    /// `$t`. Fails to compile if it does.
+    ///
+    /// Inlined from `static_assertions::assert_not_impl_any!` (v1.1.0) so this
+    /// single ownership check needs no extra dev-dependency. The trick is a
+    /// blanket `AmbiguousIfImpl<()>` impl for all types plus a specialized
+    /// `AmbiguousIfImpl<Invalid>` impl per checked trait; if `$x` implements any
+    /// `$t`, the `_` in `AmbiguousIfImpl<_>` becomes ambiguous and inference
+    /// fails.
+    macro_rules! assert_not_impl_any {
+        ($x:ty: $($t:path),+ $(,)?) => {
+            const _: fn() = || {
+                trait AmbiguousIfImpl<A> {
+                    fn some_item() {}
+                }
+
+                impl<T: ?Sized> AmbiguousIfImpl<()> for T {}
+
+                $({
+                    struct Invalid;
+
+                    impl<T: ?Sized + $t> AmbiguousIfImpl<Invalid> for T {}
+                })+
+
+                let _ = <$x as AmbiguousIfImpl<_>>::some_item;
+            };
+        };
+    }
+
+    // Compile-time regression for the resource-ownership flaw in
+    // [`TempBamSimulation`]; see that struct's docstring for why it must not
+    // implement `Deserialize`.
+    //
+    // `DeserializeOwned` is `for<'de> Deserialize<'de>`: it is implemented for
+    // `TempBamSimulation` exactly when the `Deserialize` derive is present. This
+    // assertion fails to compile while that derive remains on the owning type,
+    // and compiles once it is removed, locking the fix in.
+    assert_not_impl_any!(TempBamSimulation: serde::de::DeserializeOwned);
 }
 
 #[cfg(test)]
@@ -2336,21 +2416,61 @@ mod read_generation_no_mods_tests {
 
         let bam_path: String;
         let fasta_path: String;
+        let temp_dir: PathBuf;
 
         {
             let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
             let sim = TempBamSimulation::new(config, format).unwrap();
             bam_path = sim.bam_path().to_string();
             fasta_path = sim.fasta_path().to_string();
+            temp_dir = Path::new(&bam_path).parent().unwrap().to_path_buf();
 
             // Files should exist while sim is in scope
             assert!(Path::new(&bam_path).exists());
             assert!(Path::new(&fasta_path).exists());
+            assert!(temp_dir.exists());
         } // sim is dropped here
 
-        // Files should be cleaned up after drop
+        // The complete simulation directory should be cleaned up after drop
         assert!(!Path::new(&bam_path).exists());
         assert!(!Path::new(&fasta_path).exists());
+        assert!(!temp_dir.exists());
+    }
+
+    /// Tests failed `TempBamSimulation` construction cleans up its directory.
+    #[test]
+    fn temp_bam_simulation_failed_construction_cleanup() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [50, 50]
+            },
+            "reads": [{
+                "number": 1,
+                "len_range": [0.0, 0.0]
+            }]
+        }"#;
+        let test_root =
+            std::env::temp_dir().join(format!("nanalogue_failed_simulation_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&test_root).unwrap();
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let error = TempBamSimulation::new_in(config, &test_root).unwrap_err();
+        let leaked_paths: Vec<_> = std::fs::read_dir(&test_root)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+
+        for path in &leaked_paths {
+            std::fs::remove_dir_all(path).unwrap();
+        }
+        std::fs::remove_dir(&test_root).unwrap();
+
+        assert!(matches!(error, Error::InvalidState(_)));
+        assert!(
+            leaked_paths.is_empty(),
+            "failed construction leaked temporary paths: {leaked_paths:?}"
+        );
     }
 
     /// Tests error when generating reads with empty contigs slice
@@ -2861,8 +2981,145 @@ mod read_generation_with_mods_tests {
     use super::*;
     use crate::{CurrRead, ThresholdState, curr_reads_to_dataframe};
     use rust_htslib::bam::Read as _;
+    
+    /// Generates one full-length read with the supplied modification configuration.
+    fn generate_single_read(mod_config: ModConfig) -> Result<bam::Record, Error> {
+        let contigs = [ContigBuilder::default()
+            .name("all_c")
+            .seq("CCCC".into())
+            .build()
+            .unwrap()];
+        let config = ReadConfigBuilder::default()
+            .number(1)
+            .len_range((1.0, 1.0))
+            .mods(vec![mod_config])
+            .build()
+            .unwrap();
 
-    /// Simulates ten full-length reads whose 25 T bases are all dropped, then
+        generate_reads_denovo(&contigs, &config, "1", &mut rand::rng())
+            .map(|mut reads| reads.pop().expect("one read was requested"))
+    }
+
+    /// Ensures serde input with either empty schedule fails at the generation boundary.
+    #[test]
+    fn serde_empty_modification_schedules_are_rejected_during_generation() {
+        for (json, expected_message) in [
+            (
+                r#"{"base":"C","mod_code":"m","win":[],"mod_range":[[1,1]]}"#,
+                "modification config 0 has an empty win schedule",
+            ),
+            (
+                r#"{"base":"C","mod_code":"m","win":[1],"mod_range":[]}"#,
+                "modification config 0 has an empty mod_range schedule",
+            ),
+        ] {
+            let mod_config: ModConfig = serde_json::from_str(json).unwrap();
+            let err = generate_single_read(mod_config).unwrap_err();
+            assert!(matches!(err, Error::InvalidState(message) if message == expected_message));
+        }
+    }
+
+    /// Ensures builder input with either empty schedule fails during generation.
+    #[test]
+    fn builder_empty_modification_schedules_are_rejected_during_generation() {
+        for (mod_config, expected_message) in [
+            (
+                ModConfigBuilder::default()
+                    .base('C')
+                    .mod_code("m".into())
+                    .win(vec![])
+                    .mod_range(vec![(1.0, 1.0)])
+                    .build()
+                    .unwrap(),
+                "modification config 0 has an empty win schedule",
+            ),
+            (
+                ModConfigBuilder::default()
+                    .base('C')
+                    .mod_code("m".into())
+                    .win(vec![1])
+                    .mod_range(vec![])
+                    .build()
+                    .unwrap(),
+                "modification config 0 has an empty mod_range schedule",
+            ),
+        ] {
+            let err = generate_single_read(mod_config).unwrap_err();
+            assert!(matches!(err, Error::InvalidState(message) if message == expected_message));
+        }
+    }
+
+    /// Ensures direct public-field construction cannot bypass schedule validation.
+    #[test]
+    fn directly_constructed_empty_modification_schedules_are_rejected() {
+        for (mod_config, expected_message) in [
+            (
+                ModConfig {
+                    win: Vec::new(),
+                    ..ModConfig::default()
+                },
+                "modification config 0 has an empty win schedule",
+            ),
+            (
+                ModConfig {
+                    mod_range: Vec::new(),
+                    ..ModConfig::default()
+                },
+                "modification config 0 has an empty mod_range schedule",
+            ),
+        ] {
+            let err = generate_single_read(mod_config).unwrap_err();
+            assert!(matches!(err, Error::InvalidState(message) if message == expected_message),);
+        }
+    }
+
+    /// Ensures all schedules are validated before generation consumes randomness.
+    #[test]
+    fn invalid_later_modification_schedule_does_not_consume_rng() {
+        let contigs = [ContigBuilder::default()
+            .name("all_c")
+            .seq("CCCC".into())
+            .build()
+            .unwrap()];
+        let config = ReadConfigBuilder::default()
+            .number(1)
+            .len_range((1.0, 1.0))
+            .mods(vec![
+                ModConfig::default(),
+                ModConfig {
+                    mod_range: Vec::new(),
+                    ..ModConfig::default()
+                },
+            ])
+            .build()
+            .unwrap();
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut untouched_rng = StdRng::seed_from_u64(42);
+
+        let err = generate_reads_denovo(&contigs, &config, "1", &mut rng).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidState(message) if message == "modification config 1 has an empty mod_range schedule")
+        );
+        assert_eq!(rng.random::<u64>(), untouched_rng.random::<u64>());
+    }
+
+    /// Ensures a valid modification schedule still produces both BAM modification tags.
+    #[test]
+    fn valid_modification_schedule_still_emits_tags() {
+        let mod_config = ModConfigBuilder::default()
+            .base('N')
+            .mod_code("m".into())
+            .win(vec![1])
+            .mod_range(vec![(1.0, 1.0)])
+            .build()
+            .unwrap();
+
+        let read = generate_single_read(mod_config).unwrap();
+        assert!(matches!(read.aux(b"MM"), Ok(Aux::String("N+m?,0,0,0,0;"))));
+        assert!(matches!(read.aux(b"ML"), Ok(Aux::ArrayU8(values)) if values.iter().eq([255; 4])));
+    }
+
+    // Simulates ten full-length reads whose 25 T bases are all dropped, then
     /// parses their modification data into a `DataFrame`.
     fn all_dropped_t_mods_dataframe(suffix: MmSuffix) -> polars::prelude::DataFrame {
         let contigs = ContigConfigBuilder::default()
@@ -2879,8 +3136,6 @@ mod read_generation_with_mods_tests {
                 .win(vec![4, 4])
                 .drop(vec![4, 4])
                 .mod_range(vec![(0.5, 0.5)])
-                .build()
-                .unwrap(),
         ];
         let reads = vec![
             ReadConfigBuilder::default()

@@ -77,30 +77,24 @@ may fix in future. this means we are using ~Mbp windows, which is unlikely..."
 may fix in future. this means we are using ~Mbp windows, which is unlikely..."
 )]
 pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error> {
-    let win_size = match mod_list.len() {
+    let win_size_float = match mod_list.len() {
         0 => Err(Error::EmptyWindow(
             "threshold and gradient needs > 1 data point".to_owned(),
         )),
         1 => Err(Error::InsufficientDataSize(
             "threshold and gradient needs > 1 data point".to_owned(),
         )),
-        v => Ok(v),
+        v => Ok(v as f32),
     }?;
-    let x_mean = f32::midpoint(win_size as f32, 1.0);
+    let x_mean = f32::midpoint(win_size_float, 1.0);
     let numerator: f32 = mod_list
         .iter()
         .enumerate()
-        .map(|(i, x)| {
-            if ThresholdState::GtEq(128).contains(x) {
-                i as f32 + 1.0 - x_mean
-            } else {
-                0.0
-            }
-        })
-        .sum();
-    let denominator: f32 = (1..=win_size)
-        .map(|x| (x as f32 - x_mean) * (x as f32 - x_mean))
-        .sum();
+        .filter(|&(_, value)| ThresholdState::GtEq(128).contains(value))
+        .map(|(index, _)| index as f32 + 1.0 - x_mean)
+        .sum::<f32>()
+        + 0.0; // Add 0.0 to avoid producing -0.0_f32.
+    let denominator = win_size_float * (win_size_float * win_size_float - 1.0) / 12.0;
     F32AbsValAtMost1::new(numerator / denominator)
 }
 
@@ -147,6 +141,50 @@ pub fn threshold_and_mean_and_thres_win(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        reason = "the f64 reference deliberately calculates more precisely before returning f32"
+    )]
+    fn reference_gradient(mod_list: &[u8]) -> f32 {
+        assert!(!mod_list.is_empty(), "mod_list is empty in test");
+        let x_mean: f64 = (mod_list.len() as f64 - 1.0) / 2.0;
+        let mod_list_thres: Vec<f64> = mod_list
+            .iter()
+            .map(|value| {
+                if ThresholdState::GtEq(128).contains(value) {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let y_mean = mod_list_thres.iter().sum::<f64>() / mod_list_thres.len() as f64;
+        let numerator: f64 = mod_list_thres
+            .iter()
+            .enumerate()
+            .map(|(index, value)| (index as f64 - x_mean) * (*value - y_mean))
+            .sum();
+        let denominator: f64 = (0..mod_list.len())
+            .map(|index| {
+                let difference = index as f64 - x_mean;
+                difference * difference
+            })
+            .sum();
+        (numerator / denominator) as f32
+    }
+
+    fn assert_gradient_matches_reference(mod_list: &[u8]) {
+        let actual = threshold_and_gradient(mod_list).unwrap().val();
+        let expected = reference_gradient(mod_list);
+        let tolerance = f32::EPSILON;
+        assert!(
+            (actual - expected).abs() <= tolerance,
+            "gradient {actual} differs from reference {expected} by more than {tolerance} for a window of length {}",
+            mod_list.len()
+        );
+    }
 
     #[test]
     #[expect(
@@ -202,6 +240,68 @@ mod tests {
         let mod_data = [128, 0, 128, 0];
         let result = threshold_and_gradient(&mod_data).unwrap();
         assert_eq!(result.val(), -0.2);
+    }
+
+    #[test]
+    fn threshold_and_gradient_matches_small_binary_windows() {
+        for size in 2..=12 {
+            for pattern in 0u16..(1u16 << size) {
+                let mod_data: Vec<u8> = (0..size)
+                    .map(|index| {
+                        if pattern & (1 << index) == 0 {
+                            127
+                        } else {
+                            128
+                        }
+                    })
+                    .collect();
+                assert_gradient_matches_reference(&mod_data);
+            }
+        }
+    }
+
+    #[test]
+    fn threshold_and_gradient_handles_uniform_and_threshold_edge_values() {
+        for mod_data in [[0, 0], [255, 255], [127, 128], [128, 127]] {
+            assert_gradient_matches_reference(&mod_data);
+        }
+        assert!((threshold_and_gradient(&[127, 128]).unwrap().val() - 1.0).abs() <= f32::EPSILON);
+        assert!((threshold_and_gradient(&[128, 127]).unwrap().val() + 1.0).abs() <= f32::EPSILON);
+    }
+
+    #[test]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "test window sizes are at most one million and exactly representable as f32"
+    )]
+    fn threshold_and_gradient_matches_representative_large_windows() {
+        for size in [1_023usize, 1_024, 65_537, 1_000_000] {
+            let mod_data: Vec<u8> = (0..size)
+                .map(|index| {
+                    // Example formula producing an irregular repeating thresholded 0-1 pattern.
+                    if index.wrapping_mul(31).wrapping_add(index / 17) % 13 < 6 {
+                        128
+                    } else {
+                        127
+                    }
+                })
+                .collect();
+            let gradient = threshold_and_gradient(&mod_data).unwrap().val();
+            let fitted_change = gradient.abs() * (size as f32 - 1.0);
+            assert!(
+                fitted_change < 0.02,
+                "irregular pattern should have little linear trend, but fitted change was {fitted_change}"
+            );
+            assert_gradient_matches_reference(&mod_data);
+        }
+    }
+
+    #[test]
+    fn threshold_and_gradient_uses_evenly_spaced_candidate_indices() {
+        let mod_data = [0, 0, 128, 128];
+        let candidate_index_gradient = threshold_and_gradient(&mod_data).unwrap().val();
+
+        assert!((candidate_index_gradient - 0.4).abs() <= f32::EPSILON);
     }
 
     #[test]

@@ -14,13 +14,13 @@
 //! which makes it difficult to gain insight from them. Nanalogue hopes to make it easy
 //! to extract and process this information, with a particular focus on single-molecule
 //! aspects and DNA/RNA modifications. Despite this focus, some of nanalogue's commands
-//! and functions are quite general and can be applied to almost any BAM file.
+//! and functions are quite general and can be applied to almost any BAM/SAM/CRAM file.
 //!
 //! We process and calculate data associated with DNA/RNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous
 //! information.  We can process any type of DNA/RNA modifications occurring in any pattern
 //! (single/multiple mods, spatially-isolated/non-isolated etc.). All we require is that
-//! the data is stored in a BAM file in the mod BAM format (i.e. using `MM/ML` tags as
+//! the data is stored in a BAM/SAM/CRAM file in the mod BAM format (i.e. using `MM/ML` tags as
 //! laid down in the [specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)).
 //!
 //! Nanalogue is both an executable that can be run from the command line and a library
@@ -82,12 +82,12 @@
 #[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64")))]
 compile_error!("This crate supports only 32-bit and 64-bit platforms.");
 
+use crate::bedrs::{Bed3, Coordinates as _, StrandedBed3};
 use crate::constants::shared::{
     MAX_ML_ARRAY_LENGTH, MAX_MM_TAG_LENGTH, MAX_READ_ID_LEN, MAX_READ_IDS_FOR_FILTERING,
     MAX_RECORD_CAPACITY_BYTES, MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
 };
 use crate::file_utils::read_line_capped;
-use bedrs::{Bed3, Coordinates as _, StrandedBed3};
 use rand::random;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
 use std::collections::HashSet;
@@ -99,6 +99,7 @@ use std::sync::Once;
 
 // Declare the modules.
 pub mod analysis;
+pub mod bedrs;
 pub mod cli;
 pub mod commands;
 pub mod constants;
@@ -149,9 +150,9 @@ static SSL_INIT: Once = Once::new();
 /// Initialize SSL certificate paths for HTTPS support.
 ///
 /// This function automatically detects and configures SSL certificate locations
-/// to enable HTTPS file access through libcurl. It uses the `openssl-probe`
-/// crate to find system CA certificate bundles directly, rather than going
-/// through the `SSL_CERT_FILE` environment variable.
+/// to enable HTTPS file access through libcurl. It probes for system CA
+/// certificate bundles directly, rather than going through the
+/// `SSL_CERT_FILE` environment variable.
 ///
 /// # Safety
 ///
@@ -983,9 +984,9 @@ mod mod_parse_tests {
     use rust_htslib::bam::Read as _;
 
     /// Tests if Mod BAM modification parsing is alright with fallback tag support.
-    /// Tests both MM/ML (standard uppercase) and Mm/Ml (fallback mixed-case) tag variants.
-    /// Note: Only these specific variants are supported - fully lowercase (mm/ml) and
-    /// other mixed-case variants (e.g., mM/mL) are not recognized.
+    /// Tests standard `MM`/`ML` tags plus legacy `Mm` and `Ml` spellings on a per-tag basis.
+    /// Note: records that carry both variants of the same tag are rejected, and fully lowercase
+    /// or other mixed-case spellings (e.g., `mm/ml` or `mM/mL`) are not recognized.
     /// Some of the test cases here may be a repeat of the doctest above.
     #[test]
     #[expect(clippy::too_many_lines, reason = "Comprehensive integration test")]

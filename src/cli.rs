@@ -425,8 +425,8 @@ impl TagState for RequiredTag {
 /// example to set up inputs to perform a calculation.
 ///
 /// Following example uses many fields and is for a [`RequiredTag`] variant.
-/// You can omit some of them depending on your use case. `mod_region` must
-/// can be converted to `region_bed3` using [`GenomicRegion::try_to_bed3`]
+/// You can omit some of them depending on your use case. `mod_region` can
+/// be converted to `region_bed3` using [`GenomicRegion::try_to_bed3`]
 /// with a suitable BAM header before this struct can be used with most of
 /// our functions. We do not force this in the builder route as we may not
 /// want to do this for some reason.
@@ -919,7 +919,7 @@ mod input_mods_required_tag_tests {
 #[cfg(test)]
 mod input_bam_tests {
     use super::*;
-    use bedrs::Coordinates as _;
+    use crate::bedrs::Coordinates as _;
 
     #[test]
     fn input_bam_is_full_overlap() {

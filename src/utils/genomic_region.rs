@@ -17,7 +17,7 @@ use std::str::FromStr;
 /// invariants enforced by the public `TryFrom<(String, (u32, u32))>` and
 /// `FromStr` constructors (non-empty contig, `start < end`) are also enforced
 /// on every serde input source.
-#[derive(Debug, Default, Clone, PartialOrd, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialOrd, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 #[serde(try_from = "GenomicRegionShadow")]
 pub struct GenomicRegion((String, Option<OrdPair<u32>>));
@@ -32,11 +32,7 @@ impl TryFrom<GenomicRegionShadow> for GenomicRegion {
 
     fn try_from(value: GenomicRegionShadow) -> Result<Self, Self::Error> {
         let (contig, coords) = value.0;
-        ensure_valid_contig(contig.as_bytes(), MAX_CONTIG_NAME_LENGTH)?;
-        match coords {
-            None => Ok(GenomicRegion((contig, None))),
-            Some(c) => GenomicRegion::try_from((contig, (c.low(), c.high()))),
-        }
+        GenomicRegion::new_checked(contig, coords.map(|c| (c.low(), c.high())))
     }
 }
 
@@ -81,24 +77,32 @@ impl FromStr for GenomicRegion {
         let mut colon_split: Vec<&str> = val_str.split(':').collect();
         match colon_split.len() {
             0 => unreachable!(),
-            1 => {
-                ensure_valid_contig(val_str.as_bytes(), MAX_CONTIG_NAME_LENGTH)?;
-                Ok(GenomicRegion((val_str.to_string(), None)))
-            }
+            1 => GenomicRegion::new_checked(val_str.to_string(), None),
             _ => {
                 let interval_str = colon_split.pop().expect("no error");
                 let contig = colon_split.join(":");
-                ensure_valid_contig(contig.as_bytes(), MAX_CONTIG_NAME_LENGTH)?;
-                Ok(GenomicRegion((
-                    contig,
-                    Some(OrdPair::<u32>::from_interval(interval_str)?),
-                )))
+                let coords = OrdPair::<u32>::from_interval(interval_str)?;
+                GenomicRegion::new_checked(contig, Some((coords.low(), coords.high())))
             }
         }
     }
 }
 
 impl GenomicRegion {
+    /// Constructs a region after enforcing all `GenomicRegion` invariants.
+    fn new_checked(contig: String, coords: Option<(u32, u32)>) -> Result<Self, Error> {
+        ensure_valid_contig(contig.as_bytes(), MAX_CONTIG_NAME_LENGTH)?;
+        if let Some((start, end)) = coords
+            && start == end
+        {
+            return Err(Error::InvalidContigAndStart(format!(
+                "{contig}:{start}-{end} is an invalid region; start and end cannot be equal"
+            )));
+        }
+        let ord_pair = coords.map(OrdPair::<u32>::try_from).transpose()?;
+        Ok(GenomicRegion((contig, ord_pair)))
+    }
+
     /// converts genomic region from genomic string representation to bed3 representation
     ///
     /// # Errors
@@ -260,29 +264,14 @@ impl TryFrom<(String, (u32, u32))> for GenomicRegion {
     /// let val4 :Error = GenomicRegion::try_from((String::new(), (12000, 14000))).unwrap_err();
     /// ```
     fn try_from(value: (String, (u32, u32))) -> Result<Self, Self::Error> {
-        if value.0.is_empty() {
-            return Err(Error::InvalidContigAndStart(format!(
-                "{}:{}-{} is an invalid region; contig is empty",
-                value.0, value.1.0, value.1.1
-            )));
-        }
-        if value.1.0 == value.1.1 {
-            return Err(Error::InvalidContigAndStart(format!(
-                "{}:{}-{} is an invalid region; start and end cannot be equal",
-                value.0, value.1.0, value.1.1
-            )));
-        }
-        Ok(GenomicRegion((
-            value.0,
-            Some(OrdPair::<u32>::try_from(value.1)?),
-        )))
+        GenomicRegion::new_checked(value.0, Some(value.1))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrs::Coordinates as _;
+    use crate::bedrs::Coordinates as _;
 
     /// Tests comprehensive `GenomicRegion` parsing
     #[expect(
@@ -607,7 +596,7 @@ mod tests {
 
     /// Tests `TryFrom<(String, (u32, u32))>` with empty contig name
     #[test]
-    #[should_panic(expected = "InvalidContigAndStart")]
+    #[should_panic(expected = "InvalidContig")]
     fn try_from_tuple_empty_contig() {
         let _: GenomicRegion = GenomicRegion::try_from((String::new(), (12000, 14000))).unwrap();
     }
@@ -627,12 +616,60 @@ mod tests {
         let _: GenomicRegion = GenomicRegion::try_from(("chr1".to_owned(), (1000, 1000))).unwrap();
     }
 
+    fn construction_results(contig: &str, start: u32, end: u32) -> [bool; 3] {
+        let from_string = GenomicRegion::from_str(&format!("{contig}:{start}-{end}")).is_ok();
+        let from_tuple = GenomicRegion::try_from((contig.to_owned(), (start, end))).is_ok();
+        let from_serde: Result<GenomicRegion, _> = serde_json::from_value(serde_json::json!([
+            contig,
+            { "low": start, "high": end }
+        ]));
+
+        [from_string, from_tuple, from_serde.is_ok()]
+    }
+
+    /// Every public construction path must enforce the same contig-name boundaries.
+    #[test]
+    fn constructors_enforce_contig_name_boundaries() {
+        let max_length_name = "a".repeat(usize::from(MAX_CONTIG_NAME_LENGTH));
+        let overlong_name = "a".repeat(usize::from(MAX_CONTIG_NAME_LENGTH) + 1);
+
+        for (contig, expected) in [
+            ("bad\ncontig", false),
+            ("", false),
+            (max_length_name.as_str(), true),
+            (overlong_name.as_str(), false),
+        ] {
+            assert_eq!(
+                construction_results(contig, 1, 2),
+                [expected; 3],
+                "constructor mismatch for contig {contig:?}"
+            );
+        }
+    }
+
+    /// Every public construction path must enforce strict interval ordering at its boundaries.
+    #[test]
+    fn constructors_enforce_interval_boundaries() {
+        for (start, end, expected) in [
+            (0, 1, true),
+            (u32::MAX - 1, u32::MAX, true),
+            (1, 1, false),
+            (2, 1, false),
+        ] {
+            assert_eq!(
+                construction_results("chr1", start, end),
+                [expected; 3],
+                "constructor mismatch for interval {start}-{end}"
+            );
+        }
+    }
+
     /// `GenomicRegion` deserialization must enforce the same invariants as the
     /// checked constructors (non-empty contig, `start < end`).
     #[test]
     fn deserialize_rejects_empty_contig() {
         let bad: Result<GenomicRegion, _> =
-            serde_json::from_str(r#"[["", {"low": 1, "high": 100}]]"#);
+            serde_json::from_str(r#"["", {"low": 1, "high": 100}]"#);
         let _: serde_json::Error = bad.unwrap_err();
     }
 
@@ -640,7 +677,7 @@ mod tests {
     #[test]
     fn deserialize_rejects_wrong_order() {
         let bad: Result<GenomicRegion, _> =
-            serde_json::from_str(r#"[["chr1", {"low": 200, "high": 100}]]"#);
+            serde_json::from_str(r#"["chr1", {"low": 200, "high": 100}]"#);
         let _: serde_json::Error = bad.unwrap_err();
     }
 

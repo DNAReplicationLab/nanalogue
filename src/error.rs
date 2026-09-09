@@ -1,9 +1,9 @@
 //! # Error
 //!
 //! Covers all errors in our module. These errors arise from us processing
-//! and calculating data associated with DNA molecules, their alignments to
+//! and calculating data associated with DNA/RNA molecules, their alignments to
 //! reference genomes, modification information on them, and other miscellaneous
-//! information. We convert errors from other packages to this error type so that
+//! information. We convert errors from other packages to this type so that
 //! error handling in our package becomes easier.
 
 use crate::F32Bw0and1;
@@ -17,10 +17,10 @@ use std::string::FromUtf8Error;
 
 /// Shared CLI guidance for contig/region inspection failures.
 const PEEK_HELP: &str =
-    "In command line tool, use `nanalogue peek` to check contig names and lengths.";
+    "In command line tool, use `nanalogue peek` to check contig names, lengths, and mod types.";
 
 /// Shared CLI guidance for alignment/header-related failures.
-const PEEK_AND_HEADER_HELP: &str = "In command line tool, use `nanalogue peek` to check contig names and lengths.\n\
+const PEEK_AND_HEADER_HELP: &str = "In command line tool, use `nanalogue peek` to check contig names, lengths, and mod types.\n\
 In command line tool, if piping in a samtools view command, please include header with -h in samtools.";
 
 /// Truncate display strings to 100 characters.

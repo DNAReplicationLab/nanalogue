@@ -1,8 +1,9 @@
 //! # Nanalogue Simulate BAM or CRAM
 //!
-//! Companion tool to nanalogue which creates artificial BAM or CRAM (with or without
-//! modifications for developers wishing to test alignment parsing or modification
-//! data parsing).
+//! Companion tool to nanalogue which creates artificial BAM or CRAM files (with or without modifications)
+//! for developers wishing to test parsing or modification data parsing.
+//! The simulation tooling is intended for trusted developer-controlled test inputs and may
+//! consume substantial CPU time, memory, and disk space.
 use clap::Parser;
 use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam};
 

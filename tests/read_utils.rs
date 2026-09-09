@@ -1,7 +1,7 @@
 //! Tests for `read_utils.rs` extracted from doctests
 
-use bedrs::{Bed3, Coordinates as _, Strand};
-use nanalogue_core::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
+use nanalogue_core::bedrs::{Bed3, Coordinates as _, Strand};
+use nanalogue_core::simulate_mod_bam::{SimulationConfig, TempBamSimulation};
 use nanalogue_core::{
     CurrRead, Error, GenomicStrandedBed3, Intersects as _, ModChar, ReadState, ThresholdState,
     nanalogue_bam_reader, read_utils::OnlyAlignData,

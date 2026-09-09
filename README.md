@@ -1,8 +1,8 @@
 # `nanalogue`
 
-Nanalogue = *N*ucleotide and *Analogue*
+Nanalogue = *N*ucleic Acid *Analogue*
 
-Nanalogue is a tool to parse or analyse BAM/Mod BAM files with a single-molecule focus.
+Nanalogue is a tool to parse or analyse BAM/SAM/CRAM files with a single-molecule focus.
 
 [![Cargo Build & Test](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/ci.yml/badge.svg)](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/ci.yml)
 [![Code test coverage > 92\%](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/cargo-llvm-cov.yml/badge.svg)](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/cargo-llvm-cov.yml)
@@ -14,11 +14,11 @@ A common pain point in genomics analyses is that BAM files are information-dense
 which makes it difficult to gain insight from them. Nanalogue hopes to make it easy
 to extract and process this information, with a particular focus on single-molecule
 aspects and DNA/RNA modifications. Despite this focus, some of nanalogue's commands are
-quite general and can be applied to almost any BAM file.
+quite general and can be applied to almost any BAM/SAM/CRAM file.
 
 We can process many types of DNA/RNA modifications occurring in any pattern (single/multiple mods,
 spatially-isolated/non-isolated etc.). All we require is that the data is stored
-in a BAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
+in a BAM/SAM/CRAM file in the mod BAM format (i.e. using MM/ML tags as laid down in the
 [specifications](https://samtools.github.io/hts-specs/SAMtags.pdf)). We currently support standard `MM/ML` and fallback `Mm/Ml`
 tag variants; other mixed-case or lowercase variants are not recognized.
 
@@ -72,8 +72,10 @@ companion cookbook [here](https://www.nanalogue.com).
 For developers: if you are looking to make a custom BAM or CRAM file containing synthetic,
 simulated DNA/RNA modification data to develop/test your tool, you may be interested in
 `nanalogue_sim_bam`. This is an executable that ships with nanalogue that can create an
-indexed BAM or CRAM file according to your specifications. Please run `nanalogue_sim_bam
---help`. If you are a rust developer looking to use this functionality in your library,
+indexed BAM or CRAM file according to your specifications. This simulation tooling is intended for
+trusted developer-controlled test inputs and may consume substantial CPU time, memory, and disk
+space. Please run `nanalogue_sim_bam --help`.
+If you are a rust developer looking to use this functionality in your library,
 please look at the documentation of the module `nanalogue_core::simulate_mod_bam` in the
 docs.rs link [above](#usage-and-documentation). An alignment output ending in `.bam`
 creates a BAI, while one ending in `.cram` creates a CRAM 3.1 file, CRAI, and FAI for the
@@ -84,7 +86,7 @@ generated FASTA reference.
 ## Pre-built Binaries
 
 Pre-built binaries for macOS and Linux are available.
-Windows users should use Windows Subsystem for Linux (WSL).
+Windows users should use Windows subsystem for Linux (WSL) or [Docker](#using-docker) instead.
 
 ### Quick Install Script
 
@@ -445,9 +447,8 @@ For security concerns and vulnerability reporting, please see [SECURITY.md](SECU
 
 # Third-Party Notices
 
-This repository vendors a small number of third-party crates to keep the build
-reproducible and to work around toolchain-specific issues in the HTSlib Rust
-bindings. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the full
+This repository vendors a small number of third-party crates.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the full
 list of vendored crates, their local paths, their license files, and the patch
 files that show the exact changes from upstream.
 

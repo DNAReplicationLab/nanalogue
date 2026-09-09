@@ -10,7 +10,7 @@ repository = "https://github.com/DNAReplicationLab/nanalogue.git"
 homepage = "https://www.nanalogue.com"
 categories = ["command-line-utilities", "science::bioinformatics::sequence-analysis", "science::bioinformatics::genomics"]
 keywords = ["modbam", "bam", "dna", "dna_methylation", "rna"]
-exclude = [".github/", ".gitignore", "github_workflow_scripts/", "AGENTS.md", "CLAUDE.md"]
+exclude = [".agents/", ".githooks/", ".github/", ".gitignore", "github_workflow_scripts/", "AGENTS.md", "CLAUDE.md"]
 
 [dependencies]
 rust-htslib = { version = "=1.0.0", features = ["libdeflate"] } 
@@ -18,12 +18,10 @@ clap = { version = "=4.6.1", features = ["derive", "wrap_help"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.149"
 bio-types = "=1.0.4"
-bedrs = { version = "=0.2.26", features = [ "serde" ] }
 rand = "=0.10.1"
 url = { version = "=2.5.8", features = [ "serde" ] }
 derive_builder = "=0.20.2"
 polars = { version = "=0.53.0", default-features = false, features = ["csv"] }
-openssl-probe = "=0.2.1"
 
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = "0.1.48"
@@ -42,6 +40,14 @@ path = "src/main.rs"
 [[bin]]
 name = "nanalogue_sim_bam"
 path = "src/bin/main_simulate_mod_bam.rs"
+
+[[bench]]
+name = "seq_coords_capacity"
+harness = false
+
+[[bench]]
+name = "gradient_windows"
+harness = false
 
 [lints.clippy]
 alloc_instead_of_core = "deny"

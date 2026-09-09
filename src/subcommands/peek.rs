@@ -439,13 +439,13 @@ mod tests {
     }
 
     /// Exercises the remote URL code path end-to-end against a public
-    /// `PacBio` dataset. Mirrors what the `nanalogue peek <https-url>` CLI
-    /// invocation does, so the saved expected output was produced by running:
+    /// modified-base `BAM` hosted on Zenodo. Mirrors what the
+    /// `nanalogue peek <https-url>` CLI invocation does:
     ///
     /// ```text
     /// ./target/debug/nanalogue peek \
-    ///     https://downloads.pacbcloud.com/public/dataset/\
-    ///     HG002-CpG-methylation-202202/HG002.GRCh38.haplotagged.bam
+    ///     'https://zenodo.org/records/10827586/files/\
+    ///     HeLa.BrdU.TE.nascent.mod.bam?download=1'
     /// ```
     ///
     /// Marked `#[ignore]` because it (a) requires network access, so it would
@@ -454,15 +454,14 @@ mod tests {
     /// running. Run explicitly and serially with:
     ///
     /// ```text
-    /// cargo test -- --ignored --test-threads=1 peek_remote_pacbio
-    /// cargo test -- --ignored --test-threads=1 peek_remote_pacbio_hg002_grch38
+    /// cargo test -- --ignored --test-threads=1 peek_remote_zenodo_hela
     /// ```
     ///
-    /// If the upstream file is removed, the expected output file under
-    /// `examples/` will need to be regenerated against a replacement dataset.
+    /// The expected output is saved under `examples/` and should be
+    /// regenerated against a replacement dataset if the upstream file changes.
     #[test]
     #[ignore = "requires network and serial execution; run with `cargo test -- --ignored --test-threads=1`"]
-    fn peek_remote_pacbio_hg002_grch38() {
+    fn peek_remote_zenodo_hela() {
         use crate::nanalogue_bam_reader_from_url;
         use rust_htslib::bam::Read as _;
         use std::fs;
@@ -478,8 +477,8 @@ mod tests {
         }
 
         let url = Url::parse(
-            "https://downloads.pacbcloud.com/public/dataset/\
-             HG002-CpG-methylation-202202/HG002.GRCh38.haplotagged.bam",
+            "https://zenodo.org/records/10827586/files/\
+             HeLa.BrdU.TE.nascent.mod.bam?download=1",
         )
         .expect("static URL should parse");
 
@@ -490,10 +489,8 @@ mod tests {
         let mut output = Vec::new();
         run(&mut output, &header, reader.rc_records().take(100)).expect("peek should succeed");
 
-        let expected = fs::read_to_string(
-            "examples/pacbio_HG002_GRCh38_haplotagged_CpG_meth_202202_remote_peek",
-        )
-        .expect("should read expected output file");
+        let expected = fs::read_to_string("examples/zenodo_HeLa_BrdU_TE_nascent_mod_remote_peek")
+            .expect("should read expected output file");
 
         assert_eq!(
             String::from_utf8(output).expect("output should be valid UTF-8"),
