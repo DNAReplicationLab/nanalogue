@@ -325,6 +325,79 @@ pub(crate) fn alignment_sidecar_path(output_path: &Path, suffix: &str) -> PathBu
     PathBuf::from(path)
 }
 
+/// Resolve a path to the filesystem location used for output-collision checks.
+///
+/// Canonicalizing the parent separately supports outputs that do not exist yet while still
+/// resolving relative paths, `..` components, and symlinked directories.
+fn output_path_identity(path: &Path) -> Result<PathBuf, Error> {
+    assert!(
+        !path.as_os_str().as_encoded_bytes().is_empty(),
+        "output path must not be empty"
+    );
+    assert!(
+        path.as_os_str().as_encoded_bytes().len() <= 10_000,
+        "output path must not exceed 10,000 bytes"
+    );
+    match std::fs::canonicalize(path) {
+        Ok(identity) => Ok(identity),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match std::fs::symlink_metadata(path) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    return Err(Error::InvalidState(
+                        "output paths must not be symbolic links to files that do not exist".into(),
+                    ));
+                }
+                Ok(_) => return Err(error.into()),
+                Err(metadata_error) if metadata_error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(metadata_error) => return Err(metadata_error.into()),
+            }
+            let file_name = path.file_name().ok_or(error)?;
+            let parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty());
+            Ok(std::fs::canonicalize(parent.unwrap_or_else(|| Path::new(".")))?.join(file_name))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Return whether paths identify pairwise-distinct filesystem locations.
+pub(crate) fn output_paths_are_distinct(paths: &[&Path]) -> Result<bool, Error> {
+    assert!(!paths.is_empty(), "paths must not be empty");
+    assert!(
+        paths.len() <= 20,
+        "paths must not contain more than 20 items"
+    );
+    for path in paths {
+        assert!(
+            !path.as_os_str().as_encoded_bytes().is_empty(),
+            "output paths must not contain an empty path"
+        );
+        assert!(
+            path.as_os_str().as_encoded_bytes().len() <= 10_000,
+            "output paths must not exceed 10,000 bytes"
+        );
+    }
+
+    let mut lexical_paths = Vec::with_capacity(paths.len());
+    for path in paths {
+        if lexical_paths.contains(path) {
+            return Ok(false);
+        }
+        lexical_paths.push(*path);
+    }
+
+    let mut identities = Vec::with_capacity(paths.len());
+    for path in paths {
+        let identity = output_path_identity(path)?;
+        if identities.contains(&identity) {
+            return Ok(false);
+        }
+        identities.push(identity);
+    }
+    Ok(true)
+}
+
 /// Return the conventional CRAI path beside a CRAM output.
 fn crai_path(output_path: &Path) -> PathBuf {
     alignment_sidecar_path(output_path, ".crai")
@@ -558,8 +631,7 @@ where
     let reference = reference_path.as_ref();
     let crai_path = crai_path(output);
     let fai_path = alignment_sidecar_path(reference, ".fai");
-    if output == reference || crai_path == reference || output == fai_path || crai_path == fai_path
-    {
+    if !output_paths_are_distinct(&[output, &crai_path, reference, &fai_path])? {
         return Err(Error::InvalidState(
             "CRAM, CRAI, and FASTA outputs must use different paths".into(),
         ));
@@ -1062,6 +1134,112 @@ mod tests {
             fai_collision,
             Err(Error::InvalidState(msg)) if msg == expected_error
         ));
+        std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
+    }
+
+    #[test]
+    fn write_cram_denovo_rejects_dot_dot_alias_before_creating_output() {
+        let temp_dir = temp_output_dir("cram_dot_dot_collision");
+        let child_dir = temp_dir.join("child");
+        std::fs::create_dir_all(&child_dir).expect("child dir should be creatable");
+        let reference_path = temp_dir.join("output.cram.crai");
+        std::fs::write(&reference_path, b"reference sentinel")
+            .expect("reference sentinel should be writable");
+        let output_path = child_dir.join("..").join("output.cram");
+
+        let result = write_cram_denovo(
+            Vec::<bam::Record>::new(),
+            [("chr1".to_string(), 12)],
+            ["rg1".to_string()],
+            Vec::<String>::new(),
+            &output_path,
+            &reference_path,
+            NonZeroU32::MIN,
+        );
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidState(msg))
+                if msg == "CRAM, CRAI, and FASTA outputs must use different paths"
+        ));
+        assert!(!temp_dir.join("output.cram").exists());
+        assert_eq!(
+            std::fs::read(&reference_path).expect("reference sentinel should remain readable"),
+            b"reference sentinel"
+        );
+        std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_cram_denovo_rejects_symlinked_crai_alias_before_creating_output() {
+        let temp_dir = temp_output_dir("cram_symlink_collision");
+        let reference_path = temp_dir.join("reference.fa");
+        std::fs::write(&reference_path, b"reference sentinel")
+            .expect("reference sentinel should be writable");
+        let output_path = temp_dir.join("output.cram");
+        std::os::unix::fs::symlink(&reference_path, crai_path(&output_path))
+            .expect("CRAI symlink should be creatable");
+
+        let result = write_cram_denovo(
+            Vec::<bam::Record>::new(),
+            [("chr1".to_string(), 12)],
+            ["rg1".to_string()],
+            Vec::<String>::new(),
+            &output_path,
+            &reference_path,
+            NonZeroU32::MIN,
+        );
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidState(msg))
+                if msg == "CRAM, CRAI, and FASTA outputs must use different paths"
+        ));
+        assert!(!output_path.exists());
+        assert_eq!(
+            std::fs::read(&reference_path).expect("reference sentinel should remain readable"),
+            b"reference sentinel"
+        );
+        std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_cram_denovo_rejects_dangling_crai_symlink_to_output() {
+        let temp_dir = temp_output_dir("cram_dangling_symlink_collision");
+        let reference_path = temp_dir.join("reference.fa");
+        std::fs::write(&reference_path, b"reference sentinel")
+            .expect("reference sentinel should be writable");
+        let output_path = temp_dir.join("output.cram");
+        let crai_path = crai_path(&output_path);
+        std::os::unix::fs::symlink(&output_path, &crai_path)
+            .expect("dangling CRAI symlink should be creatable");
+
+        let result = write_cram_denovo(
+            Vec::<bam::Record>::new(),
+            [("chr1".to_string(), 12)],
+            ["rg1".to_string()],
+            Vec::<String>::new(),
+            &output_path,
+            &reference_path,
+            NonZeroU32::MIN,
+        );
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidState(msg))
+                if msg == "output paths must not be symbolic links to files that do not exist"
+        ));
+        assert!(!output_path.exists());
+        assert!(
+            std::fs::symlink_metadata(crai_path).is_ok(),
+            "CRAI symlink should not be replaced"
+        );
+        assert_eq!(
+            std::fs::read(&reference_path).expect("reference sentinel should remain readable"),
+            b"reference sentinel"
+        );
         std::fs::remove_dir_all(temp_dir).expect("temp dir should be removable");
     }
 

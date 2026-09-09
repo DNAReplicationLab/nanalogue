@@ -132,7 +132,7 @@
 //! # Ok::<(), Error>(())
 //! ```
 
-use crate::file_utils::alignment_sidecar_path;
+use crate::file_utils::{alignment_sidecar_path, output_paths_are_distinct};
 use crate::{
     AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, MmSuffix, ModChar, OrdPair,
     ReadState, complement, revcomp, uuid,
@@ -1794,10 +1794,12 @@ where
     let alignment_index_path =
         alignment_sidecar_path(alignment_path, if write_cram { ".crai" } else { ".bai" });
     let fai_path = alignment_sidecar_path(fasta_path, ".fai");
-    if alignment_path == fasta_path
-        || alignment_index_path == fasta_path
-        || write_cram && (fai_path == alignment_path || alignment_index_path == fai_path)
-    {
+    let paths_are_distinct = if write_cram {
+        output_paths_are_distinct(&[alignment_path, &alignment_index_path, fasta_path, &fai_path])?
+    } else {
+        output_paths_are_distinct(&[alignment_path, &alignment_index_path, fasta_path])?
+    };
+    if !paths_are_distinct {
         return Err(Error::InvalidState(
             "alignment, FASTA, and sidecar index outputs must use different paths".into(),
         ));
@@ -2285,6 +2287,55 @@ mod read_generation_no_mods_tests {
 
         assert!(
             matches!(result, Err(Error::InvalidState(msg)) if msg == "alignment, FASTA, and sidecar index outputs must use different paths")
+        );
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn run_rejects_dot_dot_alias_before_overwriting_fasta() {
+        let config: SimulationConfig =
+            serde_json::from_str(r#"{"contigs":{"number":1,"len_range":[20,20]},"reads":[]}"#)
+                .unwrap();
+        let temp_dir =
+            std::env::temp_dir().join(format!("bam_dot_dot_collision_{}", uuid::v4_random()));
+        let child_dir = temp_dir.join("child");
+        std::fs::create_dir_all(&child_dir).unwrap();
+        let bam_path = child_dir.join("..").join("simulation.bam");
+        let fasta_path = temp_dir.join("simulation.bam.bai");
+        std::fs::write(&fasta_path, b"FASTA sentinel").unwrap();
+
+        let result = run(config, &bam_path, &fasta_path);
+
+        assert!(
+            matches!(result, Err(Error::InvalidState(msg)) if msg == "alignment, FASTA, and sidecar index outputs must use different paths")
+        );
+        assert!(!temp_dir.join("simulation.bam").exists());
+        assert_eq!(std::fs::read(&fasta_path).unwrap(), b"FASTA sentinel");
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_rejects_fasta_symlink_to_bam_before_creating_output() {
+        let config: SimulationConfig =
+            serde_json::from_str(r#"{"contigs":{"number":1,"len_range":[20,20]},"reads":[]}"#)
+                .unwrap();
+        let temp_dir =
+            std::env::temp_dir().join(format!("bam_symlink_collision_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let bam_path = temp_dir.join("simulation.bam");
+        let fasta_path = temp_dir.join("reference.fa");
+        std::os::unix::fs::symlink(&bam_path, &fasta_path).unwrap();
+
+        let result = run(config, &bam_path, &fasta_path);
+
+        assert!(
+            matches!(result, Err(Error::InvalidState(msg)) if msg == "output paths must not be symbolic links to files that do not exist")
+        );
+        assert!(!bam_path.exists());
+        assert!(
+            std::fs::symlink_metadata(&fasta_path).is_ok(),
+            "FASTA symlink should not be replaced"
         );
         std::fs::remove_dir_all(temp_dir).unwrap();
     }
