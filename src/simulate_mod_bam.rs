@@ -3193,7 +3193,10 @@ mod read_generation_with_mods_tests {
 
     // Simulates ten full-length reads whose 25 T bases are all dropped, then
     /// parses their modification data into a `DataFrame`.
-    fn all_dropped_t_mods_dataframe(suffix: MmSuffix) -> polars::prelude::DataFrame {
+    fn all_dropped_t_mods_dataframe(
+        suffix: MmSuffix,
+        format: AlignmentFormat,
+    ) -> polars::prelude::DataFrame {
         let contigs = ContigConfigBuilder::default()
             .number(1)
             .len_range((100, 100))
@@ -3225,7 +3228,7 @@ mod read_generation_with_mods_tests {
             .seed(42u64)
             .build()
             .unwrap();
-        let sim = TempBamSimulation::new(config, AlignmentFormat::Bam).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut bam = bam::Reader::from_path(sim.bam_path()).unwrap();
         let curr_reads = bam
             .records()
@@ -3289,25 +3292,31 @@ mod read_generation_with_mods_tests {
     }
 
     /// Explicit missing-data suffixes should produce no calls for dropped bases.
-    #[test]
-    fn all_dropped_question_mark_suffix_has_no_dataframe_rows() {
-        let df = all_dropped_t_mods_dataframe(MmSuffix::QuestionMark);
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn all_dropped_question_mark_suffix_has_no_dataframe_rows(#[case] format: AlignmentFormat) {
+        let df = all_dropped_t_mods_dataframe(MmSuffix::QuestionMark, format);
 
         assert_eq!(df.height(), 0);
     }
 
     /// Dot suffixes should report every dropped base as implicitly unmodified.
-    #[test]
-    fn all_dropped_dot_suffix_has_zero_probability_rows() {
-        let df = all_dropped_t_mods_dataframe(MmSuffix::Dot);
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn all_dropped_dot_suffix_has_zero_probability_rows(#[case] format: AlignmentFormat) {
+        let df = all_dropped_t_mods_dataframe(MmSuffix::Dot, format);
 
         assert_all_dropped_implicit_t_dataframe(&df);
     }
 
     /// Suffix-free groups should report every dropped base as implicitly unmodified.
-    #[test]
-    fn all_dropped_no_suffix_has_zero_probability_rows() {
-        let df = all_dropped_t_mods_dataframe(MmSuffix::None);
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn all_dropped_no_suffix_has_zero_probability_rows(#[case] format: AlignmentFormat) {
+        let df = all_dropped_t_mods_dataframe(MmSuffix::None, format);
 
         assert_all_dropped_implicit_t_dataframe(&df);
     }
