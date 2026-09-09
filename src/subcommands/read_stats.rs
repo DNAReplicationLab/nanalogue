@@ -251,7 +251,7 @@ mod tests {
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
 
         let expected_output = strip_newline_indent(
-            r"key	value
+            "key	value
         n_primary_alignments	3
         n_secondary_alignments	0
         n_supplementary_alignments	0
