@@ -177,8 +177,8 @@ static SSL_INIT: Once = Once::new();
 /// certificate bundle, enabling HTTPS connections.
 pub unsafe fn init_ssl_certificates() {
     SSL_INIT.call_once(|| {
-        let probe = openssl_probe::probe();
-        if let Some(cert_file) = probe.cert_file.as_deref() {
+        let (cert_file, cert_dir) = utils::openssl_probe::probe();
+        if let Some(cert_file) = cert_file.as_deref() {
             if std::env::var_os("SSL_CERT_FILE").is_none() {
                 // SAFETY: Caller guarantees no other threads have been spawned,
                 // so no concurrent `getenv` can race with this `setenv` call.
@@ -199,9 +199,9 @@ pub unsafe fn init_ssl_certificates() {
                 }
             }
         }
-        if !probe.cert_dir.is_empty()
+        if !cert_dir.is_empty()
             && std::env::var_os("SSL_CERT_DIR").is_none()
-            && let Ok(joined) = std::env::join_paths(&probe.cert_dir)
+            && let Ok(joined) = std::env::join_paths(&cert_dir)
         {
             // SAFETY: Caller guarantees no other threads have been spawned, so
             // no concurrent `getenv` can race with this `setenv` call.
