@@ -3136,6 +3136,8 @@ mod read_generation_with_mods_tests {
                 .win(vec![4, 4])
                 .drop(vec![4, 4])
                 .mod_range(vec![(0.5, 0.5)])
+                .build()
+                .unwrap(),
         ];
         let reads = vec![
             ReadConfigBuilder::default()
