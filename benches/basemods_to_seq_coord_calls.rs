@@ -96,7 +96,6 @@ fn convert_batch(input: &BaseMods) -> usize {
                 .mod_calls(
                     usize::try_from(SEQ_LEN.checked_sub(1).expect("nonzero")).expect("fits usize"),
                 )
-                .expect("last position exists")
                 .get(usize::from(MOD_TYPES.checked_sub(1).expect("nonzero")))
                 .copied()
                 .expect("last mod type exists"),
@@ -119,7 +118,7 @@ fn main() {
     let expected_last_row = [0, 0, 0, 4];
     assert_eq!(
         probe.mod_calls(last_position),
-        Some(expected_last_row.as_slice()),
+        expected_last_row,
         "benchmark fixture output changed"
     );
     drop(probe);

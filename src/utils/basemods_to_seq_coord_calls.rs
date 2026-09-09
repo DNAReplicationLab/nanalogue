@@ -141,8 +141,6 @@ impl SeqCoordCalls {
     /// The order corresponds to the modification types returned by [`mod_types()`](Self::mod_types).
     /// A value of `0` indicates no modification detected at that position for that type.
     ///
-    /// Returns `None` if the position is out of bounds.
-    ///
     /// # Arguments
     ///
     /// * `pos` - The sequence position (0-based index)
@@ -177,22 +175,33 @@ impl SeqCoordCalls {
     /// let seq_coord_calls = SeqCoordCalls::try_from(&base_mods).unwrap();
     ///
     /// // Position 0: T+ modified (100), C+m not modified (0)
-    /// assert_eq!(seq_coord_calls.mod_calls(0), Some(&[100u8, 0u8][..]));
+    /// assert_eq!(seq_coord_calls.mod_calls(0), &[100u8, 0u8]);
     ///
     /// // Position 1: Neither modification present
-    /// assert_eq!(seq_coord_calls.mod_calls(1), Some(&[0u8, 0u8][..]));
+    /// assert_eq!(seq_coord_calls.mod_calls(1), &[0u8, 0u8]);
     ///
     /// // Position 2: T+ not modified (0), C+m modified (200)
-    /// assert_eq!(seq_coord_calls.mod_calls(2), Some(&[0u8, 200u8][..]));
-    ///
-    /// // Out of bounds returns None
-    /// assert_eq!(seq_coord_calls.mod_calls(5), None);
+    /// assert_eq!(seq_coord_calls.mod_calls(2), &[0u8, 200u8]);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `pos` is outside the sequence.
     #[must_use]
-    pub fn mod_calls(&self, pos: usize) -> Option<&[u8]> {
-        let row_start = pos.checked_mul(self.mod_types.len())?;
-        let row_end = row_start.checked_add(self.mod_types.len())?;
-        self.mod_calls.get(row_start..row_end)
+    pub fn mod_calls(&self, pos: usize) -> &[u8] {
+        let row_start = pos
+            .checked_mul(self.mod_types.len())
+            .expect("sequence position calculation overflowed");
+        let row_end = row_start
+            .checked_add(self.mod_types.len())
+            .expect("sequence position calculation overflowed");
+        assert!(
+            row_end <= self.mod_calls.len(),
+            "sequence position is out of bounds"
+        );
+        self.mod_calls
+            .get(row_start..row_end)
+            .expect("row bounds were checked above")
     }
 }
 
@@ -252,8 +261,8 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
     /// // - Position 0: T+ has qual=100, C+m has qual=0
     /// // - Position 2: T+ has qual=0, C+m has qual=200
     /// // - Other positions: both have qual=0
-    /// assert_eq!(seq_coord_calls.mod_calls(0), Some(&[100u8, 0u8][..]));
-    /// assert_eq!(seq_coord_calls.mod_calls(2), Some(&[0u8, 200u8][..]));
+    /// assert_eq!(seq_coord_calls.mod_calls(0), &[100u8, 0u8]);
+    /// assert_eq!(seq_coord_calls.mod_calls(2), &[0u8, 200u8]);
     /// ```
     fn try_from(value: &BaseMods) -> Result<Self, Error> {
         let (seq_lengths, mod_type_collection, pos_qual) = value
@@ -387,15 +396,14 @@ mod tests {
         assert!(mod_types.first().expect("has 1 element").1); // + strand
 
         // Test mod_calls for each position
-        assert_eq!(seq_coord_calls.mod_calls(0), Some(&[4u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(1), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(2), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(3), Some(&[7u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(4), Some(&[9u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(5), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(6), Some(&[0u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(7), Some(&[6u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(8), None); // Out of bounds
+        assert_eq!(seq_coord_calls.mod_calls(0), &[4u8]);
+        assert_eq!(seq_coord_calls.mod_calls(1), &[0u8]);
+        assert_eq!(seq_coord_calls.mod_calls(2), &[0u8]);
+        assert_eq!(seq_coord_calls.mod_calls(3), &[7u8]);
+        assert_eq!(seq_coord_calls.mod_calls(4), &[9u8]);
+        assert_eq!(seq_coord_calls.mod_calls(5), &[0u8]);
+        assert_eq!(seq_coord_calls.mod_calls(6), &[0u8]);
+        assert_eq!(seq_coord_calls.mod_calls(7), &[6u8]);
 
         // Test collapse_mod_calls
         let collapsed = seq_coord_calls.collapse_mod_calls();
@@ -462,19 +470,18 @@ mod tests {
         assert!(mod_types.first().expect("has 1 element").1); // + strand
 
         // Test mod_calls for positions with modifications
-        assert_eq!(seq_coord_calls.mod_calls(12), Some(&[3u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(13), Some(&[3u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(16), Some(&[4u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(19), Some(&[3u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(20), Some(&[182u8][..]));
+        assert_eq!(seq_coord_calls.mod_calls(12), &[3u8]);
+        assert_eq!(seq_coord_calls.mod_calls(13), &[3u8]);
+        assert_eq!(seq_coord_calls.mod_calls(16), &[4u8]);
+        assert_eq!(seq_coord_calls.mod_calls(19), &[3u8]);
+        assert_eq!(seq_coord_calls.mod_calls(20), &[182u8]);
 
         // Test mod_calls for positions without modifications
         for k in 0..33 {
             if [12, 13, 16, 19, 20].iter().all(|x| *x != k) {
-                assert_eq!(seq_coord_calls.mod_calls(k), Some(&[0u8][..]));
+                assert_eq!(seq_coord_calls.mod_calls(k), &[0u8]);
             }
         }
-        assert_eq!(seq_coord_calls.mod_calls(33), None); // Out of bounds
 
         // Test collapse_mod_calls
         let collapsed = seq_coord_calls.collapse_mod_calls();
@@ -551,11 +558,11 @@ mod tests {
         assert!(mod_types.get(1).expect("has 2 elements").1);
 
         // Test mod_calls - each position should have 2 values (one for each mod type)
-        assert_eq!(seq_coord_calls.mod_calls(0), Some(&[100u8, 0u8][..])); // T modified, C not
-        assert_eq!(seq_coord_calls.mod_calls(1), Some(&[0u8, 0u8][..])); // Neither modified
-        assert_eq!(seq_coord_calls.mod_calls(2), Some(&[0u8, 200u8][..])); // C modified, T not
-        assert_eq!(seq_coord_calls.mod_calls(3), Some(&[0u8, 0u8][..])); // Neither modified
-        assert_eq!(seq_coord_calls.mod_calls(4), Some(&[0u8, 0u8][..])); // Neither modified
+        assert_eq!(seq_coord_calls.mod_calls(0), &[100u8, 0u8]); // T modified, C not
+        assert_eq!(seq_coord_calls.mod_calls(1), &[0u8, 0u8]); // Neither modified
+        assert_eq!(seq_coord_calls.mod_calls(2), &[0u8, 200u8]); // C modified, T not
+        assert_eq!(seq_coord_calls.mod_calls(3), &[0u8, 0u8]); // Neither modified
+        assert_eq!(seq_coord_calls.mod_calls(4), &[0u8, 0u8]); // Neither modified
 
         // Test collapse_mod_calls
         let collapsed = seq_coord_calls.collapse_mod_calls();
@@ -654,9 +661,8 @@ mod tests {
 
         assert_eq!(seq_coord_calls.mod_calls, expected_rows.concat());
         for (pos, expected) in expected_rows.iter().enumerate() {
-            assert_eq!(seq_coord_calls.mod_calls(pos), Some(expected.as_slice()));
+            assert_eq!(seq_coord_calls.mod_calls(pos), expected);
         }
-        assert_eq!(seq_coord_calls.mod_calls(expected_rows.len()), None);
         assert_eq!(
             seq_coord_calls.collapse_mod_calls(),
             vec![true, true, true, true, false, true]
@@ -698,6 +704,40 @@ mod tests {
         assert!(!mod_types.first().expect("has 1 element").1); // - strand
 
         Ok(())
+    }
+
+    /// Returns one modification type with no annotated calls for a one-base sequence.
+    fn base_mods_without_annotations() -> BaseMods {
+        BaseMods {
+            base_mods: vec![BaseMod {
+                modified_base: b'C',
+                strand: '+',
+                modification_type: 'm',
+                ranges: Ranges {
+                    annotations: vec![],
+                    seq_len: 1,
+                    reverse: false,
+                },
+                record_is_reverse: false,
+            }],
+        }
+    }
+
+    #[test]
+    fn empty_annotations_produce_zero_row() {
+        let base_mods = base_mods_without_annotations();
+        let seq_coord_calls = SeqCoordCalls::try_from(&base_mods).expect("valid BaseMods");
+
+        assert_eq!(seq_coord_calls.mod_calls(0), &[0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "sequence position is out of bounds")]
+    fn mod_calls_panics_outside_sequence() {
+        let base_mods = base_mods_without_annotations();
+        let seq_coord_calls = SeqCoordCalls::try_from(&base_mods).expect("valid BaseMods");
+
+        let _out_of_bounds = seq_coord_calls.mod_calls(1);
     }
 
     #[test]
@@ -784,8 +824,7 @@ mod tests {
             }],
         };
         let seq_coord_calls = SeqCoordCalls::try_from(&valid)?;
-        assert_eq!(seq_coord_calls.mod_calls(4), Some(&[100u8][..]));
-        assert_eq!(seq_coord_calls.mod_calls(5), None);
+        assert_eq!(seq_coord_calls.mod_calls(4), &[100u8]);
 
         // But `pos == seq_len` is just outside the valid half-open range and must
         // be rejected as an out-of-range annotation coordinate.
