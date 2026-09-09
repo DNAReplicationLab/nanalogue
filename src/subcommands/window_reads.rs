@@ -101,6 +101,10 @@ where
                     .expect("no error as we've checked data len >= win size"),
             ) {
                 Ok(val) => val,
+                #[expect(
+                    clippy::print_stderr,
+                    reason = "warning output to stderr is intentional here"
+                )]
                 Err(e) => {
                     eprintln!(
                         "Warning: Skipping {win_size} window starting at {qname}:{window_idx} due to error: {e}"
@@ -833,17 +837,25 @@ mod tests {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::let_underscore_untyped,
+    reason = "generated rstest case bodies retain the existing test calculations and setup"
+)]
 mod stochastic_tests {
     use super::*;
     use crate::SimulationConfig;
     use crate::analysis;
-    use crate::simulate_mod_bam::TempBamSimulation;
+    use crate::simulate_mod_bam::{AlignmentFormat, TempBamSimulation};
     use rust_htslib::bam::{self, Read as _};
 
     /// Helper to create a simulation from JSON config
-    fn create_test_simulation(config_json: &str) -> Result<TempBamSimulation, Error> {
+    fn create_test_simulation(
+        config_json: &str,
+        format: AlignmentFormat,
+    ) -> Result<TempBamSimulation, Error> {
         let config: SimulationConfig = serde_json::from_str(config_json)?;
-        TempBamSimulation::new(config)
+        TempBamSimulation::new(config, format)
     }
 
     /// Helper to run window analysis with `threshold_and_mean` aggregation function
@@ -896,13 +908,11 @@ mod stochastic_tests {
     ///
     /// This test creates a simulated BAM file without any modification information and verifies
     /// that `run_df` errors with `no mods found` when no modifications are present.
-    #[test]
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
     #[should_panic(expected = "No windowed data found.")]
-    #[expect(
-        clippy::let_underscore_untyped,
-        reason = "these are expected to panic so we don't bother defining types"
-    )]
-    fn run_df_empty_for_no_mods() {
+    fn run_df_empty_for_no_mods(#[case] format: AlignmentFormat) {
         // Create simulation config with no modifications
         let config_json = r#"{
             "contigs": {
@@ -917,7 +927,7 @@ mod stochastic_tests {
             }]
         }"#;
 
-        let sim = create_test_simulation(config_json).expect("should create simulation");
+        let sim = create_test_simulation(config_json, format).expect("should create simulation");
         let _ = run_window_analysis_with_threshold(&sim, 2, 1).unwrap();
     }
 
@@ -925,8 +935,10 @@ mod stochastic_tests {
     ///
     /// This test creates a simulated BAM file with modification data and verifies that
     /// `run_df` correctly processes the modifications and returns a dataframe with data rows.
-    #[test]
-    fn run_df_with_mods() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_df_with_mods(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // Create simulation config with modifications
         let config_json = r#"{
             "contigs": {
@@ -948,7 +960,7 @@ mod stochastic_tests {
             }]
         }"#;
 
-        let sim = create_test_simulation(config_json)?;
+        let sim = create_test_simulation(config_json, format)?;
         let df = run_window_analysis_with_threshold(&sim, 2, 1)?;
 
         // Verify the dataframe is NOT empty (should have data rows with mods)
@@ -977,8 +989,12 @@ mod stochastic_tests {
     ///
     /// This test creates a simulated BAM file with modification data and verifies that
     /// `run_df` correctly processes the modifications and returns a dataframe with data rows.
-    #[test]
-    fn run_df_with_mods_and_non_perfectly_aligned_reads() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_df_with_mods_and_non_perfectly_aligned_reads(
+        #[case] format: AlignmentFormat,
+    ) -> Result<(), Error> {
         // Create simulation config with modifications
         let config_json = r#"{
             "contigs": {
@@ -1003,7 +1019,7 @@ mod stochastic_tests {
             }]
         }"#;
 
-        let sim = create_test_simulation(config_json)?;
+        let sim = create_test_simulation(config_json, format)?;
         let df = run_window_analysis_with_threshold(&sim, 200, 100)?;
 
         // Verify the dataframe is NOT empty (should have data rows with mods)
@@ -1038,12 +1054,10 @@ mod stochastic_tests {
 
     /// Test that `run_df` works as expected when we generate two types of reads,
     /// and that the statistics are as expected in the two groups of reads.
-    #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "test with too many lines is ok; no chance of overflow due to small data len"
-    )]
-    fn run_df_with_two_types_of_mod_reads() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_df_with_two_types_of_mod_reads(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // Create simulation config with modifications
         let config_json = r#"{
             "contigs": {
@@ -1082,7 +1096,7 @@ mod stochastic_tests {
             ]
         }"#;
 
-        let sim = create_test_simulation(config_json)?;
+        let sim = create_test_simulation(config_json, format)?;
         let df = run_window_analysis_with_threshold(&sim, 200, 100)?;
 
         // Verify the dataframe is NOT empty (should have data rows with mods)
@@ -1236,8 +1250,10 @@ mod stochastic_tests {
     }
 
     /// Test that `run_json` produces an empty array for BAM files with no modification data
-    #[test]
-    fn run_json_empty_for_no_mods() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_json_empty_for_no_mods(#[case] format: AlignmentFormat) -> Result<(), Error> {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -1251,7 +1267,7 @@ mod stochastic_tests {
             }]
         }"#;
 
-        let sim = create_test_simulation(config_json)?;
+        let sim = create_test_simulation(config_json, format)?;
         let entries = run_json_window_analysis_with_threshold(&sim, 2, 1)?;
 
         // One JSON record per BAM read
@@ -1274,8 +1290,10 @@ mod stochastic_tests {
     }
 
     /// Test that `run_json` produces entries with modification data
-    #[test]
-    fn run_json_with_mods() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_json_with_mods(#[case] format: AlignmentFormat) -> Result<(), Error> {
         let config_json = r#"{
             "contigs": {
                 "number": 4,
@@ -1296,7 +1314,7 @@ mod stochastic_tests {
             }]
         }"#;
 
-        let sim = create_test_simulation(config_json)?;
+        let sim = create_test_simulation(config_json, format)?;
         let entries = run_json_window_analysis_with_threshold(&sim, 2, 1)?;
 
         // One JSON record per BAM read
@@ -1338,8 +1356,12 @@ mod stochastic_tests {
     }
 
     /// Test that `run_json` works with non-perfectly aligned reads (deletions, insertions, mismatches)
-    #[test]
-    fn run_json_with_mods_and_non_perfectly_aligned_reads() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_json_with_mods_and_non_perfectly_aligned_reads(
+        #[case] format: AlignmentFormat,
+    ) -> Result<(), Error> {
         let config_json = r#"{
             "contigs": {
                 "number": 4,
@@ -1363,7 +1385,7 @@ mod stochastic_tests {
             }]
         }"#;
 
-        let sim = create_test_simulation(config_json)?;
+        let sim = create_test_simulation(config_json, format)?;
         let entries = run_json_window_analysis_with_threshold(&sim, 200, 100)?;
 
         // One JSON record per BAM read
@@ -1399,9 +1421,10 @@ mod stochastic_tests {
     }
 
     /// Test that `run_json` works with two types of mod reads and validates statistics per group
-    #[test]
-    #[expect(clippy::too_many_lines, reason = "test with too many lines is ok")]
-    fn run_json_with_two_types_of_mod_reads() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_json_with_two_types_of_mod_reads(#[case] format: AlignmentFormat) -> Result<(), Error> {
         let config_json = r#"{
             "contigs": {
                 "number": 4,
@@ -1439,7 +1462,7 @@ mod stochastic_tests {
             ]
         }"#;
 
-        let sim = create_test_simulation(config_json)?;
+        let sim = create_test_simulation(config_json, format)?;
         let entries = run_json_window_analysis_with_threshold(&sim, 200, 100)?;
 
         // One JSON record per BAM read (100 with mods + 100 without)
@@ -1565,9 +1588,11 @@ mod stochastic_tests {
     }
 
     /// Test that `run` (TSV) errors when there are zero reads.
-    #[test]
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
     #[should_panic(expected = "No records found as input for analysis.")]
-    fn run_tsv_header_only_for_zero_reads() {
+    fn run_tsv_header_only_for_zero_reads(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -1576,7 +1601,7 @@ mod stochastic_tests {
             "reads": []
         }"#;
 
-        let sim = create_test_simulation(config_json).expect("should create simulation");
+        let sim = create_test_simulation(config_json, format).expect("should create simulation");
         let mut output = Vec::new();
         let mut bam_reader = bam::Reader::from_path(sim.bam_path()).expect("should open bam");
         let bam_records = bam_reader.rc_records();
@@ -1591,13 +1616,11 @@ mod stochastic_tests {
     }
 
     /// Test that `run_json` errors when there are zero reads.
-    #[test]
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
     #[should_panic(expected = "No records found as input for analysis")]
-    #[expect(
-        clippy::let_underscore_untyped,
-        reason = "these are expected to panic so we don't bother defining types"
-    )]
-    fn run_json_empty_array_for_zero_reads() {
+    fn run_json_empty_array_for_zero_reads(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -1606,7 +1629,7 @@ mod stochastic_tests {
             "reads": []
         }"#;
 
-        let sim = create_test_simulation(config_json).expect("should create simulation");
+        let sim = create_test_simulation(config_json, format).expect("should create simulation");
         let _ = run_json_window_analysis_with_threshold(&sim, 2, 1).unwrap();
     }
 }

@@ -14,6 +14,8 @@ Thank you for your interest in contributing to `nanalogue`! This project is larg
 
 - Rust toolchain (rustc, cargo) - Install from [rustup.rs](https://rustup.rs/)
 - Git for version control
+- Matching Clang and libclang 18–21 if the pinned `hts-sys`/bindgen build has
+  compatibility trouble; avoid Clang 22 with this dependency stack
 
 ### Building the Project
 
@@ -21,11 +23,27 @@ Thank you for your interest in contributing to `nanalogue`! This project is larg
 cargo build
 ```
 
+If Cargo cannot locate a supported installation, set `CLANG_PATH` to the Clang
+executable and `LIBCLANG_PATH` to the directory containing the matching
+libclang shared library. Newer `hts-sys`/bindgen versions may support Clang 22.
+
 ### Running Tests
 
 ```bash
 cargo test
 ```
+
+Some tests deliberately construct invalid scenarios to verify that the program
+fails safely. HTSlib may therefore emit other errors or warnings during testing;
+do not interpret these messages as failures unless the tests themselves fail.
+
+Some simulated CRAM tests use an external FASTA generated locally on the test
+system. HTSlib may try EBI before using the local reference recorded in the
+CRAM header, causing harmless network errors during otherwise successful
+offline tests. Run `REF_PATH=/path/that/does/not/exist cargo test` to suppress
+HTSlib's implicit EBI M5 lookup while retaining fallback to the accessible
+local `UR` reference. Newer HTSlib versions may change this reference-resolution
+behavior.
 
 ## Code Quality Standards
 
@@ -54,6 +72,7 @@ The project uses extensive clippy lints (see `Cargo.toml` for the full list). Yo
 - Update existing tests if behavior changes
 - Include both unit tests and integration tests where appropriate
 - Test edge cases and error conditions
+- Tests using `TempBamSimulation` need named BAM and CRAM `rstest` cases unless explicitly comparing formats.
 
 ### Documentation
 

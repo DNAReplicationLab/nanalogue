@@ -207,7 +207,10 @@ impl fmt::Display for ReadInstance {
                         v if !v.is_empty() => format!("\t{v}"),
                         _ => String::new(),
                     },
-                    match vec_csv!(sq.iter().map(|v| unsafe {
+                    match vec_csv!(sq.iter().map(|v|
+                        // SAFETY: `rust-htslib` guarantees only printable sequence
+                        // characters here, and the `BaseFmt` remapping preserves ASCII.
+                        unsafe {
                         String::from_utf8_unchecked(
                             v.clone()
                                 .into_iter()
@@ -923,7 +926,7 @@ where
     let schema = Schema::from_iter(schema_fields);
 
     // Parse the TSV data with the schema
-    let cursor = Cursor::new(&buffer[..]);
+    let cursor = Cursor::new(&*buffer);
     let df = CsvReadOptions::default()
         .with_has_header(true)
         .map_parse_options(|parse_options| {
@@ -1557,6 +1560,10 @@ mod sequencing_summary_tests {
     }
 
     #[test]
+    #[expect(
+        clippy::non_ascii_literal,
+        reason = "non-ascii characters are intentional here"
+    )]
     fn process_seq_summ_weird_chars_fail() {
         let weird_char_case = "read_id\tsequence_length_template\nA💚A\t1234\n";
         let temp_path = write_temp_seq_summary(weird_char_case);
@@ -1811,12 +1818,17 @@ mod sequencing_summary_tests {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "arithmetic in generated rstest case bodies operates on small test data"
+)]
 mod stochastic_tests {
     use super::*;
     use crate::{
         GenomicBed3,
         simulate_mod_bam::{
-            ContigConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder, TempBamSimulation,
+            AlignmentFormat, ContigConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder,
+            TempBamSimulation,
         },
     };
     use derive_builder::Builder;
@@ -1983,8 +1995,10 @@ mod stochastic_tests {
     /// Here `alignment length == sequence_length_template` and all read ids
     /// start with "0." as there is only one read group. The `alignment_type`
     /// is equally likely to be one of seven.
-    #[test]
-    fn run_df_simple() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_df_simple(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // Create simulation config with no modifications
         let contig_config = ContigConfigBuilder::default()
             .number(2)
@@ -2002,7 +2016,7 @@ mod stochastic_tests {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        let sim = TempBamSimulation::new(sim_config)?;
+        let sim = TempBamSimulation::new(sim_config, format)?;
         let df = run_reads_table_generation(&sim, None, SeqDisplayOptions::No)?;
 
         // Verify the dataframe is not empty and has expected columns
@@ -2040,8 +2054,10 @@ mod stochastic_tests {
 
     /// More complex, now sequence and alignment lengths are systematically
     /// different due to an insertion and a barcode.
-    #[test]
-    fn run_df_al_sl_different() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_df_al_sl_different(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // Create simulation config with no modifications
         let contig_config = ContigConfigBuilder::default()
             .number(2)
@@ -2061,7 +2077,7 @@ mod stochastic_tests {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        let sim = TempBamSimulation::new(sim_config)?;
+        let sim = TempBamSimulation::new(sim_config, format)?;
         let df = run_reads_table_generation(&sim, None, SeqDisplayOptions::No)?;
 
         // Verify the dataframe is not empty and has expected columns
@@ -2099,8 +2115,10 @@ mod stochastic_tests {
     }
 
     /// Test retrieval of sequence and qualities
-    #[test]
-    fn run_df_seq_qual_retrieval() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_df_seq_qual_retrieval(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // Create simulation config with no modifications
         let contig_config = ContigConfigBuilder::default()
             .number(2)
@@ -2118,7 +2136,7 @@ mod stochastic_tests {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        let sim = TempBamSimulation::new(sim_config)?;
+        let sim = TempBamSimulation::new(sim_config, format)?;
         let df = run_reads_table_generation(
             &sim,
             None,
@@ -2179,8 +2197,12 @@ mod stochastic_tests {
 
     /// Test retrieval of sequence and qualities of the full
     /// sequence even with indels and barcode.
-    #[test]
-    fn run_df_seq_qual_retrieval_indels_barcode() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_df_seq_qual_retrieval_indels_barcode(
+        #[case] format: AlignmentFormat,
+    ) -> Result<(), Error> {
         // Create simulation config with no modifications
         let contig_config = ContigConfigBuilder::default()
             .number(2)
@@ -2202,7 +2224,7 @@ mod stochastic_tests {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        let sim = TempBamSimulation::new(sim_config)?;
+        let sim = TempBamSimulation::new(sim_config, format)?;
         let df = run_reads_table_generation(
             &sim,
             None,
@@ -2229,7 +2251,9 @@ mod stochastic_tests {
     }
 
     /// Helper function to create a simulation with indels and barcodes for region testing.
-    fn create_indels_barcode_simulation() -> Result<TempBamSimulation, Error> {
+    fn create_indels_barcode_simulation(
+        format: AlignmentFormat,
+    ) -> Result<TempBamSimulation, Error> {
         let contig_config = ContigConfigBuilder::default()
             .number(1)
             .len_range((1000, 1000))
@@ -2250,7 +2274,7 @@ mod stochastic_tests {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        TempBamSimulation::new(sim_config)
+        TempBamSimulation::new(sim_config, format)
     }
 
     /// Helper function to test sequence retrieval from a specific region.
@@ -2318,9 +2342,11 @@ mod stochastic_tests {
         Ok(())
     }
 
-    #[test]
-    fn region_0_to_10() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_0_to_10(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
             SeqDisplayOptions::Region {
@@ -2335,9 +2361,11 @@ mod stochastic_tests {
         )
     }
 
-    #[test]
-    fn region_100_to_110() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_100_to_110(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
             SeqDisplayOptions::Region {
@@ -2352,9 +2380,11 @@ mod stochastic_tests {
         )
     }
 
-    #[test]
-    fn region_195_to_205() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_195_to_205(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
             SeqDisplayOptions::Region {
@@ -2369,9 +2399,11 @@ mod stochastic_tests {
         )
     }
 
-    #[test]
-    fn region_495_to_505() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_495_to_505(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
             SeqDisplayOptions::Region {
@@ -2386,9 +2418,11 @@ mod stochastic_tests {
         )
     }
 
-    #[test]
-    fn region_495_to_505_no_ins_lowercase() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_495_to_505_no_ins_lowercase(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
             SeqDisplayOptions::Region {
@@ -2403,9 +2437,11 @@ mod stochastic_tests {
         )
     }
 
-    #[test]
-    fn region_990_to_1000() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_990_to_1000(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
             SeqDisplayOptions::Region {
@@ -2427,8 +2463,8 @@ mod stochastic_tests_with_mods {
     use crate::{
         GenomicBed3, InputModsBuilder,
         simulate_mod_bam::{
-            ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder, SimulationConfigBuilder,
-            TempBamSimulation,
+            AlignmentFormat, ContigConfigBuilder, ModConfigBuilder, ReadConfigBuilder,
+            SimulationConfigBuilder, TempBamSimulation,
         },
     };
     use rust_htslib::bam::Read as _;
@@ -2445,7 +2481,9 @@ mod stochastic_tests_with_mods {
     }
 
     /// Helper function to create a simulation with indels and barcodes for region testing.
-    fn create_indels_barcode_simulation() -> Result<TempBamSimulation, Error> {
+    fn create_indels_barcode_simulation(
+        format: AlignmentFormat,
+    ) -> Result<TempBamSimulation, Error> {
         let contig_config = ContigConfigBuilder::default()
             .number(1)
             .len_range((1000, 1000))
@@ -2475,7 +2513,7 @@ mod stochastic_tests_with_mods {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        TempBamSimulation::new(sim_config)
+        TempBamSimulation::new(sim_config, format)
     }
 
     /// Helper function to test sequence retrieval from a specific region.
@@ -2537,9 +2575,11 @@ mod stochastic_tests_with_mods {
         Ok(())
     }
 
-    #[test]
-    fn region_0_to_10() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_0_to_10(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         for k in [
             (false, "ACGTACGTAC", "ACGTACGTAC"),
             (true, "ACGTACZTAC", "ACGTAZGTAC"),
@@ -2563,9 +2603,11 @@ mod stochastic_tests_with_mods {
         Ok(())
     }
 
-    #[test]
-    fn region_100_to_110() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_100_to_110(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         for k in [false, true] {
             test_region_retrieval(
                 &sim,
@@ -2586,9 +2628,11 @@ mod stochastic_tests_with_mods {
         Ok(())
     }
 
-    #[test]
-    fn region_195_to_205() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_195_to_205(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         for k in [
             (false, ".....ACGTA", ".....ACGTA"),
             (true, ".....ACZTA", ".....AZGTA"),
@@ -2612,9 +2656,11 @@ mod stochastic_tests_with_mods {
         Ok(())
     }
 
-    #[test]
-    fn region_495_to_505() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_495_to_505(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         for k in [
             (false, "TACGTggttggACGTA", "TACGTggttggACGTA"),
             (true, "TACZTgzttgzACGTA", "TAZGTggttggACGTA"),
@@ -2638,9 +2684,11 @@ mod stochastic_tests_with_mods {
         Ok(())
     }
 
-    #[test]
-    fn region_990_to_1000() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_990_to_1000(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
         for k in [
             (false, "GTACGTACGT", "GTACGTACGT"),
             (true, "GTACZTACGT", "GTAZGTACGT"),
@@ -2667,9 +2715,11 @@ mod stochastic_tests_with_mods {
     /// Region-based modification counting
     /// This test verifies that when `InputMods::region_bed3` is set,
     /// mod counts reflect only modifications within that region
-    #[test]
-    fn region_based_mod_counting() -> Result<(), Error> {
-        let sim = create_indels_barcode_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn region_based_mod_counting(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_indels_barcode_simulation(format)?;
 
         // Test region 0-10
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
@@ -2731,7 +2781,7 @@ mod stochastic_tests_with_mods {
     /// Test Multiple modifications on the same read
     /// This test creates reads with two different modification types
     /// and verifies both are counted correctly
-    fn create_multi_mod_simulation() -> Result<TempBamSimulation, Error> {
+    fn create_multi_mod_simulation(format: AlignmentFormat) -> Result<TempBamSimulation, Error> {
         let contig_config = ContigConfigBuilder::default()
             .number(1)
             .len_range((1000, 1000))
@@ -2772,12 +2822,14 @@ mod stochastic_tests_with_mods {
             .reads(vec![read_config.build()?])
             .build()?;
 
-        TempBamSimulation::new(sim_config)
+        TempBamSimulation::new(sim_config, format)
     }
 
-    #[test]
-    fn multiple_mod_count_on_same_read() -> Result<(), Error> {
-        let sim = create_multi_mod_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn multiple_mod_count_on_same_read(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_multi_mod_simulation(format)?;
 
         let df = run_reads_table_generation(
             &sim,
@@ -2817,9 +2869,13 @@ mod stochastic_tests_with_mods {
         Ok(())
     }
 
-    #[test]
-    fn multiple_mod_count_on_same_read_with_stronger_thresholding() -> Result<(), Error> {
-        let sim = create_multi_mod_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn multiple_mod_count_on_same_read_with_stronger_thresholding(
+        #[case] format: AlignmentFormat,
+    ) -> Result<(), Error> {
+        let sim = create_multi_mod_simulation(format)?;
 
         let df = run_reads_table_generation(
             &sim,
@@ -2866,9 +2922,11 @@ mod stochastic_tests_with_mods {
     /// Test multiple modifications with region filtering.
     /// Verifies that region filtering and retrieval works correctly when
     /// multiple mod types are present
-    #[test]
-    fn multiple_mods_with_region_filtering() -> Result<(), Error> {
-        let sim = create_multi_mod_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn multiple_mods_with_region_filtering(#[case] format: AlignmentFormat) -> Result<(), Error> {
+        let sim = create_multi_mod_simulation(format)?;
 
         // Test a small region
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
@@ -2945,10 +3003,13 @@ mod stochastic_tests_with_mods {
     /// Test multiple modifications with region filtering and with
     /// very strict filters that would let nothing through and with
     /// inserts set to same case as the others.
-    #[test]
-    fn multiple_mods_with_region_filtering_strict_mod_prob_filter_no_ins_lowercase()
-    -> Result<(), Error> {
-        let sim = create_multi_mod_simulation()?;
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn multiple_mods_with_region_filtering_strict_mod_prob_filter_no_ins_lowercase(
+        #[case] format: AlignmentFormat,
+    ) -> Result<(), Error> {
+        let sim = create_multi_mod_simulation(format)?;
 
         // Test a small region
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()

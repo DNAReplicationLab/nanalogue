@@ -29,10 +29,11 @@
 //! separate executable `nanalogue_sim_bam` exposes the `simulate_mod_bam` functionality
 //! (see below).
 //!
-//! For developers: if you are looking to make a custom BAM file containing synthetic, simulated
-//! DNA/RNA modification data to develop/test your tool, you may be interested in `nanalogue_sim_bam`.
-//! This is an executable that ships with nanalogue that can create a BAM file according to your
-//! specifications. Please run `nanalogue_sim_bam --help`. If you are a rust developer looking
+//! For developers: if you are looking to make a custom BAM or CRAM file containing synthetic,
+//! simulated DNA/RNA modification data to develop/test your tool, you may be interested in
+//! `nanalogue_sim_bam`. This is an executable that ships with nanalogue that can create an
+//! indexed BAM or CRAM file according to your specifications. Please run
+//! `nanalogue_sim_bam --help`. If you are a rust developer looking
 //! to use this functionality in your library, please look at the documentation of the module
 //! [`crate::simulate_mod_bam`]. The simulation tooling is intended for trusted,
 //! developer-controlled test inputs and allows large workloads by design, so requested
@@ -118,7 +119,7 @@ pub use error::Error;
 pub use file_utils::{
     nanalogue_bam_reader, nanalogue_bam_reader_from_stdin, nanalogue_bam_reader_from_url,
     nanalogue_indexed_bam_reader, nanalogue_indexed_bam_reader_from_url, write_bam_denovo,
-    write_fasta,
+    write_cram_denovo, write_fasta,
 };
 pub use read_utils::{
     AlignmentInfo, AlignmentInfoBuilder, CurrRead, CurrReadBuilder, ModTableEntryBuilder,
@@ -131,8 +132,8 @@ pub use subcommands::{
 pub use utils::uuid;
 pub use utils::{
     AllowedAGCTN, BaseMod, BaseMods, Contains, DNARestrictive, F32AbsValAtMost1, F32Bw0and1,
-    FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, ModChar,
-    OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
+    FiberAnnotation, FilterModsByRefCoords, GenomicRegion, GetDNARestrictive, Intersects, MmSuffix,
+    ModChar, OrdPair, ParsedMmGroup, PathOrURLOrStdin, Ranges, ReadState, ReadStates,
     RestrictModCalledStrand, SeqCoordCalls, ThresholdState, complement, convert_seq_uppercase,
     ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
     ensure_valid_contig, ensure_valid_read_id, mm_groups, revcomp,
@@ -177,25 +178,35 @@ static SSL_INIT: Once = Once::new();
 pub unsafe fn init_ssl_certificates() {
     SSL_INIT.call_once(|| {
         let (cert_file, cert_dir) = utils::openssl_probe::probe();
-        // SAFETY: Caller guarantees no other threads have been spawned, so no
-        // concurrent `getenv` can race with these `setenv` calls. Pre-existing
-        // values are preserved.
-        unsafe {
-            if let Some(cert_file_path) = cert_file.as_deref() {
-                if std::env::var_os("SSL_CERT_FILE").is_none() {
+        if let Some(cert_file_path) = cert_file.as_deref() {
+            if std::env::var_os("SSL_CERT_FILE").is_none() {
+                // SAFETY: Caller guarantees no other threads have been spawned,
+                // so no concurrent `getenv` can race with this `setenv` call.
+                // Pre-existing values are preserved.
+                unsafe {
                     std::env::set_var("SSL_CERT_FILE", cert_file_path);
                 }
-                // libcurl statically linked into rust-htslib checks
-                // CURL_CA_BUNDLE rather than SSL_CERT_FILE. Use the probed
-                // path directly so the value comes from the filesystem probe.
-                if std::env::var_os("CURL_CA_BUNDLE").is_none() {
+            }
+            // libcurl statically linked into rust-htslib checks
+            // CURL_CA_BUNDLE rather than SSL_CERT_FILE. Use the probed
+            // path directly so the value comes from the filesystem probe.
+            if std::env::var_os("CURL_CA_BUNDLE").is_none() {
+                // SAFETY: Caller guarantees no other threads have been spawned,
+                // so no concurrent `getenv` can race with this `setenv` call.
+                // Pre-existing values are preserved.
+                unsafe {
                     std::env::set_var("CURL_CA_BUNDLE", cert_file_path);
                 }
             }
-            if !cert_dir.is_empty()
-                && std::env::var_os("SSL_CERT_DIR").is_none()
-                && let Ok(joined) = std::env::join_paths(&cert_dir)
-            {
+        }
+        if !cert_dir.is_empty()
+            && std::env::var_os("SSL_CERT_DIR").is_none()
+            && let Ok(joined) = std::env::join_paths(&cert_dir)
+        {
+            // SAFETY: Caller guarantees no other threads have been spawned, so
+            // no concurrent `getenv` can race with this `setenv` call.
+            // Pre-existing values are preserved.
+            unsafe {
                 std::env::set_var("SSL_CERT_DIR", joined);
             }
         }
@@ -444,6 +455,12 @@ where
         if seq_len >= usize::try_from(u32::MAX).expect("no error on 32-bit platforms or higher") {
             return Err(Error::InvalidState(
                 "sequence longer than u32::MAX".to_owned(),
+            ));
+        }
+
+        if seq_len == 0 {
+            return Err(Error::ZeroSeqLen(
+                "zero length sequences cannot be used for mod tag parsing".to_owned(),
             ));
         }
 
@@ -1561,8 +1578,8 @@ mod bam_rc_record_tests {
 
         for _ in 1..=10000 {
             let mut record = record::Record::new();
-            let seq_len: usize = random_range(2..=10000);
-            let match_len = seq_len / 2;
+            let match_len: usize = random_range(1..=5000);
+            let seq_len = match_len * 2;
             let hard_clip_len = seq_len - match_len;
 
             record.set(

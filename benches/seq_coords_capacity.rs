@@ -9,14 +9,22 @@ use std::hint::black_box;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
-/// Number of timing samples collected.
-const SAMPLES: usize = 20;
+/// Odd number of timing samples collected.
+const SAMPLES: usize = 21;
 /// Calls measured in each timing sample.
 const CALLS_PER_SAMPLE: usize = 250_000;
 /// Calls made before allocator counters and timing samples start.
 const WARMUP_CALLS: usize = 100_000;
 /// Calls used for the separate allocation measurement.
 const ALLOCATION_CALLS: usize = 100_000;
+
+const _: () = {
+    assert!(SAMPLES >= 3, "fewer than three samples found");
+    assert!(SAMPLES & 1 == 1, "sample count must be odd");
+    assert!(CALLS_PER_SAMPLE > 0, "zero calls per sample found");
+    assert!(WARMUP_CALLS > 0, "zero warmup calls found");
+    assert!(ALLOCATION_CALLS > 0, "zero allocation calls found");
+};
 
 /// Whether allocator activity should be counted.
 static COUNT_ALLOCATIONS: AtomicBool = AtomicBool::new(false);
@@ -78,6 +86,15 @@ fn run_calls(
     }
 }
 
+#[expect(
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "integer division selects the observed median sample"
+)]
+#[expect(
+    clippy::print_stdout,
+    reason = "the benchmark reports its measurements to stdout"
+)]
 fn main() {
     let mut reader = nanalogue_bam_reader("examples/example_7.sam").expect("fixture should open");
     let record = reader

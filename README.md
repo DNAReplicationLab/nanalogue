@@ -25,7 +25,7 @@ tag variants; other mixed-case or lowercase variants are not recognized.
 ## Table of Contents
 
 - [Usage and documentation](#usage-and-documentation)
-  - [Simulate BAM files](#simulate-bam-files)
+  - [Simulate BAM or CRAM files](#simulate-bam-or-cram-files)
 - [Installation and Updates](#installation-and-updates)
   - [Pre-built Binaries](#pre-built-binaries)
     - [Quick Install Script](#quick-install-script)
@@ -33,6 +33,8 @@ tag variants; other mixed-case or lowercase variants are not recognized.
     - [GitHub Actions Artifacts](#github-actions-artifacts)
   - [Using Cargo](#using-cargo)
     - [Cargo locked](#using-cargo-locked)
+    - [Building from a Git checkout](#building-from-a-git-checkout)
+    - [Building and testing notes](#building-and-testing-notes)
   - [Using Docker](#using-docker)
 - [Commands](#commands)
   - [`nanalogue read-info`](#nanalogue-read-info)
@@ -65,16 +67,19 @@ The Rust library and command-line tools are the most mature among these.
 In addition to these resources, we are developing a
 companion cookbook [here](https://www.nanalogue.com).
 
-## Simulate BAM files
+## Simulate BAM or CRAM files
 
-For developers: if you are looking to make a custom BAM file containing synthetic, simulated
-DNA/RNA modification data to develop/test your tool, you may be interested in `nanalogue_sim_bam`.
-This is an executable that ships with nanalogue that can create a BAM file according to your
-specifications. Please run `nanalogue_sim_bam --help`. This simulation tooling is intended for
+For developers: if you are looking to make a custom BAM or CRAM file containing synthetic,
+simulated DNA/RNA modification data to develop/test your tool, you may be interested in
+`nanalogue_sim_bam`. This is an executable that ships with nanalogue that can create an
+indexed BAM or CRAM file according to your specifications. This simulation tooling is intended for
 trusted developer-controlled test inputs and may consume substantial CPU time, memory, and disk
-space. If you are a rust developer looking to use this functionality in your library, please look
-at the documentation of the module `nanalogue_core::simulate_mod_bam` in the docs.rs link
-[above](#usage-and-documentation).
+space. Please run `nanalogue_sim_bam --help`.
+If you are a rust developer looking to use this functionality in your library,
+please look at the documentation of the module `nanalogue_core::simulate_mod_bam` in the
+docs.rs link [above](#usage-and-documentation). An alignment output ending in `.bam`
+creates a BAI, while one ending in `.cram` creates a CRAM 3.1 file, CRAI, and FAI for the
+generated FASTA reference.
 
 # Installation and Updates
 
@@ -181,12 +186,34 @@ cargo install nanalogue --locked
 This uses the exact versions of dependencies specified in the package's `Cargo.lock` file,
 and fixes install problems due to newer packages.
 
-If you are building from a Git checkout instead of an installed crate, make sure
-Git submodules are initialized so if any sources are vendored, they become available:
+### Building from a Git checkout
+
+You can also use Cargo to build a copy of `nanalogue` from source code obtained
+directly from Git. After obtaining a Git checkout, build it with:
 
 ```bash
-git submodule update --init --recursive
+cargo build
 ```
+
+### Building and testing notes
+
+If the pinned `hts-sys`/bindgen build has Clang compatibility trouble, use
+matching Clang and libclang 18–21 and avoid Clang 22 with this dependency stack.
+Set `CLANG_PATH` to the Clang executable and `LIBCLANG_PATH` to the directory
+containing the matching libclang shared library. You may not encounter this
+issue if Clang 22 is not installed on your system, or if a newer
+`hts-sys`/bindgen version has resolved the incompatibility.
+
+When running the test suite, note that some tests deliberately construct
+invalid scenarios to verify that the program fails safely. HTSlib may therefore
+emit errors or warnings even when all tests pass. Some simulated CRAM tests also
+use an external FASTA generated locally; because HTSlib may try EBI before using
+the reference recorded in the CRAM header, offline runs can print harmless
+network errors. Use `REF_PATH=/path/that/does/not/exist cargo test` to suppress
+HTSlib's implicit EBI M5 lookup while retaining fallback to the accessible
+local `UR` reference, and do not treat HTSlib messages as failures unless the
+tests themselves fail. Newer HTSlib versions may change this reference-resolution
+behavior.
 
 ## Using Docker
 
@@ -409,7 +436,10 @@ None
 # Contributing
 
 Contributions are welcome! Please see [CONTRIBUTIONS.md](CONTRIBUTIONS.md)
-for guidelines on how to contribute to this project.
+for guidelines on how to contribute to this project. When running the test
+suite, note that some negative tests intentionally trigger HTSlib errors or
+warnings on stderr. These messages can appear during a successful test run and
+do not necessarily indicate a failing test.
 
 # Security
 

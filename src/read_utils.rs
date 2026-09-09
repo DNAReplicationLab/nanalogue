@@ -197,10 +197,9 @@ impl CurrRead<NoData> {
         // extract read id
         let qname: &[u8] = record.qname();
         ensure_valid_read_id(qname, MAX_READ_ID_LEN)?;
-        let read_id = unsafe {
-            // we checked every character is in a subset of the ASCII range
-            String::from_utf8_unchecked(qname.to_vec())
-        };
+        // SAFETY: `ensure_valid_read_id` above guarantees every byte in
+        // `qname` is within the accepted ASCII subset for read IDs.
+        let read_id = unsafe { String::from_utf8_unchecked(qname.to_vec()) };
 
         // check for unsupported flags
         if record.is_paired()

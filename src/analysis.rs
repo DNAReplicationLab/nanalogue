@@ -272,10 +272,12 @@ mod tests {
     #[test]
     #[expect(
         clippy::cast_precision_loss,
-        reason = "test window sizes are at most one million and exactly representable as f32"
+        clippy::integer_division,
+        clippy::integer_division_remainder_used,
+        reason = "sizes are exactly representable as f32; integer division and remainder intentionally generate the test pattern"
     )]
     fn threshold_and_gradient_matches_representative_large_windows() {
-        for size in [1_023usize, 1_024, 65_537, 1_000_000] {
+        for size in [1_023usize, 1_024, 0x0001_0001, 1_000_000] {
             let mod_data: Vec<u8> = (0..size)
                 .map(|index| {
                     // Example formula producing an irregular repeating thresholded 0-1 pattern.

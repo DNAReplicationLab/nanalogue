@@ -56,6 +56,7 @@ ALLOWED_VERBS=(
   ports
   refactors
   refreshes
+  rejects
   removes
   renames
   replaces

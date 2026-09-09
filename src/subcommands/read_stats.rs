@@ -251,7 +251,7 @@ mod tests {
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
 
         let expected_output = strip_newline_indent(
-            r"key	value
+            "key	value
         n_primary_alignments	3
         n_secondary_alignments	0
         n_supplementary_alignments	0
@@ -288,22 +288,22 @@ mod tests {
         let output_str = String::from_utf8(output).expect("Invalid UTF-8 output");
 
         let expected_output = strip_newline_indent(
-            r"key	value
-        n_primary_alignments	6
-        n_secondary_alignments	2
-        n_supplementary_alignments	2
-        n_unmapped_reads	0
-        n_reversed_reads	3
-        align_len_mean	12
-        align_len_max	20
-        align_len_min	6
-        align_len_median	12
-        align_len_n50	15
-        seq_len_mean	12
-        seq_len_max	20
-        seq_len_min	6
-        seq_len_median	12
-        seq_len_n50	15
+            "key\tvalue
+        n_primary_alignments\t6
+        n_secondary_alignments\t2
+        n_supplementary_alignments\t2
+        n_unmapped_reads\t0
+        n_reversed_reads\t3
+        align_len_mean\t12
+        align_len_max\t20
+        align_len_min\t6
+        align_len_median\t12
+        align_len_n50\t15
+        seq_len_mean\t12
+        seq_len_max\t20
+        seq_len_min\t6
+        seq_len_median\t12
+        seq_len_n50\t15
 ",
         );
 

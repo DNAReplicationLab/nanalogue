@@ -301,6 +301,10 @@ where
     // slower or much slower. So, we are fine ignoring the region at this step
     // if the input is from stdin or if the index cannot be found.
     let bam_cli = cli.command.clone().bam();
+    #[expect(
+        clippy::print_stderr,
+        reason = "warning output to stderr is intentional here"
+    )]
     match (bam_cli.bam_path, bam_cli.region) {
         (PathOrURLOrStdin::Stdin, _) => run_on_bam(cli, handle, nanalogue_bam_reader_from_stdin()?),
         (PathOrURLOrStdin::Path(v), None) => run_on_bam(cli, handle, nanalogue_bam_reader(&v)?),

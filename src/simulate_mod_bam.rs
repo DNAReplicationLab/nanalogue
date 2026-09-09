@@ -1,8 +1,8 @@
-//! # Write Simulated Mod BAM
-//! Generates simulated BAM files with base modifications for testing purposes.
-//! Accepts JSON configuration to produce both BAM and FASTA reference files.
-//! Please note that both BAM files and FASTA files are created from scratch,
-//! so please do not specify pre-existing BAM or FASTA files in the output
+//! # Write Simulated Mod BAM or CRAM
+//! Generates simulated BAM or CRAM files with base modifications for testing purposes.
+//! Accepts JSON configuration to produce an alignment file and its FASTA reference.
+//! Please note that both alignment files and FASTA files are created from scratch,
+//! so please do not specify pre-existing alignment or FASTA files in the output
 //! path; if so, they will be overwritten.
 //!
 //! This module is intended for developer-controlled simulation and stress testing,
@@ -10,6 +10,12 @@
 //! configuration is deserialized eagerly and generated contigs/reads may consume
 //! substantial CPU time, memory, and disk space. Callers should use trusted
 //! configurations and ensure adequate local resources for the requested simulation.
+//!
+//! The simulator produces a controlled subset of BAM/CRAM files suitable for
+//! deterministic testing and developer experiments. Successful simulation-based
+//! coverage should not be interpreted as exhaustive coverage of all real-world
+//! BAM/CRAM variants, codecs, compression modes, reference-handling modes, or
+//! producer-specific quirks.
 //!
 //! ## Example Usage
 //!
@@ -40,8 +46,10 @@
 //!         "base": "T",
 //!         "is_strand_plus": true,
 //!         "mod_code": "T",
+//!         "mm_suffix": "?",
 //!         "win": [4, 5],
-//!         "mod_range": [[0.1, 0.2], [0.3, 0.4]]
+//!         "mod_range": [[0.1, 0.2], [0.3, 0.4]],
+//!         "drop": [1, 2]
 //!     }]
 //!   }],
 //!   "seed": 42
@@ -91,6 +99,18 @@
 //! //         e.g. if there are three window values and two mod ranges, then
 //! //         windows repeat in cycles of 3 whereas mod ranges will repeat in cycles of 2.
 //! //         You can use such inputs if this is what you want.
+//! //       * "mm_suffix" is optional per mod entry. It controls the trailing mark on
+//! //         the MM tag group: "?" (explicit, default), "." (implicit), or "none"
+//! //         (implicit, no trailing mark). e.g. with "none" the group is emitted as
+//! //         "T+T,0,0,..." instead of "T+T?,0,0,...".
+//! //       * "drop" is optional per mod entry. It is an array of counts specifying
+//! //         how many bases to drop (skip) at the start of each window cycle.
+//! //         Dropped bases get no ML value and appear as non-zero gaps in the MM
+//! //         distance array. e.g. with win=[5] and drop=[2], the first 2 of every
+//! //         5 target bases are dropped, producing 3 ML values and a distance like
+//! //         "C+m?,2,0,0". Defaults to empty (no drops). Each drop value must be
+//! //         <= the minimum win value. "First" means first in the mod-data direction
+//! //         (read sequence direction, not reference direction).
 //! //       * "seed" is optional. If set, all random operations (contig generation, read
 //! //         generation, modification placement, etc.) use a deterministic RNG seeded with
 //! //         this value, producing identical output files across runs. If not set, the
@@ -112,19 +132,20 @@
 //! # Ok::<(), Error>(())
 //! ```
 
+use crate::file_utils::{alignment_sidecar_path, output_paths_are_distinct};
 use crate::{
-    AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, ModChar, OrdPair,
+    AllowedAGCTN, DNARestrictive, Error, F32Bw0and1, GetDNARestrictive, MmSuffix, ModChar, OrdPair,
     ReadState, complement, revcomp, uuid,
 };
-use crate::{write_bam_denovo, write_fasta};
+use crate::{write_bam_denovo, write_cram_denovo, write_fasta};
 use derive_builder::Builder;
 use rand::Rng;
 use rand::RngExt as _;
 use rand::SeedableRng as _;
 use rand::rngs::StdRng;
 use rand::seq::IteratorRandom as _;
-use rust_htslib::bam;
 use rust_htslib::bam::record::{Aux, Cigar, CigarString};
+use rust_htslib::{bam, faidx};
 use serde::{Deserialize, Serialize};
 use std::iter;
 use std::num::NonZeroU32;
@@ -402,6 +423,38 @@ pub struct ReadConfig {
 ///     .mod_range(vec![(0.4, 0.8), (0.5, 0.7)]).build()?;
 /// # Ok::<(), Error>(())
 /// ```
+///
+/// To emit an implicit (no `?`) MM tag group instead of the default explicit
+/// form, set `mm_suffix` on the builder or in JSON:
+/// ```
+/// use nanalogue_core::{Error, MmSuffix};
+/// use nanalogue_core::simulate_mod_bam::ModConfigBuilder;
+///
+/// let mod_config_c = ModConfigBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .mm_suffix(MmSuffix::None) // or .mm_suffix("none".parse()?)
+///     .win(vec![2, 3])
+///     .mod_range(vec![(0.4, 0.8), (0.5, 0.7)]).build()?;
+/// # Ok::<(), Error>(())
+/// ```
+///
+/// To drop (skip) the first N bases in each window — producing non-zero MM
+/// distances and fewer ML values — set `drop` on the builder or in JSON:
+/// ```
+/// use nanalogue_core::Error;
+/// use nanalogue_core::simulate_mod_bam::ModConfigBuilder;
+///
+/// let mod_config_c = ModConfigBuilder::default()
+///     .base('C')
+///     .is_strand_plus(true)
+///     .mod_code("m".into())
+///     .win(vec![5, 3])
+///     .drop(vec![2, 1])
+///     .mod_range(vec![(0.4, 0.8), (0.5, 0.7)]).build()?;
+/// # Ok::<(), Error>(())
+/// ```
 #[derive(Builder, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 #[builder(default, build_fn(error = "Error"), pattern = "owned", derive(Clone))]
@@ -415,6 +468,10 @@ pub struct ModConfig {
     /// Modification code (character or numeric)
     #[builder(field(ty = "String", build = "self.mod_code.parse()?"))]
     pub mod_code: ModChar,
+    /// Trailing mark style for the MM tag group emitted by the simulator.
+    /// `"?"` (explicit, default), `"."` (implicit), or `"none"` (implicit,
+    /// no trailing mark). See [`MmSuffix`].
+    pub mm_suffix: MmSuffix,
     /// Vector of window sizes for modification density variation.
     /// e.g. if you want reads with a window of 100 bases with each
     /// modified with a probability in the range 0.4-0.6 and the next
@@ -428,8 +485,13 @@ pub struct ModConfig {
     /// 100 thymidines specifically.
     #[builder(field(
         ty = "Vec<u32>",
-        build = "self.win.iter().map(|&x| NonZeroU32::new(x).ok_or(Error::Zero(\"cannot use zero-\
-sized windows in builder\".to_owned()))).collect::<Result<Vec<NonZeroU32>,_>>()?"
+        build = "{
+            if self.win.is_empty() {
+                return Err(Error::InvalidState(\"win must contain at least one window value\".to_owned()));
+            }
+            self.win.iter().map(|&x| NonZeroU32::new(x).ok_or(Error::Zero(\"cannot use zero-\
+sized windows in builder\".to_owned()))).collect::<Result<Vec<NonZeroU32>,_>>()?
+        }"
     ))]
     pub win: Vec<NonZeroU32>,
     /// Vector of modification density range e.g. [[0.4, 0.6], [0.1, 0.2]].
@@ -439,6 +501,17 @@ sized windows in builder\".to_owned()))).collect::<Result<Vec<NonZeroU32>,_>>()?
         build = "self.mod_range.iter().map(|&x| OF::try_from(x)).collect::<Result<Vec<OF>, _>>()?"
     ))]
     pub mod_range: Vec<OrdPair<F32Bw0and1>>,
+    /// Number of bases to drop (skip) at the start of each window cycle.
+    /// Dropped bases get no ML value and appear as non-zero gaps in the MM
+    /// distance array. Cycles alongside `win` and `mod_range`.
+    /// Defaults to empty (no drops), preserving current behaviour.
+    /// Each `drop[i]` must be ≤ the minimum value in `win`; otherwise an
+    /// error is returned at build time.
+    /// NOTE: "bases" here refer to bases of interest set in the `base` field,
+    /// and "first" means first in the mod-data direction (read sequence
+    /// direction, not reference direction).
+    #[builder(field(ty = "Vec<u32>", build = "validate_drop(&self.drop, &self.win)?"))]
+    pub drop: Vec<u32>,
 }
 
 /// Represents a contig with name and sequence.
@@ -518,9 +591,92 @@ impl Default for ModConfig {
             base: AllowedAGCTN::C,
             is_strand_plus: true,
             mod_code: ModChar::new('m'),
+            mm_suffix: MmSuffix::default(),
             win: vec![NonZeroU32::new(1).unwrap()],
             mod_range: vec![ord_pair_f32_bw0and1!(0.0, 1.0)],
+            drop: Vec::new(),
         }
+    }
+}
+
+/// Validates that every `drop` value is ≤ the minimum `win` value.
+///
+/// Since `drop` and `win` cycle independently, every `drop[i]` will
+/// eventually be paired with every `win[j]`. Therefore every `drop[i]`
+/// must be ≤ `min(win)` to guarantee no window is ever asked to drop more
+/// bases than it contains.
+///
+/// # Errors
+/// Returns `Error::InvalidState` if any `drop` value exceeds `min(win)`,
+/// or if `drop` is non-empty while `win` is empty.
+fn validate_drop(drop: &[u32], win: &[u32]) -> Result<Vec<u32>, Error> {
+    validate_drop_inner(drop, win)?;
+    Ok(drop.to_vec())
+}
+
+/// Shared validation logic used by both the builder and post-deserialization
+/// validation. Does not clone the drop vector.
+///
+/// # Errors
+/// Returns `Error::InvalidState` if any `drop` value exceeds `min(win)`,
+/// or if `drop` is non-empty while `win` is empty.
+fn validate_drop_inner(drop: &[u32], win: &[u32]) -> Result<(), Error> {
+    if drop.is_empty() {
+        return Ok(());
+    }
+    let min_win = win.iter().copied().min().ok_or(Error::InvalidState(
+        "drop specified but win is empty".to_owned(),
+    ))?;
+    for &d in drop {
+        if d > min_win {
+            return Err(Error::InvalidState(format!(
+                "drop value {d} exceeds minimum window size {min_win}; \
+                 no drop value may exceed the smallest window"
+            )));
+        }
+    }
+    Ok(())
+}
+
+impl ModConfig {
+    /// Validates this mod configuration, checking that all `drop` values are
+    /// ≤ the minimum `win` value.
+    ///
+    /// This is called automatically by [`SimulationConfig::validate`], which
+    /// runs at the start of [`run`]. It ensures configs deserialized from JSON
+    /// (which bypass the builder) are also validated.
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidState` if `win` is empty, or if any `drop` value
+    /// exceeds `min(win)`.
+    fn validate(&self) -> Result<(), Error> {
+        if self.win.is_empty() {
+            return Err(Error::InvalidState(
+                "win must contain at least one window value".to_owned(),
+            ));
+        }
+        let win_u32: Vec<u32> = self.win.iter().map(|w| w.get()).collect();
+        validate_drop_inner(&self.drop, &win_u32)
+    }
+}
+
+impl SimulationConfig {
+    /// Validates the full simulation configuration, including all mod configs
+    /// in all read groups.
+    ///
+    /// This runs at the start of [`run`] to catch invalid configurations that
+    /// were deserialized from JSON (bypassing the builder's validation).
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidState` if any mod config has a `drop` value
+    /// exceeding the minimum `win` value.
+    fn validate(&self) -> Result<(), Error> {
+        for read_config in &self.reads {
+            for mod_config in &read_config.mods {
+                mod_config.validate()?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -855,10 +1011,23 @@ impl PerfectSeqMatchToNot {
         }
 
         // Step 4: Apply insert_middle (add new tuples with 'I' operation)
+        #[expect(
+            clippy::integer_division,
+            reason = "middle insertion uses deterministic floor division on seqs of len > 1"
+        )]
+        #[expect(
+            clippy::integer_division_remainder_used,
+            reason = "middle insertion uses deterministic floor division on seqs of len > 1"
+        )]
         if let Some(insert_seq) = self.insert_middle {
+            if bases_and_ops.len() <= 1 {
+                return Err(Error::InvalidState(
+                    "cannot insert into a bases-and-operations sequence of length 0 or 1".into(),
+                ));
+            }
             let middle = bases_and_ops.len() / 2;
             let insert_bases = insert_seq.get_dna_restrictive().get();
-            let insertions: Vec<(u8, u8)> = insert_bases.iter().map(|&b| (b, b'I')).collect();
+            let insertions: Vec<(u8, u8)> = insert_bases.iter().map(|&base| (base, b'I')).collect();
 
             drop(
                 bases_and_ops
@@ -953,7 +1122,7 @@ impl PerfectSeqMatchToNot {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use std::str::FromStr;
 /// use nanalogue_core::{DNARestrictive, Error};
 /// use nanalogue_core::simulate_mod_bam::{ModConfigBuilder, generate_random_dna_modification};
@@ -997,7 +1166,11 @@ impl PerfectSeqMatchToNot {
 /// # Ok::<(), Error>(())
 /// ```
 ///
-pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
+#[expect(
+    clippy::too_many_lines,
+    reason = "base dropping adds branching that pushes the function slightly over the line limit"
+)]
+fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
     mod_configs: &[ModConfig],
     seq: &S,
     rng: &mut R,
@@ -1021,15 +1194,37 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
                 .filter(|&(&a, &b)| a == b)
                 .count()
         };
+        // Total count of bases of interest before any are consumed. Used to
+        // emit an all-unmodified MM group when every base is dropped with an
+        // implicit suffix (`.` or none).
+        let total_count = u32::try_from(count).unwrap_or(u32::MAX);
         let mut output: Vec<u8> = Vec::with_capacity(count);
+        // Distances: one per modified base. The first modified base after
+        // one or more dropped bases gets a non-zero distance; the rest get 0.
+        let mut distances: Vec<u32> = Vec::with_capacity(count);
+        // Running gap counter — accumulates dropped bases and is emitted as
+        // the distance for the next modified base, then reset to 0.
+        let mut gap: u32 = 0;
+
+        // If drop is empty, cycle 0 so no bases are dropped.
+        let drop_iter: Vec<u32> = if mod_config.drop.is_empty() {
+            vec![0]
+        } else {
+            mod_config.drop.clone()
+        };
+
         for k in mod_config
             .win
             .iter()
             .cycle()
             .zip(mod_config.mod_range.iter().cycle())
+            .zip(drop_iter.iter().cycle())
         {
-            let low = u8::from(k.1.low());
-            let high = u8::from(k.1.high());
+            let win_size = k.0.0;
+            let mod_range = k.0.1;
+            let drop_count = k.1;
+            let low = u8::from(mod_range.low());
+            let high = u8::from(mod_range.high());
             #[expect(
                 clippy::redundant_else,
                 reason = "so that the clippy arithmetic lint fits better with the code"
@@ -1041,20 +1236,74 @@ pub fn generate_random_dna_modification<R: Rng, S: GetDNARestrictive>(
             if count == 0 {
                 break;
             } else {
-                for _ in 0..k.0.get() {
+                // Phase 1: drop the first `drop_count` bases (no ML values).
+                // The gap accumulates and will be emitted as the distance
+                // for the next modified base.
+                let drop_u32 = *drop_count;
+                let drop_for_this_window =
+                    usize::try_from(drop_u32).unwrap_or(usize::MAX).min(count);
+                gap = gap.saturating_add(u32::try_from(drop_for_this_window).unwrap_or(u32::MAX));
+                count -= drop_for_this_window;
+                if count == 0 {
+                    break;
+                }
+
+                // Phase 2: generate ML values for the remaining bases in
+                // this window. The first modified base gets the accumulated
+                // gap as its distance; subsequent ones get 0.
+                let modified_in_window = usize::try_from(win_size.get().saturating_sub(drop_u32))
+                    .unwrap_or(usize::MAX)
+                    .min(count);
+                for i in 0..modified_in_window {
                     output.push(rng.random_range(low..=high));
+                    distances.push(if i == 0 { gap } else { 0 });
                     count -= 1;
                     if count == 0 {
                         break;
                     }
                 }
+                // Gap has been consumed by the first modified base.
+                // Only reset if at least one modified base was generated;
+                // otherwise the gap carries forward to the next window.
+                if modified_in_window > 0 {
+                    gap = 0;
+                }
             }
         }
         if !output.is_empty() {
-            let mod_len = output.len();
             ml_vec.append(&mut output);
-            let zero_offsets = iter::repeat_n("0", mod_len).collect::<Vec<_>>().join(",");
-            mm_str += format!("{}{}{}?,{};", base as char, strand, mod_code, zero_offsets).as_str();
+            let offsets = distances
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            mm_str += format!(
+                "{}{}{}{},{};",
+                base as char,
+                strand,
+                mod_code,
+                mod_config.mm_suffix.suffix_str(),
+                offsets
+            )
+            .as_str();
+        }
+        // All bases were dropped. With an implicit suffix (`.` or none),
+        // dropped bases are unmodified, so emit an empty coordinate list.
+        // No ML values are produced.
+        // With `?` (explicit), all-dropped means "data missing" → emit nothing.
+        if count == 0
+            && distances.is_empty()
+            && total_count > 0
+            && matches!(mod_config.mm_suffix, MmSuffix::Dot | MmSuffix::None)
+        {
+            mm_str += format!(
+                "{}{}{}{};",
+                base as char,
+                strand,
+                mod_code,
+                mod_config.mm_suffix.suffix_str()
+            )
+            .as_str();
         }
     }
     ml_vec.shrink_to_fit();
@@ -1127,13 +1376,13 @@ pub fn add_barcode(read_seq: &[u8], barcode: DNARestrictive, read_state: ReadSta
         | ReadState::Unmapped => {
             // Forward/Unmapped: barcode + read_seq + reverse_complement(barcode)
             let revcomp_bc = revcomp(bc_bytes);
-            [bc_bytes, read_seq, &revcomp_bc[..]].concat()
+            [bc_bytes, read_seq, &*revcomp_bc].concat()
         }
         ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
             // Reverse: complement(barcode) + read_seq + reverse(barcode)
             let comp_bc: Vec<u8> = bc_bytes.iter().map(|&b| complement(b)).collect();
             let rev_bc: Vec<u8> = bc_bytes.iter().copied().rev().collect();
-            [&comp_bc[..], read_seq, &rev_bc[..]].concat()
+            [&*comp_bc, read_seq, &*rev_bc].concat()
         }
     }
 }
@@ -1252,7 +1501,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
 /// DNA sequences directly in the first argument i.e. you can use any `struct` that implements
 /// `GetDNARestrictive`.
 ///
-/// ```
+/// ```ignore
 /// use nanalogue_core::Error;
 /// use nanalogue_core::simulate_mod_bam::{ContigBuilder, ReadConfigBuilder, generate_reads_denovo};
 /// use rand::Rng;
@@ -1290,7 +1539,7 @@ pub fn generate_contigs_denovo_repeated_seq<R: Rng, S: GetDNARestrictive>(
     clippy::cast_possible_truncation,
     reason = "read length calculated as a fraction of contig length, managed with trunc()"
 )]
-pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
+fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
     contigs: &[S],
     read_config: &ReadConfig,
     read_group: &str,
@@ -1422,7 +1671,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             record.set_flags(u16::from(random_state));
             if random_state == ReadState::Unmapped {
                 record.set(&qname, None, &read_seq, &qual);
-                record.set_mapq(255);
+                record.set_mapq(0);
                 record.set_tid(-1);
                 record.set_pos(-1);
             } else {
@@ -1441,8 +1690,14 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
             record.set_mpos(-1);
             record.set_mtid(-1);
             record.push_aux(b"RG", Aux::String(read_group))?;
-            if !mod_prob_mm_tag.is_empty() && !mod_pos_ml_tag.is_empty() {
+            assert!(
+                mod_pos_ml_tag.is_empty() || !mod_prob_mm_tag.is_empty(),
+                "bug: generated ML values without an MM group"
+            );
+            if !mod_prob_mm_tag.is_empty() {
                 record.push_aux(b"MM", Aux::String(mod_prob_mm_tag.as_str()))?;
+            }
+            if !mod_pos_ml_tag.is_empty() {
                 record.push_aux(b"ML", Aux::ArrayU8((&mod_pos_ml_tag).into()))?;
             }
             record
@@ -1453,7 +1708,7 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
     Ok(reads)
 }
 
-/// Main function to generate simulated BAM file
+/// Main function to generate a simulated BAM or CRAM file
 ///
 /// # Example
 ///
@@ -1496,34 +1751,59 @@ pub fn generate_reads_denovo<R: Rng, S: GetDNARestrictive>(
 /// ```
 ///
 /// # Errors
-/// Returns an error if JSON parsing fails, read generation fails, or BAM/FASTA writing fails.
+/// Returns an error if JSON parsing fails, read generation fails, or alignment/FASTA writing fails.
 pub fn run<F>(
     config: SimulationConfig,
-    bam_output_path: &F,
+    alignment_output_path: &F,
     fasta_output_path: &F,
 ) -> Result<(), Error>
 where
     F: AsRef<Path> + ?Sized,
 {
+    config.validate()?;
     if let Some(s) = config.seed {
         let mut rng = StdRng::seed_from_u64(s);
-        run_inner(config, bam_output_path, fasta_output_path, &mut rng)
+        run_inner(config, alignment_output_path, fasta_output_path, &mut rng)
     } else {
         let mut rng = rand::rng();
-        run_inner(config, bam_output_path, fasta_output_path, &mut rng)
+        run_inner(config, alignment_output_path, fasta_output_path, &mut rng)
     }
 }
 
-/// Generates simulated BAM and FASTA files using the provided RNG.
+/// Generates simulated alignment and FASTA files using the provided RNG.
 fn run_inner<F, R: Rng>(
     config: SimulationConfig,
-    bam_output_path: &F,
+    alignment_output_path: &F,
     fasta_output_path: &F,
     rng: &mut R,
 ) -> Result<(), Error>
 where
     F: AsRef<Path> + ?Sized,
 {
+    let alignment_path = alignment_output_path.as_ref();
+    let fasta_path = fasta_output_path.as_ref();
+    let write_cram = match alignment_path.extension().and_then(std::ffi::OsStr::to_str) {
+        Some(extension) if extension.eq_ignore_ascii_case("bam") => false,
+        Some(extension) if extension.eq_ignore_ascii_case("cram") => true,
+        _ => {
+            return Err(Error::InvalidState(
+                "alignment output path must end in .bam or .cram".into(),
+            ));
+        }
+    };
+    let alignment_index_path =
+        alignment_sidecar_path(alignment_path, if write_cram { ".crai" } else { ".bai" });
+    let fai_path = alignment_sidecar_path(fasta_path, ".fai");
+    let paths_are_distinct = if write_cram {
+        output_paths_are_distinct(&[alignment_path, &alignment_index_path, fasta_path, &fai_path])?
+    } else {
+        output_paths_are_distinct(&[alignment_path, &alignment_index_path, fasta_path])?
+    };
+    if !paths_are_distinct {
+        return Err(Error::InvalidState(
+            "alignment, FASTA, and sidecar index outputs must use different paths".into(),
+        ));
+    }
     let contigs = match config.contigs.repeated_seq {
         Some(seq) => generate_contigs_denovo_repeated_seq(
             config.contigs.number,
@@ -1543,21 +1823,74 @@ where
         temp_reads
     };
 
-    write_bam_denovo(
-        reads,
-        contigs
-            .iter()
-            .map(|k| (k.name.clone(), k.get_dna_restrictive().get().len())),
-        read_groups,
-        vec![String::from("simulated BAM file, not real data")],
-        bam_output_path,
-    )?;
-    write_fasta(
-        contigs.into_iter().map(|k| (k.name.clone(), k)),
-        fasta_output_path,
-    )?;
+    let contig_header = contigs
+        .iter()
+        .map(|contig| {
+            (
+                contig.name.clone(),
+                contig.get_dna_restrictive().get().len(),
+            )
+        })
+        .collect::<Vec<_>>();
+    if write_cram {
+        write_fasta(
+            contigs.iter().map(|k| (k.name.clone(), k.seq.clone())),
+            fasta_output_path,
+        )?;
+        faidx::build(fasta_output_path.as_ref()).map_err(|error| {
+            Error::WriteOutput(format!("failed to create FASTA index: {error}"))
+        })?;
+        write_cram_denovo(
+            reads,
+            contig_header.clone(),
+            read_groups,
+            vec![String::from("simulated CRAM file, not real data")],
+            alignment_output_path,
+            fasta_output_path,
+            // The CLI/config path does not expose alignment-writer threading yet.
+            // Keep CRAM at one thread for now; if we surface this later, do so
+            // consistently for both BAM and CRAM output.
+            NonZeroU32::MIN,
+        )?;
+    } else {
+        write_bam_denovo(
+            reads,
+            contig_header,
+            read_groups,
+            vec![String::from("simulated BAM file, not real data")],
+            alignment_output_path,
+        )?;
+        write_fasta(
+            contigs.into_iter().map(|k| (k.name.clone(), k)),
+            fasta_output_path,
+        )?;
+    }
 
     Ok(())
+}
+
+/// Alignment format for temporary simulations.
+///
+/// This enum is non-exhaustive so additional alignment output formats, such as
+/// SAM, can be added in the future without breaking downstream matches.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AlignmentFormat {
+    /// Write BAM output.
+    Bam,
+    /// Write CRAM output.
+    Cram,
+}
+
+impl AlignmentFormat {
+    /// Returns the canonical filename extension for this alignment format.
+    #[must_use]
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Bam => "bam",
+            Self::Cram => "cram",
+        }
+    }
 }
 
 /// Removes a newly created simulation directory unless ownership is transferred.
@@ -1593,10 +1926,10 @@ impl Drop for TempSimulationDir {
     }
 }
 
-/// Temporary BAM simulation with automatic cleanup
+/// Temporary alignment simulation with automatic cleanup
 ///
-/// Creates temporary BAM and FASTA files for testing purposes and
-/// automatically removes them when dropped.
+/// Creates temporary BAM or CRAM alignment output plus a FASTA file for
+/// testing purposes and automatically removes them when dropped.
 ///
 /// This type deliberately does **not** implement `Deserialize`. It owns a
 /// private disposable directory that `Drop` recursively deletes, and the only
@@ -1611,18 +1944,20 @@ impl Drop for TempSimulationDir {
 pub struct TempBamSimulation {
     /// Temporary directory containing simulation outputs
     temp_dir: PathBuf,
-    /// Path to bam file that will be created
+    /// Alignment format used for this simulation
+    format: AlignmentFormat,
+    /// Path to the alignment file that will be created (`.bam` or `.cram`)
     bam_path: String,
     /// Path to fasta file that will be created
     fasta_path: String,
 }
 
 impl TempBamSimulation {
-    /// Creates a new temporary BAM simulation from JSON configuration
+    /// Creates a new temporary alignment simulation from JSON configuration
     ///
     /// # Errors
     /// Returns an error if the simulation run fails
-    pub fn new(config: SimulationConfig) -> Result<Self, Error> {
+    pub fn new(config: SimulationConfig, format: AlignmentFormat) -> Result<Self, Error> {
         let temp_dir_root = {
             let temp = std::env::temp_dir();
             if temp.is_dir() {
@@ -1633,11 +1968,15 @@ impl TempBamSimulation {
                 )));
             }
         };
-        Self::new_in(config, &temp_dir_root)
+        Self::new_in(config, format, &temp_dir_root)
     }
 
-    /// Creates a temporary BAM simulation beneath the given directory.
-    fn new_in(config: SimulationConfig, temp_dir_root: &Path) -> Result<Self, Error> {
+    /// Creates a temporary alignment simulation beneath the given directory.
+    fn new_in(
+        config: SimulationConfig,
+        format: AlignmentFormat,
+        temp_dir_root: &Path,
+    ) -> Result<Self, Error> {
         let temp_dir_path = temp_dir_root.join(uuid::v4_random());
         #[expect(
             clippy::create_dir,
@@ -1646,18 +1985,30 @@ impl TempBamSimulation {
         std::fs::create_dir(&temp_dir_path)?;
         let temp_dir = TempSimulationDir::new(temp_dir_path);
 
-        let bam_path = temp_dir.path.join("simulation.bam");
+        let bam_path = temp_dir
+            .path
+            .join(format!("simulation.{}", format.extension()));
         let fasta_path = temp_dir.path.join("simulation.fa");
 
         run(config, &bam_path, &fasta_path)?;
         Ok(Self {
             temp_dir: temp_dir.transfer(),
+            format,
             bam_path: bam_path.to_string_lossy().to_string(),
             fasta_path: fasta_path.to_string_lossy().to_string(),
         })
     }
 
-    /// Returns the path to the temporary BAM file
+    /// Returns the alignment format used for this simulation.
+    #[must_use]
+    pub fn format(&self) -> AlignmentFormat {
+        self.format
+    }
+
+    /// Returns the path to the temporary alignment file.
+    ///
+    /// Despite the name, this may be a `.bam` or `.cram` path depending on
+    /// the requested [`AlignmentFormat`].
     #[must_use]
     pub fn bam_path(&self) -> &str {
         &self.bam_path
@@ -1741,9 +2092,12 @@ mod seeded_simulation_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
 
-    fn run_seeded_simulation(config_json: &str) -> Result<Vec<bam::Record>, Error> {
+    fn run_seeded_simulation(
+        config_json: &str,
+        format: AlignmentFormat,
+    ) -> Result<Vec<bam::Record>, Error> {
         let config: SimulationConfig = serde_json::from_str(config_json)?;
-        let temp = TempBamSimulation::new(config)?;
+        let temp = TempBamSimulation::new(config, format)?;
         let mut reader = crate::nanalogue_bam_reader(temp.bam_path())?;
         reader
             .records()
@@ -1751,8 +2105,10 @@ mod seeded_simulation_tests {
             .map_err(Error::from)
     }
 
-    #[test]
-    fn seeded_simulation_is_reproducible() -> Result<(), Error> {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn seeded_simulation_is_reproducible(#[case] format: AlignmentFormat) -> Result<(), Error> {
         let config_json = r#"{
           "contigs": { "number": 2, "len_range": [500, 1000],
                        "repeated_seq": "ATCGAATT" },
@@ -1767,18 +2123,46 @@ mod seeded_simulation_tests {
           "seed": 12345
         }"#;
 
-        let run_a = run_seeded_simulation(config_json)?;
-        let run_b = run_seeded_simulation(config_json)?;
-        assert_eq!(run_a, run_b, "same seed must produce identical BAM records");
+        let run_a = run_seeded_simulation(config_json, format)?;
+        let run_b = run_seeded_simulation(config_json, format)?;
+        assert_eq!(run_a, run_b, "same seed must produce identical records");
 
         Ok(())
     }
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "arithmetic in generated rstest case bodies operates on small test data"
+)]
 mod read_generation_no_mods_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
+
+    /// Doctest-equivalent for `generate_reads_denovo` (the doc example is
+    /// `ignore`d because the function is `pub(crate)`).
+    #[test]
+    fn generate_reads_denovo_doc_example() {
+        let contigs = vec![
+            ContigBuilder::default()
+                .name("chr1")
+                .seq("ACGTACGTACGTACGT".into())
+                .build()
+                .unwrap(),
+        ];
+
+        let read_config = ReadConfigBuilder::default()
+            .number(10)
+            .mapq_range((10, 20))
+            .base_qual_range((20, 30))
+            .len_range((0.2, 0.5))
+            .build()
+            .unwrap();
+        let mut rng = rand::rng();
+        let reads = generate_reads_denovo(&contigs, &read_config, "RG1", &mut rng).unwrap();
+        assert_eq!(reads.len(), 10);
+    }
 
     /// Tests read generation with desired properties but no modifications
     #[test]
@@ -1869,9 +2253,207 @@ mod read_generation_no_mods_tests {
         std::fs::remove_file(bai_path).unwrap();
     }
 
-    /// Tests `TempBamSimulation` struct functionality without mods
     #[test]
-    fn temp_bam_simulation_struct_no_mods() {
+    fn run_rejects_invalid_alignment_extension() {
+        let config: SimulationConfig =
+            serde_json::from_str(r#"{"contigs":{"number":1,"len_range":[20,20]},"reads":[]}"#)
+                .unwrap();
+        let temp_dir = std::env::temp_dir().join(format!("bad_ext_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let result = run(
+            config,
+            &temp_dir.join("simulation.sam"),
+            &temp_dir.join("reference.fa"),
+        );
+
+        assert!(
+            matches!(result, Err(Error::InvalidState(msg)) if msg == "alignment output path must end in .bam or .cram")
+        );
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn run_rejects_bam_index_and_fasta_path_collision() {
+        let config: SimulationConfig =
+            serde_json::from_str(r#"{"contigs":{"number":1,"len_range":[20,20]},"reads":[]}"#)
+                .unwrap();
+        let temp_dir = std::env::temp_dir().join(format!("bam_collision_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let bam_path = temp_dir.join("simulation.bam");
+        let fasta_path = temp_dir.join("simulation.bam.bai");
+
+        let result = run(config, &bam_path, &fasta_path);
+
+        assert!(
+            matches!(result, Err(Error::InvalidState(msg)) if msg == "alignment, FASTA, and sidecar index outputs must use different paths")
+        );
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn run_rejects_dot_dot_alias_before_overwriting_fasta() {
+        let config: SimulationConfig =
+            serde_json::from_str(r#"{"contigs":{"number":1,"len_range":[20,20]},"reads":[]}"#)
+                .unwrap();
+        let temp_dir =
+            std::env::temp_dir().join(format!("bam_dot_dot_collision_{}", uuid::v4_random()));
+        let child_dir = temp_dir.join("child");
+        std::fs::create_dir_all(&child_dir).unwrap();
+        let bam_path = child_dir.join("..").join("simulation.bam");
+        let fasta_path = temp_dir.join("simulation.bam.bai");
+        std::fs::write(&fasta_path, b"FASTA sentinel").unwrap();
+
+        let result = run(config, &bam_path, &fasta_path);
+
+        assert!(
+            matches!(result, Err(Error::InvalidState(msg)) if msg == "alignment, FASTA, and sidecar index outputs must use different paths")
+        );
+        assert!(!temp_dir.join("simulation.bam").exists());
+        assert_eq!(std::fs::read(&fasta_path).unwrap(), b"FASTA sentinel");
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_rejects_fasta_symlink_to_bam_before_creating_output() {
+        let config: SimulationConfig =
+            serde_json::from_str(r#"{"contigs":{"number":1,"len_range":[20,20]},"reads":[]}"#)
+                .unwrap();
+        let temp_dir =
+            std::env::temp_dir().join(format!("bam_symlink_collision_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let bam_path = temp_dir.join("simulation.bam");
+        let fasta_path = temp_dir.join("reference.fa");
+        std::os::unix::fs::symlink(&bam_path, &fasta_path).unwrap();
+
+        let result = run(config, &bam_path, &fasta_path);
+
+        assert!(
+            matches!(result, Err(Error::InvalidState(msg)) if msg == "output paths must not be symbolic links to files that do not exist")
+        );
+        assert!(!bam_path.exists());
+        assert!(
+            std::fs::symlink_metadata(&fasta_path).is_ok(),
+            "FASTA symlink should not be replaced"
+        );
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    /// Tests direct CRAM 3.1 simulation and creation of its reference and alignment indices.
+    #[test]
+    fn full_cram_generation() {
+        let config_json = r#"{
+            "contigs": {
+                "number": 2,
+                "len_range": [200, 200],
+                "repeated_seq": "ACGT"
+            },
+            "reads": [{
+                "number": 1000,
+                "mapq_range": [10, 20],
+                "base_qual_range": [10, 20],
+                "len_range": [0.1, 0.8]
+            }],
+            "seed": 42
+        }"#;
+
+        let temp_dir = std::env::temp_dir().join(format!("cram_{}", uuid::v4_random()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let cram_path = temp_dir.join("simulation.cram");
+        let crai_path = temp_dir.join("simulation.cram.crai");
+        let fasta_path = temp_dir.join("reference.fa");
+        let fai_path = temp_dir.join("reference.fa.fai");
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        run(config, &cram_path, &fasta_path).unwrap();
+
+        assert!(cram_path.exists());
+        assert!(crai_path.exists());
+        assert!(fasta_path.exists());
+        assert!(fai_path.exists());
+        let prefix = std::fs::read(&cram_path).unwrap();
+        assert_eq!(prefix.get(..6), Some(&b"CRAM\x03\x01"[..]));
+
+        let mut reader = bam::Reader::from_path(&cram_path).unwrap();
+        assert_eq!(reader.header().target_count(), 2);
+        let records = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(records.len(), 1000);
+        assert!(records.windows(2).all(|pair| {
+            let key = |record: &bam::Record| {
+                (
+                    record.is_unmapped(),
+                    record.tid(),
+                    record.pos(),
+                    record.is_reverse(),
+                )
+            };
+            pair.first()
+                .zip(pair.get(1))
+                .is_some_and(|(first, second)| key(first) <= key(second))
+        }));
+        assert!(
+            records
+                .iter()
+                .filter(|record| record.is_unmapped())
+                .all(|record| record.mapq() == 0)
+        );
+        assert!(
+            records
+                .iter()
+                .filter(|record| !record.is_unmapped())
+                .all(|record| (10..=20).contains(&record.mapq()))
+        );
+
+        let mut indexed_reader = bam::IndexedReader::from_path(&cram_path).unwrap();
+        indexed_reader.fetch((0, 0, 200)).unwrap();
+        assert!(indexed_reader.records().next().is_some());
+
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    /// Tests `TempBamSimulation` struct functionality without mods
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn temp_bam_simulation_remembers_format(#[case] format: AlignmentFormat) {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100]
+            },
+            "reads": [{
+                "number": 1,
+                "len_range": [0.5, 0.5]
+            }]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
+
+        assert_eq!(
+            std::mem::discriminant(&sim.format()),
+            std::mem::discriminant(&format)
+        );
+        assert!(
+            Path::new(sim.bam_path())
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case(format.extension()))
+        );
+
+        let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
+        let _: bam::Record = reader
+            .records()
+            .next()
+            .expect("reader should yield at least one record")
+            .expect("first record should decode successfully");
+    }
+
+    /// Tests `TempBamSimulation` struct functionality without mods
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn temp_bam_simulation_struct_no_mods(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -1887,7 +2469,7 @@ mod read_generation_no_mods_tests {
 
         // Create temporary simulation
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
 
         // Verify files exist
         assert!(Path::new(sim.bam_path()).exists());
@@ -1901,8 +2483,10 @@ mod read_generation_no_mods_tests {
     }
 
     /// Tests `TempBamSimulation` automatic cleanup
-    #[test]
-    fn temp_bam_simulation_cleanup() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn temp_bam_simulation_cleanup(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -1920,7 +2504,7 @@ mod read_generation_no_mods_tests {
 
         {
             let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-            let sim = TempBamSimulation::new(config).unwrap();
+            let sim = TempBamSimulation::new(config, format).unwrap();
             bam_path = sim.bam_path().to_string();
             fasta_path = sim.fasta_path().to_string();
             temp_dir = Path::new(&bam_path).parent().unwrap().to_path_buf();
@@ -1955,7 +2539,8 @@ mod read_generation_no_mods_tests {
         std::fs::create_dir_all(&test_root).unwrap();
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let error = TempBamSimulation::new_in(config, &test_root).unwrap_err();
+        let error =
+            TempBamSimulation::new_in(config, AlignmentFormat::Bam, &test_root).unwrap_err();
         let leaked_paths: Vec<_> = std::fs::read_dir(&test_root)
             .unwrap()
             .map(|entry| entry.unwrap().path())
@@ -2005,27 +2590,37 @@ mod read_generation_no_mods_tests {
     }
 
     /// Tests invalid JSON structure causing empty reads generation
-    #[test]
-    fn run_empty_reads_error() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_empty_reads_error(#[case] format: AlignmentFormat) {
         let invalid_json = r#"{ "reads": [] }"#; // Empty reads array
         let temp_dir = std::env::temp_dir();
-        let bam_path = temp_dir.join(format!("{}.bam", uuid::v4_random()));
+        let bam_path = temp_dir.join(format!("{}.{}", uuid::v4_random(), format.extension()));
         let fasta_path = temp_dir.join(format!("{}.fa", uuid::v4_random()));
 
         let config: SimulationConfig = serde_json::from_str(invalid_json).unwrap();
         let result = run(config, &bam_path, &fasta_path);
-        // With empty reads, this should succeed but produce an empty BAM (valid)
+        // With empty reads, this should succeed but produce an empty alignment (valid)
         // So we won't assert error here, just test it doesn't crash
         drop(result);
-        let bai_path = bam_path.with_extension("bam.bai");
+        let index_path = match format {
+            AlignmentFormat::Bam => bam_path.with_extension("bam.bai"),
+            AlignmentFormat::Cram => bam_path.with_extension("cram.crai"),
+        };
         drop(std::fs::remove_file(&bam_path));
         drop(std::fs::remove_file(&fasta_path));
-        drop(std::fs::remove_file(&bai_path));
+        drop(std::fs::remove_file(&index_path));
+        if matches!(format, AlignmentFormat::Cram) {
+            drop(std::fs::remove_file(fasta_path.with_extension("fa.fai")));
+        }
     }
 
     /// Tests multiple read groups in BAM generation
-    #[test]
-    fn multiple_read_groups_work() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn multiple_read_groups_work(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -2054,7 +2649,7 @@ mod read_generation_no_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Should have 50 + 75 + 25 = 150 reads total
@@ -2186,8 +2781,10 @@ mod read_generation_no_mods_tests {
     }
 
     /// Tests different read states (unmapped, secondary, supplementary)
-    #[test]
-    fn different_read_states_work() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn different_read_states_work(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -2202,7 +2799,7 @@ mod read_generation_no_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut has_unmapped = false;
@@ -2219,7 +2816,7 @@ mod read_generation_no_mods_tests {
                 // Verify unmapped read properties
                 assert_eq!(read.tid(), -1);
                 assert_eq!(read.pos(), -1);
-                assert_eq!(read.mapq(), 255);
+                assert_eq!(read.mapq(), 0);
             } else {
                 if read.is_reverse() {
                     has_reverse = true;
@@ -2412,8 +3009,10 @@ mod read_generation_barcodes {
     }
 
     /// Tests read generation with barcode
-    #[test]
-    fn generate_reads_denovo_with_barcode_works() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn generate_reads_denovo_with_barcode_works(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -2427,7 +3026,7 @@ mod read_generation_barcodes {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         for record in reader.records() {
@@ -2457,6 +3056,12 @@ mod read_generation_barcodes {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::integer_division_remainder_used,
+    clippy::modulo_arithmetic,
+    reason = "generated rstest case bodies retain the existing test arithmetic and setup"
+)]
 mod read_generation_with_mods_tests {
     use super::*;
     use crate::{CurrRead, ThresholdState, curr_reads_to_dataframe};
@@ -2499,34 +3104,21 @@ mod read_generation_with_mods_tests {
         }
     }
 
-    /// Ensures builder input with either empty schedule fails during generation.
+    /// Ensures builder input with an empty modification range fails during generation.
     #[test]
-    fn builder_empty_modification_schedules_are_rejected_during_generation() {
-        for (mod_config, expected_message) in [
-            (
-                ModConfigBuilder::default()
-                    .base('C')
-                    .mod_code("m".into())
-                    .win(vec![])
-                    .mod_range(vec![(1.0, 1.0)])
-                    .build()
-                    .unwrap(),
-                "modification config 0 has an empty win schedule",
-            ),
-            (
-                ModConfigBuilder::default()
-                    .base('C')
-                    .mod_code("m".into())
-                    .win(vec![1])
-                    .mod_range(vec![])
-                    .build()
-                    .unwrap(),
-                "modification config 0 has an empty mod_range schedule",
-            ),
-        ] {
-            let err = generate_single_read(mod_config).unwrap_err();
-            assert!(matches!(err, Error::InvalidState(message) if message == expected_message));
-        }
+    fn builder_empty_modification_range_is_rejected_during_generation() {
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win(vec![1])
+            .mod_range(vec![])
+            .build()
+            .unwrap();
+
+        let err = generate_single_read(mod_config).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidState(message) if message == "modification config 0 has an empty mod_range schedule")
+        );
     }
 
     /// Ensures direct public-field construction cannot bypass schedule validation.
@@ -2597,6 +3189,136 @@ mod read_generation_with_mods_tests {
         let read = generate_single_read(mod_config).unwrap();
         assert!(matches!(read.aux(b"MM"), Ok(Aux::String("N+m?,0,0,0,0;"))));
         assert!(matches!(read.aux(b"ML"), Ok(Aux::ArrayU8(values)) if values.iter().eq([255; 4])));
+    }
+
+    // Simulates ten full-length reads whose 25 T bases are all dropped, then
+    /// parses their modification data into a `DataFrame`.
+    fn all_dropped_t_mods_dataframe(
+        suffix: MmSuffix,
+        format: AlignmentFormat,
+    ) -> polars::prelude::DataFrame {
+        let contigs = ContigConfigBuilder::default()
+            .number(1)
+            .len_range((100, 100))
+            .repeated_seq("ACGT".into())
+            .build()
+            .unwrap();
+        let mods = vec![
+            ModConfigBuilder::default()
+                .base('T')
+                .mod_code("T".into())
+                .mm_suffix(suffix)
+                .win(vec![4, 4])
+                .drop(vec![4, 4])
+                .mod_range(vec![(0.5, 0.5)])
+                .build()
+                .unwrap(),
+        ];
+        let reads = vec![
+            ReadConfigBuilder::default()
+                .number(10)
+                .len_range((1.0, 1.0))
+                .mods(mods)
+                .build()
+                .unwrap(),
+        ];
+        let config = SimulationConfigBuilder::default()
+            .contigs(contigs)
+            .reads(reads)
+            .seed(42u64)
+            .build()
+            .unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
+        let mut bam = bam::Reader::from_path(sim.bam_path()).unwrap();
+        let curr_reads = bam
+            .records()
+            .map(|record_result| {
+                let record = record_result.unwrap();
+                CurrRead::default()
+                    .try_from_only_alignment(&record)
+                    .unwrap()
+                    .set_mod_data(&record, ThresholdState::GtEq(0), 0)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(curr_reads.len(), 10, "simulation should generate ten reads");
+        curr_reads_to_dataframe(&curr_reads).unwrap()
+    }
+
+    /// Checks the parsed fields shared by the implicit all-dropped cases.
+    fn assert_all_dropped_implicit_t_dataframe(df: &polars::prelude::DataFrame) {
+        assert_eq!(df.height(), 250);
+        assert!(
+            df.column("mod_quality")
+                .unwrap()
+                .u32()
+                .unwrap()
+                .into_iter()
+                .all(|probability| probability == Some(0))
+        );
+        assert!(
+            df.column("mod_code")
+                .unwrap()
+                .str()
+                .unwrap()
+                .into_iter()
+                .all(|mod_code| mod_code == Some("T"))
+        );
+        assert!(
+            df.column("base")
+                .unwrap()
+                .str()
+                .unwrap()
+                .into_iter()
+                .all(|base| base == Some("T"))
+        );
+        assert!(
+            df.column("is_strand_plus")
+                .unwrap()
+                .bool()
+                .unwrap()
+                .into_iter()
+                .all(|is_strand_plus| is_strand_plus == Some(true))
+        );
+        let distinct_read_ids = df
+            .column("read_id")
+            .unwrap()
+            .str()
+            .unwrap()
+            .into_no_null_iter()
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(distinct_read_ids.len(), 10);
+    }
+
+    /// Explicit missing-data suffixes should produce no calls for dropped bases.
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn all_dropped_question_mark_suffix_has_no_dataframe_rows(#[case] format: AlignmentFormat) {
+        let df = all_dropped_t_mods_dataframe(MmSuffix::QuestionMark, format);
+
+        assert_eq!(df.height(), 0);
+    }
+
+    /// Dot suffixes should report every dropped base as implicitly unmodified.
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn all_dropped_dot_suffix_has_zero_probability_rows(#[case] format: AlignmentFormat) {
+        let df = all_dropped_t_mods_dataframe(MmSuffix::Dot, format);
+
+        assert_all_dropped_implicit_t_dataframe(&df);
+    }
+
+    /// Suffix-free groups should report every dropped base as implicitly unmodified.
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn all_dropped_no_suffix_has_zero_probability_rows(#[case] format: AlignmentFormat) {
+        let df = all_dropped_t_mods_dataframe(MmSuffix::None, format);
+
+        assert_all_dropped_implicit_t_dataframe(&df);
     }
 
     /// Tests read generation with desired properties but with modifications
@@ -2683,8 +3405,10 @@ mod read_generation_with_mods_tests {
     }
 
     /// Tests `TempBamSimulation` struct functionality with mods
-    #[test]
-    fn temp_bam_simulation_struct_with_mods() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn temp_bam_simulation_struct_with_mods(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 2,
@@ -2707,7 +3431,7 @@ mod read_generation_with_mods_tests {
 
         // Create temporary simulation
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
 
         // Verify files exist
         assert!(Path::new(sim.bam_path()).exists());
@@ -2731,6 +3455,40 @@ mod read_generation_with_mods_tests {
 
         assert_eq!(mm_str, String::new());
         assert_eq!(ml_vec.len(), 0);
+    }
+
+    /// Doctest-equivalent for `generate_random_dna_modification` (the doc
+    /// example is `ignore`d because the function is `pub(crate)`).
+    #[test]
+    fn generate_random_dna_modification_doc_example() {
+        let seq = DNARestrictive::from_str("ACGTCGCGATCGACGTCGCGATCG").unwrap();
+        let mod_config_c = ModConfigBuilder::default()
+            .base('C')
+            .is_strand_plus(true)
+            .mod_code("m".into())
+            .win(vec![2, 3])
+            .mod_range(vec![(0.8, 0.8), (0.4, 0.4)])
+            .build()
+            .unwrap();
+        let mod_config_a = ModConfigBuilder::default()
+            .base('A')
+            .is_strand_plus(false)
+            .mod_code("20000".into())
+            .win([2].into())
+            .mod_range(vec![(0.2, 0.2)])
+            .build()
+            .unwrap();
+        let mod_config = vec![mod_config_c, mod_config_a];
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&mod_config, &seq, &mut rng);
+        assert_eq!(
+            mm_str,
+            String::from("C+m?,0,0,0,0,0,0,0,0;A-20000?,0,0,0,0;")
+        );
+        assert_eq!(
+            ml_vec,
+            vec![204, 204, 102, 102, 102, 204, 204, 102, 51, 51, 51, 51]
+        );
     }
 
     /// Tests `generate_random_dna_modification` with single modification config
@@ -2842,6 +3600,181 @@ mod read_generation_with_mods_tests {
         );
     }
 
+    /// Tests `generate_random_dna_modification` with a `.` (implicit dot) suffix.
+    /// The MM group should be emitted as `C+m.,...` instead of `C+m?,...`.
+    #[test]
+    fn generate_random_dna_modification_dot_suffix() {
+        let seq = DNARestrictive::from_str("ACGTCGCGATCG").unwrap();
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .mm_suffix(MmSuffix::Dot)
+            .win(vec![2])
+            .mod_range(vec![(0.5, 0.5)])
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // ML is unaffected by the suffix
+        assert_eq!(ml_vec.len(), 4);
+        assert!(ml_vec.iter().all(|&x| x == 128u8));
+
+        // MM should use the dot suffix, not the question mark
+        assert!(
+            mm_str.contains("C+m.,"),
+            "expected `C+m.,` in MM string `{mm_str}`"
+        );
+        assert!(
+            !mm_str.contains("C+m?"),
+            "did not expect `C+m?` in MM string `{mm_str}`"
+        );
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m.,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 4);
+        assert!(probs.iter().all(|&x| x == "0"));
+    }
+
+    /// Tests `generate_random_dna_modification` with a `none` (no mark) suffix.
+    /// The MM group should be emitted as `C+m,...` (no trailing mark before the comma).
+    #[test]
+    fn generate_random_dna_modification_none_suffix() {
+        let seq = DNARestrictive::from_str("ACGTCGCGATCG").unwrap();
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .mm_suffix(MmSuffix::None)
+            .win(vec![2])
+            .mod_range(vec![(0.5, 0.5)])
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // ML is unaffected by the suffix
+        assert_eq!(ml_vec.len(), 4);
+        assert!(ml_vec.iter().all(|&x| x == 128u8));
+
+        // MM should have no trailing mark: `C+m,` directly
+        assert!(
+            mm_str.contains("C+m,"),
+            "expected `C+m,` in MM string `{mm_str}`"
+        );
+        assert!(
+            !mm_str.contains("C+m?") && !mm_str.contains("C+m."),
+            "did not expect a `?` or `.` suffix in MM string `{mm_str}`"
+        );
+        let probs: Vec<&str> = mm_str
+            .strip_prefix("C+m,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(probs.len(), 4);
+        assert!(probs.iter().all(|&x| x == "0"));
+    }
+
+    /// Tests `generate_random_dna_modification` with multiple mods using
+    /// *different* suffixes in the same call, verifying per-mod independence.
+    #[test]
+    fn generate_random_dna_modification_mixed_suffixes() {
+        let seq = DNARestrictive::from_str("ACGTACGT").unwrap();
+
+        let mod_config_c = ModConfigBuilder::default()
+            .base('C')
+            .mod_code('m'.into())
+            .mm_suffix(MmSuffix::Dot)
+            .win(vec![1])
+            .mod_range(vec![(0.8, 0.8)])
+            .build()
+            .unwrap();
+
+        let mod_config_t = ModConfigBuilder::default()
+            .base('T')
+            .is_strand_plus(false)
+            .mod_code('t'.into())
+            .mm_suffix(MmSuffix::None)
+            .win(vec![1])
+            .mod_range(vec![(0.4, 0.4)])
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) =
+            generate_random_dna_modification(&[mod_config_c, mod_config_t], &seq, &mut rng);
+
+        // C group should use dot suffix, T group should have no mark
+        assert!(
+            mm_str.contains("C+m.,"),
+            "expected `C+m.,` in MM string `{mm_str}`"
+        );
+        assert!(
+            mm_str.contains("T-t,"),
+            "expected `T-t,` (no mark) in MM string `{mm_str}`"
+        );
+        assert!(
+            !mm_str.contains('?'),
+            "did not expect any `?` in MM string `{mm_str}`"
+        );
+
+        // ML values are unaffected by suffix choice
+        assert_eq!(
+            ml_vec,
+            vec![204u8, 204u8, 102u8, 102u8],
+            "ML values should be 204,204,102,102 regardless of suffix"
+        );
+    }
+
+    /// Tests that deserializing a JSON mod entry with an explicit `mm_suffix`
+    /// produces the expected `MmSuffix`, and that an invalid value is rejected.
+    #[test]
+    fn mod_config_deserializes_mm_suffix() {
+        let valid: ModConfig = serde_json::from_str(
+            r#"{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "mm_suffix": "none",
+                "win": [2],
+                "mod_range": [[0.5, 0.5]]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(valid.mm_suffix, MmSuffix::None);
+
+        let default: ModConfig = serde_json::from_str(
+            r#"{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "win": [2],
+                "mod_range": [[0.5, 0.5]]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(default.mm_suffix, MmSuffix::QuestionMark);
+
+        let invalid = serde_json::from_str::<ModConfig>(
+            r#"{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "mm_suffix": "!",
+                "win": [2],
+                "mod_range": [[0.5, 0.5]]
+            }"#,
+        );
+        assert!(invalid.is_err(), "invalid mm_suffix should be rejected");
+    }
+
     /// Tests `generate_random_dna_modification` with N base (all bases)
     #[test]
     fn generate_random_dna_modification_n_base() {
@@ -2915,13 +3848,508 @@ mod read_generation_with_mods_tests {
         ];
         assert_eq!(ml_vec, expected_pattern);
     }
-    /// Tests multiple simultaneous modifications on different bases
+
+    /// Tests `generate_random_dna_modification` with `drop` — the first N
+    /// bases in each window are dropped (no ML value, non-zero MM distance).
     #[expect(
-        clippy::similar_names,
-        reason = "has_c_mod, has_a_mod, has_t_mod are clear in context"
+        clippy::indexing_slicing,
+        reason = "test validates length before indexing"
     )]
     #[test]
-    fn multiple_simultaneous_modifications_work() {
+    fn generate_random_dna_modification_with_drop() {
+        // 8 C's, win=[4], drop=[2]
+        // Window 1: drop first 2 C's, modify next 2 → distances [2, 0]
+        // Window 2: drop first 2 C's, modify next 2 → distances [2, 0]
+        // But the gap carries: after window 1's 2 modified bases,
+        // window 2 drops 2 again → first modified base gets gap=2.
+        let seq = DNARestrictive::from_str("CCCCCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([4].into())
+            .drop([2].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        // 8 C's, 2 dropped per window of 4 → 4 modified total
+        assert_eq!(
+            ml_vec.len(),
+            4,
+            "Should have 4 ML values (2 dropped per window"
+        );
+        assert!(
+            ml_vec.iter().all(|&x| x == 128u8),
+            "All ML should be 128 (0.5)"
+        );
+
+        let distances: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(distances.len(), 4, "Should have 4 distance entries");
+        assert_eq!(
+            distances[0], "2",
+            "First mod after dropping 2 -> distance 2"
+        );
+        assert_eq!(distances[1], "0", "Second mod in window -> distance 0");
+        assert_eq!(distances[2], "2", "First mod of window 2 -> distance 2");
+        assert_eq!(distances[3], "0", "Second mod of window 2 -> distance 0");
+    }
+
+    /// Tests that empty `drop` (default) produces identical output to the
+    /// old behaviour — all distances 0, all bases modified.
+    #[test]
+    fn generate_random_dna_modification_empty_drop_matches_no_drop() {
+        let seq = DNARestrictive::from_str("CCCCCCCC").unwrap();
+
+        let config_no_drop = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([4].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let config_empty_drop = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([4].into())
+            .drop(vec![])
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng1 = rand::rng();
+        let (mm1, ml1) = generate_random_dna_modification(&[config_no_drop], &seq, &mut rng1);
+
+        let mut rng2 = rand::rng();
+        let (mm2, ml2) = generate_random_dna_modification(&[config_empty_drop], &seq, &mut rng2);
+
+        assert_eq!(mm1, mm2, "MM strings should be identical");
+        assert_eq!(ml1, ml2, "ML vectors should be identical");
+        // All distances should be 0
+        assert!(mm1.contains("C+m?,0,0,0,0,0,0,0,0;"));
+    }
+
+    /// Tests drop with carryover — when an entire window is dropped, the
+    /// gap carries forward to the next window's first modified base.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "test validates length before indexing"
+    )]
+    #[test]
+    fn generate_random_dna_modification_drop_carryover() {
+        // 6 C's, win=[3, 3], drop=[3, 1]
+        // Window 1: all 3 dropped (no ML), gap = 3
+        // Window 2: drop 1, modify 2 → first mod gets gap 3+1=4, second gets 0
+        let seq = DNARestrictive::from_str("CCCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([3, 3].into())
+            .drop([3, 1].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(ml_vec.len(), 2, "Should have 2 ML values");
+        let distances: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(distances.len(), 2, "Should have 2 distance entries");
+        assert_eq!(distances[0], "4", "Gap carryover: 3+1=4");
+        assert_eq!(distances[1], "0", "Second mod -> distance 0");
+    }
+
+    /// Tests trailing dropped bases — when the sequence ends during a drop
+    /// section, no spurious MM/ML entries are produced.
+    #[test]
+    fn generate_random_dna_modification_drop_trailing() {
+        // 5 C's, win=[5], drop=[3]
+        // Window 1: drop first 3, modify next 2 → distances [3, 0]
+        // No more bases → done. Trailing is clean.
+        let seq = DNARestrictive::from_str("CCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([5].into())
+            .drop([3].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(ml_vec.len(), 2, "Should have 2 ML values");
+        assert!(mm_str.contains("C+m?,3,0;"), "MM should be C+m?,3,0;");
+    }
+
+    /// Tests that `drop` works with different `mm_suffix` variants.
+    #[test]
+    fn generate_random_dna_modification_drop_with_suffixes() {
+        let seq = DNARestrictive::from_str("CCCC").unwrap();
+
+        for (suffix, expected_prefix) in [
+            (MmSuffix::QuestionMark, "C+m?,"),
+            (MmSuffix::Dot, "C+m.,"),
+            (MmSuffix::None, "C+m,"),
+        ] {
+            let mod_config = ModConfigBuilder::default()
+                .base('C')
+                .mod_code("m".into())
+                .mm_suffix(suffix)
+                .win([4].into())
+                .drop([1].into())
+                .mod_range([(0.5, 0.5)].into())
+                .build()
+                .unwrap();
+
+            let mut rng = rand::rng();
+            let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+            assert_eq!(ml_vec.len(), 3, "Should have 3 ML values for {suffix:?}");
+            assert!(
+                mm_str.starts_with(expected_prefix),
+                "MM should start with {expected_prefix} for {suffix:?}, got {mm_str}"
+            );
+            assert!(
+                mm_str.contains("1,0,0;"),
+                "MM should contain distances 1,0,0 for {suffix:?}, got {mm_str}"
+            );
+        }
+    }
+
+    /// Tests that `drop` cycling with different length than `win` works.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "test validates length before indexing"
+    )]
+    #[test]
+    fn generate_random_dna_modification_drop_cycling_diff_length() {
+        // 10 C's, win=[5], drop=[1, 2] (drop cycles independently)
+        // Window 1 (win=5, drop=1): drop 1, modify 4 → distances [1, 0, 0, 0]
+        // Window 2 (win=5, drop=2): drop 2, modify 3 → distances [2, 0, 0]
+        let seq = DNARestrictive::from_str("CCCCCCCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([5].into())
+            .drop([1, 2].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(ml_vec.len(), 7, "Should have 7 ML values (4+3)");
+        let distances: Vec<&str> = mm_str
+            .strip_prefix("C+m?,")
+            .unwrap()
+            .strip_suffix(';')
+            .unwrap()
+            .split(',')
+            .collect();
+        assert_eq!(distances.len(), 7, "Should have 7 distance entries");
+        assert_eq!(distances[0], "1", "Window 1 first mod -> distance 1");
+        assert_eq!(distances[4], "2", "Window 2 first mod -> distance 2");
+    }
+
+    /// Tests that `drop` larger than `min(win)` produces a build-time error.
+    #[test]
+    fn drop_exceeding_min_win_errors() {
+        let result = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([3, 5].into())
+            .drop([4].into()) // 4 > min(3, 5) = 3
+            .mod_range([(0.5, 0.5)].into())
+            .build();
+        assert!(
+            result.is_err(),
+            "drop value exceeding min(win) should error at build time"
+        );
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("exceeds minimum window size"),
+            "Error should mention exceeding minimum window size, got: {err_msg}"
+        );
+    }
+
+    /// Tests that the builder rejects an empty `win` vector.
+    #[test]
+    fn builder_rejects_empty_win() {
+        let result = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win(vec![])
+            .mod_range([(0.5, 0.5)].into())
+            .build();
+        assert!(result.is_err(), "empty win should error at build time");
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("win must contain at least one window value"),
+            "Error should mention empty win, got: {err_msg}"
+        );
+    }
+
+    /// Tests that `run` rejects a JSON config with an explicit empty `win`
+    /// array, for both BAM and CRAM formats.
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_rejects_empty_win_from_json(#[case] format: AlignmentFormat) {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100],
+                "repeated_seq": "ACGT"
+            },
+            "reads": [{
+                "number": 5,
+                "len_range": [0.5, 0.5],
+                "mods": [{
+                    "base": "C",
+                    "mod_code": "m",
+                    "win": [],
+                    "mod_range": [[0.5, 0.5]]
+                }]
+            }]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config, format);
+        assert!(
+            sim.is_err(),
+            "run should reject empty win via JSON validation"
+        );
+        let err_msg = format!("{}", sim.unwrap_err());
+        assert!(
+            err_msg.contains("win must contain at least one window value"),
+            "Error should mention empty win, got: {err_msg}"
+        );
+    }
+
+    /// Tests that `drop` deserializes from JSON and defaults to empty.
+    #[test]
+    fn mod_config_deserializes_drop() {
+        let with_drop: ModConfig = serde_json::from_str(
+            r#"{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "win": [5],
+                "mod_range": [[0.5, 0.5]],
+                "drop": [2]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(with_drop.drop, vec![2]);
+
+        let default: ModConfig = serde_json::from_str(
+            r#"{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "win": [5],
+                "mod_range": [[0.5, 0.5]]
+            }"#,
+        )
+        .unwrap();
+        assert!(default.drop.is_empty(), "drop should default to empty");
+    }
+
+    /// Tests that `drop` equal to `win` (all bases dropped in a window)
+    /// produces no ML values for that window and carries the gap forward.
+    #[test]
+    fn generate_random_dna_modification_drop_equals_win() {
+        // 6 C's, win=[3, 3], drop=[3, 0]
+        // Window 1: all 3 dropped, gap=3
+        // Window 2: drop 0, modify 3 → distances [3, 0, 0]
+        let seq = DNARestrictive::from_str("CCCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([3, 3].into())
+            .drop([3, 0].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(
+            ml_vec.len(),
+            3,
+            "Should have 3 ML values (all from window 2)"
+        );
+        assert!(
+            mm_str.contains("C+m?,3,0,0;"),
+            "MM should be C+m?,3,0,0; got {mm_str}"
+        );
+    }
+
+    /// Tests trailing dropped bases — the sequence ends inside a window's
+    /// drop phase, so the last partial window contributes no modifications.
+    #[test]
+    fn generate_random_dna_modification_drop_partial_trailing() {
+        // 6 C's, win=[4], drop=[2]
+        // Window 1: drop 2, modify 2 -> distances [2, 0], 2 ML values
+        // Window 2: drop 2 (only 2 C's left), no modify -> trailing drop, no ML
+        let seq = DNARestrictive::from_str("CCCCCC").unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([4].into())
+            .drop([2].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(ml_vec.len(), 2, "Should have 2 ML values (only window 1)");
+        assert!(
+            mm_str.contains("C+m?,2,0;"),
+            "MM should be C+m?,2,0; got {mm_str}"
+        );
+    }
+
+    /// Tests that all bases dropped across all windows produces no MM/ML
+    /// group at all for that mod, while a second mod group still works.
+    #[test]
+    fn generate_random_dna_modification_all_dropped() {
+        // 4 C's, win=[2], drop=[2] -> all C's dropped, no C+m group
+        // 4 A's, win=[1], drop=[0] -> all A's modified, A+a group present
+        let seq = DNARestrictive::from_str("ACACACAC").unwrap();
+
+        let mod_config_c = ModConfigBuilder::default()
+            .base('C')
+            .mod_code("m".into())
+            .win([2].into())
+            .drop([2].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mod_config_a = ModConfigBuilder::default()
+            .base('A')
+            .mod_code("a".into())
+            .win([1].into())
+            .mod_range([(0.5, 0.5)].into())
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) =
+            generate_random_dna_modification(&[mod_config_c, mod_config_a], &seq, &mut rng);
+
+        // C group should be absent (all dropped)
+        assert!(
+            !mm_str.contains("C+m"),
+            "C+m group should be absent (all bases dropped), got {mm_str}"
+        );
+        // A group should be present
+        assert!(
+            mm_str.contains("A+a?"),
+            "A+a group should be present, got {mm_str}"
+        );
+        // ML should only have A values (4 A's, all modified)
+        assert_eq!(ml_vec.len(), 4, "Should have 4 ML values (all from A mods)");
+    }
+
+    /// Tests that all-dropped bases with the `.` (implicit) suffix emit an
+    /// empty-coordinate MM group declaring all bases unmodified, with no ML.
+    /// 100 bp ACGT repeat → 25 T's, win=[4,4], drop=[4,4], suffix=Dot.
+    #[test]
+    fn generate_random_dna_modification_all_dropped_dot_suffix() {
+        let seq = DNARestrictive::from_str(&"ACGT".repeat(25)).unwrap();
+
+        let mod_config = ModConfigBuilder::default()
+            .base('T')
+            .mod_code("T".into())
+            .mm_suffix(MmSuffix::Dot)
+            .win(vec![4, 4])
+            .drop(vec![4, 4])
+            .mod_range(vec![(0.5, 0.5)])
+            .build()
+            .unwrap();
+
+        let mut rng = rand::rng();
+        let (mm_str, ml_vec) = generate_random_dna_modification(&[mod_config], &seq, &mut rng);
+
+        assert_eq!(
+            mm_str, "T+T.;",
+            "expected all-dropped dot-suffix MM group, got {mm_str}"
+        );
+        assert!(ml_vec.is_empty(), "no ML values expected, got {ml_vec:?}");
+    }
+
+    /// Tests that JSON deserialization + `run()` rejects invalid drop values
+    /// (drop > min(win)). This covers the path that bypasses the builder.
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn run_rejects_invalid_drop_from_json(#[case] format: AlignmentFormat) {
+        let config_json = r#"{
+            "contigs": {
+                "number": 1,
+                "len_range": [100, 100],
+                "repeated_seq": "ACGT"
+            },
+            "reads": [{
+                "number": 5,
+                "len_range": [0.5, 0.5],
+                "mods": [{
+                    "base": "C",
+                    "mod_code": "m",
+                    "win": [3],
+                    "mod_range": [[0.5, 0.5]],
+                    "drop": [5]
+                }]
+            }]
+        }"#;
+
+        let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
+        let sim = TempBamSimulation::new(config, format);
+        assert!(
+            sim.is_err(),
+            "run should reject drop=5 with win=3 via JSON validation"
+        );
+        let err_msg = format!("{}", sim.unwrap_err());
+        assert!(
+            err_msg.contains("exceeds minimum window size"),
+            "Error should mention exceeding minimum window size, got: {err_msg}"
+        );
+    }
+    /// Tests multiple simultaneous modifications on different bases
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn multiple_simultaneous_modifications_work(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -2960,7 +4388,7 @@ mod read_generation_with_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         let mut has_c_mod = false;
@@ -3445,12 +4873,10 @@ mod read_generation_with_mods_tests {
     /// For a "ACGT" repeated contig, C's are at positions 1, 5, 9, 13, ... (form 4n+1).
     /// On reverse complement, G's become C's at positions 2, 6, 10, 14, ... (form 4n+2).
     /// With 100% mismatch, positions should be shifted and no longer follow these patterns.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "test requires setup, iteration, and multiple assertions for thorough validation"
-    )]
-    #[test]
-    fn mismatch_mod_check() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn mismatch_mod_check(#[case] format: AlignmentFormat) {
         let json_str = r#"{
             "contigs": {
                 "number": 1,
@@ -3485,7 +4911,7 @@ mod read_generation_with_mods_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(json_str).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
 
         let mut bam = bam::Reader::from_path(sim.bam_path()).unwrap();
         let mut df_collection = Vec::new();
@@ -3530,10 +4956,18 @@ mod read_generation_with_mods_tests {
             if read_id.starts_with("0.") {
                 // Group 0: no mismatch, mod positions should follow 4n+1 (forward) or 4n+2 (reverse)
                 if alignment_type.contains("forward") {
+                    assert!(
+                        ref_position >= 0,
+                        "aligned forward reads must have non-negative reference positions"
+                    );
                     if ref_position % 4 != 1 {
                         group0_forward_position_violations += 1;
                     }
                 } else if alignment_type.contains("reverse") {
+                    assert!(
+                        ref_position >= 0,
+                        "aligned reverse reads must have non-negative reference positions"
+                    );
                     if ref_position % 4 != 2 {
                         group0_reverse_position_violations += 1;
                     }
@@ -3550,10 +4984,18 @@ mod read_generation_with_mods_tests {
             } else if read_id.starts_with("1.") {
                 // Group 1: 100% mismatch, mod positions should NOT follow expected patterns
                 if alignment_type.contains("forward") {
+                    assert!(
+                        ref_position >= 0,
+                        "aligned forward reads must have non-negative reference positions"
+                    );
                     if ref_position % 4 == 1 {
                         group1_forward_position_violations += 1;
                     }
                 } else if alignment_type.contains("reverse") {
+                    assert!(
+                        ref_position >= 0,
+                        "aligned reverse reads must have non-negative reference positions"
+                    );
                     if ref_position % 4 == 2 {
                         group1_reverse_position_violations += 1;
                     }
@@ -3623,8 +5065,10 @@ mod contig_generation_tests {
     use rust_htslib::bam::Read as _;
 
     /// Tests edge case: repeated sequence contig generation
-    #[test]
-    fn edge_case_repeated_sequence_exact_length() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn edge_case_repeated_sequence_exact_length(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -3638,7 +5082,7 @@ mod contig_generation_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Verify contig is exactly ACGTACGTACGTACGT (4 repeats)
@@ -3647,8 +5091,10 @@ mod contig_generation_tests {
     }
 
     /// Tests edge case: minimum contig size (1 bp)
-    #[test]
-    fn edge_case_minimum_contig_size() {
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn edge_case_minimum_contig_size(#[case] format: AlignmentFormat) {
         let config_json = r#"{
             "contigs": {
                 "number": 1,
@@ -3663,7 +5109,7 @@ mod contig_generation_tests {
         }"#;
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let sim = TempBamSimulation::new(config).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
         let mut reader = bam::Reader::from_path(sim.bam_path()).unwrap();
 
         // Verify 1bp contig works
@@ -3956,7 +5402,9 @@ mod perfect_seq_match_to_not_tests {
     }
 
     #[test]
-    #[should_panic(expected = "SimulateDNASeqCIGAREndProblem")]
+    #[should_panic(
+        expected = "cannot insert into a bases-and-operations sequence of length 0 or 1"
+    )]
     fn build_with_insert_almost_whole_length() {
         let mut rng = rand::rng();
         let insert_seq = DNARestrictive::from_str("AATT").unwrap();
@@ -3982,7 +5430,9 @@ mod perfect_seq_match_to_not_tests {
     }
 
     #[test]
-    #[should_panic(expected = "SimulateDNASeqCIGAREndProblem")]
+    #[should_panic(
+        expected = "cannot insert into a bases-and-operations sequence of length 0 or 1"
+    )]
     fn build_with_insert_almost_whole_length_with_barcode() {
         let mut rng = rand::rng();
         let insert_seq = DNARestrictive::from_str("AATT").unwrap();

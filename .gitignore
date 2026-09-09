@@ -16,3 +16,4 @@ commit_message
 *.vuln.md
 *vuln.md
 *callgrind*
+*.bundle

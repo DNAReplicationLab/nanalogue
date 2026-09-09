@@ -342,6 +342,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::non_ascii_literal,
+        reason = "non-ascii characters are intentional here"
+    )]
     fn from_str_rejects_non_ascii_path() {
         let err = PathOrURLOrStdin::from_str("/tmp/café.txt").unwrap_err();
         assert!(matches!(err, Error::InvalidState(_)));
