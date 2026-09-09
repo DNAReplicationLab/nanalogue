@@ -1867,6 +1867,30 @@ where
     Ok(())
 }
 
+/// Alignment format for temporary simulations.
+///
+/// This enum is non-exhaustive so additional alignment output formats, such as
+/// SAM, can be added in the future without breaking downstream matches.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AlignmentFormat {
+    /// Write BAM output.
+    Bam,
+    /// Write CRAM output.
+    Cram,
+}
+
+impl AlignmentFormat {
+    /// Returns the canonical filename extension for this alignment format.
+    #[must_use]
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Bam => "bam",
+            Self::Cram => "cram",
+        }
+    }
+}
+
 /// Removes a newly created simulation directory unless ownership is transferred.
 #[derive(Debug)]
 struct TempSimulationDir {
@@ -1900,10 +1924,10 @@ impl Drop for TempSimulationDir {
     }
 }
 
-/// Temporary BAM simulation with automatic cleanup
+/// Temporary alignment simulation with automatic cleanup
 ///
-/// Creates temporary BAM and FASTA files for testing purposes and
-/// automatically removes them when dropped.
+/// Creates temporary BAM or CRAM alignment output plus a FASTA file for
+/// testing purposes and automatically removes them when dropped.
 ///
 /// This type deliberately does **not** implement `Deserialize`. It owns a
 /// private disposable directory that `Drop` recursively deletes, and the only
@@ -1918,7 +1942,9 @@ impl Drop for TempSimulationDir {
 pub struct TempBamSimulation {
     /// Temporary directory containing simulation outputs
     temp_dir: PathBuf,
-    /// Path to bam file that will be created
+    /// Alignment format used for this simulation
+    format: AlignmentFormat,
+    /// Path to the alignment file that will be created (`.bam` or `.cram`)
     bam_path: String,
     /// Path to fasta file that will be created
     fasta_path: String,
@@ -1940,11 +1966,15 @@ impl TempBamSimulation {
                 )));
             }
         };
-        Self::new_in(config, &temp_dir_root)
+        Self::new_in(config, format, &temp_dir_root)
     }
 
-    /// Creates a temporary BAM simulation beneath the given directory.
-    fn new_in(config: SimulationConfig, temp_dir_root: &Path) -> Result<Self, Error> {
+    /// Creates a temporary alignment simulation beneath the given directory.
+    fn new_in(
+        config: SimulationConfig,
+        format: AlignmentFormat,
+        temp_dir_root: &Path,
+    ) -> Result<Self, Error> {
         let temp_dir_path = temp_dir_root.join(uuid::v4_random());
         #[expect(
             clippy::create_dir,
@@ -1953,12 +1983,15 @@ impl TempBamSimulation {
         std::fs::create_dir(&temp_dir_path)?;
         let temp_dir = TempSimulationDir::new(temp_dir_path);
 
-        let bam_path = temp_dir.path.join("simulation.bam");
+        let bam_path = temp_dir
+            .path
+            .join(format!("simulation.{}", format.extension()));
         let fasta_path = temp_dir.path.join("simulation.fa");
 
         run(config, &bam_path, &fasta_path)?;
         Ok(Self {
             temp_dir: temp_dir.transfer(),
+            format,
             bam_path: bam_path.to_string_lossy().to_string(),
             fasta_path: fasta_path.to_string_lossy().to_string(),
         })
@@ -2455,7 +2488,8 @@ mod read_generation_no_mods_tests {
         std::fs::create_dir_all(&test_root).unwrap();
 
         let config: SimulationConfig = serde_json::from_str(config_json).unwrap();
-        let error = TempBamSimulation::new_in(config, &test_root).unwrap_err();
+        let error =
+            TempBamSimulation::new_in(config, AlignmentFormat::Bam, &test_root).unwrap_err();
         let leaked_paths: Vec<_> = std::fs::read_dir(&test_root)
             .unwrap()
             .map(|entry| entry.unwrap().path())
@@ -2981,7 +3015,7 @@ mod read_generation_with_mods_tests {
     use super::*;
     use crate::{CurrRead, ThresholdState, curr_reads_to_dataframe};
     use rust_htslib::bam::Read as _;
-    
+
     /// Generates one full-length read with the supplied modification configuration.
     fn generate_single_read(mod_config: ModConfig) -> Result<bam::Record, Error> {
         let contigs = [ContigBuilder::default()
