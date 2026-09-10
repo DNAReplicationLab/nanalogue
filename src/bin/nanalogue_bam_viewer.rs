@@ -185,6 +185,15 @@ impl Viewport {
             KeyCode::Down | KeyCode::Char('j') => {
                 self.read_offset = self.read_offset.saturating_add(1).min(max_offset);
             }
+            KeyCode::PageUp => {
+                self.read_offset = self.read_offset.saturating_sub(visible_reads);
+            }
+            KeyCode::PageDown => {
+                self.read_offset = self
+                    .read_offset
+                    .saturating_add(visible_reads)
+                    .min(max_offset);
+            }
             _ => {}
         }
     }
@@ -625,7 +634,7 @@ fn build_frame(viewer: &Viewer, records: &[RegionSequence], cols: u16, rows: u16
     }
 
     if rows > 2 {
-        let mut ruler = label_column("reference", viewer.read_label_width);
+        let mut ruler = label_column("read id", viewer.read_label_width);
         for column in 0..usize::from(genome_cols) {
             let coordinate = viewer
                 .viewport
@@ -674,7 +683,7 @@ fn build_frame(viewer: &Viewer, records: &[RegionSequence], cols: u16, rows: u16
     if rows > 3 {
         write!(&mut frame, "\x1b[{rows};1H\x1b[7m").expect("writing to String cannot fail");
         let footer = format!(
-            " left/h right/l {} bp  up/k down/j reads  r {} IDs  i {} ins  q quit",
+            " left/h right/l {} bp  up/k down/j  pgup/dn  r {} IDs  i {} ins  q quit",
             viewer.window_len,
             if viewer.full_read_ids {
                 "short"
@@ -797,6 +806,19 @@ mod tests {
 
         viewport.navigate(KeyCode::Right, 1_000, 20, 7, 3);
         assert_eq!(viewport.start, 20);
+
+        viewport.read_offset = 7;
+        viewport.navigate(KeyCode::PageUp, 1_000, 20, 20, 4);
+        assert_eq!(viewport.read_offset, 3);
+        viewport.navigate(KeyCode::PageUp, 1_000, 20, 20, 4);
+        assert_eq!(viewport.read_offset, 0);
+        viewport.navigate(KeyCode::PageDown, 1_000, 20, 20, 4);
+        assert_eq!(viewport.read_offset, 4);
+        viewport.navigate(KeyCode::PageDown, 1_000, 20, 20, 4);
+        assert_eq!(viewport.read_offset, 8);
+        viewport.read_offset = 15;
+        viewport.navigate(KeyCode::PageDown, 1_000, 20, 20, 4);
+        assert_eq!(viewport.read_offset, 16);
     }
 
     #[test]
@@ -945,6 +967,8 @@ mod tests {
             KeyCode::Down,
             KeyCode::Char('k'),
             KeyCode::Char('j'),
+            KeyCode::PageUp,
+            KeyCode::PageDown,
         ] {
             assert!(!viewer.handle_key(key, &records, 1));
             assert!(viewer.show_insertions);
@@ -982,7 +1006,7 @@ mod tests {
 
     #[test]
     fn ruler_and_read_labels_share_the_same_dynamic_column() {
-        assert_eq!(label_column("reference", 5), "refe ");
+        assert_eq!(label_column("read id", 5), "read ");
         assert_eq!(label_column("read", 12), "read        ");
     }
 
@@ -1061,6 +1085,7 @@ mod tests {
         assert_eq!(viewer.current_window_len(), 40);
         let frame = build_frame(&viewer, &[], 80, 10);
         assert!(frame.contains("left/h right/l 40 bp"));
+        assert!(frame.contains("pgup/dn"));
         assert!(frame.contains("r full IDs"));
         assert!(frame.contains("i show ins"));
         assert!(frame.contains("q quit"));
