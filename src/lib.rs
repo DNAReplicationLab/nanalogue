@@ -110,6 +110,10 @@ pub mod simulate_mod_bam;
 pub mod subcommands;
 pub mod utils;
 
+// Declare feature-gated modules.
+#[cfg(feature = "bam-viewer")]
+pub mod region_sequences;
+
 // Re-exports
 pub use cli::{
     InputBam, InputBamBuilder, InputModOptions, InputMods, InputModsBuilder, InputRegionOptions,

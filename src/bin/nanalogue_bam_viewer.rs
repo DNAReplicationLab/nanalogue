@@ -24,7 +24,7 @@ use libghostty_vt::{
     render::{CellIterator, RowIterator},
     style::Underline,
 };
-use nanalogue_core::reads_table::{RegionSequence, RegionSequenceReader};
+use nanalogue_core::region_sequences::{RegionSequence, RegionSequenceReader};
 use std::{
     env,
     error::Error,
