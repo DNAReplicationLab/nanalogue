@@ -22,6 +22,11 @@ rand = "=0.10.1"
 url = { version = "=2.5.8", features = [ "serde" ] }
 derive_builder = "=0.20.2"
 polars = { version = "=0.53.0", default-features = false, features = ["csv"] }
+libghostty-vt = { version = "=0.2.1", default-features = false, optional = true }
+crossterm = { version = "=0.29.0", default-features = false, features = ["events"], optional = true }
+
+[features]
+bam-viewer = ["dep:crossterm", "dep:libghostty-vt"]
 
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = "0.1.48"
@@ -40,6 +45,11 @@ path = "src/main.rs"
 [[bin]]
 name = "nanalogue_sim_bam"
 path = "src/bin/main_simulate_mod_bam.rs"
+
+[[bin]]
+name = "nanalogue_bam_viewer"
+path = "src/bin/nanalogue_bam_viewer.rs"
+required-features = ["bam-viewer"]
 
 [[bench]]
 name = "seq_coords_capacity"

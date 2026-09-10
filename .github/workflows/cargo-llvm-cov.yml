@@ -45,6 +45,12 @@ jobs:
 
           # print available disk space
           df -h
+      - name: Install Zig for libghostty-vt
+        run: |
+          mkdir -p "$HOME/.local/zig"
+          curl -fsSL https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz \
+            | tar -xJ --strip-components=1 -C "$HOME/.local/zig"
+          echo "$HOME/.local/zig" >> "$GITHUB_PATH"
       - name: Generate code coverage
         id: llvm_cov_run
         run: |

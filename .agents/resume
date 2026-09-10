@@ -6,5 +6,6 @@ set -euo pipefail
 source "$HOME/.cargo/env"
 command -v cargo >/dev/null
 command -v clang-19 >/dev/null
+command -v zig >/dev/null
 
 echo "Orb environment ready."

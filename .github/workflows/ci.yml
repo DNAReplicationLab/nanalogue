@@ -49,6 +49,12 @@ jobs:
         run: cargo test
       - name: Test remote URL access
         run: cargo test -- --ignored --test-threads=1 peek_remote_zenodo_hela
+      - name: Install Zig for libghostty-vt
+        run: |
+          mkdir -p "$HOME/.local/zig"
+          curl -fsSL https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz \
+            | tar -xJ --strip-components=1 -C "$HOME/.local/zig"
+          echo "$HOME/.local/zig" >> "$GITHUB_PATH"
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Cargo clean

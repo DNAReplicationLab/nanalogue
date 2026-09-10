@@ -45,6 +45,14 @@ source "$HOME/.cargo/env"
 rustup toolchain install stable --profile minimal --component clippy,rustfmt --no-self-update
 rustup default stable
 
+step "Installing Zig 0.15.2 for libghostty-vt"
+zig_dir="$HOME/.local/zig-0.15.2"
+if [[ ! -x "$zig_dir/zig" ]]; then
+    mkdir -p "$zig_dir"
+    curl -fsSL https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz \
+        | tar -xJ --strip-components=1 -C "$zig_dir"
+fi
+
 step "Configuring future orb shells"
 profile_marker="# nanalogue Rust and Clang environment"
 if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
@@ -56,10 +64,19 @@ export CLANG_PATH=/usr/bin/clang-19
 export LIBCLANG_PATH=/usr/lib/llvm-19/lib
 EOF
 fi
+zig_profile_marker="# nanalogue Zig environment"
+if ! grep -Fqx "$zig_profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+    cat >>"$HOME/.bash_profile" <<EOF
+
+$zig_profile_marker
+export PATH="$zig_dir:\$PATH"
+EOF
+fi
 
 step "Fetching Rust dependencies"
 CLANG_PATH=/usr/bin/clang-19 \
 LIBCLANG_PATH=/usr/lib/llvm-19/lib \
+PATH="$zig_dir:$PATH" \
     cargo fetch --locked --quiet
 
 echo "Orb setup complete."
