@@ -1,0 +1,24 @@
+{
+  "contigs": {
+    "number": 1,
+    "len_range": [120, 120],
+    "repeated_seq": "ACGT"
+  },
+  "reads": [{
+    "number": 120,
+    "mapq_range": [30, 60],
+    "base_qual_range": [30, 40],
+    "len_range": [1.0, 1.0],
+    "delete": [0.75, 0.82],
+    "insert_middle": "ACCCGT",
+    "mismatch": 0.04,
+    "mods": [{
+      "base": "C",
+      "is_strand_plus": true,
+      "mod_code": "m",
+      "win": [1],
+      "mod_range": [[0.8, 0.95]]
+    }]
+  }],
+  "seed": 42
+}

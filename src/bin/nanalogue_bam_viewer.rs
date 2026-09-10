@@ -24,7 +24,10 @@ use libghostty_vt::{
     render::{CellIterator, RowIterator},
     style::Underline,
 };
-use nanalogue_core::region_sequences::{RegionSequence, RegionSequenceReader};
+use nanalogue_core::{
+    ModChar,
+    region_sequences::{RegionSequence, RegionSequenceReader},
+};
 use std::{
     env,
     error::Error,
@@ -32,6 +35,7 @@ use std::{
     fmt::Write as _,
     io::{self, Stdout, Write as _},
     path::PathBuf,
+    str::FromStr as _,
     sync::Arc,
 };
 
@@ -41,10 +45,11 @@ const READ_LABEL_WIDTH: u16 = 19;
 /// Maximum number of genomic bases displayed regardless of terminal width.
 const MAX_REGION_LENGTH: u32 = 200;
 
-/// Short usage text for this deliberately minimal two-argument program.
-const USAGE: &str = "Usage: nanalogue_bam_viewer <BAM> [CONTIG:START]\n\
+/// Short usage text for this deliberately minimal positional-argument program.
+const USAGE: &str = "Usage: nanalogue_bam_viewer <BAM> <CONTIG:START> [MOD_TYPE]\n\
 START is zero-based; displayed coordinates are one-based.\n\
-The end coordinate is selected from the terminal width, up to 200 bp.";
+The end coordinate is selected from the terminal width, up to 200 bp.\n\
+MOD_TYPE is a letter or numeric ChEBI code; calls with probability >= 0.5 are bold.";
 
 /// Initial reference and zero-based coordinate supplied on the command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,11 +91,14 @@ struct Args {
     bam: PathBuf,
 
     /// Initial reference position, such as `chr1:1000`.
-    position: Option<InitialPosition>,
+    position: InitialPosition,
+
+    /// Optional modification type to display in bold.
+    mod_type: Option<ModChar>,
 }
 
 impl Args {
-    /// Parses the two positional arguments, returning `None` for a help request.
+    /// Parses the positional arguments, returning `None` for a help request.
     fn parse_from<I>(arguments: I) -> Result<Option<Self>, String>
     where
         I: IntoIterator<Item = OsString>,
@@ -102,23 +110,31 @@ impl Args {
         if bam == "-h" || bam == "--help" {
             return Ok(None);
         }
-        let position = argument_iter
+        let position_argument = argument_iter
             .next()
-            .map(|position_argument| {
-                let position_string = position_argument
+            .ok_or_else(|| String::from("missing CONTIG:START position"))?;
+        let position_string = position_argument
+            .into_string()
+            .map_err(|_position| String::from("position must be valid UTF-8"))?;
+        let position = InitialPosition::parse(&position_string)?;
+        let mod_type = argument_iter
+            .next()
+            .map(|mod_type_argument| {
+                let mod_type_string = mod_type_argument
                     .into_string()
-                    .map_err(|_position| String::from("position must be valid UTF-8"))?;
-                InitialPosition::parse(&position_string)
+                    .map_err(|_mod_type| String::from("MOD_TYPE must be valid UTF-8"))?;
+                ModChar::from_str(&mod_type_string).map_err(|error| error.to_string())
             })
             .transpose()?;
         if argument_iter.next().is_some() {
             return Err(String::from(
-                "expected only BAM and optional CONTIG:START arguments",
+                "expected BAM, CONTIG:START, and optional MOD_TYPE arguments",
             ));
         }
         Ok(Some(Self {
             bam: PathBuf::from(bam),
             position,
+            mod_type,
         }))
     }
 }
@@ -191,42 +207,37 @@ struct Viewer {
     full_read_ids: bool,
     /// Whether lowercase insertion bases are displayed.
     show_insertions: bool,
+    /// Modification type displayed in bold, if requested.
+    mod_type: Option<ModChar>,
 }
 
 impl Viewer {
     /// Opens an indexed BAM and chooses the initial viewport.
     fn open(
         path: PathBuf,
-        position: Option<InitialPosition>,
+        position: &InitialPosition,
+        mod_type: Option<ModChar>,
         window_len: u32,
     ) -> Result<Self, Box<dyn Error>> {
         let reader = RegionSequenceReader::from_path(&path)?;
 
-        let viewport = if let Some(initial) = position {
-            let tid = reader.target_id(&initial.contig).ok_or_else(|| {
-                format!("reference '{}' is not in the BAM header", initial.contig)
-            })?;
-            let contig_len = reader
-                .target_len(tid)
-                .ok_or("BAM target identifier is invalid")?;
-            if initial.start >= contig_len {
-                return Err(format!(
-                    "initial position {} is outside reference '{}' (length {contig_len})",
-                    initial.start, initial.contig
-                )
-                .into());
-            }
-            Viewport {
-                tid,
-                start: initial.start,
-                read_offset: 0,
-            }
-        } else {
-            let viewport = Viewport::default();
-            if reader.target_len(viewport.tid).unwrap_or(0) == 0 {
-                return Err("first BAM reference has zero length".into());
-            }
-            viewport
+        let tid = reader
+            .target_id(&position.contig)
+            .ok_or_else(|| format!("reference '{}' is not in the BAM header", position.contig))?;
+        let contig_len = reader
+            .target_len(tid)
+            .ok_or("BAM target identifier is invalid")?;
+        if position.start >= contig_len {
+            return Err(format!(
+                "initial position {} is outside reference '{}' (length {contig_len})",
+                position.start, position.contig
+            )
+            .into());
+        }
+        let viewport = Viewport {
+            tid,
+            start: position.start,
+            read_offset: 0,
         };
 
         Ok(Self {
@@ -237,6 +248,7 @@ impl Viewer {
             read_label_width: READ_LABEL_WIDTH,
             full_read_ids: false,
             show_insertions: false,
+            mod_type,
         })
     }
 
@@ -254,6 +266,13 @@ impl Viewer {
     fn current_window_len(&self) -> u32 {
         self.window_len
             .min(self.target_len().saturating_sub(self.viewport.start))
+    }
+
+    /// Returns the status suffix for the active modification type.
+    fn modification_status(&self) -> String {
+        self.mod_type
+            .map(|mod_type| format!("  mods {mod_type}>=0.5"))
+            .unwrap_or_default()
     }
 
     /// Toggles between the default and longest cached read-ID widths.
@@ -319,7 +338,7 @@ impl Viewer {
             .min(self.target_len());
         Ok(self
             .reader
-            .sequences(self.viewport.tid, self.viewport.start, end)?)
+            .sequences(self.viewport.tid, self.viewport.start, end, self.mod_type)?)
     }
 }
 
@@ -507,20 +526,37 @@ fn printable_label(bytes: &[u8], width: usize) -> String {
     label
 }
 
-/// Pads a nanalogue region sequence to the visible genomic screen width.
+/// Pads and styles a nanalogue region sequence to the visible genomic screen width.
 fn sequence_columns(record: &RegionSequence, width: u16, show_insertions: bool) -> String {
-    let mut output = vec![b' '; usize::from(width)];
-    let sequence = if show_insertions {
-        record.sequence_with_insertions()
+    let (sequence, modifications) = if show_insertions {
+        (
+            record.sequence_with_insertions(),
+            record.modifications_with_insertions(),
+        )
     } else {
-        record.sequence()
+        (record.sequence(), record.modifications())
     };
-    for (offset, base) in sequence.bytes().enumerate() {
-        if let Some(cell) = output.get_mut(offset) {
-            *cell = base;
+    assert_eq!(
+        sequence.len(),
+        modifications.len(),
+        "region sequence and modification calls must have equal lengths"
+    );
+    let mut output = String::new();
+    let mut bold = false;
+    for offset in 0..usize::from(width) {
+        let modified = modifications.get(offset).copied().unwrap_or(false);
+        if modified != bold {
+            output.push_str(if modified { "\x1b[1;4m" } else { "\x1b[22;24m" });
+            bold = modified;
         }
+        output.push(char::from(
+            sequence.as_bytes().get(offset).copied().unwrap_or(b' '),
+        ));
     }
-    String::from_utf8(output).expect("nanalogue region sequences contain ASCII")
+    if bold {
+        output.push_str("\x1b[22;24m");
+    }
+    output
 }
 
 /// Truncates and pads a line to the terminal width.
@@ -574,8 +610,9 @@ fn build_frame(viewer: &Viewer, records: &[RegionSequence], cols: u16, rows: u16
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("?");
+        let mod_status = viewer.modification_status();
         let status = format!(
-            " {path}  {}:{}-{}  reads {}  row {}",
+            " {path}  {}:{}-{}  reads {}  row {}{mod_status}",
             viewer.target_name(),
             viewer.viewport.start.saturating_add(1),
             end,
@@ -612,20 +649,25 @@ fn build_frame(viewer: &Viewer, records: &[RegionSequence], cols: u16, rows: u16
         .take(visible_reads)
         .enumerate()
     {
-        let mut line = label_column(record.read_id(), viewer.read_label_width);
-        line.push_str(&sequence_columns(
-            record,
-            genome_cols,
-            viewer.show_insertions,
-        ));
         let terminal_row = screen_row.saturating_add(4);
+        let visible_label_width = viewer.read_label_width.min(effective_cols);
+        let visible_sequence_width =
+            genome_cols.min(effective_cols.saturating_sub(visible_label_width));
         write!(&mut frame, "\x1b[{terminal_row};1H").expect("writing to String cannot fail");
         frame.push_str(if record.is_reverse() {
             "\x1b[33m"
         } else {
             "\x1b[32m"
         });
-        frame.push_str(&fixed_line(&line, effective_cols));
+        frame.push_str(&fixed_line(
+            &label_column(record.read_id(), viewer.read_label_width),
+            visible_label_width,
+        ));
+        frame.push_str(&sequence_columns(
+            record,
+            visible_sequence_width,
+            viewer.show_insertions,
+        ));
         frame.push_str("\x1b[0m");
     }
 
@@ -663,7 +705,8 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let (initial_cols, initial_rows) = crossterm::terminal::size()?;
     let mut viewer = Viewer::open(
         args.bam,
-        args.position,
+        &args.position,
+        args.mod_type,
         window_len_for_columns(initial_cols),
     )?;
     let mut renderer = GhosttyRenderer::new(initial_cols, initial_rows)?;
@@ -762,17 +805,92 @@ mod tests {
             .expect("open indexed example");
         assert!(
             reader
-                .sequences(2, 20, 30)
+                .sequences(2, 20, 30, None)
                 .expect("retrieve a partially covered region")
                 .is_empty(),
             "a read that does not span the full region must be excluded"
         );
         let rows = reader
-            .sequences(2, 23, 30)
+            .sequences(2, 23, 30, None)
             .expect("retrieve nanalogue region sequences");
         let row = rows.first().expect("one overlapping read");
         assert_eq!(row.read_id(), "a4f36092-b4d5-47a9-813e-c22c3b477a0c");
         assert_eq!(sequence_columns(row, 10, false), "ACATCAA   ");
+    }
+
+    #[test]
+    fn viewer_bolds_only_requested_high_probability_modifications() {
+        let mut reader = RegionSequenceReader::from_path("examples/example_1.bam")
+            .expect("open indexed example");
+        let unstyled_rows = reader
+            .sequences(2, 23, 30, None)
+            .expect("retrieve sequences without modification parsing");
+        assert!(
+            unstyled_rows
+                .first()
+                .expect("one overlapping read")
+                .modifications()
+                .iter()
+                .all(|modified| !modified)
+        );
+
+        let styled_rows = reader
+            .sequences(2, 23, 30, Some(ModChar::new('T')))
+            .expect("retrieve thresholded T modifications");
+        let row = styled_rows.first().expect("one overlapping read");
+        assert_eq!(
+            row.modifications(),
+            [false, false, false, true, false, false, false]
+        );
+        assert_eq!(
+            sequence_columns(row, 10, false),
+            "ACA\x1b[1;4mT\x1b[22;24mCAA   "
+        );
+    }
+
+    #[test]
+    fn ghostty_preserves_modified_base_columns_and_styles() -> Result<(), Box<dyn Error>> {
+        let position = InitialPosition {
+            contig: String::from("dummyIII"),
+            start: 23,
+        };
+        let mut viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &position,
+            Some(ModChar::new('T')),
+            7,
+        )?;
+        let records = viewer.visible_records()?;
+        let frame = build_frame(&viewer, &records, 26, 6);
+        let mut terminal = Terminal::new(TerminalOptions {
+            cols: 26,
+            rows: 6,
+            max_scrollback: 0,
+        })?;
+        terminal.vt_write(frame.as_bytes());
+        let mut render_state = RenderState::new()?;
+        let snapshot = render_state.update(&terminal)?;
+        let mut row_iterator = RowIterator::new()?;
+        let mut rows = row_iterator.update(&snapshot)?;
+        for _row_index in 0..4 {
+            let _row = rows.next().expect("read row should exist");
+        }
+        let mut cell_iterator = CellIterator::new()?;
+        let mut cells = cell_iterator.update(&rows)?;
+
+        cells.select(21)?;
+        assert_eq!(cells.graphemes()?, ['A']);
+        assert!(!cells.style()?.bold);
+        assert_eq!(cells.style()?.underline, Underline::None);
+        cells.select(22)?;
+        assert_eq!(cells.graphemes()?, ['T']);
+        assert!(cells.style()?.bold);
+        assert_eq!(cells.style()?.underline, Underline::Single);
+        cells.select(23)?;
+        assert_eq!(cells.graphemes()?, ['C']);
+        assert!(!cells.style()?.bold);
+        assert_eq!(cells.style()?.underline, Underline::None);
+        Ok(())
     }
 
     #[test]
@@ -781,7 +899,7 @@ mod tests {
             contig: String::from("dummyIII"),
             start: 23,
         };
-        let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), Some(position), 7)
+        let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), &position, None, 7)
             .expect("position should open");
         let records = viewer.visible_records().expect("records should load");
         let longest_id_width = records
@@ -816,7 +934,7 @@ mod tests {
             contig: String::from("dummyIII"),
             start: 23,
         };
-        let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), Some(position), 7)
+        let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), &position, None, 7)
             .expect("position should open");
         let records = viewer.visible_records().expect("records should load");
 
@@ -875,12 +993,35 @@ mod tests {
             .expect("not a help request");
         assert_eq!(args.bam, PathBuf::from("reads.bam"));
         assert_eq!(
-            args.position.expect("position"),
+            args.position,
             InitialPosition {
                 contig: String::from("chr1"),
                 start: 10,
             }
         );
+        assert_eq!(args.mod_type, None);
+    }
+
+    #[test]
+    fn plain_argument_parser_accepts_a_modification_type() {
+        let args = Args::parse_from([
+            OsString::from("reads.bam"),
+            OsString::from("chr1:10"),
+            OsString::from("472232"),
+        ])
+        .expect("valid arguments")
+        .expect("not a help request");
+        assert_eq!(
+            args.mod_type.expect("modification type").to_string(),
+            "472232"
+        );
+    }
+
+    #[test]
+    fn argument_parser_requires_a_position() {
+        let error = Args::parse_from([OsString::from("reads.bam")])
+            .expect_err("position should be compulsory");
+        assert!(error.contains("missing CONTIG:START position"));
     }
 
     #[test]
@@ -914,7 +1055,7 @@ mod tests {
             contig: String::from("dummyIII"),
             start: 10,
         };
-        let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), Some(position), 40)
+        let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), &position, None, 40)
             .expect("position should open");
         assert_eq!(viewer.viewport.start, 10);
         assert_eq!(viewer.current_window_len(), 40);
@@ -939,8 +1080,13 @@ mod tests {
             contig: String::from("dummyI"),
             start: 10,
         };
-        let viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), Some(position), 200)
-            .expect("position should open");
+        let viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &position,
+            None,
+            200,
+        )
+        .expect("position should open");
         assert_eq!(viewer.viewport.start, 10);
         assert_eq!(viewer.current_window_len(), 12);
     }
@@ -951,8 +1097,13 @@ mod tests {
             contig: String::from("dummyI"),
             start: 21,
         };
-        let viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), Some(position), 200)
-            .expect("last base should open");
+        let viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &position,
+            None,
+            200,
+        )
+        .expect("last base should open");
         assert_eq!(viewer.viewport.start, 21);
         assert_eq!(viewer.current_window_len(), 1);
     }
@@ -963,8 +1114,13 @@ mod tests {
             contig: String::from("dummyI"),
             start: 22,
         };
-        let error = Viewer::open(PathBuf::from("examples/example_1.bam"), Some(position), 200)
-            .expect_err("position at contig end should fail");
+        let error = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &position,
+            None,
+            200,
+        )
+        .expect_err("position at contig end should fail");
         assert!(error.to_string().contains("initial position 22"));
     }
 
@@ -978,14 +1134,6 @@ mod tests {
         viewport.navigate(KeyCode::Right, 100, 20, 7, 3);
         assert_eq!(viewport.start, 90);
         assert_eq!(viewport.read_offset, 0);
-    }
-
-    #[test]
-    fn omitted_position_starts_on_the_first_contig() {
-        let viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), None, 200)
-            .expect("first contig should open");
-        assert_eq!(viewer.viewport.start, 0);
-        assert_eq!(viewer.current_window_len(), 22);
     }
 
     #[test]

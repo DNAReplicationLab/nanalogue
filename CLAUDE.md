@@ -26,6 +26,29 @@ another Clang 18–21 installation and ask the user if none is available. Newer
 HTSlib versions may change CRAM reference resolution, while newer
 `hts-sys`/bindgen versions may support Clang 22.
 
+## Suggestions for running nanalogue BAM viewer demos
+
+For screenshots, movies, and other visual demos of `nanalogue_bam_viewer`, use
+`examples/bam_viewer_demo.json` rather than the small BAMs used by automated
+tests. Generate the deterministic demo inputs in a temporary directory:
+
+```sh
+cargo run -q --bin nanalogue_sim_bam -- examples/bam_viewer_demo.json \
+  /tmp/nanalogue-viewer-demo.bam /tmp/nanalogue-viewer-demo.fasta
+```
+
+The viewer is feature gated, so run it with the `bam-viewer` feature. The
+following position and modification type show many reads and modification
+calls; toggle `i` to also show lowercase insertions:
+
+```sh
+cargo run -q --features bam-viewer --bin nanalogue_bam_viewer -- \
+  /tmp/nanalogue-viewer-demo.bam contig_00000:25 m
+```
+
+Keep the generated BAM, BAI, and FASTA files temporary and out of Git. The
+smaller example BAMs remain appropriate for focused automated assertions.
+
 ## Final review
 
 ### If codex is available to you and you can communicate with the service
