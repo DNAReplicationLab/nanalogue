@@ -444,13 +444,10 @@ where
             (_, false) => record.qual().to_vec(),
         };
 
-        // get forward sequence bases from the bam record
-        let forward_bases = {
-            let seq = convert_seq_uppercase(record.seq().as_bytes());
-            if is_reverse { revcomp(seq) } else { seq }
-        };
-
-        let seq_len = forward_bases.len();
+        // Keep the sequence in BAM's packed 4-bit representation. Candidate MM bases are
+        // selected from it below without allocating and decoding the entire read.
+        let packed_seq = record.seq();
+        let seq_len = packed_seq.len();
 
         if seq_len >= usize::try_from(u32::MAX).expect("no error on 32-bit platforms or higher") {
             return Err(Error::InvalidState(
@@ -472,26 +469,58 @@ where
 
         #[expect(
             clippy::arithmetic_side_effects,
-            reason = "we've verified seq_len < u32::MAX above (& blocked < 32-bit platforms) so +1 will not overflow"
+            reason = "seq_len bounds make +1 safe, and contiguous alignments have a positive span"
         )]
         let pos_map = {
             let temp: Vec<Option<u32>> = {
                 if record.is_unmapped() {
                     std::iter::repeat_n(None, seq_len).collect()
                 } else {
-                    record
-                        .aligned_pairs_full()
-                        .filter(|x| x[0].is_some())
-                        .take(seq_len + 1)
-                        .map(|x| match x[1] {
-                            None => Ok(None),
-                            Some(v) => u32::try_from(v).map(Some).map_err(|e| {
-                                Error::InvalidModCoords(format!(
-                                    "reference coordinate from aligned_pairs_full is invalid: {e}"
-                                ))
-                            }),
-                        })
-                        .collect::<Result<Vec<Option<u32>>, Error>>()?
+                    let cigar = record.cigar();
+                    let mut cigar_ops = cigar.iter();
+                    let is_contiguous_alignment = matches!(
+                        (cigar_ops.next(), cigar_ops.next()),
+                        (
+                            Some(
+                                bam::record::Cigar::Match(len)
+                                    | bam::record::Cigar::Equal(len)
+                                    | bam::record::Cigar::Diff(len)
+                            ),
+                            None
+                        ) if usize::try_from(*len).expect("u32 fits in usize") == seq_len
+                    );
+                    if is_contiguous_alignment {
+                        let start = u32::try_from(record.pos()).map_err(|e| {
+                            Error::InvalidModCoords(format!(
+                                "reference start coordinate is invalid: {e}"
+                            ))
+                        })?;
+                        let span = u32::try_from(seq_len).expect("sequence length fits in u32");
+                        assert!(
+                            span > 0,
+                            "invalid state reached: a contiguous alignment has zero length"
+                        );
+                        let last = start.checked_add(span - 1).ok_or_else(|| {
+                            Error::InvalidModCoords(
+                                "reference coordinate exceeds u32 capacity".to_owned(),
+                            )
+                        })?;
+                        (start..=last).map(Some).collect()
+                    } else {
+                        record
+                            .aligned_pairs_full()
+                            .filter(|x| x[0].is_some())
+                            .take(seq_len + 1)
+                            .map(|x| match x[1] {
+                                None => Ok(None),
+                                Some(v) => u32::try_from(v).map(Some).map_err(|e| {
+                                    Error::InvalidModCoords(format!(
+                                        "reference coordinate from aligned_pairs_full is invalid: {e}"
+                                    ))
+                                }),
+                            })
+                            .collect::<Result<Vec<Option<u32>>, Error>>()?
+                    }
                 }
             };
             if temp.len() == seq_len {
@@ -525,15 +554,34 @@ where
                 Vec::<u8>::with_capacity(mod_data_len_approx),
             );
 
+            // BAM encodes A/C/G/T as 1/2/4/8. Reverse records are traversed in the
+            // original forward orientation, so search for the complementary code.
+            let encoded_mod_base = match (mod_base, is_reverse) {
+                (b'A', false) | (b'T' | b'U', true) => Some(1),
+                (b'C', false) | (b'G', true) => Some(2),
+                (b'G', false) | (b'C', true) => Some(4),
+                (b'T' | b'U', false) | (b'A', true) => Some(8),
+                _ => None,
+            };
+
             #[expect(
                 clippy::arithmetic_side_effects,
-                reason = "one counter is checked for overflow and the other is incremented only when below a ceiling"
+                reason = "sequence indices are bounded; one counter is checked for overflow and the other is incremented only when below a ceiling"
             )]
-            for (cur_seq_idx, &_) in forward_bases
-                .iter()
-                .enumerate()
-                .filter(|&(_, &k)| mod_base == b'N' || k == mod_base)
-            {
+            for cur_seq_idx in (0..seq_len).filter(|&forward_idx| {
+                if mod_base == b'N' {
+                    return true;
+                }
+                let Some(encoded_base) = encoded_mod_base else {
+                    return false;
+                };
+                let record_idx = if is_reverse {
+                    seq_len - 1 - forward_idx
+                } else {
+                    forward_idx
+                };
+                packed_seq.encoded_base(record_idx) == encoded_base
+            }) {
                 let is_seq_pos_pass: bool = filter_mod_pos(&cur_seq_idx)
                     && (min_qual > 0).then(|| {
                         base_qual
@@ -1265,6 +1313,271 @@ mod mod_parse_tests {
         let ml_values = Vec::from([100u8]);
         let result = create_test_record_and_parse(mm_value, &ml_values);
         assert!(matches!(result, Err(Error::InvalidModCoords(_))));
+    }
+
+    #[test]
+    fn contiguous_alignment_accepts_u32_max_reference_coordinate() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(1)]);
+        record.set(b"test_read", Some(&cigar), b"A", &[30]);
+        record.unset_flags();
+        record.set_tid(0);
+        record.set_pos(i64::from(u32::MAX));
+        record.push_aux(b"MM", Aux::String("A+a,0;"))?;
+        record.push_aux(b"ML", Aux::ArrayU8((&[200]).into()))?;
+
+        let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+        let annotation = mods
+            .base_mods
+            .first()
+            .and_then(|base_mod| base_mod.ranges.annotations.first())
+            .expect("one modification annotation should be parsed");
+        assert_eq!(annotation.ref_pos, Some(u32::MAX));
+        Ok(())
+    }
+
+    #[test]
+    fn contiguous_alignment_rejects_reference_coordinate_overflow() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(2)]);
+        record.set(b"test_read", Some(&cigar), b"AA", &[30; 2]);
+        record.unset_flags();
+        record.set_tid(0);
+        record.set_pos(i64::from(u32::MAX));
+        record.push_aux(b"MM", Aux::String("A+a,0;"))?;
+        record.push_aux(b"ML", Aux::ArrayU8((&[200]).into()))?;
+
+        let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
+        assert!(matches!(result, Err(Error::InvalidModCoords(_))));
+        Ok(())
+    }
+
+    #[test]
+    fn contiguous_alignment_maps_match_equal_and_diff() -> Result<(), Error> {
+        for cigar_op in [
+            bam::record::Cigar::Match(3),
+            bam::record::Cigar::Equal(3),
+            bam::record::Cigar::Diff(3),
+        ] {
+            let mut record = bam::Record::new();
+            let cigar = bam::record::CigarString::from(vec![cigar_op]);
+            record.set(b"contiguous", Some(&cigar), b"AAA", &[30; 3]);
+            record.unset_flags();
+            record.set_tid(0);
+            record.set_pos(17);
+            record.push_aux(b"MM", Aux::String("A+a,0,0,0;"))?;
+            record.push_aux(b"ML", Aux::ArrayU8((&[101, 102, 103]).into()))?;
+
+            let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+            let annotations = &mods
+                .base_mods
+                .first()
+                .expect("one A group")
+                .ranges
+                .annotations;
+            assert_eq!(
+                annotations
+                    .iter()
+                    .map(|annotation| annotation.ref_pos)
+                    .collect::<Vec<_>>(),
+                vec![Some(17), Some(18), Some(19)]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn packed_sequence_matches_canonical_and_ambiguous_bases() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(6)]);
+        record.set(b"packed_bases", Some(&cigar), b"RATGCN", &[30; 6]);
+        record.push_aux(
+            b"MM",
+            Aux::String("A+a,0;C+c,0;G+g,0;T+t,0;N+n,0,0,0,0,0,0;"),
+        )?;
+        record.push_aux(
+            b"ML",
+            Aux::ArrayU8((&[101, 102, 103, 104, 105, 106, 107, 108, 109, 110]).into()),
+        )?;
+
+        let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+        for (base, expected_pos) in [(b'A', 1), (b'C', 4), (b'G', 3), (b'T', 2)] {
+            let annotations = &mods
+                .base_mods
+                .iter()
+                .find(|base_mod| base_mod.modified_base == base)
+                .expect("canonical base group should be present")
+                .ranges
+                .annotations;
+            assert_eq!(annotations.len(), 1);
+            assert_eq!(
+                annotations.first().expect("one annotation").pos,
+                expected_pos
+            );
+        }
+
+        let n_annotations = &mods
+            .base_mods
+            .iter()
+            .find(|base_mod| base_mod.modified_base == b'N')
+            .expect("N group should be present")
+            .ranges
+            .annotations;
+        assert_eq!(
+            n_annotations
+                .iter()
+                .map(|annotation| annotation.pos)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4, 5]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn packed_reverse_sequence_matches_canonical_and_ambiguous_bases() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(6)]);
+        record.set(b"packed_reverse_bases", Some(&cigar), b"RATGCN", &[30; 6]);
+        record.set_reverse();
+        record.push_aux(
+            b"MM",
+            Aux::String("A+a,0;C+c,0;G+g,0;T+t,0;N+n,0,0,0,0,0,0;"),
+        )?;
+        record.push_aux(
+            b"ML",
+            Aux::ArrayU8((&[101, 102, 103, 104, 105, 106, 107, 108, 109, 110]).into()),
+        )?;
+
+        let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+        for (base, expected_pos) in [(b'A', 2), (b'C', 3), (b'G', 4), (b'T', 1)] {
+            let annotations = &mods
+                .base_mods
+                .iter()
+                .find(|base_mod| base_mod.modified_base == base)
+                .expect("canonical base group should be present")
+                .ranges
+                .annotations;
+            assert_eq!(annotations.len(), 1);
+            assert_eq!(
+                annotations.first().expect("one annotation").pos,
+                expected_pos
+            );
+        }
+
+        let n_annotations = &mods
+            .base_mods
+            .iter()
+            .find(|base_mod| base_mod.modified_base == b'N')
+            .expect("N group should be present")
+            .ranges
+            .annotations;
+        assert_eq!(
+            n_annotations
+                .iter()
+                .map(|annotation| annotation.pos)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4, 5]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn complex_cigar_fallback_preserves_insertion_coordinates() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        let cigar = bam::record::CigarString::from(vec![
+            bam::record::Cigar::Match(2),
+            bam::record::Cigar::Ins(1),
+            bam::record::Cigar::Match(2),
+        ]);
+        record.set(b"insertion", Some(&cigar), b"AACAA", &[30; 5]);
+        record.unset_flags();
+        record.set_tid(0);
+        record.set_pos(10);
+        record.push_aux(b"MM", Aux::String("N+n,0,0,0,0,0;"))?;
+        record.push_aux(b"ML", Aux::ArrayU8((&[101, 102, 103, 104, 105]).into()))?;
+
+        let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+        let annotations = &mods
+            .base_mods
+            .first()
+            .expect("one N group")
+            .ranges
+            .annotations;
+        assert_eq!(
+            annotations
+                .iter()
+                .map(|annotation| annotation.ref_pos)
+                .collect::<Vec<_>>(),
+            vec![Some(10), Some(11), None, Some(12), Some(13)]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_u_matches_forward_bam_t_bases() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(3)]);
+        record.set(b"forward_rna", Some(&cigar), b"TAT", &[30; 3]);
+        record.unset_flags();
+        record.set_tid(0);
+        record.set_pos(10);
+        record.push_aux(b"MM", Aux::String("U+m,0,0;"))?;
+        record.push_aux(b"ML", Aux::ArrayU8((&[101, 202]).into()))?;
+
+        let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+        let annotations = &mods
+            .base_mods
+            .first()
+            .expect("one U group")
+            .ranges
+            .annotations;
+        assert_eq!(
+            annotations,
+            &[
+                FiberAnnotation {
+                    pos: 0,
+                    qual: 101,
+                    ref_pos: Some(10),
+                },
+                FiberAnnotation {
+                    pos: 2,
+                    qual: 202,
+                    ref_pos: Some(12),
+                },
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_u_matches_reverse_bam_t_complement() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(3)]);
+        // Stored BAM sequence TGA is the reverse complement of the original TCA.
+        record.set(b"reverse_rna", Some(&cigar), b"TGA", &[30; 3]);
+        record.unset_flags();
+        record.set_reverse();
+        record.set_tid(0);
+        record.set_pos(10);
+        record.push_aux(b"MM", Aux::String("U+m,0;"))?;
+        record.push_aux(b"ML", Aux::ArrayU8((&[203]).into()))?;
+
+        let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+        let annotations = &mods
+            .base_mods
+            .first()
+            .expect("one U group")
+            .ranges
+            .annotations;
+        assert_eq!(
+            annotations,
+            &[FiberAnnotation {
+                pos: 2,
+                qual: 203,
+                ref_pos: Some(12),
+            }]
+        );
+        Ok(())
     }
 
     #[test]
