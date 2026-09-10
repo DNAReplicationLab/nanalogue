@@ -189,6 +189,8 @@ struct Viewer {
     read_label_width: u16,
     /// Whether complete read IDs are displayed.
     full_read_ids: bool,
+    /// Whether lowercase insertion bases are displayed.
+    show_insertions: bool,
 }
 
 impl Viewer {
@@ -234,6 +236,7 @@ impl Viewer {
             window_len: window_len.clamp(1, MAX_REGION_LENGTH),
             read_label_width: READ_LABEL_WIDTH,
             full_read_ids: false,
+            show_insertions: false,
         })
     }
 
@@ -267,6 +270,44 @@ impl Viewer {
     fn reset_read_id_width(&mut self) {
         self.full_read_ids = false;
         self.read_label_width = READ_LABEL_WIDTH;
+    }
+
+    /// Restores display options that do not carry across genomic windows.
+    fn reset_horizontal_options(&mut self) {
+        self.reset_read_id_width();
+        self.show_insertions = false;
+    }
+
+    /// Applies a navigation or display key and reports whether a new region must be fetched.
+    fn handle_key(
+        &mut self,
+        key: KeyCode,
+        records: &[RegionSequence],
+        visible_reads: usize,
+    ) -> bool {
+        if key == KeyCode::Char('r') {
+            self.toggle_read_id_width(records);
+            return false;
+        }
+        if key == KeyCode::Char('i') {
+            self.show_insertions = !self.show_insertions;
+            return false;
+        }
+        if matches!(
+            key,
+            KeyCode::Left | KeyCode::Right | KeyCode::Char('h' | 'l')
+        ) {
+            self.reset_horizontal_options();
+        }
+        let previous_start = self.viewport.start;
+        self.viewport.navigate(
+            key,
+            self.target_len(),
+            self.window_len,
+            records.len(),
+            visible_reads,
+        );
+        self.viewport.start != previous_start
     }
 
     /// Fetches records spanning the visible genomic range.
@@ -467,9 +508,14 @@ fn printable_label(bytes: &[u8], width: usize) -> String {
 }
 
 /// Pads a nanalogue region sequence to the visible genomic screen width.
-fn sequence_columns(record: &RegionSequence, width: u16) -> String {
+fn sequence_columns(record: &RegionSequence, width: u16, show_insertions: bool) -> String {
     let mut output = vec![b' '; usize::from(width)];
-    for (offset, base) in record.sequence().bytes().enumerate() {
+    let sequence = if show_insertions {
+        record.sequence_with_insertions()
+    } else {
+        record.sequence()
+    };
+    for (offset, base) in sequence.bytes().enumerate() {
         if let Some(cell) = output.get_mut(offset) {
             *cell = base;
         }
@@ -567,7 +613,11 @@ fn build_frame(viewer: &Viewer, records: &[RegionSequence], cols: u16, rows: u16
         .enumerate()
     {
         let mut line = label_column(record.read_id(), viewer.read_label_width);
-        line.push_str(&sequence_columns(record, genome_cols));
+        line.push_str(&sequence_columns(
+            record,
+            genome_cols,
+            viewer.show_insertions,
+        ));
         let terminal_row = screen_row.saturating_add(4);
         write!(&mut frame, "\x1b[{terminal_row};1H").expect("writing to String cannot fail");
         frame.push_str(if record.is_reverse() {
@@ -582,12 +632,17 @@ fn build_frame(viewer: &Viewer, records: &[RegionSequence], cols: u16, rows: u16
     if rows > 3 {
         write!(&mut frame, "\x1b[{rows};1H\x1b[7m").expect("writing to String cannot fail");
         let footer = format!(
-            " left/h right/l move {} bp  up/k down/j scroll reads  i {} IDs  q quit",
+            " left/h right/l {} bp  up/k down/j reads  r {} IDs  i {} ins  q quit",
             viewer.window_len,
             if viewer.full_read_ids {
                 "short"
             } else {
                 "full"
+            },
+            if viewer.show_insertions {
+                "hide"
+            } else {
+                "show"
             }
         );
         frame.push_str(&fixed_line(&footer, effective_cols));
@@ -643,25 +698,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         if should_quit(key) {
             break;
         }
-        if key.code == KeyCode::Char('i') {
-            viewer.toggle_read_id_width(&records);
-            continue;
-        }
-        if matches!(
-            key.code,
-            KeyCode::Left | KeyCode::Right | KeyCode::Char('h' | 'l')
-        ) {
-            viewer.reset_read_id_width();
-        }
-        let previous_start = viewer.viewport.start;
-        viewer.viewport.navigate(
-            key.code,
-            viewer.target_len(),
-            viewer.window_len,
-            records.len(),
-            visible_reads,
-        );
-        if viewer.viewport.start != previous_start {
+        if viewer.handle_key(key.code, &records, visible_reads) {
             records = viewer.visible_records()?;
         }
     }
@@ -735,7 +772,7 @@ mod tests {
             .expect("retrieve nanalogue region sequences");
         let row = rows.first().expect("one overlapping read");
         assert_eq!(row.read_id(), "a4f36092-b4d5-47a9-813e-c22c3b477a0c");
-        assert_eq!(sequence_columns(row, 10), "ACATCAA   ");
+        assert_eq!(sequence_columns(row, 10, false), "ACATCAA   ");
     }
 
     #[test]
@@ -771,6 +808,58 @@ mod tests {
         viewer.reset_read_id_width();
         assert!(!viewer.full_read_ids);
         assert_eq!(viewer.read_label_width, READ_LABEL_WIDTH);
+    }
+
+    #[test]
+    fn display_keys_do_not_fetch_and_horizontal_keys_reset_options() {
+        let position = InitialPosition {
+            contig: String::from("dummyIII"),
+            start: 23,
+        };
+        let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), Some(position), 7)
+            .expect("position should open");
+        let records = viewer.visible_records().expect("records should load");
+
+        assert!(!viewer.handle_key(KeyCode::Char('i'), &records, 1));
+        assert!(viewer.show_insertions);
+        for key in [
+            KeyCode::Up,
+            KeyCode::Down,
+            KeyCode::Char('k'),
+            KeyCode::Char('j'),
+        ] {
+            assert!(!viewer.handle_key(key, &records, 1));
+            assert!(viewer.show_insertions);
+        }
+        assert!(!viewer.handle_key(KeyCode::Char('i'), &records, 1));
+        assert!(!viewer.show_insertions);
+
+        assert!(!viewer.handle_key(KeyCode::Char('r'), &records, 1));
+        assert!(viewer.full_read_ids);
+        assert!(!viewer.handle_key(KeyCode::Char('r'), &records, 1));
+        assert!(!viewer.full_read_ids);
+
+        for key in [
+            KeyCode::Left,
+            KeyCode::Right,
+            KeyCode::Char('h'),
+            KeyCode::Char('l'),
+        ] {
+            viewer.show_insertions = true;
+            viewer.full_read_ids = true;
+            viewer.read_label_width = full_read_label_width(&records);
+            assert!(viewer.handle_key(key, &records, 1));
+            assert!(!viewer.show_insertions);
+            assert!(!viewer.full_read_ids);
+            assert_eq!(viewer.read_label_width, READ_LABEL_WIDTH);
+        }
+
+        viewer.viewport.start = 0;
+        viewer.show_insertions = true;
+        viewer.full_read_ids = true;
+        assert!(!viewer.handle_key(KeyCode::Left, &records, 1));
+        assert!(!viewer.show_insertions);
+        assert!(!viewer.full_read_ids);
     }
 
     #[test]
@@ -825,13 +914,23 @@ mod tests {
             contig: String::from("dummyIII"),
             start: 10,
         };
-        let viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), Some(position), 40)
+        let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), Some(position), 40)
             .expect("position should open");
         assert_eq!(viewer.viewport.start, 10);
         assert_eq!(viewer.current_window_len(), 40);
         let frame = build_frame(&viewer, &[], 80, 10);
-        assert!(frame.contains("move 40 bp"));
-        assert!(frame.contains("i full IDs"));
+        assert!(frame.contains("left/h right/l 40 bp"));
+        assert!(frame.contains("r full IDs"));
+        assert!(frame.contains("i show ins"));
+        assert!(frame.contains("q quit"));
+
+        viewer.window_len = 200;
+        viewer.full_read_ids = true;
+        viewer.show_insertions = true;
+        let toggled_frame = build_frame(&viewer, &[], 80, 10);
+        assert!(toggled_frame.contains("r short IDs"));
+        assert!(toggled_frame.contains("i hide ins"));
+        assert!(toggled_frame.contains("q quit"));
     }
 
     #[test]

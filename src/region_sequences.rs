@@ -15,6 +15,8 @@ pub struct RegionSequence {
     read_id: String,
     /// Region sequence with insertions omitted and deletions represented by `.`.
     sequence: String,
+    /// Region sequence with insertions represented by lowercase bases.
+    sequence_with_insertions: String,
     /// Whether the alignment is on the reverse strand.
     reverse: bool,
 }
@@ -30,6 +32,12 @@ impl RegionSequence {
     #[must_use]
     pub fn sequence(&self) -> &str {
         &self.sequence
+    }
+
+    /// Returns the sequence intersecting the requested region with lowercase insertions.
+    #[must_use]
+    pub fn sequence_with_insertions(&self) -> &str {
+        &self.sequence_with_insertions
     }
 
     /// Returns whether the alignment is on the reverse strand.
@@ -50,21 +58,33 @@ pub struct RegionSequenceReader {
     target_lengths: Vec<u32>,
 }
 
-/// Formats nanalogue's reference-coordinate calls without insertion entries.
-fn sequence_without_insertions<I>(coordinates: I) -> Result<String, Error>
+/// Formats nanalogue's reference-coordinate calls with and without insertion entries.
+fn format_region_sequences<I>(coordinates: I) -> Result<(String, String), Error>
 where
     I: IntoIterator<Item = Option<(bool, u8, u8)>>,
 {
-    Ok(String::from_utf8(
-        coordinates
-            .into_iter()
-            .filter_map(|base| match base {
-                Some((true, nucleotide, _quality)) => Some(nucleotide.to_ascii_uppercase()),
-                None => Some(b'.'),
-                Some((false, _insertion, _quality)) => None,
-            })
-            .collect(),
-    )?)
+    let mut sequence = Vec::new();
+    let mut sequence_with_insertions = Vec::new();
+    for base in coordinates {
+        match base {
+            Some((true, nucleotide, _quality)) => {
+                let uppercase_nucleotide = nucleotide.to_ascii_uppercase();
+                sequence.push(uppercase_nucleotide);
+                sequence_with_insertions.push(uppercase_nucleotide);
+            }
+            None => {
+                sequence.push(b'.');
+                sequence_with_insertions.push(b'.');
+            }
+            Some((false, insertion, _quality)) => {
+                sequence_with_insertions.push(insertion.to_ascii_lowercase());
+            }
+        }
+    }
+    Ok((
+        String::from_utf8(sequence)?,
+        String::from_utf8(sequence_with_insertions)?,
+    ))
 }
 
 impl RegionSequenceReader {
@@ -168,16 +188,15 @@ impl RegionSequenceReader {
                     ),
                     Err(error) => return Err(error),
                 };
-            let sequence = if has_sequence {
-                sequence_without_insertions(
-                    curr_read.seq_and_qual_on_ref_coords(&record, &region)?,
-                )?
+            let (sequence, sequence_with_insertions) = if has_sequence {
+                format_region_sequences(curr_read.seq_and_qual_on_ref_coords(&record, &region)?)?
             } else {
-                String::from("*")
+                (String::from("*"), String::from("*"))
             };
             rows.push(RegionSequence {
                 read_id: String::from(curr_read.read_id()),
                 sequence,
+                sequence_with_insertions,
                 reverse: curr_read.strand() == '-',
             });
         }
@@ -191,8 +210,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn region_sequence_omits_insertions_and_marks_deletions() {
-        let sequence = sequence_without_insertions([
+    fn region_sequences_optionally_show_lowercase_insertions() {
+        let (sequence, sequence_with_insertions) = format_region_sequences([
             Some((true, b'a', 30)),
             None,
             Some((false, b'G', 30)),
@@ -200,5 +219,6 @@ mod tests {
         ])
         .expect("valid sequence calls");
         assert_eq!(sequence, "A.T");
+        assert_eq!(sequence_with_insertions, "A.gT");
     }
 }
