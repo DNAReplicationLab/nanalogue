@@ -1,11 +1,11 @@
 {
   "contigs": {
-    "number": 1,
-    "len_range": [120, 120],
+    "number": 3,
+    "len_range": [800, 800],
     "repeated_seq": "ACGT"
   },
   "reads": [{
-    "number": 120,
+    "number": 600,
     "mapq_range": [30, 60],
     "base_qual_range": [30, 40],
     "len_range": [1.0, 1.0],

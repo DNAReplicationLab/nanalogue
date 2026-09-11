@@ -62,8 +62,11 @@ const USAGE: &str = concat!(
     "  Left/Right or h/l move one genomic window.\n",
     "  Horizontal movement truncates read IDs and hides insertions.\n",
     "  Up/Down or k/j move one read; Page Up/Page Down move one read page.\n",
+    "  Home/End jump to the first/last read; g prompts for CONTIG:START.\n",
+    "  A successful goto also truncates read IDs and hides insertions.\n",
+    "  In goto: type CONTIG:START; Backspace edits; Enter submits; Escape cancels.\n",
     "  r toggles full read IDs; i toggles insertions.\n",
-    "  q, Escape, Ctrl-C, or Ctrl-D quits.",
+    "  Outside goto, q or Escape quits; Ctrl-C or Ctrl-D always quits.",
 );
 
 /// Initial reference and zero-based coordinate supplied on the command line.
@@ -209,6 +212,12 @@ impl Viewport {
                     .saturating_add(visible_reads)
                     .min(max_offset);
             }
+            KeyCode::Home => {
+                self.read_offset = 0;
+            }
+            KeyCode::End => {
+                self.read_offset = max_offset;
+            }
             _ => {}
         }
     }
@@ -319,6 +328,32 @@ impl Viewer {
     fn reset_horizontal_options(&mut self) {
         self.reset_read_id_width();
         self.show_insertions = false;
+    }
+
+    /// Moves to a validated genomic position and reports whether new records are needed.
+    fn go_to(&mut self, position: &InitialPosition) -> Result<bool, String> {
+        let tid = self
+            .reader
+            .target_id(&position.contig)
+            .ok_or_else(|| format!("unknown reference '{}'", position.contig))?;
+        let contig_len = self
+            .reader
+            .target_len(tid)
+            .ok_or_else(|| String::from("BAM target identifier is invalid"))?;
+        if position.start >= contig_len {
+            return Err(format!(
+                "position {} is outside reference '{}' (length {contig_len})",
+                position.start, position.contig
+            ));
+        }
+        let changed = self.viewport.tid != tid || self.viewport.start != position.start;
+        self.viewport = Viewport {
+            tid,
+            start: position.start,
+            read_offset: 0,
+        };
+        self.reset_horizontal_options();
+        Ok(changed)
     }
 
     /// Applies a navigation or display key and reports whether a new region must be fetched.
@@ -608,8 +643,32 @@ fn full_read_label_width(records: &[RegionSequence]) -> u16 {
         .unwrap_or(READ_LABEL_WIDTH)
 }
 
+/// Builds the compact footer while preserving its existing action-oriented toggle labels.
+fn default_footer(viewer: &Viewer) -> String {
+    format!(
+        "h/l {} bp  j/k row  pgup/dn  home/end  g goto  r {} IDs  i {} ins  q quit",
+        viewer.window_len,
+        if viewer.full_read_ids {
+            "short"
+        } else {
+            "full"
+        },
+        if viewer.show_insertions {
+            "hide"
+        } else {
+            "show"
+        }
+    )
+}
+
 /// Builds the ANSI frame that Ghostty parses into a terminal screen.
-fn build_frame(viewer: &Viewer, records: &[RegionSequence], cols: u16, rows: u16) -> String {
+fn build_frame(
+    viewer: &Viewer,
+    records: &[RegionSequence],
+    cols: u16,
+    rows: u16,
+    footer_override: Option<&str>,
+) -> String {
     let effective_cols = cols.max(1);
     let genome_cols = effective_cols
         .saturating_sub(viewer.read_label_width)
@@ -697,20 +756,7 @@ fn build_frame(viewer: &Viewer, records: &[RegionSequence], cols: u16, rows: u16
 
     if rows > 3 {
         write!(&mut frame, "\x1b[{rows};1H\x1b[7m").expect("writing to String cannot fail");
-        let footer = format!(
-            " left/h right/l {} bp  up/k down/j  pgup/dn  r {} IDs  i {} ins  q quit",
-            viewer.window_len,
-            if viewer.full_read_ids {
-                "short"
-            } else {
-                "full"
-            },
-            if viewer.show_insertions {
-                "hide"
-            } else {
-                "show"
-            }
-        );
+        let footer = footer_override.map_or_else(|| default_footer(viewer), String::from);
         frame.push_str(&fixed_line(&footer, effective_cols));
         frame.push_str("\x1b[0m");
     }
@@ -722,6 +768,151 @@ fn should_quit(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
         || (key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char('c' | 'd')))
+}
+
+/// Result of editing a genomic position in the footer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PositionPromptOutcome {
+    /// The user cancelled the prompt.
+    Cancelled,
+    /// The user requested that the viewer close.
+    Quit,
+    /// A valid position was accepted; the value reports whether records changed.
+    Navigated(bool),
+}
+
+/// Formats a goto prompt whose editable end remains visible at the terminal edge.
+fn position_prompt_footer(input: &str, cols: u16) -> String {
+    const LONG_PREFIX: &str = "Go to CONTIG:START: ";
+    let width = usize::from(cols.max(1));
+    let prefix = if width > LONG_PREFIX.len() {
+        LONG_PREFIX
+    } else if width > 3 {
+        "g: "
+    } else {
+        ""
+    };
+    let available = width.saturating_sub(prefix.len());
+    let mut suffix_start = input.len().saturating_sub(available);
+    while !input.is_char_boundary(suffix_start) {
+        suffix_start = suffix_start.saturating_add(1);
+    }
+    let suffix = input
+        .get(suffix_start..)
+        .expect("suffix starts at a checked UTF-8 boundary");
+    format!("{prefix}{suffix}")
+}
+
+/// Formats a goto error while reserving space for explicit corrective actions.
+fn position_error_footer(error: &str, cols: u16) -> String {
+    const PREFIX: &str = "Error: ";
+    const SUFFIX: &str = ". Backspace to correct; Esc to cancel.";
+    let width = usize::from(cols.max(1));
+    let fixed_width = PREFIX.len().saturating_add(SUFFIX.len());
+    if width <= fixed_width {
+        return if width >= 28 {
+            String::from("Backspace edits; Esc cancels.")
+        } else if width >= 19 {
+            String::from("Bksp edit; Esc back")
+        } else if width >= 8 {
+            String::from("Bksp/Esc")
+        } else {
+            String::from("Esc")
+        };
+    }
+    let detail_width = width.saturating_sub(fixed_width);
+    let mut detail = error
+        .bytes()
+        .take(detail_width)
+        .map(|byte| {
+            if byte.is_ascii_graphic() || byte == b' ' {
+                char::from(byte)
+            } else {
+                '?'
+            }
+        })
+        .collect::<String>();
+    if error.len() > detail_width && detail_width >= 3 {
+        detail.truncate(detail_width.saturating_sub(3));
+        detail.push_str("...");
+    }
+    format!("{PREFIX}{detail}{SUFFIX}")
+}
+
+/// Applies one key press to the goto prompt.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "unrelated terminal keys intentionally leave the position prompt unchanged"
+)]
+fn handle_position_prompt_key(
+    input: &mut String,
+    input_error: &mut Option<String>,
+    key: KeyEvent,
+    viewer: &mut Viewer,
+) -> Option<PositionPromptOutcome> {
+    if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c' | 'd'))
+    {
+        return Some(PositionPromptOutcome::Quit);
+    }
+    match key.code {
+        KeyCode::Esc => Some(PositionPromptOutcome::Cancelled),
+        KeyCode::Enter => {
+            let parsed_position = InitialPosition::parse(input);
+            match parsed_position.and_then(|position| viewer.go_to(&position)) {
+                Ok(changed) => Some(PositionPromptOutcome::Navigated(changed)),
+                Err(error) => {
+                    *input_error = Some(error);
+                    None
+                }
+            }
+        }
+        KeyCode::Backspace => {
+            let _removed_character = input.pop();
+            *input_error = None;
+            None
+        }
+        KeyCode::Char(character)
+            if !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+        {
+            input.push(character);
+            *input_error = None;
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Reads a genomic position while using only the existing footer row as a prompt.
+fn prompt_for_position(
+    renderer: &mut GhosttyRenderer,
+    stdout: &mut Stdout,
+    viewer: &mut Viewer,
+    records: &[RegionSequence],
+) -> Result<PositionPromptOutcome, Box<dyn Error>> {
+    let mut input = String::new();
+    let mut input_error: Option<String> = None;
+    loop {
+        let (cols, rows) = crossterm::terminal::size()?;
+        let footer = input_error.as_ref().map_or_else(
+            || position_prompt_footer(&input, cols),
+            |error| position_error_footer(error, cols),
+        );
+        let frame = build_frame(viewer, records, cols, rows, Some(&footer));
+        renderer.draw(stdout, &frame, cols, rows)?;
+
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        if let Some(outcome) = handle_position_prompt_key(&mut input, &mut input_error, key, viewer)
+        {
+            return Ok(outcome);
+        }
+    }
 }
 
 /// Runs the interactive event loop.
@@ -753,7 +944,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
             .viewport
             .read_offset
             .min(records.len().saturating_sub(visible_reads));
-        let frame = build_frame(&viewer, &records, cols, rows);
+        let frame = build_frame(&viewer, &records, cols, rows, None);
         renderer.draw(&mut stdout, &frame, cols, rows)?;
 
         let Event::Key(key) = event::read()? else {
@@ -764,6 +955,18 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         }
         if should_quit(key) {
             break;
+        }
+        if key.code == KeyCode::Char('g') {
+            match prompt_for_position(&mut renderer, &mut stdout, &mut viewer, &records)? {
+                PositionPromptOutcome::Cancelled => {}
+                PositionPromptOutcome::Quit => break,
+                PositionPromptOutcome::Navigated(changed) => {
+                    if changed {
+                        records = viewer.visible_records()?;
+                    }
+                }
+            }
+            continue;
         }
         if viewer.handle_key(key.code, &records, visible_reads) {
             records = viewer.visible_records()?;
@@ -799,6 +1002,34 @@ fn main() {
 mod tests {
     use super::*;
 
+    fn goto_test_viewer() -> Viewer {
+        let position = InitialPosition {
+            contig: String::from("dummyIII"),
+            start: 23,
+        };
+        let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), &position, None, 7)
+            .expect("position should open");
+        viewer.viewport.read_offset = 1;
+        viewer.full_read_ids = true;
+        viewer.read_label_width = 40;
+        viewer.show_insertions = true;
+        viewer
+    }
+
+    fn prompt_key(
+        input: &mut String,
+        input_error: &mut Option<String>,
+        code: KeyCode,
+        viewer: &mut Viewer,
+    ) -> Option<PositionPromptOutcome> {
+        handle_position_prompt_key(
+            input,
+            input_error,
+            KeyEvent::new(code, KeyModifiers::NONE),
+            viewer,
+        )
+    }
+
     #[test]
     fn navigation_clamps_each_axis() {
         let mut viewport = Viewport {
@@ -833,6 +1064,10 @@ mod tests {
         assert_eq!(viewport.read_offset, 8);
         viewport.read_offset = 15;
         viewport.navigate(KeyCode::PageDown, 1_000, 20, 20, 4);
+        assert_eq!(viewport.read_offset, 16);
+        viewport.navigate(KeyCode::Home, 1_000, 20, 20, 4);
+        assert_eq!(viewport.read_offset, 0);
+        viewport.navigate(KeyCode::End, 1_000, 20, 20, 4);
         assert_eq!(viewport.read_offset, 16);
     }
 
@@ -898,7 +1133,7 @@ mod tests {
             7,
         )?;
         let records = viewer.visible_records()?;
-        let frame = build_frame(&viewer, &records, 26, 6);
+        let frame = build_frame(&viewer, &records, 26, 6, None);
         let mut terminal = Terminal::new(TerminalOptions {
             cols: 26,
             rows: 6,
@@ -950,7 +1185,7 @@ mod tests {
         assert!(viewer.full_read_ids);
         assert_eq!(usize::from(viewer.read_label_width), longest_id_width);
         let first_read_id = records.first().expect("one record").read_id();
-        assert!(build_frame(&viewer, &records, 80, 10).contains(first_read_id));
+        assert!(build_frame(&viewer, &records, 80, 10, None).contains(first_read_id));
 
         viewer.viewport.navigate(KeyCode::Down, 76, 7, 10, 1);
         assert_eq!(usize::from(viewer.read_label_width), longest_id_width);
@@ -984,6 +1219,8 @@ mod tests {
             KeyCode::Char('j'),
             KeyCode::PageUp,
             KeyCode::PageDown,
+            KeyCode::Home,
+            KeyCode::End,
         ] {
             assert!(!viewer.handle_key(key, &records, 1));
             assert!(viewer.show_insertions);
@@ -1020,6 +1257,185 @@ mod tests {
     }
 
     #[test]
+    fn goto_validates_position_and_resets_horizontal_options() {
+        let initial_position = InitialPosition {
+            contig: String::from("dummyIII"),
+            start: 23,
+        };
+        let mut viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &initial_position,
+            None,
+            7,
+        )
+        .expect("position should open");
+        viewer.viewport.read_offset = 1;
+        viewer.full_read_ids = true;
+        viewer.read_label_width = 40;
+        viewer.show_insertions = true;
+
+        let changed = viewer
+            .go_to(&InitialPosition {
+                contig: String::from("dummyI"),
+                start: 10,
+            })
+            .expect("valid position");
+        assert!(changed);
+        assert_eq!(viewer.target_name(), "dummyI");
+        assert_eq!(viewer.viewport.start, 10);
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert!(!viewer.full_read_ids);
+        assert_eq!(viewer.read_label_width, READ_LABEL_WIDTH);
+        assert!(!viewer.show_insertions);
+
+        assert!(
+            !viewer
+                .go_to(&InitialPosition {
+                    contig: String::from("dummyI"),
+                    start: 10,
+                })
+                .expect("unchanged position remains valid")
+        );
+        let unchanged_viewport = viewer.viewport;
+        let _unknown_reference_error = viewer
+            .go_to(&InitialPosition {
+                contig: String::from("missing"),
+                start: 0,
+            })
+            .expect_err("unknown reference should fail");
+        assert_eq!(viewer.viewport, unchanged_viewport);
+        let _out_of_range_error = viewer
+            .go_to(&InitialPosition {
+                contig: String::from("dummyI"),
+                start: 22,
+            })
+            .expect_err("out-of-range position should fail");
+        assert_eq!(viewer.viewport, unchanged_viewport);
+    }
+
+    #[test]
+    fn invalid_goto_can_be_corrected_and_submitted() {
+        let mut viewer = goto_test_viewer();
+        let mut input = String::from("missing:0");
+        let mut input_error = None;
+
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Enter, &mut viewer),
+            None
+        );
+        assert!(
+            input_error
+                .as_deref()
+                .is_some_and(|error| error.contains("unknown reference"))
+        );
+        assert_eq!(viewer.target_name(), "dummyIII");
+        assert_eq!(viewer.viewport.read_offset, 1);
+        assert!(viewer.full_read_ids);
+        assert!(viewer.show_insertions);
+
+        for _ in 0..input.len() {
+            assert_eq!(
+                prompt_key(
+                    &mut input,
+                    &mut input_error,
+                    KeyCode::Backspace,
+                    &mut viewer,
+                ),
+                None
+            );
+        }
+        for character in "dummyI:10".chars() {
+            assert_eq!(
+                prompt_key(
+                    &mut input,
+                    &mut input_error,
+                    KeyCode::Char(character),
+                    &mut viewer,
+                ),
+                None
+            );
+        }
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Enter, &mut viewer),
+            Some(PositionPromptOutcome::Navigated(true))
+        );
+        assert_eq!(viewer.target_name(), "dummyI");
+        assert_eq!(viewer.viewport.start, 10);
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert!(!viewer.full_read_ids);
+        assert!(!viewer.show_insertions);
+    }
+
+    #[test]
+    fn corrected_goto_can_remain_invalid_without_changing_viewer() {
+        let mut viewer = goto_test_viewer();
+        let original_viewport = viewer.viewport;
+        let mut input = String::from("missing:0");
+        let mut input_error = None;
+
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Enter, &mut viewer),
+            None
+        );
+        assert_eq!(
+            prompt_key(
+                &mut input,
+                &mut input_error,
+                KeyCode::Backspace,
+                &mut viewer,
+            ),
+            None
+        );
+        for character in "nonsense".chars() {
+            let _outcome = prompt_key(
+                &mut input,
+                &mut input_error,
+                KeyCode::Char(character),
+                &mut viewer,
+            );
+        }
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Enter, &mut viewer),
+            None
+        );
+        assert!(
+            input_error
+                .as_deref()
+                .is_some_and(|error| error.contains("non-negative integer"))
+        );
+        assert_eq!(viewer.target_name(), "dummyIII");
+        assert_eq!(viewer.viewport, original_viewport);
+        assert!(viewer.full_read_ids);
+        assert!(viewer.show_insertions);
+    }
+
+    #[test]
+    fn escape_cancels_invalid_goto_and_cached_navigation_still_works() {
+        let mut viewer = goto_test_viewer();
+        let records = viewer.visible_records().expect("records should load");
+        let original_viewport = viewer.viewport;
+        let mut input = String::from("missing:0");
+        let mut input_error = None;
+
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Enter, &mut viewer),
+            None
+        );
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Esc, &mut viewer),
+            Some(PositionPromptOutcome::Cancelled)
+        );
+        assert_eq!(viewer.viewport, original_viewport);
+        assert!(viewer.full_read_ids);
+        assert!(viewer.show_insertions);
+
+        assert!(!viewer.handle_key(KeyCode::Home, &records, 1));
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert!(viewer.full_read_ids);
+        assert!(viewer.show_insertions);
+    }
+
+    #[test]
     fn ruler_and_read_labels_share_the_same_dynamic_column() {
         assert_eq!(label_column("read id", 5), "read ");
         assert_eq!(label_column("read", 12), "read        ");
@@ -1050,8 +1466,53 @@ mod tests {
         assert!(USAGE.contains("asterisk means the BAM alignment has no stored read sequence"));
         assert!(USAGE.contains("Horizontal movement truncates read IDs and hides insertions"));
         assert!(USAGE.contains("Page Up/Page Down"));
+        assert!(USAGE.contains("Home/End jump to the first/last read"));
+        assert!(USAGE.contains("g prompts for CONTIG:START"));
+        assert!(USAGE.contains("A successful goto also truncates read IDs and hides insertions"));
+        assert!(USAGE.contains("Backspace edits; Enter submits; Escape cancels"));
         assert!(USAGE.contains("r toggles full read IDs; i toggles insertions"));
-        assert!(USAGE.contains("Escape, Ctrl-C, or Ctrl-D"));
+        assert!(USAGE.contains("Ctrl-C or Ctrl-D always quits"));
+    }
+
+    #[test]
+    fn goto_prompt_keeps_the_editable_suffix_visible() {
+        let mut input = format!("{}:123", "long-contig".repeat(8));
+        let footer = position_prompt_footer(&input, 80);
+        assert_eq!(footer.len(), 80);
+        assert!(footer.ends_with("long-contig:123"));
+
+        let _removed_character = input.pop();
+        let edited_footer = position_prompt_footer(&input, 80);
+        assert_eq!(edited_footer.len(), 80);
+        assert!(edited_footer.ends_with("long-contig:12"));
+    }
+
+    #[test]
+    fn goto_error_explains_how_to_correct_or_cancel() {
+        assert_eq!(
+            position_error_footer("unknown reference 'missing'", 80),
+            "Error: unknown reference 'missing'. Backspace to correct; Esc to cancel."
+        );
+        let long_error = position_error_footer(&"x".repeat(100), 80);
+        assert_eq!(long_error.len(), 80);
+        assert!(long_error.contains("..."));
+        assert!(long_error.ends_with(". Backspace to correct; Esc to cancel."));
+        assert_eq!(
+            position_error_footer("unknown reference 'missing'", 45),
+            "Backspace edits; Esc cancels."
+        );
+        assert_eq!(
+            position_error_footer("unknown reference 'missing'", 27),
+            "Bksp edit; Esc back"
+        );
+        assert_eq!(
+            position_error_footer("unknown reference 'missing'", 18),
+            "Bksp/Esc"
+        );
+        assert_eq!(
+            fixed_line(&position_error_footer("unknown reference 'missing'", 7), 7),
+            "Esc    "
+        );
     }
 
     #[test]
@@ -1111,9 +1572,11 @@ mod tests {
             .expect("position should open");
         assert_eq!(viewer.viewport.start, 10);
         assert_eq!(viewer.current_window_len(), 40);
-        let frame = build_frame(&viewer, &[], 80, 10);
-        assert!(frame.contains("left/h right/l 40 bp"));
+        let frame = build_frame(&viewer, &[], 80, 10, None);
+        assert!(frame.contains("h/l 40 bp"));
         assert!(frame.contains("pgup/dn"));
+        assert!(frame.contains("home/end"));
+        assert!(frame.contains("g goto"));
         assert!(frame.contains("r full IDs"));
         assert!(frame.contains("i show ins"));
         assert!(frame.contains("q quit"));
@@ -1121,10 +1584,14 @@ mod tests {
         viewer.window_len = 200;
         viewer.full_read_ids = true;
         viewer.show_insertions = true;
-        let toggled_frame = build_frame(&viewer, &[], 80, 10);
+        let toggled_frame = build_frame(&viewer, &[], 80, 10, None);
         assert!(toggled_frame.contains("r short IDs"));
         assert!(toggled_frame.contains("i hide ins"));
         assert!(toggled_frame.contains("q quit"));
+
+        let prompt_frame = build_frame(&viewer, &[], 80, 10, Some("Go to CONTIG:START: dummyI:10"));
+        assert!(prompt_frame.contains("Go to CONTIG:START: dummyI:10"));
+        assert!(!prompt_frame.contains("q quit"));
     }
 
     #[test]
