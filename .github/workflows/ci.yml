@@ -41,8 +41,13 @@ jobs:
           node-version: '24.15.0'
       - name: Check repository text hygiene
         run: |
+          ./github_workflow_scripts/check-repo-guardrails.sh
+          node github_workflow_scripts/check-cargo-lints.ts
           node github_workflow_scripts/check-strange-characters.ts
           node github_workflow_scripts/check-committed-secrets.ts
+          node github_workflow_scripts/check-md-links.mjs
+          node github_workflow_scripts/validate-changelog.mjs
+          node github_workflow_scripts/check-path-leaks.mjs
       - name: Build
         run: cargo build
       - name: Test default features
