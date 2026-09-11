@@ -1,5 +1,7 @@
 //! Tests for `curr_reads_to_dataframe` function
 
+#![cfg(feature = "polars")]
+
 use nanalogue_core::{
     AlignmentInfoBuilder, CurrReadBuilder, Error, ModTableEntryBuilder, ReadState,
     curr_reads_to_dataframe,

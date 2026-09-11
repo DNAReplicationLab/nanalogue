@@ -57,6 +57,9 @@ export LIBCLANG_PATH=/usr/lib/llvm-19/lib
 EOF
 fi
 
+step "Configuring repository Git hooks"
+git config --local core.hooksPath .githooks
+
 step "Fetching Rust dependencies"
 CLANG_PATH=/usr/bin/clang-19 \
 LIBCLANG_PATH=/usr/lib/llvm-19/lib \

@@ -12,6 +12,13 @@ categories = ["command-line-utilities", "science::bioinformatics::sequence-analy
 keywords = ["modbam", "bam", "dna", "dna_methylation", "rna"]
 exclude = [".agents/", ".githooks/", ".github/", ".gitignore", "github_workflow_scripts/", "AGENTS.md", "CLAUDE.md"]
 
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = []
+polars = ["dep:polars"]
+
 [dependencies]
 rust-htslib = { version = "=1.0.0", features = ["libdeflate"] } 
 clap = { version = "=4.6.1", features = ["derive", "wrap_help"] }
@@ -21,7 +28,7 @@ bio-types = "=1.0.4"
 rand = "=0.10.1"
 url = { version = "=2.5.8", features = [ "serde" ] }
 derive_builder = "=0.20.2"
-polars = { version = "=0.53.0", default-features = false, features = ["csv"] }
+polars = { version = "=0.53.0", optional = true, default-features = false, features = ["csv"] }
 
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = "0.1.48"

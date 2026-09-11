@@ -7,4 +7,7 @@ source "$HOME/.cargo/env"
 command -v cargo >/dev/null
 command -v clang-19 >/dev/null
 
+# Ensure repository hooks are configured on initial activation and every wake.
+git config --local core.hooksPath .githooks
+
 echo "Orb environment ready."

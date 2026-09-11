@@ -45,16 +45,23 @@ jobs:
           node-version: '24.15.0'
       - name: Check repository text hygiene
         run: |
+          ./github_workflow_scripts/check-repo-guardrails.sh
+          node github_workflow_scripts/check-cargo-lints.ts
           node github_workflow_scripts/check-strange-characters.ts
           node github_workflow_scripts/check-committed-secrets.ts
+          node github_workflow_scripts/check-md-links.mjs
+          node github_workflow_scripts/validate-changelog.mjs
+          node github_workflow_scripts/check-path-leaks.mjs
       - name: Delete cargo.lock
         run: rm Cargo.lock
       - name: Build
         run: cargo build
-      - name: Test
+      - name: Test default features
         run: cargo test
+      - name: Test all features
+        run: cargo test --all-features
       - name: Test remote URL access
-        run: cargo test -- --ignored --test-threads=1 peek_remote_zenodo_hela
+        run: cargo test --all-features -- --ignored --test-threads=1 peek_remote_zenodo_hela
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Cargo clean

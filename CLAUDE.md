@@ -2,7 +2,9 @@ After you have finished incorporating code and before showing a final
 message to me that you have successfully done everything, you must run
 the following commands in this order:
 - `cargo clippy -q --all-features --all-targets -- -D warnings` to make sure you pass clippy linting tests
-- `cargo test -q` to make sure you pass cargo tests.
+- `cargo test -q` to make sure tests pass with the default features.
+- `cargo test -q --all-features` to make sure tests pass with all features,
+  including Polars.
 - `cargo fmt` to format the code in the rust style.
 
 Note: some tests deliberately construct invalid scenarios to verify that the
@@ -25,6 +27,16 @@ matching libclang shared library. Retry with `CLANG_PATH=/usr/bin/clang-18` and
 another Clang 18–21 installation and ask the user if none is available. Newer
 HTSlib versions may change CRAM reference resolution, while newer
 `hts-sys`/bindgen versions may support Clang 22.
+
+## Git hooks
+
+The repository hooks in `.githooks/` must be active in every checkout. In an
+Amp environment, where Amp's cloud sandboxes are called orbs, the
+`.agents/setup` and `.agents/resume` lifecycle scripts must configure the hooks
+with `git config --local core.hooksPath .githooks`. Other environments may not
+run or inspect these Amp-specific `.agents/` scripts, so configure the hook path
+directly when necessary. Before creating a commit, verify that
+`git config --local --get core.hooksPath` prints `.githooks`.
 
 ## Final review
 

@@ -139,6 +139,7 @@ pub enum Error {
     BuilderValidation(String),
     /// Problem parsing items while converting between DNA base representations
     FromCharError(Box<TryFromCharError>),
+    #[cfg(feature = "polars")]
     /// Error from Polars during `DataFrame` construction or manipulation
     PolarsError(Box<polars::error::PolarsError>),
     /// Error simulating DNA sequences
@@ -246,6 +247,7 @@ impl fmt::Display for Error {
                 )
             }
             Self::FromCharError(v) => write!(f, "error converting between DNA bases: `{v}`"),
+            #[cfg(feature = "polars")]
             Self::PolarsError(v) => write!(f, "Polars error: `{v}`"),
             Self::SimulateDNASeqCIGAREndProblem(v) => {
                 write!(
@@ -276,6 +278,7 @@ impl std::error::Error for Error {
             Self::FormattingError(err) => Some(err.as_ref()),
             Self::BuilderError(err) => Some(err.as_ref()),
             Self::FromCharError(err) => Some(err.as_ref()),
+            #[cfg(feature = "polars")]
             Self::PolarsError(err) => Some(err.as_ref()),
             Self::UnknownAlignState(_)
             | Self::InvalidSeqLength(_)
@@ -379,6 +382,7 @@ impl From<TryFromCharError> for Error {
     }
 }
 
+#[cfg(feature = "polars")]
 impl From<polars::error::PolarsError> for Error {
     fn from(value: polars::error::PolarsError) -> Self {
         Self::PolarsError(Box::new(value))
@@ -388,6 +392,7 @@ impl From<polars::error::PolarsError> for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "polars")]
     use polars::error::PolarsError;
     use rust_htslib::bam;
 
@@ -660,12 +665,15 @@ mod tests {
             "expected char conversion prefix in `{from_char}`"
         );
 
-        let polars_error =
-            Error::from(PolarsError::ComputeError(String::from("boom").into())).to_string();
-        assert!(
-            polars_error.starts_with("Polars error: `"),
-            "expected Polars prefix in `{polars_error}`"
-        );
+        #[cfg(feature = "polars")]
+        {
+            let polars_error =
+                Error::from(PolarsError::ComputeError(String::from("boom").into())).to_string();
+            assert!(
+                polars_error.starts_with("Polars error: `"),
+                "expected Polars prefix in `{polars_error}`"
+            );
+        }
 
         let density = Error::WindowDensBelowThres {
             density: F32Bw0and1::new(0.25).expect("density should be valid"),
@@ -698,10 +706,13 @@ mod tests {
             Error::from(fmt::Error),
             Error::from(UninitializedFieldError::new("bam_path")),
             Error::from(sample_try_from_char_error()),
-            Error::from(PolarsError::ComputeError(String::from("boom").into())),
         ];
-
         assert_sources_present(&cases);
+
+        #[cfg(feature = "polars")]
+        assert_sources_present(&[Error::from(PolarsError::ComputeError(
+            String::from("boom").into(),
+        ))]);
     }
 
     fn assert_sources_absent(cases: &[Error]) {
@@ -805,9 +816,12 @@ mod tests {
             Error::from(sample_try_from_char_error()),
             Error::FromCharError(_)
         ));
-        assert!(matches!(
-            Error::from(PolarsError::ComputeError(String::from("boom").into())),
-            Error::PolarsError(_)
-        ));
+        #[cfg(feature = "polars")]
+        {
+            assert!(matches!(
+                Error::from(PolarsError::ComputeError(String::from("boom").into())),
+                Error::PolarsError(_)
+            ));
+        }
     }
 }
