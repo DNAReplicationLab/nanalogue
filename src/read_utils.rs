@@ -15,6 +15,7 @@ use crate::{
 };
 use bio_types::genome::AbstractInterval as _;
 use derive_builder::Builder;
+#[cfg(feature = "polars")]
 use polars::{df, prelude::DataFrame};
 use rust_htslib::{bam::ext::BamRecordExtensions as _, bam::record::Record};
 use serde::{Deserialize, Serialize};
@@ -2376,6 +2377,7 @@ ascending needed even if reversed read)!",
     Ok(BaseMods { base_mods })
 }
 
+#[cfg(feature = "polars")]
 /// Convert a vector of `CurrRead<AlignAndModData>` to a Polars `DataFrame`
 /// with one row per modification data point
 ///
@@ -2794,6 +2796,7 @@ mod test_error_handling {
     }
 
     #[test]
+    #[cfg(feature = "polars")]
     fn curr_reads_to_dataframe_alignment_end_overflow_errors() {
         let curr_read = CurrRead {
             state: ReadState::PrimaryFwd,

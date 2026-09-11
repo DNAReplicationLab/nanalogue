@@ -45,10 +45,12 @@ jobs:
           node github_workflow_scripts/check-committed-secrets.ts
       - name: Build
         run: cargo build
-      - name: Test
+      - name: Test default features
         run: cargo test
+      - name: Test all features
+        run: cargo test --all-features
       - name: Test remote URL access
-        run: cargo test -- --ignored --test-threads=1 peek_remote_zenodo_hela
+        run: cargo test --all-features -- --ignored --test-threads=1 peek_remote_zenodo_hela
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Cargo clean

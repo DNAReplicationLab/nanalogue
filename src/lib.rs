@@ -121,9 +121,10 @@ pub use file_utils::{
     nanalogue_indexed_bam_reader, nanalogue_indexed_bam_reader_from_url, write_bam_denovo,
     write_cram_denovo, write_fasta,
 };
+#[cfg(feature = "polars")]
+pub use read_utils::curr_reads_to_dataframe;
 pub use read_utils::{
     AlignmentInfo, AlignmentInfoBuilder, CurrRead, CurrReadBuilder, ModTableEntryBuilder,
-    curr_reads_to_dataframe,
 };
 pub use simulate_mod_bam::SimulationConfig;
 pub use subcommands::{

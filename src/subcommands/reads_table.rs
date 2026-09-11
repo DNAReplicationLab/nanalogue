@@ -19,8 +19,11 @@ use crate::{
     ensure_valid_read_id,
     file_utils::read_line_capped,
 };
+#[cfg(feature = "polars")]
 use polars::prelude::*;
 use rust_htslib::bam;
+#[cfg(feature = "polars")]
+use std::io::Cursor;
 use std::{
     collections::{
         HashMap,
@@ -28,7 +31,7 @@ use std::{
     },
     fmt,
     fs::File,
-    io::{BufReader, Cursor},
+    io::BufReader,
     iter,
     rc::Rc,
     str,
@@ -825,6 +828,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "polars")]
 /// Creates a `DataFrame` from read table data
 ///
 /// This function calls [`run`] with a buffer handle, then parses the output into a Polars `DataFrame`.
@@ -1817,10 +1821,11 @@ mod sequencing_summary_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "polars"))]
 #[expect(
     clippy::arithmetic_side_effects,
-    reason = "arithmetic in generated rstest case bodies operates on small test data"
+    clippy::missing_assert_message,
+    reason = "generated rstest cases use direct assertions on locally named expected values"
 )]
 mod stochastic_tests {
     use super::*;
@@ -2457,7 +2462,11 @@ mod stochastic_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "polars"))]
+#[expect(
+    clippy::missing_assert_message,
+    reason = "generated rstest cases use direct assertions on locally named expected values"
+)]
 mod stochastic_tests_with_mods {
     use super::*;
     use crate::{

@@ -1,9 +1,11 @@
 //! Tests for `set_mod_data_restricted_options` method in `read_utils.rs`
 //! Covers filtering by region, tag, strand, probability, base quality, and read end trimming
 
+#[cfg(feature = "polars")]
+use nanalogue_core::curr_reads_to_dataframe;
 use nanalogue_core::{
     CurrRead, Error, GenomicBed3, InputModOptions, InputRegionOptions, ModChar,
-    RestrictModCalledStrand, ThresholdState, curr_reads_to_dataframe, nanalogue_bam_reader,
+    RestrictModCalledStrand, ThresholdState, nanalogue_bam_reader,
 };
 use rust_htslib::bam::Read as _;
 use std::str::FromStr as _;
@@ -41,6 +43,7 @@ impl MockModOptions {
         self
     }
 
+    #[cfg(feature = "polars")]
     fn with_mod_prob_filter(mut self, threshold: ThresholdState) -> Self {
         self.mod_prob_filter = threshold;
         self
@@ -123,6 +126,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "polars")]
     #[test]
     fn high_probability_filter() -> Result<(), Error> {
         // Test: Probability threshold filtering with explicit position checking
@@ -221,6 +225,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "polars")]
     #[test]
     fn region_filter_partial_overlap() -> Result<(), Error> {
         // Test: Partial overlap - only mods in overlapping region should be retained
@@ -343,6 +348,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "polars")]
     #[test]
     fn trim_read_ends() -> Result<(), Error> {
         // Test: Trimming read ends should exclude modifications near ends
@@ -593,6 +599,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "polars")]
     #[test]
     fn combined_filters() -> Result<(), Error> {
         // Test: Multiple filters working together

@@ -3064,6 +3064,7 @@ mod read_generation_barcodes {
 )]
 mod read_generation_with_mods_tests {
     use super::*;
+    #[cfg(feature = "polars")]
     use crate::{CurrRead, ThresholdState, curr_reads_to_dataframe};
     use rust_htslib::bam::Read as _;
 
@@ -3191,6 +3192,7 @@ mod read_generation_with_mods_tests {
         assert!(matches!(read.aux(b"ML"), Ok(Aux::ArrayU8(values)) if values.iter().eq([255; 4])));
     }
 
+    #[cfg(feature = "polars")]
     // Simulates ten full-length reads whose 25 T bases are all dropped, then
     /// parses their modification data into a `DataFrame`.
     fn all_dropped_t_mods_dataframe(
@@ -3246,6 +3248,7 @@ mod read_generation_with_mods_tests {
         curr_reads_to_dataframe(&curr_reads).unwrap()
     }
 
+    #[cfg(feature = "polars")]
     /// Checks the parsed fields shared by the implicit all-dropped cases.
     fn assert_all_dropped_implicit_t_dataframe(df: &polars::prelude::DataFrame) {
         assert_eq!(df.height(), 250);
@@ -3291,6 +3294,7 @@ mod read_generation_with_mods_tests {
         assert_eq!(distinct_read_ids.len(), 10);
     }
 
+    #[cfg(feature = "polars")]
     /// Explicit missing-data suffixes should produce no calls for dropped bases.
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
@@ -3301,6 +3305,7 @@ mod read_generation_with_mods_tests {
         assert_eq!(df.height(), 0);
     }
 
+    #[cfg(feature = "polars")]
     /// Dot suffixes should report every dropped base as implicitly unmodified.
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
@@ -3311,6 +3316,7 @@ mod read_generation_with_mods_tests {
         assert_all_dropped_implicit_t_dataframe(&df);
     }
 
+    #[cfg(feature = "polars")]
     /// Suffix-free groups should report every dropped base as implicitly unmodified.
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
@@ -4873,6 +4879,7 @@ mod read_generation_with_mods_tests {
     /// For a "ACGT" repeated contig, C's are at positions 1, 5, 9, 13, ... (form 4n+1).
     /// On reverse complement, G's become C's at positions 2, 6, 10, 14, ... (form 4n+2).
     /// With 100% mismatch, positions should be shifted and no longer follow these patterns.
+    #[cfg(feature = "polars")]
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
     #[case::cram(AlignmentFormat::Cram)]
