@@ -45,11 +45,26 @@ const READ_LABEL_WIDTH: u16 = 19;
 /// Maximum number of genomic bases displayed regardless of terminal width.
 const MAX_REGION_LENGTH: u32 = 200;
 
-/// Short usage text for this deliberately minimal positional-argument program.
-const USAGE: &str = "Usage: nanalogue_bam_viewer <BAM> <CONTIG:START> [MOD_TYPE]\n\
-START is zero-based; displayed coordinates are one-based.\n\
-The end coordinate is selected from the terminal width, up to 200 bp.\n\
-MOD_TYPE is a letter or numeric ChEBI code; calls with probability >= 0.5 are bold.";
+/// Usage, display conventions, and controls shown for help and argument errors.
+const USAGE: &str = concat!(
+    "Usage: nanalogue_bam_viewer <BAM> <CONTIG:START> [MOD_TYPE]\n",
+    "START is zero-based; displayed coordinates are one-based.\n",
+    "The end coordinate is selected from the terminal width, up to 200 bp.\n",
+    "MOD_TYPE is a letter or numeric ChEBI code; calls with probability >= 0.5 are ",
+    "bold and underlined.\n",
+    "\n",
+    "Display:\n",
+    "  Green reads are forward; yellow reads are reverse.\n",
+    "  Lowercase bases are insertions; dots are deletions or reference skips.\n",
+    "  An asterisk means the BAM alignment has no stored read sequence.\n",
+    "\n",
+    "Controls:\n",
+    "  Left/Right or h/l move one genomic window.\n",
+    "  Horizontal movement truncates read IDs and hides insertions.\n",
+    "  Up/Down or k/j move one read; Page Up/Page Down move one read page.\n",
+    "  r toggles full read IDs; i toggles insertions.\n",
+    "  q, Escape, Ctrl-C, or Ctrl-D quits.",
+);
 
 /// Initial reference and zero-based coordinate supplied on the command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1024,6 +1039,19 @@ mod tests {
             }
         );
         assert_eq!(args.mod_type, None);
+    }
+
+    #[test]
+    fn usage_describes_display_and_controls() {
+        assert!(USAGE.contains("bold and underlined"));
+        assert!(
+            USAGE.contains("Lowercase bases are insertions; dots are deletions or reference skips")
+        );
+        assert!(USAGE.contains("asterisk means the BAM alignment has no stored read sequence"));
+        assert!(USAGE.contains("Horizontal movement truncates read IDs and hides insertions"));
+        assert!(USAGE.contains("Page Up/Page Down"));
+        assert!(USAGE.contains("r toggles full read IDs; i toggles insertions"));
+        assert!(USAGE.contains("Escape, Ctrl-C, or Ctrl-D"));
     }
 
     #[test]

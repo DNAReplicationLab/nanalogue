@@ -323,6 +323,44 @@ mod tests {
         Ok(path)
     }
 
+    fn write_zero_sequence_test_bam(
+        cigar: Vec<Cigar>,
+        mod_tags: Option<(&str, &[u8])>,
+    ) -> Result<std::path::PathBuf, Error> {
+        let mut record = bam::Record::new();
+        record.set_tid(0);
+        record.set_pos(0);
+        record.set_mapq(60);
+        record.unset_unmapped();
+        record.set(
+            b"sequence-not-stored",
+            Some(&CigarString::from(cigar)),
+            b"",
+            &[],
+        );
+        if let Some((mm, ml)) = mod_tags {
+            record.push_aux(b"MM", Aux::String(mm))?;
+            record.push_aux(b"ML", Aux::ArrayU8(ml.into()))?;
+        }
+        let path = std::env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
+        write_bam_denovo(
+            [record],
+            [(String::from("chr1"), 20)],
+            [String::from("rg1")],
+            Vec::<String>::new(),
+            &path,
+        )?;
+        Ok(path)
+    }
+
+    fn assert_zero_sequence_placeholder(row: &RegionSequence) {
+        assert_eq!(row.read_id(), "sequence-not-stored");
+        assert_eq!(row.sequence(), "*");
+        assert_eq!(row.sequence_with_insertions(), "*");
+        assert_eq!(row.modifications(), [false]);
+        assert_eq!(row.modifications_with_insertions(), [false]);
+    }
+
     fn remove_test_bam(path: &std::path::Path) {
         std::fs::remove_file(path).expect("remove test BAM");
         std::fs::remove_file(format!("{}.bai", path.display())).expect("remove test BAM index");
@@ -386,6 +424,76 @@ mod tests {
         let _error = reader
             .sequences(0, 0, 5, Some(ModChar::new('a')))
             .expect_err("malformed modification tags should fail when parsed");
+
+        remove_test_bam(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn zero_length_sequence_is_returned_as_an_asterisk() -> Result<(), Error> {
+        let path = write_zero_sequence_test_bam(vec![Cigar::Match(5)], None)?;
+        let mut reader = RegionSequenceReader::from_path(&path)?;
+
+        let rows = reader.sequences(0, 0, 5, None)?;
+        assert_zero_sequence_placeholder(rows.first().expect("one read"));
+
+        remove_test_bam(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn zero_length_sequence_ignores_complex_cigar_operations() -> Result<(), Error> {
+        let path = write_zero_sequence_test_bam(
+            vec![
+                Cigar::Match(2),
+                Cigar::Ins(2),
+                Cigar::Del(1),
+                Cigar::RefSkip(1),
+                Cigar::Match(3),
+            ],
+            None,
+        )?;
+        let mut reader = RegionSequenceReader::from_path(&path)?;
+
+        let rows = reader.sequences(0, 0, 7, None)?;
+        assert_zero_sequence_placeholder(rows.first().expect("one read"));
+
+        remove_test_bam(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn zero_length_sequence_skips_malformed_modification_tags() -> Result<(), Error> {
+        let path =
+            write_zero_sequence_test_bam(vec![Cigar::Match(5)], Some(("A+a?,0,0;", &[200])))?;
+        let mut reader = RegionSequenceReader::from_path(&path)?;
+
+        let rows = reader.sequences(0, 0, 5, Some(ModChar::new('a')))?;
+        assert_zero_sequence_placeholder(rows.first().expect("one read"));
+
+        remove_test_bam(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn zero_length_sequence_skips_unpaired_modification_probabilities() -> Result<(), Error> {
+        let path = write_zero_sequence_test_bam(vec![Cigar::Match(5)], Some(("", &[200])))?;
+        let mut reader = RegionSequenceReader::from_path(&path)?;
+
+        let rows = reader.sequences(0, 0, 5, Some(ModChar::new('a')))?;
+        assert_zero_sequence_placeholder(rows.first().expect("one read"));
+
+        remove_test_bam(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn zero_length_sequence_skips_paired_modification_tags() -> Result<(), Error> {
+        let path = write_zero_sequence_test_bam(vec![Cigar::Match(5)], Some(("A+a?,0;", &[200])))?;
+        let mut reader = RegionSequenceReader::from_path(&path)?;
+
+        let rows = reader.sequences(0, 0, 5, Some(ModChar::new('a')))?;
+        assert_zero_sequence_placeholder(rows.first().expect("one read"));
 
         remove_test_bam(&path);
         Ok(())
