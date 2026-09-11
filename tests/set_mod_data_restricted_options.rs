@@ -43,7 +43,6 @@ impl MockModOptions {
         self
     }
 
-    #[cfg(feature = "polars")]
     fn with_mod_prob_filter(mut self, threshold: ThresholdState) -> Self {
         self.mod_prob_filter = threshold;
         self
@@ -105,6 +104,67 @@ impl InputRegionOptions for MockModOptions {
 mod tests {
     use super::*;
 
+    const HIGH_PROBABILITY_THRESHOLD: u8 = 255;
+    const HIGH_PROBABILITY_POSITIONS: [u32; 3] = [3, 8, 47];
+    const LOW_PROBABILITY_THRESHOLD: u8 = 128;
+    const PARTIAL_OVERLAP_END: u32 = 100;
+    const PARTIAL_OVERLAP_REF_POSITIONS: [i64; 3] = [50, 62, 70];
+    const PARTIAL_OVERLAP_START: u32 = 50;
+    const TRIM_READ_ENDS: usize = 10;
+    const TRIMMED_POSITION: u32 = 27;
+
+    fn filtered_second_record(
+        options: &MockModOptions,
+    ) -> Result<CurrRead<nanalogue_core::read_utils::AlignAndModData>, Error> {
+        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
+        let record = reader.records().nth(1).unwrap()?;
+        CurrRead::default()
+            .try_from_only_alignment(&record)?
+            .set_mod_data_restricted_options(&record, options)
+    }
+
+    fn annotations(
+        read: &CurrRead<nanalogue_core::read_utils::AlignAndModData>,
+    ) -> Vec<(u32, i64, u8)> {
+        read.mod_data()
+            .0
+            .base_mods
+            .iter()
+            .flat_map(|base_mod| {
+                base_mod.ranges.annotations.iter().map(|annotation| {
+                    (
+                        annotation.pos,
+                        annotation.ref_pos.map_or(-1, i64::from),
+                        annotation.qual,
+                    )
+                })
+            })
+            .collect()
+    }
+
+    fn combined_filter_options() -> MockModOptions {
+        MockModOptions::new()
+            .with_trim_read_ends(5)
+            .with_mod_prob_filter(ThresholdState::GtEq(200))
+            .with_region_filter(GenomicBed3::new(2, 50, 71))
+    }
+
+    fn partial_overlap_options() -> MockModOptions {
+        MockModOptions::new().with_region_filter(GenomicBed3::new(
+            2,
+            PARTIAL_OVERLAP_START,
+            PARTIAL_OVERLAP_END,
+        ))
+    }
+
+    fn probability_filter_options(threshold: u8) -> MockModOptions {
+        MockModOptions::new().with_mod_prob_filter(ThresholdState::GtEq(threshold))
+    }
+
+    fn trim_read_ends_options() -> MockModOptions {
+        MockModOptions::new().with_trim_read_ends(TRIM_READ_ENDS)
+    }
+
     #[test]
     fn no_filters_applied() -> Result<(), Error> {
         // Test: Basic case with no filters - all modifications should be retained
@@ -128,61 +188,67 @@ mod tests {
 
     #[cfg(feature = "polars")]
     #[test]
-    fn high_probability_filter() -> Result<(), Error> {
+    fn high_probability_filter_with_polars() -> Result<(), Error> {
         // Test: Probability threshold filtering with explicit position checking
         // Second record has T mods at positions with qualities: [3,26,221], [8,31,242], [27,50,3], [39,62,47], [47,70,239]
-        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-        let record = reader.records().nth(1).unwrap()?;
-
         // Test with threshold 128: should keep mods with qual >= 128 (positions 3, 8, 47)
-        let curr_read_low = CurrRead::default().try_from_only_alignment(&record)?;
-        let options_low = MockModOptions::new().with_mod_prob_filter(ThresholdState::GtEq(128));
-        let result_low = curr_read_low.set_mod_data_restricted_options(&record, &options_low)?;
-
-        // Convert to DataFrame to check exact positions
-        let df_low = curr_reads_to_dataframe(&[result_low])?;
+        let options_low = probability_filter_options(LOW_PROBABILITY_THRESHOLD);
+        let df_low = curr_reads_to_dataframe(&[filtered_second_record(&options_low)?])?;
 
         // Should have 3 mods (qual 221, 242, 239 are all >= 128)
-        assert_eq!(df_low.height(), 3, "Should have 3 mods with qual >= 128");
+        assert_eq!(
+            df_low.height(),
+            HIGH_PROBABILITY_POSITIONS.len(),
+            "Should have 3 mods with qual >= 128"
+        );
 
         // Check that all remaining mods have quality >= 128
         let qual_col = df_low.column("mod_quality")?.u32()?;
         for i in 0..df_low.height() {
             let qual = qual_col.get(i).unwrap();
             assert!(
-                qual >= 128,
+                qual >= u32::from(LOW_PROBABILITY_THRESHOLD),
                 "All mods should have quality >= 128, found {qual}"
             );
         }
 
         // Check specific positions that should be present (read positions 3, 8, 47)
         let pos_col = df_low.column("position")?.u32()?;
-        let positions: Vec<u32> = (0..df_low.height())
+        let mut positions: Vec<u32> = (0..df_low.height())
             .filter_map(|i| pos_col.get(i))
             .collect();
-        assert!(
-            positions.contains(&3),
-            "Position 3 (qual 221) should be present"
-        );
-        assert!(
-            positions.contains(&8),
-            "Position 8 (qual 242) should be present"
-        );
-        assert!(
-            positions.contains(&47),
-            "Position 47 (qual 239) should be present"
-        );
+        positions.sort_unstable();
+        assert_eq!(positions, HIGH_PROBABILITY_POSITIONS);
 
         // Test with threshold 255: should filter out all mods (none have qual >= 255)
-        let curr_read_high = CurrRead::default().try_from_only_alignment(&record)?;
-        let options_high = MockModOptions::new().with_mod_prob_filter(ThresholdState::GtEq(255));
-        let result_high = curr_read_high.set_mod_data_restricted_options(&record, &options_high)?;
-
-        let df_high = curr_reads_to_dataframe(&[result_high])?;
+        let options_high = probability_filter_options(HIGH_PROBABILITY_THRESHOLD);
+        let df_high = curr_reads_to_dataframe(&[filtered_second_record(&options_high)?])?;
 
         // Should have 0 mods
         assert_eq!(df_high.height(), 0, "No mods should have quality >= 255");
 
+        Ok(())
+    }
+
+    #[test]
+    fn high_probability_filter_without_polars() -> Result<(), Error> {
+        let low = filtered_second_record(&probability_filter_options(LOW_PROBABILITY_THRESHOLD))?;
+        let low_annotations = annotations(&low);
+        assert_eq!(low_annotations.len(), 3);
+        assert!(
+            low_annotations
+                .iter()
+                .all(|entry| entry.2 >= LOW_PROBABILITY_THRESHOLD)
+        );
+        let mut positions = low_annotations
+            .iter()
+            .map(|entry| entry.0)
+            .collect::<Vec<_>>();
+        positions.sort_unstable();
+        assert_eq!(positions, HIGH_PROBABILITY_POSITIONS);
+
+        let high = filtered_second_record(&probability_filter_options(HIGH_PROBABILITY_THRESHOLD))?;
+        assert!(annotations(&high).is_empty());
         Ok(())
     }
 
@@ -227,50 +293,38 @@ mod tests {
 
     #[cfg(feature = "polars")]
     #[test]
-    fn region_filter_partial_overlap() -> Result<(), Error> {
+    fn region_filter_partial_overlap_with_polars() -> Result<(), Error> {
         // Test: Partial overlap - only mods in overlapping region should be retained
         // Second record: contig 2, align 23-71, mods at ref positions [26, 31, 50, 62, 70]
-        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-        let record = reader.records().nth(1).unwrap()?;
-
         // Create a region that partially overlaps (region 50-100 overlaps with read 23-71)
         // Only mods at ref positions >= 50 should be kept (positions 50, 62, 70)
-        let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = GenomicBed3::new(2, 50, 100); // Partial overlap on right side
-        let options = MockModOptions::new().with_region_filter(region);
-
-        let result = curr_read.set_mod_data_restricted_options(&record, &options)?;
-        let df = curr_reads_to_dataframe(&[result])?;
+        let options = partial_overlap_options();
+        let df = curr_reads_to_dataframe(&[filtered_second_record(&options)?])?;
 
         // Should have exactly 3 mods (at ref positions 50, 62, 70)
-        assert_eq!(df.height(), 3, "Should have 3 mods in region 50-100");
+        assert_eq!(
+            df.height(),
+            PARTIAL_OVERLAP_REF_POSITIONS.len(),
+            "Should have 3 mods in region 50-100"
+        );
 
         // Check that all ref_positions are within the region [50, 100)
         let ref_pos_col = df.column("ref_position")?.i64()?;
         for i in 0..df.height() {
             let ref_pos = ref_pos_col.get(i).unwrap();
             assert!(
-                (50..100).contains(&ref_pos),
+                (i64::from(PARTIAL_OVERLAP_START)..i64::from(PARTIAL_OVERLAP_END))
+                    .contains(&ref_pos),
                 "Ref position {ref_pos} should be in range [50, 100)"
             );
         }
 
         // Check specific ref positions that should be present
-        let ref_positions: Vec<i64> = (0..df.height())
+        let mut ref_positions: Vec<i64> = (0..df.height())
             .filter_map(|i| ref_pos_col.get(i))
             .collect();
-        assert!(
-            ref_positions.contains(&50),
-            "Ref position 50 should be present"
-        );
-        assert!(
-            ref_positions.contains(&62),
-            "Ref position 62 should be present"
-        );
-        assert!(
-            ref_positions.contains(&70),
-            "Ref position 70 should be present"
-        );
+        ref_positions.sort_unstable();
+        assert_eq!(ref_positions, PARTIAL_OVERLAP_REF_POSITIONS);
 
         // Verify positions NOT in region are excluded
         assert!(
@@ -282,6 +336,21 @@ mod tests {
             "Ref position 31 should be excluded"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn region_filter_partial_overlap_without_polars() -> Result<(), Error> {
+        let read = filtered_second_record(&partial_overlap_options())?;
+        let mut ref_positions = annotations(&read)
+            .into_iter()
+            .map(|entry| entry.1)
+            .collect::<Vec<_>>();
+        ref_positions.sort_unstable();
+        assert_eq!(ref_positions, PARTIAL_OVERLAP_REF_POSITIONS);
+        assert!(ref_positions.iter().all(|position| {
+            (i64::from(PARTIAL_OVERLAP_START)..i64::from(PARTIAL_OVERLAP_END)).contains(position)
+        }));
         Ok(())
     }
 
@@ -350,17 +419,12 @@ mod tests {
 
     #[cfg(feature = "polars")]
     #[test]
-    fn trim_read_ends() -> Result<(), Error> {
+    fn trim_read_ends_with_polars() -> Result<(), Error> {
         // Test: Trimming read ends should exclude modifications near ends
         // Second record: seq_len=48, mods at read positions [3, 8, 27, 39, 47]
-        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-        let record = reader.records().nth(1).unwrap()?;
-
         // Test with trimming 10bp from each end (keeps positions 10-37 in a 48bp read)
-        let curr_read_trim = CurrRead::default().try_from_only_alignment(&record)?;
-        let options_trim = MockModOptions::new().with_trim_read_ends(10);
-        let result_trim = curr_read_trim.set_mod_data_restricted_options(&record, &options_trim)?;
-        let df_trim = curr_reads_to_dataframe(&[result_trim])?;
+        let options_trim = trim_read_ends_options();
+        let df_trim = curr_reads_to_dataframe(&[filtered_second_record(&options_trim)?])?;
 
         // Should only keep position 27 (positions 3, 8 are < 10; positions 39, 47 are >= 38)
         assert_eq!(
@@ -373,10 +437,23 @@ mod tests {
         let pos_col = df_trim.column("position")?.u32()?;
         let position = pos_col.get(0).unwrap();
         assert_eq!(
-            position, 27,
+            position, TRIMMED_POSITION,
             "Only position 27 should remain after trimming"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn trim_read_ends_without_polars() -> Result<(), Error> {
+        let read = filtered_second_record(&trim_read_ends_options())?;
+        assert_eq!(
+            annotations(&read)
+                .iter()
+                .map(|entry| entry.0)
+                .collect::<Vec<_>>(),
+            [TRIMMED_POSITION]
+        );
         Ok(())
     }
 
@@ -601,22 +678,12 @@ mod tests {
 
     #[cfg(feature = "polars")]
     #[test]
-    fn combined_filters() -> Result<(), Error> {
+    fn combined_filters_with_polars() -> Result<(), Error> {
         // Test: Multiple filters working together
         // Second record: mods at [3,26,221], [8,31,242], [27,50,3], [39,62,47], [47,70,239]
-        let mut reader = nanalogue_bam_reader("examples/example_1.bam")?;
-        let record = reader.records().nth(1).unwrap()?;
-
         // Apply multiple filters: trimming + probability + region
-        let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = GenomicBed3::new(2, 50, 71); // Region [50, 71)
-        let options = MockModOptions::new()
-            .with_trim_read_ends(5) // Keeps read positions [5, 43)
-            .with_mod_prob_filter(ThresholdState::GtEq(200)) // Keeps qual >= 200
-            .with_region_filter(region); // Keeps ref positions [50, 71)
-
-        let result = curr_read.set_mod_data_restricted_options(&record, &options)?;
-        let df = curr_reads_to_dataframe(&[result])?;
+        let options = combined_filter_options();
+        let df = curr_reads_to_dataframe(&[filtered_second_record(&options)?])?;
 
         // Expected: NO mods pass all three filters
         // - Position 8 (ref 31, qual 242): passes trim & qual, but fails region (31 < 50)
@@ -625,6 +692,16 @@ mod tests {
         // - Positions 3 and 47 are trimmed
         assert_eq!(df.height(), 0, "No mods should pass all three filters");
 
+        Ok(())
+    }
+
+    #[test]
+    fn combined_filters_without_polars() -> Result<(), Error> {
+        let read = filtered_second_record(&combined_filter_options())?;
+        assert!(
+            annotations(&read).is_empty(),
+            "No mods should pass all three filters"
+        );
         Ok(())
     }
 

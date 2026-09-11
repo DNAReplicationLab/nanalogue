@@ -1821,10 +1821,9 @@ mod sequencing_summary_tests {
     }
 }
 
-#[cfg(all(test, feature = "polars"))]
+#[cfg(test)]
 #[expect(
     clippy::arithmetic_side_effects,
-    clippy::missing_assert_message,
     reason = "generated rstest cases use direct assertions on locally named expected values"
 )]
 mod stochastic_tests {
@@ -1840,7 +1839,99 @@ mod stochastic_tests {
     use rust_htslib::bam::Read as _;
     use std::ops::RangeInclusive;
 
+    #[derive(Clone, Copy)]
+    pub(super) enum TestRoute {
+        WithoutPolars,
+        #[cfg(feature = "polars")]
+        WithPolars,
+    }
+
+    pub(super) struct TestTable {
+        headers: Vec<String>,
+        rows: Vec<Vec<String>>,
+    }
+
+    impl TestTable {
+        pub(super) fn column(&self, name: &str) -> Vec<&str> {
+            let index = self
+                .headers
+                .iter()
+                .position(|header| header == name)
+                .unwrap();
+            self.rows
+                .iter()
+                .map(|row| row.get(index).expect("TSV row matches header").as_str())
+                .collect()
+        }
+    }
+
+    fn parse_tsv(output: Vec<u8>) -> TestTable {
+        let text = String::from_utf8(output).unwrap();
+        let mut lines = text.lines().filter(|line| !line.starts_with('#'));
+        let headers: Vec<String> = lines
+            .next()
+            .unwrap()
+            .split('\t')
+            .map(str::to_owned)
+            .collect();
+        let rows = lines
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                let row = line.split('\t').map(str::to_owned).collect::<Vec<_>>();
+                assert_eq!(row.len(), headers.len(), "TSV row must match its header");
+                row
+            })
+            .collect();
+        TestTable { headers, rows }
+    }
+
+    #[cfg(feature = "polars")]
+    fn dataframe_to_test_table(df: &DataFrame) -> Result<TestTable, Error> {
+        let headers = df
+            .get_column_names()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let mut rows = Vec::with_capacity(df.height());
+        for row_index in 0..df.height() {
+            let mut row = Vec::with_capacity(df.width());
+            for name in df.get_column_names() {
+                let column = df.column(name)?;
+                row.push(if name.as_str() == "sequence_length_template" {
+                    column.u32()?.get(row_index).unwrap().to_string()
+                } else {
+                    column.str()?.get(row_index).unwrap().to_owned()
+                });
+            }
+            rows.push(row);
+        }
+        Ok(TestTable { headers, rows })
+    }
+
+    pub(super) fn run_reads_table(
+        sim: &TempBamSimulation,
+        mods: Option<InputMods<OptionalTag>>,
+        seq_display: SeqDisplayOptions,
+        route: TestRoute,
+    ) -> Result<TestTable, Error> {
+        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
+        let bam_records = bam_reader.rc_records();
+        match route {
+            TestRoute::WithoutPolars => {
+                let mut output = Vec::new();
+                run(&mut output, bam_records, mods, seq_display, "")?;
+                Ok(parse_tsv(output))
+            }
+            #[cfg(feature = "polars")]
+            TestRoute::WithPolars => {
+                let df = run_df(bam_records, mods, seq_display, "")?;
+                dataframe_to_test_table(&df)
+            }
+        }
+    }
+
     /// Helper to run reads table generation
+    #[cfg(feature = "polars")]
     fn run_reads_table_generation(
         sim: &TempBamSimulation,
         mods: Option<InputMods<OptionalTag>>,
@@ -1852,6 +1943,7 @@ mod stochastic_tests {
     }
 
     /// Helper to keep track that all read states have been visited
+    #[cfg(feature = "polars")]
     fn track_read_state_visits(val: &mut [bool; 7], state: &str) {
         match state {
             "unmapped" => val[0] = true,
@@ -1878,8 +1970,7 @@ mod stochastic_tests {
         qualities: bool,
     }
 
-    /// Helper to assert dataframe has expected column headers
-    fn assert_expected_columns(df: &DataFrame, columns: Columns) {
+    fn expected_columns(columns: Columns) -> Vec<&'static str> {
         let mut expected_columns = vec![
             "read_id",
             "align_length",
@@ -1895,15 +1986,29 @@ mod stochastic_tests {
         if columns.qualities {
             expected_columns.push("qualities");
         }
+        expected_columns
+    }
 
+    /// Helper to assert dataframe has expected column headers
+    #[cfg(feature = "polars")]
+    fn assert_expected_columns(df: &DataFrame, columns: Columns) {
         let actual_columns: Vec<String> = df
             .get_column_names()
             .iter()
             .map(ToString::to_string)
             .collect();
         assert_eq!(
-            actual_columns, expected_columns,
+            actual_columns,
+            expected_columns(columns),
             "DataFrame should have correct column headers"
+        );
+    }
+
+    fn assert_test_table_columns(table: &TestTable, columns: Columns) {
+        assert_eq!(
+            table.headers,
+            expected_columns(columns),
+            "table should have correct column headers"
         );
     }
 
@@ -1944,6 +2049,7 @@ mod stochastic_tests {
     }
 
     /// Helper to check if sequence and quality columns are as desired
+    #[cfg(feature = "polars")]
     fn check_seq_qual(
         seq_col: &ChunkedArray<StringType>,
         qual_col: &ChunkedArray<StringType>,
@@ -1951,49 +2057,53 @@ mod stochastic_tests {
         expected_count: &Counts,
         qual_allowed: RangeInclusive<u8>,
     ) {
-        let mut data_present = false;
+        let sequences = seq_col.iter().map(Option::unwrap).collect::<Vec<_>>();
+        let qualities = qual_col.iter().map(Option::unwrap).collect::<Vec<_>>();
+        check_seq_qual_strings(
+            &sequences,
+            &qualities,
+            seq_len,
+            expected_count,
+            qual_allowed,
+        );
+    }
 
-        #[expect(
-            clippy::needless_continue,
-            clippy::redundant_else,
-            reason = "I prefer it this way; I think this is more readable"
-        )]
-        for k in seq_col.iter().zip(qual_col) {
-            data_present = true;
-
-            let seq = k.0.unwrap();
-
-            let qual =
-                k.1.unwrap()
-                    .split('.')
-                    .map(|x| x.parse::<u8>().unwrap())
-                    .collect::<Vec<u8>>();
-
-            if seq == "*" && qual == vec![255u8] {
+    fn check_seq_qual_strings(
+        seq_col: &[&str],
+        qual_col: &[&str],
+        seq_len: usize,
+        expected_count: &Counts,
+        qual_allowed: RangeInclusive<u8>,
+    ) {
+        assert!(
+            !seq_col.is_empty(),
+            "Some data must be present in the table"
+        );
+        for (seq, qual_text) in seq_col.iter().zip(qual_col) {
+            let qualities = qual_text
+                .split('.')
+                .map(|value| value.parse::<u8>().unwrap())
+                .collect::<Vec<_>>();
+            if *seq == "*" && qualities == vec![255] {
                 continue;
-            } else {
-                assert_eq!(seq.len(), seq_len, "Sequence length mismatch");
-                assert_eq!(qual.len(), seq_len, "Quality length mismatch");
-
-                let mut count: Counts = Counts::default();
-
-                for l in seq.chars().zip(qual) {
-                    match l {
-                        ('.', 255u8) => count.increment('.').unwrap(),
-                        (v, w) => {
-                            count.increment(v).unwrap();
-                            assert!(qual_allowed.contains(&w));
-                        }
+            }
+            assert_eq!(seq.len(), seq_len, "Sequence length mismatch");
+            assert_eq!(qualities.len(), seq_len, "Quality length mismatch");
+            let mut count = Counts::default();
+            for (observed_base, observed_quality) in seq.chars().zip(qualities) {
+                match (observed_base, observed_quality) {
+                    ('.', 255) => count.increment('.').unwrap(),
+                    (other_base, other_quality) => {
+                        count.increment(other_base).unwrap();
+                        assert!(
+                            qual_allowed.contains(&other_quality),
+                            "base quality should be in the expected range"
+                        );
                     }
                 }
-                assert!(
-                    count == *expected_count,
-                    "need correct number of bases and/or special characters!"
-                );
             }
+            assert_eq!(count, *expected_count);
         }
-
-        assert!(data_present, "Some data must be present in the table");
     }
 
     /// Simple test, produce some reads and see if we get expected statistics.
@@ -2003,6 +2113,7 @@ mod stochastic_tests {
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
     #[case::cram(AlignmentFormat::Cram)]
+    #[cfg(feature = "polars")]
     fn run_df_simple(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // Create simulation config with no modifications
         let contig_config = ContigConfigBuilder::default()
@@ -2062,6 +2173,7 @@ mod stochastic_tests {
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
     #[case::cram(AlignmentFormat::Cram)]
+    #[cfg(feature = "polars")]
     fn run_df_al_sl_different(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // Create simulation config with no modifications
         let contig_config = ContigConfigBuilder::default()
@@ -2123,6 +2235,7 @@ mod stochastic_tests {
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
     #[case::cram(AlignmentFormat::Cram)]
+    #[cfg(feature = "polars")]
     fn run_df_seq_qual_retrieval(#[case] format: AlignmentFormat) -> Result<(), Error> {
         // Create simulation config with no modifications
         let contig_config = ContigConfigBuilder::default()
@@ -2205,6 +2318,7 @@ mod stochastic_tests {
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
     #[case::cram(AlignmentFormat::Cram)]
+    #[cfg(feature = "polars")]
     fn run_df_seq_qual_retrieval_indels_barcode(
         #[case] format: AlignmentFormat,
     ) -> Result<(), Error> {
@@ -2289,6 +2403,7 @@ mod stochastic_tests {
         expected_seq: &str,
         seq_len: usize,
         counts: &Counts,
+        route: TestRoute,
     ) -> Result<(), Error> {
         // check that we get the correct kind of `SeqDisplayOptions`
         assert!(matches!(
@@ -2297,9 +2412,8 @@ mod stochastic_tests {
         ));
 
         // first, do a check without retrieving mods
-        let df = run_reads_table_generation(sim, None, seq_display_options)?;
-
-        assert_expected_columns(
+        let df = run_reads_table(sim, None, seq_display_options, route)?;
+        assert_test_table_columns(
             &df,
             ColumnsBuilder::default()
                 .sequence(true)
@@ -2307,28 +2421,27 @@ mod stochastic_tests {
                 .build()?,
         );
 
-        let seq_col = df.column("sequence")?.str()?;
-        let qual_col = df.column("qualities")?.str()?;
-        let alignment_type = df.column("alignment_type")?.str()?;
+        let seq_col = df.column("sequence");
+        let qual_col = df.column("qualities");
+        let alignment_type = df.column("alignment_type");
 
         for k in seq_col.iter().zip(alignment_type) {
-            if k.1.unwrap() == "unmapped" {
-                assert_eq!(k.0.unwrap(), "*");
+            if k.1 == "unmapped" {
+                assert_eq!(*k.0, "*");
             } else {
-                assert_eq!(k.0.unwrap(), expected_seq);
+                assert_eq!(*k.0, expected_seq);
             }
         }
-
-        check_seq_qual(seq_col, qual_col, seq_len, counts, 41u8..=49u8);
+        check_seq_qual_strings(&seq_col, &qual_col, seq_len, counts, 41u8..=49u8);
 
         // do a check with retrieving mods. Must get N/As in the mod count column
-        let df_2 = run_reads_table_generation(
+        let df_2 = run_reads_table(
             sim,
             Some(InputMods::<OptionalTag>::default()),
             seq_display_options,
+            route,
         )?;
-
-        assert_expected_columns(
+        assert_test_table_columns(
             &df_2,
             ColumnsBuilder::default()
                 .mod_count(true)
@@ -2336,21 +2449,17 @@ mod stochastic_tests {
                 .qualities(true)
                 .build()?,
         );
-
-        let mod_count = df_2.column("mod_count")?.str()?;
+        let mod_count = df_2.column("mod_count");
 
         assert!(
-            mod_count.iter().all(|k| k == Some("NA")),
+            mod_count.iter().all(|k| *k == "NA"),
             "should not get mod counts as no mod info available!"
         );
 
         Ok(())
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_0_to_10(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_0_to_10(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
@@ -2363,13 +2472,11 @@ mod stochastic_tests {
             "ACGTACGTAC",
             10,
             &Counts::default(),
+            route,
         )
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_100_to_110(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_100_to_110(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
@@ -2382,13 +2489,11 @@ mod stochastic_tests {
             "..........",
             10,
             &CountsBuilder::default().period(10).build()?,
+            route,
         )
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_195_to_205(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_195_to_205(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
@@ -2401,13 +2506,11 @@ mod stochastic_tests {
             ".....ACGTA",
             10,
             &CountsBuilder::default().period(5).build()?,
+            route,
         )
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_495_to_505(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_495_to_505(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
@@ -2420,13 +2523,14 @@ mod stochastic_tests {
             "TACGTggttggACGTA",
             16,
             &CountsBuilder::default().lowercase(6).build()?,
+            route,
         )
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_495_to_505_no_ins_lowercase(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_495_to_505_no_ins_lowercase(
+        format: AlignmentFormat,
+        route: TestRoute,
+    ) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
@@ -2439,13 +2543,11 @@ mod stochastic_tests {
             "TACGTGGTTGGACGTA",
             16,
             &CountsBuilder::default().build()?,
+            route,
         )
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_990_to_1000(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_990_to_1000(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         test_region_retrieval(
             &sim,
@@ -2458,16 +2560,64 @@ mod stochastic_tests {
             "GTACGTACGT",
             10,
             &CountsBuilder::default().build()?,
+            route,
         )
     }
+
+    macro_rules! region_tests {
+        ($without:ident, $with:ident, $scenario:ident) => {
+            #[rstest::rstest]
+            #[case::bam(AlignmentFormat::Bam)]
+            #[case::cram(AlignmentFormat::Cram)]
+            fn $without(#[case] format: AlignmentFormat) -> Result<(), Error> {
+                $scenario(format, TestRoute::WithoutPolars)
+            }
+
+            #[cfg(feature = "polars")]
+            #[rstest::rstest]
+            #[case::bam(AlignmentFormat::Bam)]
+            #[case::cram(AlignmentFormat::Cram)]
+            fn $with(#[case] format: AlignmentFormat) -> Result<(), Error> {
+                $scenario(format, TestRoute::WithPolars)
+            }
+        };
+    }
+
+    region_tests!(
+        region_0_to_10_without_polars,
+        region_0_to_10_with_polars,
+        region_0_to_10
+    );
+    region_tests!(
+        region_100_to_110_without_polars,
+        region_100_to_110_with_polars,
+        region_100_to_110
+    );
+    region_tests!(
+        region_195_to_205_without_polars,
+        region_195_to_205_with_polars,
+        region_195_to_205
+    );
+    region_tests!(
+        region_495_to_505_without_polars,
+        region_495_to_505_with_polars,
+        region_495_to_505
+    );
+    region_tests!(
+        region_495_to_505_no_ins_lowercase_without_polars,
+        region_495_to_505_no_ins_lowercase_with_polars,
+        region_495_to_505_no_ins_lowercase
+    );
+    region_tests!(
+        region_990_to_1000_without_polars,
+        region_990_to_1000_with_polars,
+        region_990_to_1000
+    );
 }
 
-#[cfg(all(test, feature = "polars"))]
-#[expect(
-    clippy::missing_assert_message,
-    reason = "generated rstest cases use direct assertions on locally named expected values"
-)]
+#[cfg(test)]
 mod stochastic_tests_with_mods {
+    use super::stochastic_tests::{TestRoute, run_reads_table};
     use super::*;
     use crate::{
         GenomicBed3, InputModsBuilder,
@@ -2476,18 +2626,6 @@ mod stochastic_tests_with_mods {
             SimulationConfigBuilder, TempBamSimulation,
         },
     };
-    use rust_htslib::bam::Read as _;
-
-    /// Helper to run reads table generation
-    fn run_reads_table_generation(
-        sim: &TempBamSimulation,
-        mods: Option<InputMods<OptionalTag>>,
-        seq_display: SeqDisplayOptions,
-    ) -> Result<DataFrame, Error> {
-        let mut bam_reader = bam::Reader::from_path(sim.bam_path())?;
-        let bam_records = bam_reader.rc_records();
-        run_df(bam_records, mods, seq_display, "")
-    }
 
     /// Helper function to create a simulation with indels and barcodes for region testing.
     fn create_indels_barcode_simulation(
@@ -2526,6 +2664,10 @@ mod stochastic_tests_with_mods {
     }
 
     /// Helper function to test sequence retrieval from a specific region.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "test scenario expectations are clearer separately"
+    )]
     fn test_region_retrieval(
         sim: &TempBamSimulation,
         seq_display_options: SeqDisplayOptions,
@@ -2534,6 +2676,7 @@ mod stochastic_tests_with_mods {
         qual_col_str: &str,
         mod_count_fwd_str: &str,
         mod_count_rev_str: &str,
+        route: TestRoute,
     ) -> Result<(), Error> {
         // check that we get the correct kind of `SeqDisplayOptions`
         assert!(matches!(
@@ -2542,15 +2685,16 @@ mod stochastic_tests_with_mods {
         ));
 
         // first, do a check without retrieving mods
-        let df = run_reads_table_generation(
+        let df = run_reads_table(
             sim,
             Some(InputMods::<OptionalTag>::default()),
             seq_display_options,
+            route,
         )?;
-        let seq_col = df.column("sequence")?.str()?;
-        let qual_col = df.column("qualities")?.str()?;
-        let mod_count = df.column("mod_count")?.str()?;
-        let alignment_type = df.column("alignment_type")?.str()?;
+        let seq_col = df.column("sequence");
+        let qual_col = df.column("qualities");
+        let mod_count = df.column("mod_count");
+        let alignment_type = df.column("alignment_type");
 
         for k in seq_col
             .into_iter()
@@ -2561,21 +2705,21 @@ mod stochastic_tests_with_mods {
                 (seq, qual, mod_count_value, alignment_type_value)
             })
         {
-            match k.3.unwrap() {
+            match k.3 {
                 "unmapped" => {
-                    assert_eq!(k.0.unwrap(), "*");
-                    assert_eq!(k.1.unwrap(), "255");
-                    assert_eq!(k.2.unwrap(), mod_count_fwd_str);
+                    assert_eq!(k.0, "*");
+                    assert_eq!(k.1, "255");
+                    assert_eq!(k.2, mod_count_fwd_str);
                 }
                 "primary_forward" | "secondary_forward" | "supplementary_forward" => {
-                    assert_eq!(k.0.unwrap(), expected_seq_fwd);
-                    assert_eq!(k.1.unwrap(), qual_col_str);
-                    assert_eq!(k.2.unwrap(), mod_count_fwd_str);
+                    assert_eq!(k.0, expected_seq_fwd);
+                    assert_eq!(k.1, qual_col_str);
+                    assert_eq!(k.2, mod_count_fwd_str);
                 }
                 "primary_reverse" | "secondary_reverse" | "supplementary_reverse" => {
-                    assert_eq!(k.0.unwrap(), expected_seq_rev);
-                    assert_eq!(k.1.unwrap(), qual_col_str);
-                    assert_eq!(k.2.unwrap(), mod_count_rev_str);
+                    assert_eq!(k.0, expected_seq_rev);
+                    assert_eq!(k.1, qual_col_str);
+                    assert_eq!(k.2, mod_count_rev_str);
                 }
                 _ => unreachable!("read states fall in the above 7 categories"),
             }
@@ -2584,10 +2728,7 @@ mod stochastic_tests_with_mods {
         Ok(())
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_0_to_10(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_0_to_10(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         for k in [
             (false, "ACGTACGTAC", "ACGTACGTAC"),
@@ -2606,16 +2747,14 @@ mod stochastic_tests_with_mods {
                 "35.35.35.35.35.35.35.35.35.35",
                 "g:114",
                 "g:112",
+                route,
             )?;
         }
 
         Ok(())
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_100_to_110(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_100_to_110(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         for k in [false, true] {
             test_region_retrieval(
@@ -2631,16 +2770,14 @@ mod stochastic_tests_with_mods {
                 "255.255.255.255.255.255.255.255.255.255",
                 "g:114",
                 "g:112",
+                route,
             )?;
         }
 
         Ok(())
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_195_to_205(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_195_to_205(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         for k in [
             (false, ".....ACGTA", ".....ACGTA"),
@@ -2659,16 +2796,14 @@ mod stochastic_tests_with_mods {
                 "255.255.255.255.255.35.35.35.35.35",
                 "g:114",
                 "g:112",
+                route,
             )?;
         }
 
         Ok(())
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_495_to_505(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_495_to_505(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         for k in [
             (false, "TACGTggttggACGTA", "TACGTggttggACGTA"),
@@ -2687,16 +2822,14 @@ mod stochastic_tests_with_mods {
                 "35.35.35.35.35.35.35.35.35.35.35.35.35.35.35.35",
                 "g:114",
                 "g:112",
+                route,
             )?;
         }
 
         Ok(())
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_990_to_1000(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_990_to_1000(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
         for k in [
             (false, "GTACGTACGT", "GTACGTACGT"),
@@ -2715,6 +2848,7 @@ mod stochastic_tests_with_mods {
                 "35.35.35.35.35.35.35.35.35.35",
                 "g:114",
                 "g:112",
+                route,
             )?;
         }
 
@@ -2724,10 +2858,7 @@ mod stochastic_tests_with_mods {
     /// Region-based modification counting
     /// This test verifies that when `InputMods::region_bed3` is set,
     /// mod counts reflect only modifications within that region
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn region_based_mod_counting(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn region_based_mod_counting(format: AlignmentFormat, route: TestRoute) -> Result<(), Error> {
         let sim = create_indels_barcode_simulation(format)?;
 
         // Test region 0-10
@@ -2735,7 +2866,7 @@ mod stochastic_tests_with_mods {
             .region_bed3(GenomicBed3::new(0, 0, 10))
             .build()?;
 
-        let df = run_reads_table_generation(
+        let df = run_reads_table(
             &sim,
             Some(mods_for_region),
             SeqDisplayOptions::Region {
@@ -2744,24 +2875,21 @@ mod stochastic_tests_with_mods {
                 show_mod_z: false,
                 region: GenomicBed3::new(0, 0, 10),
             },
+            route,
         )?;
 
-        let mod_count_col = df.column("mod_count")?.str()?;
-        let alignment_type = df.column("alignment_type")?.str()?;
+        let mod_count_col = df.column("mod_count");
+        let alignment_type = df.column("alignment_type");
 
         // Count mods in region 0-10 for forward and reverse reads
         for (mod_count, aln_type) in mod_count_col.into_iter().zip(alignment_type) {
-            match aln_type.unwrap() {
+            match aln_type {
                 "unmapped" => {
                     // Unmapped reads show mod count of 0
-                    assert_eq!(
-                        mod_count.unwrap(),
-                        "g:0",
-                        "unmapped reads should have g:0 mod_count"
-                    );
+                    assert_eq!(mod_count, "g:0", "unmapped reads should have g:0 mod_count");
                 }
                 "primary_forward" | "secondary_forward" | "supplementary_forward" => {
-                    let count_str = mod_count.unwrap();
+                    let count_str = mod_count;
                     // Parse the count (format is "g:N")
                     if let Some(count_part) = count_str.strip_prefix("g:") {
                         let count: u32 = count_part.parse().expect("valid number");
@@ -2772,7 +2900,7 @@ mod stochastic_tests_with_mods {
                     }
                 }
                 "primary_reverse" | "secondary_reverse" | "supplementary_reverse" => {
-                    let count_str = mod_count.unwrap();
+                    let count_str = mod_count;
                     if let Some(count_part) = count_str.strip_prefix("g:") {
                         let count: u32 = count_part.parse().expect("valid number");
                         assert_eq!(count, 1, "expected 1 'g' mod in region 0-10, got {count}");
@@ -2834,28 +2962,29 @@ mod stochastic_tests_with_mods {
         TempBamSimulation::new(sim_config, format)
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn multiple_mod_count_on_same_read(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn multiple_mod_count_on_same_read(
+        format: AlignmentFormat,
+        route: TestRoute,
+    ) -> Result<(), Error> {
         let sim = create_multi_mod_simulation(format)?;
 
-        let df = run_reads_table_generation(
+        let df = run_reads_table(
             &sim,
             Some(InputMods::<OptionalTag>::default()),
             SeqDisplayOptions::Full {
                 show_base_qual: true,
             },
+            route,
         )?;
 
-        let mod_count_col = df.column("mod_count")?.str()?;
-        let alignment_type = df.column("alignment_type")?.str()?;
+        let mod_count_col = df.column("mod_count");
+        let alignment_type = df.column("alignment_type");
 
         // Check that both 'a' and 'm' modifications are present
         for (mod_count, aln_type) in mod_count_col.into_iter().zip(alignment_type) {
-            match aln_type.unwrap() {
+            match aln_type {
                 "unmapped" | "primary_forward" | "secondary_forward" | "supplementary_forward" => {
-                    let count_str = mod_count.unwrap();
+                    let count_str = mod_count;
                     assert_eq!(
                         count_str, "a:115;m:225",
                         "incorrect mod counts in unmapped/forward: {count_str}"
@@ -2865,7 +2994,7 @@ mod stochastic_tests_with_mods {
                     // we have an insertion in the middle of the read,
                     // which will have mods on it if it is reverse complemented,
                     // as we assign mods to A and C.
-                    let count_str = mod_count.unwrap();
+                    let count_str = mod_count;
                     assert_eq!(
                         count_str, "a:116;m:229",
                         "incorrect mod counts in reverse: {count_str}"
@@ -2878,15 +3007,13 @@ mod stochastic_tests_with_mods {
         Ok(())
     }
 
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
     fn multiple_mod_count_on_same_read_with_stronger_thresholding(
-        #[case] format: AlignmentFormat,
+        format: AlignmentFormat,
+        route: TestRoute,
     ) -> Result<(), Error> {
         let sim = create_multi_mod_simulation(format)?;
 
-        let df = run_reads_table_generation(
+        let df = run_reads_table(
             &sim,
             Some(
                 InputModsBuilder::<OptionalTag>::default()
@@ -2896,16 +3023,17 @@ mod stochastic_tests_with_mods {
             SeqDisplayOptions::Full {
                 show_base_qual: true,
             },
+            route,
         )?;
 
-        let mod_count_col = df.column("mod_count")?.str()?;
-        let alignment_type = df.column("alignment_type")?.str()?;
+        let mod_count_col = df.column("mod_count");
+        let alignment_type = df.column("alignment_type");
 
         // Check that both 'a' and 'm' modifications are present
         for (mod_count, aln_type) in mod_count_col.into_iter().zip(alignment_type) {
-            match aln_type.unwrap() {
+            match aln_type {
                 "unmapped" | "primary_forward" | "secondary_forward" | "supplementary_forward" => {
-                    let count_str = mod_count.unwrap();
+                    let count_str = mod_count;
                     assert_eq!(
                         count_str, "a:115;m:0",
                         "incorrect mod counts in unmapped/forward: {count_str}"
@@ -2915,7 +3043,7 @@ mod stochastic_tests_with_mods {
                     // we have an insertion in the middle of the read,
                     // which will have mods on it if it is reverse complemented,
                     // as we assign mods to A and C.
-                    let count_str = mod_count.unwrap();
+                    let count_str = mod_count;
                     assert_eq!(
                         count_str, "a:116;m:0",
                         "incorrect mod counts in reverse: {count_str}"
@@ -2931,10 +3059,10 @@ mod stochastic_tests_with_mods {
     /// Test multiple modifications with region filtering.
     /// Verifies that region filtering and retrieval works correctly when
     /// multiple mod types are present
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
-    fn multiple_mods_with_region_filtering(#[case] format: AlignmentFormat) -> Result<(), Error> {
+    fn multiple_mods_with_region_filtering(
+        format: AlignmentFormat,
+        route: TestRoute,
+    ) -> Result<(), Error> {
         let sim = create_multi_mod_simulation(format)?;
 
         // Test a small region
@@ -2942,7 +3070,7 @@ mod stochastic_tests_with_mods {
             .region_bed3(GenomicBed3::new(0, 495, 505))
             .build()?;
 
-        let df = run_reads_table_generation(
+        let df = run_reads_table(
             &sim,
             Some(mods_for_region),
             SeqDisplayOptions::Region {
@@ -2951,11 +3079,12 @@ mod stochastic_tests_with_mods {
                 show_mod_z: true,
                 region: GenomicBed3::new(0, 495, 505),
             },
+            route,
         )?;
 
-        let mod_count_col = df.column("mod_count")?.str()?;
-        let alignment_type_col = df.column("alignment_type")?.str()?;
-        let seq_col = df.column("sequence")?.str()?;
+        let mod_count_col = df.column("mod_count");
+        let alignment_type_col = df.column("alignment_type");
+        let seq_col = df.column("sequence");
 
         // Verify both mod types are present but with region-limited counts and correct sequence.
         // The sequence here is "TACGTggttggACGTA"
@@ -2964,23 +3093,18 @@ mod stochastic_tests_with_mods {
             .zip(alignment_type_col)
             .zip(seq_col)
         {
-            match aln_type.unwrap() {
+            match aln_type {
                 "unmapped" => {
                     // Unmapped reads show mod count of 0 when region filtering is applied
                     assert_eq!(
-                        mod_count.unwrap(),
-                        "a:0;m:0",
+                        mod_count, "a:0;m:0",
                         "unmapped reads should have zero counts with region filtering"
                     );
-                    assert_eq!(
-                        seq,
-                        Some("*"),
-                        "unmapped reads should have a * for sequence"
-                    );
+                    assert_eq!(seq, "*", "unmapped reads should have a * for sequence");
                 }
                 "primary_forward" | "secondary_forward" | "supplementary_forward" => {
-                    let count_str = mod_count.unwrap();
-                    let seq_str = seq.unwrap();
+                    let count_str = mod_count;
+                    let seq_str = seq;
                     assert_eq!(
                         count_str, "a:1;m:2",
                         "incorrect mod counts in unmapped/forward: {count_str}"
@@ -2991,8 +3115,8 @@ mod stochastic_tests_with_mods {
                     );
                 }
                 "primary_reverse" | "secondary_reverse" | "supplementary_reverse" => {
-                    let count_str = mod_count.unwrap();
-                    let seq_str = seq.unwrap();
+                    let count_str = mod_count;
+                    let seq_str = seq;
                     assert_eq!(
                         count_str, "a:3;m:6",
                         "incorrect mod counts in reverse: {count_str}"
@@ -3012,11 +3136,9 @@ mod stochastic_tests_with_mods {
     /// Test multiple modifications with region filtering and with
     /// very strict filters that would let nothing through and with
     /// inserts set to same case as the others.
-    #[rstest::rstest]
-    #[case::bam(AlignmentFormat::Bam)]
-    #[case::cram(AlignmentFormat::Cram)]
     fn multiple_mods_with_region_filtering_strict_mod_prob_filter_no_ins_lowercase(
-        #[case] format: AlignmentFormat,
+        format: AlignmentFormat,
+        route: TestRoute,
     ) -> Result<(), Error> {
         let sim = create_multi_mod_simulation(format)?;
 
@@ -3026,7 +3148,7 @@ mod stochastic_tests_with_mods {
             .mod_prob_filter(ThresholdState::Both((250u8, (100u8, 150u8).try_into()?)))
             .build()?;
 
-        let df = run_reads_table_generation(
+        let df = run_reads_table(
             &sim,
             Some(mods_for_region),
             SeqDisplayOptions::Region {
@@ -3035,11 +3157,12 @@ mod stochastic_tests_with_mods {
                 show_mod_z: true,
                 region: GenomicBed3::new(0, 495, 505),
             },
+            route,
         )?;
 
-        let mod_count_col = df.column("mod_count")?.str()?;
-        let alignment_type_col = df.column("alignment_type")?.str()?;
-        let seq_col = df.column("sequence")?.str()?;
+        let mod_count_col = df.column("mod_count");
+        let alignment_type_col = df.column("alignment_type");
+        let seq_col = df.column("sequence");
 
         // Verify both mod types are present but with region-limited counts and correct sequence.
         // The sequence here is "TACGTggttggACGTA" but without lowercase for the insert.
@@ -3048,23 +3171,18 @@ mod stochastic_tests_with_mods {
             .zip(alignment_type_col)
             .zip(seq_col)
         {
-            match aln_type.unwrap() {
+            match aln_type {
                 "unmapped" => {
                     // Unmapped reads show mod count of 0 when region filtering is applied
                     assert_eq!(
-                        mod_count.unwrap(),
-                        "a:0;m:0",
+                        mod_count, "a:0;m:0",
                         "unmapped reads should have zero counts with region filtering"
                     );
-                    assert_eq!(
-                        seq,
-                        Some("*"),
-                        "unmapped reads should have a * for sequence"
-                    );
+                    assert_eq!(seq, "*", "unmapped reads should have a * for sequence");
                 }
                 "primary_forward" | "secondary_forward" | "supplementary_forward" => {
-                    let count_str = mod_count.unwrap();
-                    let seq_str = seq.unwrap();
+                    let count_str = mod_count;
+                    let seq_str = seq;
                     assert_eq!(
                         count_str, "a:0;m:0",
                         "incorrect mod counts in unmapped/forward: {count_str}"
@@ -3075,8 +3193,8 @@ mod stochastic_tests_with_mods {
                     );
                 }
                 "primary_reverse" | "secondary_reverse" | "supplementary_reverse" => {
-                    let count_str = mod_count.unwrap();
-                    let seq_str = seq.unwrap();
+                    let count_str = mod_count;
+                    let seq_str = seq;
                     assert_eq!(
                         count_str, "a:0;m:0",
                         "incorrect mod counts in reverse: {count_str}"
@@ -3092,4 +3210,74 @@ mod stochastic_tests_with_mods {
 
         Ok(())
     }
+
+    macro_rules! behavior_tests {
+        ($without:ident, $with:ident, $scenario:ident) => {
+            #[rstest::rstest]
+            #[case::bam(AlignmentFormat::Bam)]
+            #[case::cram(AlignmentFormat::Cram)]
+            fn $without(#[case] format: AlignmentFormat) -> Result<(), Error> {
+                $scenario(format, TestRoute::WithoutPolars)
+            }
+
+            #[cfg(feature = "polars")]
+            #[rstest::rstest]
+            #[case::bam(AlignmentFormat::Bam)]
+            #[case::cram(AlignmentFormat::Cram)]
+            fn $with(#[case] format: AlignmentFormat) -> Result<(), Error> {
+                $scenario(format, TestRoute::WithPolars)
+            }
+        };
+    }
+
+    behavior_tests!(
+        region_0_to_10_without_polars,
+        region_0_to_10_with_polars,
+        region_0_to_10
+    );
+    behavior_tests!(
+        region_100_to_110_without_polars,
+        region_100_to_110_with_polars,
+        region_100_to_110
+    );
+    behavior_tests!(
+        region_195_to_205_without_polars,
+        region_195_to_205_with_polars,
+        region_195_to_205
+    );
+    behavior_tests!(
+        region_495_to_505_without_polars,
+        region_495_to_505_with_polars,
+        region_495_to_505
+    );
+    behavior_tests!(
+        region_990_to_1000_without_polars,
+        region_990_to_1000_with_polars,
+        region_990_to_1000
+    );
+    behavior_tests!(
+        region_based_mod_counting_without_polars,
+        region_based_mod_counting_with_polars,
+        region_based_mod_counting
+    );
+    behavior_tests!(
+        multiple_mod_count_on_same_read_without_polars,
+        multiple_mod_count_on_same_read_with_polars,
+        multiple_mod_count_on_same_read
+    );
+    behavior_tests!(
+        multiple_mod_count_on_same_read_with_stronger_thresholding_without_polars,
+        multiple_mod_count_on_same_read_with_stronger_thresholding_with_polars,
+        multiple_mod_count_on_same_read_with_stronger_thresholding
+    );
+    behavior_tests!(
+        multiple_mods_with_region_filtering_without_polars,
+        multiple_mods_with_region_filtering_with_polars,
+        multiple_mods_with_region_filtering
+    );
+    behavior_tests!(
+        multiple_mods_with_region_filtering_strict_mod_prob_filter_no_ins_lowercase_without_polars,
+        multiple_mods_with_region_filtering_strict_mod_prob_filter_no_ins_lowercase_with_polars,
+        multiple_mods_with_region_filtering_strict_mod_prob_filter_no_ins_lowercase
+    );
 }
