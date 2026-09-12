@@ -1,0 +1,19 @@
+BAM/Mod BAM parsing and analysis tool with a single-molecule focus
+
+Usage: nanalogue <COMMAND>
+
+Commands:
+  read-table-show-mods  Prints basecalled len, align len, mod count per molecule
+  read-table-hide-mods  Prints basecalled len, align len per molecule
+  read-stats            Calculates various summary statistics on all reads
+  read-info             Prints information about reads
+  find-modified-reads   Find names of modified reads through criteria specified by sub commands
+  window-dens           Output windowed densities of all reads
+  window-grad           Output windowed gradients of all reads
+  peek                  Display BAM file contigs, contig lengths, and mod types from a "peek" at the
+                        header and first 100 records
+  help                  Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

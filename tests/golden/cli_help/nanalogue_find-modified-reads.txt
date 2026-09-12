@@ -1,0 +1,27 @@
+Find names of modified reads through criteria specified by sub commands
+
+Usage: nanalogue find-modified-reads <COMMAND>
+
+Commands:
+  all-dens-between                   Find reads with all windowed modification densities within
+                                     specified limits
+  any-dens-above                     Find reads with windowed modification density such that at
+                                     least one window is at or above the high value
+  any-dens-below                     Find reads with windowed modification density such that at
+                                     least one window is at or below the low value
+  any-dens-below-and-any-dens-above  Find reads with windowed modification density such that at
+                                     least one window is at or below the low value and at least one
+                                     window is at or above the high value. This operation may enrich
+                                     for reads with spatial gradients in modification density
+  dens-range-above                   Find reads with windowed modification density such that max of
+                                     all densities minus min of all densities is at least the value
+                                     specified. This operation may enrich for reads with spatial
+                                     gradients in modification density
+  any-abs-grad-above                 Find reads such that absolute value of gradient in modification
+                                     density measured in windows is at least the value specified.
+                                     This operation enriches for reads with spatial gradients in
+                                     modification density
+  help                               Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help

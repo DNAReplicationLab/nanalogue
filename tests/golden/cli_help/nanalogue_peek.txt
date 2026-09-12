@@ -1,0 +1,10 @@
+Display BAM file contigs, contig lengths, and mod types from a "peek" at the header and first 100
+records
+
+Usage: nanalogue peek <BAM>
+
+Arguments:
+  <BAM>  Input BAM file (path, URL, or '-' for stdin)
+
+Options:
+  -h, --help  Print help

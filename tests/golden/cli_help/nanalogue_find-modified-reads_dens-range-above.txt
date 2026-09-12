@@ -1,0 +1,101 @@
+Find reads with windowed modification density such that max of all densities minus min of all
+densities is at least the value specified. This operation may enrich for reads with spatial
+gradients in modification density
+
+Usage: nanalogue find-modified-reads dens-range-above [OPTIONS] --win <WIN> --step <STEP> --tag <TAG> --min-range <MIN_RANGE> <BAM_PATH>
+
+Arguments:
+  <BAM_PATH>  Input BAM file. Set to a local file path, or set to - to read from stdin, or set to a
+              URL to read from a remote file. If using stdin and piping in from `samtools view`,
+              always include the header with the `-h` option
+
+Options:
+      --min-seq-len <MIN_SEQ_LEN>
+          Exclude reads whose sequence length in the BAM file is below this value. Defaults to 0
+          [default: 0]
+      --min-align-len <MIN_ALIGN_LEN>
+          Exclude reads whose alignment length in the BAM file is below this value. Defaults to
+          unused
+      --read-id <READ_ID>
+          Only include this read id, defaults to unused i.e. all reads are used. NOTE: if there are
+          multiple alignments corresponding to this read id, all of them are used
+      --read-id-list <READ_ID_LIST>
+          Path to file containing list of read IDs (one per line). Lines starting with '#' are
+          treated as comments and ignored. Cannot be used together with --read-id
+      --threads <THREADS>
+          Number of threads used during some aspects of program execution [default: 2]
+      --include-zero-len
+          Include "zero-length" sequences e.g. sequences with "*" in the sequence field. By default,
+          these sequences are excluded to avoid processing errors. If this flag is set, these reads
+          are included irrespective of any minimum sequence or align length criteria the user may
+          have set. WARNINGS: (1) Some functions of the codebase may break or produce incorrect
+          results if you use this flag. (2) due to a technical reason, we need a DNA sequence in the
+          sequence field and cannot infer sequence length from other sources e.g. CIGAR strings
+      --read-filter <READ_FILTER>
+          Only retain reads of this type. Allowed types are `primary_forward`, `primary_reverse`,
+          `secondary_forward`, `secondary_reverse`, `supplementary_forward`, `supplementary_reverse`
+          and unmapped. Specify more than one type if needed separated by commas, in which case
+          reads of any type in list are retained. Defaults to retain reads of all types
+  -s, --sample-fraction <SAMPLE_FRACTION>
+          Subsample BAM to retain only this fraction of total number of reads, defaults to 1.0. The
+          sampling algorithm considers every read according to the specified probability, so due to
+          this, you may not always get the same number of reads e.g. if you set `-s 0.05` in a file
+          with 1000 reads, you will get 50 +- sqrt(50) reads. By default, a new subsample is drawn
+          every time as the seed is not fixed. Set `--sample-seed` to get reproducible subsampling
+          [default: 1]
+      --sample-seed <SAMPLE_SEED>
+          Seed for reproducible subsampling. When set, the subsampling decision for each read is
+          deterministic based on the read name and the seed. Different seeds produce different
+          subsets. If not set, subsampling is random and non-reproducible (the default behavior)
+      --mapq-filter <MAPQ_FILTER>
+          Exclude reads whose MAPQ (Mapping quality of position) is below this value. Defaults to
+          zero i.e. do not exclude any read [default: 0]
+      --exclude-mapq-unavail
+          Exclude sequences with MAPQ unavailable. In the BAM format, a value of 255 in this column
+          means MAPQ is unavailable. These reads are allowed by default, set this flag to exclude
+      --region <REGION>
+          Only keep reads passing through this region. If a BAM index is available with a name same
+          as the BAM file but with the .bai suffix, the operation of selecting such reads will be
+          faster. If you are using standard input as your input e.g. you are piping in the output
+          from samtools, then you cannot use an index as a BAM filename is not available
+      --full-region
+          Only keep reads if they pass through the specified region in full. Related to the input
+          `--region`; has no effect if that is not set
+      --win <WIN>
+          size of window in units of base being queried i.e. if you are looking for cytosine
+          modifications, then a window of a value 300 means create windows each with 300 cytosines
+          irrespective of their modification status
+      --step <STEP>
+          step window by this size in units of base being queried
+      --tag <TAG>
+          modified tag
+      --mod-strand <MOD_STRAND>
+          modified strand, set this to `bc` or `bc_comp`, meaning on basecalled strand or its
+          complement. Some technologies like `PacBio` or `ONT` duplex can call mod data on both a
+          strand and its complementary DNA and store it in the record corresponding to the strand,
+          so you can use this filter to select only for mod data on a strand or its complement.
+          Please note that this filter is different from selecting for forward or reverse aligned
+          reads using the BAM flags
+      --mod-prob-filter <MOD_PROB_FILTER>
+          Filter to reject mods before analysis. Specify as low,high where both are fractions to
+          reject modifications where the probabilities (p) are in this range e.g. "0.4,0.6" rejects
+          0.4 <= p <= 0.6. You can use this to reject 'weak' modification calls before analysis i.e.
+          those with probabilities close to 0.5. NOTE: (1) Whether this filtration is applied or
+          not, mods < 0.5 are considered unmodified and >= 0.5 are considered modified by our
+          program. (2) mod probabilities are stored as a number from 0-255 in the modBAM format, so
+          we internally convert 0.0-1.0 to 0-255. Default: reject nothing [default: ""]
+      --trim-read-ends-mod <TRIM_READ_ENDS_MOD>
+          Filter this many bp at the start and end of a read before any mod operations. Please note
+          that the units here are bp and not units of base being queried [default: 0]
+      --base-qual-filter-mod <BASE_QUAL_FILTER_MOD>
+          Exclude bases whose base quality is below this threshold before any mod operation,
+          defaults to 0 i.e. unused. NOTE: (1) This step is only applied before modification
+          operations, and not before any other operations. (2) No offsets such as +33 are needed
+          here. (3) Modifications on reads where base quality information is not available are all
+          rejected if this is non-zero [default: 0]
+      --mod-region <MOD_REGION>
+          Only keep modification data from this region
+      --min-range <MIN_RANGE>
+          max(windowed densities) - min(windowed densities) is at least this value
+  -h, --help
+          Print help

@@ -1,0 +1,86 @@
+Create a synthetic BAM or CRAM file, its alignment index, and a matching FASTA reference.
+This is intended for developers testing alignment parsers and base-modification tooling.
+It generates a controlled subset of BAM/CRAM outputs and is not intended to
+cover all real-world variants, codecs, reference modes, or producer quirks.
+
+The input is a JSON object with three top-level fields:
+  contigs  Configures the generated reference contigs.
+  reads    An array of read groups; each entry can use different settings.
+  seed     Optional random seed for reproducible output.
+
+Contig features:
+  number        Number of contigs to generate.
+  len_range     Inclusive [minimum, maximum] contig length in bases.
+  repeated_seq  Optional DNA motif to repeat instead of generating random DNA.
+
+Read-group features:
+  number             Number of reads in the group.
+  mapq_range         Inclusive mapping-quality range for mapped reads; unmapped reads use 0.
+  base_qual_range    Inclusive base-quality range.
+  len_range          [minimum, maximum] read length as fractions of contig length.
+  barcode            Optional DNA sequence added to both read ends.
+  delete             Optional fractional [start, end] region deleted from every read.
+  insert_middle      Optional DNA sequence inserted in the middle of every read.
+  mismatch           Optional fraction of bases changed at random.
+  mods               Optional array of base-modification configurations.
+
+Each modification selects a base, strand, and modification code. The win array gives
+repeating window sizes in occurrences of that base, while mod_range gives repeating
+[minimum, maximum] probability ranges for those windows.
+The optional mm_suffix field controls the trailing mark on the MM tag group:
+"?" (explicit, default), "." (implicit), or "none" (implicit, no trailing mark).
+The optional drop array specifies how many bases to drop (skip) at the start of each
+window cycle. Dropped bases get no ML value and appear as non-zero gaps in the MM
+distance array. Each drop value must be <= the minimum win value.
+
+Usage: nanalogue_sim_bam <INPUT_JSON> <OUTPUT_ALIGNMENT> <OUTPUT_FASTA>
+
+Arguments:
+  <INPUT_JSON>
+          Input JSON file path
+
+  <OUTPUT_ALIGNMENT>
+          Output .bam or .cram path; if pre-existing, the file will be overwritten
+
+  <OUTPUT_FASTA>
+          Output FASTA file path; if pre-existing, the file will be overwritten
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+EXAMPLE CONFIG (config.json):
+  {
+    "contigs": {
+      "number": 2,
+      "len_range": [1000, 2000],
+      "repeated_seq": "ACGT"
+    },
+    "reads": [{
+      "number": 100,
+      "mapq_range": [20, 40],
+      "base_qual_range": [20, 30],
+      "len_range": [0.2, 0.8],
+      "mods": [{
+        "base": "C",
+        "is_strand_plus": true,
+        "mod_code": "m",
+        "win": [10, 20],
+        "mod_range": [[0.7, 0.9], [0.1, 0.3]],
+        "drop": [2, 5]
+      }]
+    }],
+    "seed": 42
+  }
+
+RUN:
+  nanalogue_sim_bam config.json output.bam reference.fasta
+  nanalogue_sim_bam config.json output.cram reference.fasta
+
+The alignment file, its index, and the FASTA are overwritten if they exist.
+
+For the complete configuration reference and more examples, see:
+  https://docs.rs/nanalogue/latest/nanalogue_core/simulate_mod_bam/index.html
