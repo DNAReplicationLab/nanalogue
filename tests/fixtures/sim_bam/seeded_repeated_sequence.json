@@ -1,0 +1,14 @@
+{
+  "contigs": {
+    "number": 1,
+    "len_range": [64, 64],
+    "repeated_seq": "ACGT"
+  },
+  "reads": [{
+    "number": 4,
+    "mapq_range": [30, 30],
+    "base_qual_range": [25, 25],
+    "len_range": [0.5, 0.5]
+  }],
+  "seed": 24680
+}

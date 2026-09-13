@@ -1,0 +1,12 @@
+Simulate BAM or CRAM with or without modifications
+
+Usage: nanalogue_sim_bam <INPUT_JSON> <OUTPUT_ALIGNMENT> <OUTPUT_FASTA>
+
+Arguments:
+  <INPUT_JSON>        Input JSON file path
+  <OUTPUT_ALIGNMENT>  Output .bam or .cram path; if pre-existing, the file will be overwritten
+  <OUTPUT_FASTA>      Output FASTA file path; if pre-existing, the file will be overwritten
+
+Options:
+  -h, --help     Print help (see more with '--help')
+  -V, --version  Print version
