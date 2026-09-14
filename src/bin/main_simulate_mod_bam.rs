@@ -7,6 +7,9 @@
 use clap::Parser;
 use nanalogue_core::{Error, SimulationConfig, simulate_mod_bam};
 
+/// Exclusive upper bound for command-line path lengths.
+const MAX_CLI_PATH_BYTES: usize = 10_000;
+
 /// Detailed command-line help for configuring a simulation.
 const LONG_ABOUT: &str =
     "Create a synthetic BAM or CRAM file, its alignment index, and a matching FASTA reference.
@@ -96,6 +99,33 @@ struct Cli {
     fasta: String,
 }
 
+impl Cli {
+    /// Validate that every command-line path has a realistic byte length.
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidState`] when a path is empty or at least
+    /// 10,000 bytes long.
+    fn check_lengths(&self) -> Result<bool, Error> {
+        for (label, value) in [
+            ("input JSON", &self.json),
+            ("alignment output", &self.alignment),
+            ("FASTA output", &self.fasta),
+        ] {
+            if value.is_empty() {
+                return Err(Error::InvalidState(format!(
+                    "{label} path must not be empty"
+                )));
+            }
+            if value.len() >= MAX_CLI_PATH_BYTES {
+                return Err(Error::InvalidState(format!(
+                    "{label} path must be shorter than {MAX_CLI_PATH_BYTES} bytes"
+                )));
+            }
+        }
+        Ok(true)
+    }
+}
+
 /// Main function, run the program. All business logic handled by `run`
 ///
 /// This separation of function between `main` and `run` is so that we
@@ -124,6 +154,7 @@ fn main() {
 /// # Errors
 /// Returns errors from simulating BAM or CRAM files.
 fn run(cli: &Cli) -> Result<(), Error> {
+    let _lengths_are_valid = cli.check_lengths()?;
     let json_str = std::fs::read_to_string(&cli.json)?;
     let config: SimulationConfig = serde_json::from_str(&json_str)?;
     simulate_mod_bam::run(config, &cli.alignment, &cli.fasta)
@@ -198,6 +229,71 @@ mod tests {
             .join("\n");
         let _: SimulationConfig =
             serde_json::from_str(&json).expect("the example config should deserialize");
+    }
+
+    #[test]
+    fn cli_check_lengths_validates_every_path() {
+        let longest_valid = "x".repeat(
+            MAX_CLI_PATH_BYTES
+                .checked_sub(1)
+                .expect("maximum CLI path length should be positive"),
+        );
+        let valid = Cli {
+            json: longest_valid.clone(),
+            alignment: longest_valid.clone(),
+            fasta: longest_valid,
+        };
+        assert!(
+            valid
+                .check_lengths()
+                .expect("paths below the maximum should be valid")
+        );
+
+        let overlong = "x".repeat(MAX_CLI_PATH_BYTES);
+        for (invalid, reason) in [
+            ("", "must not be empty"),
+            (overlong.as_str(), "must be shorter than 10000 bytes"),
+        ] {
+            for field in 0..3 {
+                let mut cli = Cli {
+                    json: "input.json".to_owned(),
+                    alignment: "output.bam".to_owned(),
+                    fasta: "output.fasta".to_owned(),
+                };
+                let label = match field {
+                    0 => {
+                        cli.json = invalid.to_owned();
+                        "input JSON"
+                    }
+                    1 => {
+                        cli.alignment = invalid.to_owned();
+                        "alignment output"
+                    }
+                    2 => {
+                        cli.fasta = invalid.to_owned();
+                        "FASTA output"
+                    }
+                    _ => unreachable!("test has exactly three CLI fields"),
+                };
+                let result = cli.check_lengths();
+                assert!(
+                    matches!(result, Err(Error::InvalidState(message)) if message == format!("{label} path {reason}"))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn run_validates_cli_lengths_before_reading_json() {
+        let cli = Cli {
+            json: String::new(),
+            alignment: "output.bam".to_owned(),
+            fasta: "output.fasta".to_owned(),
+        };
+
+        assert!(
+            matches!(run(&cli), Err(Error::InvalidState(message)) if message == "input JSON path must not be empty")
+        );
     }
 
     /// Test that the run function successfully creates alignment, index, and FASTA files.
