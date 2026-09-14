@@ -105,7 +105,7 @@ impl Cli {
     /// # Errors
     /// Returns [`Error::InvalidState`] when a path is empty or at least
     /// 10,000 bytes long.
-    fn check_lengths(&self) -> Result<bool, Error> {
+    fn check_lengths(&self) -> Result<(), Error> {
         for (label, value) in [
             ("input JSON", &self.json),
             ("alignment output", &self.alignment),
@@ -122,7 +122,7 @@ impl Cli {
                 )));
             }
         }
-        Ok(true)
+        Ok(())
     }
 }
 
@@ -154,7 +154,7 @@ fn main() {
 /// # Errors
 /// Returns errors from simulating BAM or CRAM files.
 fn run(cli: &Cli) -> Result<(), Error> {
-    let _lengths_are_valid = cli.check_lengths()?;
+    cli.check_lengths()?;
     let json_str = std::fs::read_to_string(&cli.json)?;
     let config: SimulationConfig = serde_json::from_str(&json_str)?;
     simulate_mod_bam::run(config, &cli.alignment, &cli.fasta)
@@ -243,11 +243,9 @@ mod tests {
             alignment: longest_valid.clone(),
             fasta: longest_valid,
         };
-        assert!(
-            valid
-                .check_lengths()
-                .expect("paths below the maximum should be valid")
-        );
+        valid
+            .check_lengths()
+            .expect("paths below the maximum should be valid");
 
         let overlong = "x".repeat(MAX_CLI_PATH_BYTES);
         for (invalid, reason) in [
