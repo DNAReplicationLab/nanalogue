@@ -374,6 +374,7 @@ mod simulator_cli_combinatorial_tests {
     use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
     use rust_htslib::bam::{self, Read as _};
     use std::{
+        collections::HashSet,
         ffi::{OsStr, OsString},
         fs,
         path::{Path, PathBuf},
@@ -390,6 +391,10 @@ mod simulator_cli_combinatorial_tests {
     const MAX_TEXT_BYTES: usize = 10_000;
     /// Sanity limit for one CLI invocation's argument count.
     const MAX_ARGUMENTS: usize = 40;
+    /// Resource limit for exhaustive argument permutation.
+    const MAX_PERMUTATION_ARGUMENTS: usize = 10;
+    /// Maximum iterations permitted while generating argument permutations.
+    const MAX_PERMUTATION_LOOPS: usize = 3_628_800;
     /// Sanity limit for the compiled simulator executable.
     const MAX_EXECUTABLE_BYTES: u64 = 1_000_000_000;
     /// Expected FASTA content derived directly from the committed fixture.
@@ -744,27 +749,90 @@ ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n";
         .collect()
     }
 
-    /// Exercise the complete 4-by-7 matrix.
+    /// Visit every positional permutation using iterative Heap's algorithm.
+    fn visit_permutations<T>(values: &mut [T], mut visit: impl FnMut(&[T])) {
+        assert!(
+            !values.is_empty() && values.len() <= MAX_PERMUTATION_ARGUMENTS,
+            "permutation input should contain between 1 and {MAX_PERMUTATION_ARGUMENTS} values"
+        );
+        let mut counters = vec![0; values.len()];
+        visit(values);
+
+        let mut index = 0;
+        let mut loop_counter = 0usize;
+        while let Some(&counter) = counters.get(index) {
+            loop_counter = loop_counter
+                .checked_add(1)
+                .expect("permutation loop counter should not overflow");
+            assert!(
+                loop_counter <= MAX_PERMUTATION_LOOPS,
+                "permutation generation should finish within {MAX_PERMUTATION_LOOPS} loops"
+            );
+            if counter < index {
+                let swap_with = if index.is_multiple_of(2) { 0 } else { counter };
+                values.swap(swap_with, index);
+                visit(values);
+                let current = counters
+                    .get_mut(index)
+                    .expect("permutation counter index should remain valid");
+                *current = current
+                    .checked_add(1)
+                    .expect("permutation counter should not overflow");
+                index = 0;
+            } else {
+                *counters
+                    .get_mut(index)
+                    .expect("permutation counter index should remain valid") = 0;
+                index = index
+                    .checked_add(1)
+                    .expect("permutation index should not overflow");
+            }
+        }
+    }
+
+    /// Exercise the complete 4-by-7 matrix and one excess-positional case.
     #[test]
     fn simulator_cli_matrix() {
         let expected = ExpectedOutputs::load();
-        for case_index in 0..28 {
+        for case_index in 0..29 {
             run_case(case_index, &expected);
         }
     }
 
-    /// Run one of the 28 explicit matrix cases through the compiled executable.
+    /// Run one of the 29 explicit CLI cases through the compiled executable.
     #[expect(
         clippy::integer_division,
         clippy::integer_division_remainder_used,
         clippy::too_many_lines,
-        reason = "one cohesive function maps and verifies every cell of the four-by-seven matrix"
+        reason = "one cohesive function verifies the matrix and excess-positional case"
     )]
     fn run_case(case_index: usize, expected: &ExpectedOutputs) {
         assert!(
-            case_index <= 27,
-            "simulator CLI case index must be at most 27"
+            case_index <= 28,
+            "simulator CLI case index must be at most 28"
         );
+
+        if case_index == 28 {
+            let mut rng = StdRng::seed_from_u64(CLI_MATRIX_SEED);
+            let args = std::iter::repeat_with(|| OsString::from(random_token(&mut rng)))
+                .take(4)
+                .collect::<Vec<_>>();
+            let unexpected = args
+                .get(3)
+                .expect("four-positional case should have a fourth argument")
+                .to_string_lossy()
+                .into_owned();
+            let context = format!(
+                "seed={CLI_MATRIX_SEED:#x}, case={case_index}, argv={}",
+                args.iter()
+                    .map(|arg| arg.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+            let output = execute(&args);
+            assert_cli_error(output, &["unexpected argument", &unexpected], &context);
+            return;
+        }
 
         let positional_count = case_index / 7;
         let column = case_index % 7;
@@ -816,62 +884,101 @@ ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n";
             _ => unreachable!("case index maps to a column from zero through six"),
         };
         args.extend(action_args);
-        let context = format!(
-            "seed={CLI_MATRIX_SEED:#x}, case={case_index}, argv={}",
-            args.iter()
-                .map(|arg| arg.to_string_lossy())
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
-        let output = execute(&args);
 
-        match column {
-            0 => {
-                assert_display(&output, &[&expected.short_help], &context);
-            }
-            1 => {
-                assert_display(&output, &[&expected.long_help], &context);
-            }
-            2 | 3 => {
-                assert_display(&output, &[&expected.version], &context);
-            }
-            4 => {
-                let applicable_help = if args.iter().any(|arg| arg == "-h") {
-                    expected.short_help.as_slice()
-                } else {
-                    expected.long_help.as_slice()
-                };
-                assert_display(&output, &[applicable_help, &expected.version], &context);
-            }
-            5 => {
-                let unknown = diagnosed_unknown.expect("unknown column should have a token");
-                assert_cli_error(output, &["unexpected argument", &unknown], &context);
-            }
-            6 if positional_count < 3 => {
-                assert_cli_error(output, &["required arguments were not provided"], &context);
-            }
-            6 => assert_simulation_output(
+        if case_index == 27 {
+            let context = format!(
+                "seed={CLI_MATRIX_SEED:#x}, case={case_index}, argv={}",
+                args.iter()
+                    .map(|arg| arg.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+            let output = execute(&args);
+            assert_simulation_output(
                 &output,
                 paths.as_ref().expect("row three should have output paths"),
                 &context,
-            ),
-            _ => unreachable!("case index maps to a column from zero through six"),
+            );
+            return;
         }
-        if column < 6
-            && let Some(simulation_paths) = paths.as_ref()
-        {
-            for path in [
-                &simulation_paths.bam,
-                &simulation_paths.index,
-                &simulation_paths.fasta,
-            ] {
-                assert!(
-                    !path.exists(),
-                    "{context}: {} must not exist",
-                    path.display()
-                );
+
+        if args.is_empty() {
+            assert_eq!(
+                case_index, 6,
+                "only the zero-positional, no-flag case should have no arguments"
+            );
+            let context = format!("seed={CLI_MATRIX_SEED:#x}, case={case_index}, argv=");
+            let output = execute(&args);
+            assert_cli_error(output, &["required arguments were not provided"], &context);
+            return;
+        }
+
+        let expected_permutation_count = (1..=args.len()).product::<usize>();
+        let mut visited_permutations = HashSet::new();
+        visit_permutations(&mut args, |permutation| {
+            assert!(
+                visited_permutations.insert(permutation.to_vec()),
+                "case {case_index} generated a duplicate argument permutation"
+            );
+            let context = format!(
+                "seed={CLI_MATRIX_SEED:#x}, case={case_index}, argv={}",
+                permutation
+                    .iter()
+                    .map(|arg| arg.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+            let output = execute(permutation);
+
+            match column {
+                0 => {
+                    assert_display(&output, &[&expected.short_help], &context);
+                }
+                1 => {
+                    assert_display(&output, &[&expected.long_help], &context);
+                }
+                2 | 3 => {
+                    assert_display(&output, &[&expected.version], &context);
+                }
+                4 => {
+                    let applicable_help = if permutation.iter().any(|arg| arg == "-h") {
+                        expected.short_help.as_slice()
+                    } else {
+                        expected.long_help.as_slice()
+                    };
+                    assert_display(&output, &[applicable_help, &expected.version], &context);
+                }
+                5 => {
+                    let unknown = diagnosed_unknown
+                        .as_deref()
+                        .expect("unknown column should have a token");
+                    assert_cli_error(output, &["unexpected argument", unknown], &context);
+                }
+                6 if positional_count < 3 => {
+                    assert_cli_error(output, &["required arguments were not provided"], &context);
+                }
+                _ => unreachable!("successful simulation is handled before permutation testing"),
             }
-        }
+
+            if let Some(simulation_paths) = paths.as_ref() {
+                for path in [
+                    &simulation_paths.bam,
+                    &simulation_paths.index,
+                    &simulation_paths.fasta,
+                ] {
+                    assert!(
+                        !path.exists(),
+                        "{context}: {} must not exist",
+                        path.display()
+                    );
+                }
+            }
+        });
+        assert_eq!(
+            visited_permutations.len(),
+            expected_permutation_count,
+            "case {case_index} should exercise every argument permutation"
+        );
     }
 
     /// Validate and decode one successful simulator process output.
