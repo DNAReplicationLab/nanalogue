@@ -15,6 +15,9 @@ const ROOT = resolve(__dirname, "..");
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const CACHED_ONLY = argv.includes("--cached-only");
 const MAX_GIT_BLOB_BYTES = 64 * 1024 * 1024;
+const ANSI_GOLDENS = new Set(["tests/goldens/bam_viewer_visible.ansi"]);
+/** ASCII ESC, which introduces an ANSI control sequence. */
+const ANSI_ESCAPE_CODE_POINT = 0x1b;
 
 /** Visible Unicode symbols intentionally permitted in repository text. */
 const ALLOWED_UNICODE_CODE_POINTS = new Set([
@@ -126,7 +129,9 @@ for (const file of listRepositoryFiles()) {
     for (const character of content) {
         const codePoint = character.codePointAt(0);
         if (codePoint === undefined) continue;
-        if (!isAllowedCodePoint(codePoint)) {
+        const isIntentionalAnsiEscape =
+            ANSI_GOLDENS.has(file) && codePoint === ANSI_ESCAPE_CODE_POINT;
+        if (!isAllowedCodePoint(codePoint) && !isIntentionalAnsiEscape) {
             findings.push({
                 file,
                 line,

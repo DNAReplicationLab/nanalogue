@@ -1002,6 +1002,91 @@ fn main() {
 mod tests {
     use super::*;
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct CapturedStyle {
+        style: libghostty_vt::style::Style,
+        foreground: Option<libghostty_vt::style::RgbColor>,
+        background: Option<libghostty_vt::style::RgbColor>,
+    }
+
+    impl CapturedStyle {
+        fn write_ansi(self, output: &mut String) {
+            output.push_str("\x1b[0m");
+            let mut codes = Vec::new();
+            codes.extend(
+                [
+                    (self.style.bold, "1"),
+                    (self.style.faint, "2"),
+                    (self.style.italic, "3"),
+                    (self.style.underline != Underline::None, "4"),
+                    (self.style.blink, "5"),
+                    (self.style.inverse, "7"),
+                    (self.style.invisible, "8"),
+                    (self.style.strikethrough, "9"),
+                    (self.style.overline, "53"),
+                ]
+                .into_iter()
+                .filter(|&(enabled, _code)| enabled)
+                .map(|(_enabled, code)| String::from(code)),
+            );
+            if let Some(color) = self.foreground {
+                codes.push(format!("38;2;{};{};{}", color.r, color.g, color.b));
+            }
+            if let Some(color) = self.background {
+                codes.push(format!("48;2;{};{};{}", color.r, color.g, color.b));
+            }
+            if !codes.is_empty() {
+                write!(output, "\x1b[{}m", codes.join(";")).expect("writing to String cannot fail");
+            }
+        }
+    }
+
+    fn viewport_as_ansi<'alloc>(
+        snapshot: &libghostty_vt::render::Snapshot<'alloc, '_>,
+        row_iterator: &mut RowIterator<'alloc>,
+        cell_iterator: &mut CellIterator<'alloc>,
+    ) -> Result<String, Box<dyn Error>> {
+        let mut output = String::new();
+        let mut rows = row_iterator.update(snapshot)?;
+        let mut row_number = 1usize;
+        let mut loop_iterations = 0usize;
+        while let Some(row) = rows.next() {
+            loop_iterations = loop_iterations.saturating_add(1);
+            assert!(
+                loop_iterations <= 5_000_000,
+                "ANSI viewport capture exceeds five million loop iterations"
+            );
+            write!(output, "\x1b[{row_number};1H").expect("writing to String cannot fail");
+            let mut cells = cell_iterator.update(row)?;
+            let mut current_style = None;
+            while let Some(cell) = cells.next() {
+                loop_iterations = loop_iterations.saturating_add(1);
+                assert!(
+                    loop_iterations <= 5_000_000,
+                    "ANSI viewport capture exceeds five million loop iterations"
+                );
+                let captured_style = CapturedStyle {
+                    style: cell.style()?,
+                    foreground: cell.fg_color()?,
+                    background: cell.bg_color()?,
+                };
+                if current_style != Some(captured_style) {
+                    captured_style.write_ansi(&mut output);
+                    current_style = Some(captured_style);
+                }
+                let graphemes = cell.graphemes()?;
+                if graphemes.is_empty() {
+                    output.push(' ');
+                } else {
+                    output.extend(graphemes);
+                }
+            }
+            output.push_str("\x1b[0m");
+            row_number = row_number.saturating_add(1);
+        }
+        Ok(output)
+    }
+
     fn goto_test_viewer() -> Viewer {
         let position = InitialPosition {
             contig: String::from("dummyIII"),
@@ -1162,6 +1247,64 @@ mod tests {
         assert_eq!(cells.graphemes()?, ['C']);
         assert!(!cells.style()?.bold);
         assert_eq!(cells.style()?.underline, Underline::None);
+        Ok(())
+    }
+
+    #[test]
+    fn visible_viewport_matches_ansi_golden() -> Result<(), Box<dyn Error>> {
+        let position = InitialPosition {
+            contig: String::from("dummyIII"),
+            start: 23,
+        };
+        let mut viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &position,
+            Some(ModChar::new('T')),
+            7,
+        )?;
+        let records = viewer.visible_records()?;
+        let frame = build_frame(&viewer, &records, 26, 6, None);
+        let mut terminal = Terminal::new(TerminalOptions {
+            cols: 26,
+            rows: 6,
+            max_scrollback: 0,
+        })?;
+        terminal.vt_write(frame.as_bytes());
+        let mut render_state = RenderState::new()?;
+        let snapshot = render_state.update(&terminal)?;
+        let mut row_iterator = RowIterator::new()?;
+        let mut cell_iterator = CellIterator::new()?;
+        let actual = viewport_as_ansi(&snapshot, &mut row_iterator, &mut cell_iterator)?;
+
+        let mut replayed_terminal = Terminal::new(TerminalOptions {
+            cols: 26,
+            rows: 6,
+            max_scrollback: 0,
+        })?;
+        replayed_terminal.vt_write(actual.as_bytes());
+        let mut replayed_render_state = RenderState::new()?;
+        let replayed_snapshot = replayed_render_state.update(&replayed_terminal)?;
+        let mut replayed_row_iterator = RowIterator::new()?;
+        let mut replayed_cell_iterator = CellIterator::new()?;
+        let replayed = viewport_as_ansi(
+            &replayed_snapshot,
+            &mut replayed_row_iterator,
+            &mut replayed_cell_iterator,
+        )?;
+        assert_eq!(actual, replayed, "ANSI golden must reproduce its viewport");
+
+        let golden_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens/bam_viewer_visible.ansi");
+        let update_golden = env::var("NANALOGUE_UPDATE_GOLDENS").as_deref() == Ok("1");
+        assert!(
+            !update_golden || env::var_os("CI").is_none(),
+            "golden files must not be updated in CI"
+        );
+        if update_golden {
+            std::fs::write(&golden_path, actual.as_bytes())?;
+        }
+        let expected = std::fs::read(&golden_path)?;
+        assert_eq!(actual.as_bytes(), expected);
         Ok(())
     }
 
