@@ -1421,6 +1421,20 @@ mod tests {
                 &end_viewport,
             )?;
 
+            if mod_type.is_some() {
+                assert!(!handle_demo_key(
+                    &mut viewer,
+                    KeyCode::Home,
+                    &initial_records
+                ));
+                assert_eq!(viewer.viewport.read_offset, 0);
+                assert!(viewer.full_read_ids);
+                assert!(viewer.show_insertions);
+                let home_viewport =
+                    render_demo_viewport(&viewer, &initial_records, FrameFooter::Controls)?;
+                assert_ansi_golden("bam_viewer_key_home.ansi", &home_viewport)?;
+            }
+
             assert!(viewer.go_to(&InitialPosition {
                 contig: String::from("contig_00000"),
                 start: 45,
@@ -1470,6 +1484,31 @@ mod tests {
         assert_ansi_golden("bam_viewer_key_default.ansi", &default_viewport)?;
 
         assert!(!handle_demo_key(&mut viewer, KeyCode::Char('i'), &records));
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('i'), &records));
+        assert!(!viewer.show_insertions);
+        assert_eq!(
+            render_demo_viewport(&viewer, &records, FrameFooter::Controls)?,
+            default_viewport
+        );
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('r'), &records));
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('r'), &records));
+        assert!(!viewer.full_read_ids);
+        assert_eq!(
+            render_demo_viewport(&viewer, &records, FrameFooter::Controls)?,
+            default_viewport
+        );
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Down, &records));
+        assert_eq!(viewer.viewport.read_offset, 1);
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Up, &records));
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert_eq!(
+            render_demo_viewport(&viewer, &records, FrameFooter::Controls)?,
+            default_viewport
+        );
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('i'), &records));
         let insertion_viewport = render_demo_viewport(&viewer, &records, FrameFooter::Controls)?;
         assert_ne!(insertion_viewport, default_viewport);
         assert_ansi_golden("bam_viewer_key_insertions.ansi", &insertion_viewport)?;
@@ -1486,6 +1525,16 @@ mod tests {
         let page_down_viewport = render_demo_viewport(&viewer, &records, FrameFooter::Controls)?;
         assert_ansi_golden("bam_viewer_key_page_down.ansi", &page_down_viewport)?;
 
+        assert!(!handle_demo_key(&mut viewer, KeyCode::PageUp, &records));
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert!(viewer.full_read_ids);
+        assert!(viewer.show_insertions);
+        let page_up_viewport = render_demo_viewport(&viewer, &records, FrameFooter::Controls)?;
+        assert_eq!(page_up_viewport, full_id_viewport);
+        assert_ansi_golden("bam_viewer_key_full_ids.ansi", &page_up_viewport)?;
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::PageDown, &records));
+        assert_eq!(viewer.viewport.read_offset, 16);
         assert!(handle_demo_key(&mut viewer, KeyCode::Right, &records));
         assert_eq!(viewer.viewport.start, 436);
         assert_eq!(viewer.viewport.read_offset, 0);
@@ -1494,6 +1543,50 @@ mod tests {
         let right_records = viewer.visible_records()?;
         let right_viewport = render_demo_viewport(&viewer, &right_records, FrameFooter::Controls)?;
         assert_ansi_golden("bam_viewer_key_right.ansi", &right_viewport)?;
+
+        assert!(handle_demo_key(&mut viewer, KeyCode::Left, &right_records));
+        assert_eq!(viewer.viewport.start, 365);
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert!(!viewer.full_read_ids);
+        assert!(!viewer.show_insertions);
+        let left_records = viewer.visible_records()?;
+        let left_viewport = render_demo_viewport(&viewer, &left_records, FrameFooter::Controls)?;
+        assert_eq!(left_viewport, default_viewport);
+        assert_ansi_golden("bam_viewer_key_default.ansi", &left_viewport)?;
+        Ok(())
+    }
+
+    fn assert_successful_prompt_goto(
+        viewer: &mut Viewer,
+        records: &[RegionSequence],
+    ) -> Result<(), Box<dyn Error>> {
+        assert!(!handle_demo_key(viewer, KeyCode::Char('r'), records));
+        assert!(!handle_demo_key(viewer, KeyCode::Char('i'), records));
+        let mut input = String::new();
+        let mut input_error = None;
+        for character in "contig_00001:120".chars() {
+            assert_eq!(
+                prompt_key(
+                    &mut input,
+                    &mut input_error,
+                    KeyCode::Char(character),
+                    viewer,
+                ),
+                None
+            );
+        }
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Enter, viewer),
+            Some(PositionPromptOutcome::Navigated(true))
+        );
+        assert_eq!(viewer.target_name(), "contig_00001");
+        assert_eq!(viewer.viewport.start, 120);
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert!(!viewer.full_read_ids);
+        assert!(!viewer.show_insertions);
+        let goto_records = viewer.visible_records()?;
+        let goto_viewport = render_demo_viewport(viewer, &goto_records, FrameFooter::Controls)?;
+        assert_ansi_golden("bam_viewer_goto_success.ansi", &goto_viewport)?;
         Ok(())
     }
 
@@ -1548,6 +1641,17 @@ mod tests {
             },
         )?;
         assert_ansi_golden("bam_viewer_goto_error.ansi", &error_viewport)?;
+        let narrow_error_viewport = render_ansi_viewport(
+            &viewer,
+            &records,
+            27,
+            10,
+            FrameFooter::PositionPrompt {
+                input: &input,
+                error: input_error.as_deref(),
+            },
+        )?;
+        assert_ansi_golden("bam_viewer_narrow_error.ansi", &narrow_error_viewport)?;
 
         assert_eq!(
             prompt_key(
@@ -1576,7 +1680,7 @@ mod tests {
         );
         let after_cancel = render_demo_viewport(&viewer, &records, FrameFooter::Controls)?;
         assert_eq!(after_cancel, before_prompt);
-        Ok(())
+        assert_successful_prompt_goto(&mut viewer, &records)
     }
 
     #[test]
@@ -2096,6 +2200,10 @@ mod tests {
 
     #[test]
     fn standard_exit_keys_are_recognized() {
+        assert!(should_quit(KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::NONE
+        )));
         assert!(should_quit(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
         assert!(should_quit(KeyEvent::new(
             KeyCode::Char('c'),
