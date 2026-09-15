@@ -661,13 +661,27 @@ fn default_footer(viewer: &Viewer) -> String {
     )
 }
 
+/// Selects the footer state rendered by the viewer.
+#[derive(Clone, Copy)]
+enum FrameFooter<'a> {
+    /// Show the normal navigation controls.
+    Controls,
+    /// Show the active genomic-position prompt or its current error.
+    PositionPrompt {
+        /// The position text entered so far.
+        input: &'a str,
+        /// The current validation error, if input submission failed.
+        error: Option<&'a str>,
+    },
+}
+
 /// Builds the ANSI frame that Ghostty parses into a terminal screen.
 fn build_frame(
     viewer: &Viewer,
     records: &[RegionSequence],
     cols: u16,
     rows: u16,
-    footer_override: Option<&str>,
+    footer_state: FrameFooter<'_>,
 ) -> String {
     let effective_cols = cols.max(1);
     let genome_cols = effective_cols
@@ -756,7 +770,13 @@ fn build_frame(
 
     if rows > 3 {
         write!(&mut frame, "\x1b[{rows};1H\x1b[7m").expect("writing to String cannot fail");
-        let footer = footer_override.map_or_else(|| default_footer(viewer), String::from);
+        let footer = match footer_state {
+            FrameFooter::Controls => default_footer(viewer),
+            FrameFooter::PositionPrompt { input, error } => error.map_or_else(
+                || position_prompt_footer(input, cols),
+                |message| position_error_footer(message, cols),
+            ),
+        };
         frame.push_str(&fixed_line(&footer, effective_cols));
         frame.push_str("\x1b[0m");
     }
@@ -895,11 +915,16 @@ fn prompt_for_position(
     let mut input_error: Option<String> = None;
     loop {
         let (cols, rows) = crossterm::terminal::size()?;
-        let footer = input_error.as_ref().map_or_else(
-            || position_prompt_footer(&input, cols),
-            |error| position_error_footer(error, cols),
+        let frame = build_frame(
+            viewer,
+            records,
+            cols,
+            rows,
+            FrameFooter::PositionPrompt {
+                input: &input,
+                error: input_error.as_deref(),
+            },
         );
-        let frame = build_frame(viewer, records, cols, rows, Some(&footer));
         renderer.draw(stdout, &frame, cols, rows)?;
 
         let Event::Key(key) = event::read()? else {
@@ -944,7 +969,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
             .viewport
             .read_offset
             .min(records.len().saturating_sub(visible_reads));
-        let frame = build_frame(&viewer, &records, cols, rows, None);
+        let frame = build_frame(&viewer, &records, cols, rows, FrameFooter::Controls);
         renderer.draw(&mut stdout, &frame, cols, rows)?;
 
         let Event::Key(key) = event::read()? else {
@@ -1002,6 +1027,10 @@ fn main() {
 mod tests {
     use super::*;
     use nanalogue_core::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
+
+    const DEMO_GOLDEN_COLS: u16 = 90;
+    const DEMO_GOLDEN_ROWS: u16 = 20;
+    const DEMO_VISIBLE_READS: usize = 16;
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct CapturedStyle {
@@ -1093,8 +1122,9 @@ mod tests {
         records: &[RegionSequence],
         cols: u16,
         rows: u16,
+        footer_state: FrameFooter<'_>,
     ) -> Result<String, Box<dyn Error>> {
-        let frame = build_frame(viewer, records, cols, rows, None);
+        let frame = build_frame(viewer, records, cols, rows, footer_state);
         let mut terminal = Terminal::new(TerminalOptions {
             cols,
             rows,
@@ -1141,6 +1171,24 @@ mod tests {
         let expected = std::fs::read(&golden_path)?;
         assert_eq!(actual.as_bytes(), expected);
         Ok(())
+    }
+
+    fn render_demo_viewport(
+        viewer: &Viewer,
+        records: &[RegionSequence],
+        footer_state: FrameFooter<'_>,
+    ) -> Result<String, Box<dyn Error>> {
+        render_ansi_viewport(
+            viewer,
+            records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            footer_state,
+        )
+    }
+
+    fn handle_demo_key(viewer: &mut Viewer, key: KeyCode, records: &[RegionSequence]) -> bool {
+        viewer.handle_key(key, records, DEMO_VISIBLE_READS)
     }
 
     fn goto_test_viewer() -> Viewer {
@@ -1274,7 +1322,7 @@ mod tests {
             7,
         )?;
         let records = viewer.visible_records()?;
-        let frame = build_frame(&viewer, &records, 26, 6, None);
+        let frame = build_frame(&viewer, &records, 26, 6, FrameFooter::Controls);
         let mut terminal = Terminal::new(TerminalOptions {
             cols: 26,
             rows: 6,
@@ -1319,20 +1367,12 @@ mod tests {
             7,
         )?;
         let records = viewer.visible_records()?;
-        let actual = render_ansi_viewport(&viewer, &records, 26, 6)?;
+        let actual = render_ansi_viewport(&viewer, &records, 26, 6, FrameFooter::Controls)?;
         assert_ansi_golden("bam_viewer_visible.ansi", &actual)?;
         Ok(())
     }
 
-    #[test]
-    fn demo_navigation_viewports_match_ansi_goldens() -> Result<(), Box<dyn Error>> {
-        const COLS: u16 = 90;
-        const ROWS: u16 = 20;
-        let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/examples/bam_viewer_demo.json"
-        )))?;
-        let simulation = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
+    fn assert_end_and_goto_goldens(simulation: &TempBamSimulation) -> Result<(), Box<dyn Error>> {
         let initial_position = InitialPosition {
             contig: String::from("contig_00000"),
             start: 25,
@@ -1343,7 +1383,7 @@ mod tests {
                 PathBuf::from(simulation.bam_path()),
                 &initial_position,
                 mod_type,
-                window_len_for_columns(COLS),
+                window_len_for_columns(DEMO_GOLDEN_COLS),
             )?;
             viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
             let initial_records = viewer.visible_records()?;
@@ -1358,11 +1398,24 @@ mod tests {
                 mod_type.is_some()
             );
 
-            assert!(!viewer.handle_key(KeyCode::Char('r'), &initial_records, 16));
-            assert!(!viewer.handle_key(KeyCode::Char('i'), &initial_records, 16));
-            assert!(!viewer.handle_key(KeyCode::End, &initial_records, 16));
+            assert!(!handle_demo_key(
+                &mut viewer,
+                KeyCode::Char('r'),
+                &initial_records
+            ));
+            assert!(!handle_demo_key(
+                &mut viewer,
+                KeyCode::Char('i'),
+                &initial_records
+            ));
+            assert!(!handle_demo_key(
+                &mut viewer,
+                KeyCode::End,
+                &initial_records
+            ));
             assert_eq!(viewer.viewport.read_offset, 171);
-            let end_viewport = render_ansi_viewport(&viewer, &initial_records, COLS, ROWS)?;
+            let end_viewport =
+                render_demo_viewport(&viewer, &initial_records, FrameFooter::Controls)?;
             assert_ansi_golden(
                 &format!("bam_viewer_end_key_{name_suffix}.ansi"),
                 &end_viewport,
@@ -1382,12 +1435,160 @@ mod tests {
                     .any(|record| { record.modifications().iter().any(|modified| *modified) }),
                 mod_type.is_some()
             );
-            let goto_viewport = render_ansi_viewport(&viewer, &goto_records, COLS, ROWS)?;
+            let goto_viewport =
+                render_demo_viewport(&viewer, &goto_records, FrameFooter::Controls)?;
             assert_ansi_golden(
                 &format!("bam_viewer_goto_{name_suffix}.ansi"),
                 &goto_viewport,
             )?;
         }
+        Ok(())
+    }
+
+    fn assert_display_key_goldens(simulation: &TempBamSimulation) -> Result<(), Box<dyn Error>> {
+        let transition_position = InitialPosition {
+            contig: String::from("contig_00000"),
+            start: 365,
+        };
+        let mut viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &transition_position,
+            Some(ModChar::new('m')),
+            window_len_for_columns(DEMO_GOLDEN_COLS),
+        )?;
+        viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
+        let records = viewer.visible_records()?;
+        assert_eq!(records.len(), 187);
+        assert!(records.iter().any(|record| {
+            record
+                .sequence_with_insertions()
+                .bytes()
+                .any(|base| base.is_ascii_lowercase())
+        }));
+
+        let default_viewport = render_demo_viewport(&viewer, &records, FrameFooter::Controls)?;
+        assert_ansi_golden("bam_viewer_key_default.ansi", &default_viewport)?;
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('i'), &records));
+        let insertion_viewport = render_demo_viewport(&viewer, &records, FrameFooter::Controls)?;
+        assert_ne!(insertion_viewport, default_viewport);
+        assert_ansi_golden("bam_viewer_key_insertions.ansi", &insertion_viewport)?;
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('r'), &records));
+        let full_id_viewport = render_demo_viewport(&viewer, &records, FrameFooter::Controls)?;
+        assert_ne!(full_id_viewport, insertion_viewport);
+        assert_ansi_golden("bam_viewer_key_full_ids.ansi", &full_id_viewport)?;
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::PageDown, &records));
+        assert_eq!(viewer.viewport.read_offset, 16);
+        assert!(viewer.full_read_ids);
+        assert!(viewer.show_insertions);
+        let page_down_viewport = render_demo_viewport(&viewer, &records, FrameFooter::Controls)?;
+        assert_ansi_golden("bam_viewer_key_page_down.ansi", &page_down_viewport)?;
+
+        assert!(handle_demo_key(&mut viewer, KeyCode::Right, &records));
+        assert_eq!(viewer.viewport.start, 436);
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert!(!viewer.full_read_ids);
+        assert!(!viewer.show_insertions);
+        let right_records = viewer.visible_records()?;
+        let right_viewport = render_demo_viewport(&viewer, &right_records, FrameFooter::Controls)?;
+        assert_ansi_golden("bam_viewer_key_right.ansi", &right_viewport)?;
+        Ok(())
+    }
+
+    fn assert_goto_prompt_goldens(simulation: &TempBamSimulation) -> Result<(), Box<dyn Error>> {
+        let prompt_position = InitialPosition {
+            contig: String::from("contig_00000"),
+            start: 25,
+        };
+        let mut viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &prompt_position,
+            Some(ModChar::new('m')),
+            window_len_for_columns(DEMO_GOLDEN_COLS),
+        )?;
+        viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
+        let records = viewer.visible_records()?;
+        let before_prompt = render_demo_viewport(&viewer, &records, FrameFooter::Controls)?;
+        let mut input = String::new();
+        let mut input_error = None;
+        let prompt_viewport = render_demo_viewport(
+            &viewer,
+            &records,
+            FrameFooter::PositionPrompt {
+                input: &input,
+                error: input_error.as_deref(),
+            },
+        )?;
+        assert_ansi_golden("bam_viewer_goto_prompt.ansi", &prompt_viewport)?;
+
+        for character in "missing:0".chars() {
+            assert_eq!(
+                prompt_key(
+                    &mut input,
+                    &mut input_error,
+                    KeyCode::Char(character),
+                    &mut viewer,
+                ),
+                None
+            );
+        }
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Enter, &mut viewer),
+            None
+        );
+        assert!(input_error.is_some());
+        let error_viewport = render_demo_viewport(
+            &viewer,
+            &records,
+            FrameFooter::PositionPrompt {
+                input: &input,
+                error: input_error.as_deref(),
+            },
+        )?;
+        assert_ansi_golden("bam_viewer_goto_error.ansi", &error_viewport)?;
+
+        assert_eq!(
+            prompt_key(
+                &mut input,
+                &mut input_error,
+                KeyCode::Backspace,
+                &mut viewer,
+            ),
+            None
+        );
+        assert_eq!(input, "missing:");
+        assert!(input_error.is_none());
+        let correcting_viewport = render_demo_viewport(
+            &viewer,
+            &records,
+            FrameFooter::PositionPrompt {
+                input: &input,
+                error: input_error.as_deref(),
+            },
+        )?;
+        assert_ansi_golden("bam_viewer_goto_correcting.ansi", &correcting_viewport)?;
+
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Esc, &mut viewer),
+            Some(PositionPromptOutcome::Cancelled)
+        );
+        let after_cancel = render_demo_viewport(&viewer, &records, FrameFooter::Controls)?;
+        assert_eq!(after_cancel, before_prompt);
+        Ok(())
+    }
+
+    #[test]
+    fn demo_navigation_viewports_match_ansi_goldens() -> Result<(), Box<dyn Error>> {
+        let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/bam_viewer_demo.json"
+        )))?;
+        let simulation = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
+        assert_end_and_goto_goldens(&simulation)?;
+        assert_display_key_goldens(&simulation)?;
+        assert_goto_prompt_goldens(&simulation)?;
         Ok(())
     }
 
@@ -1411,7 +1612,9 @@ mod tests {
         assert!(viewer.full_read_ids);
         assert_eq!(usize::from(viewer.read_label_width), longest_id_width);
         let first_read_id = records.first().expect("one record").read_id();
-        assert!(build_frame(&viewer, &records, 80, 10, None).contains(first_read_id));
+        assert!(
+            build_frame(&viewer, &records, 80, 10, FrameFooter::Controls).contains(first_read_id)
+        );
 
         viewer.viewport.navigate(KeyCode::Down, 76, 7, 10, 1);
         assert_eq!(usize::from(viewer.read_label_width), longest_id_width);
@@ -1798,7 +2001,7 @@ mod tests {
             .expect("position should open");
         assert_eq!(viewer.viewport.start, 10);
         assert_eq!(viewer.current_window_len(), 40);
-        let frame = build_frame(&viewer, &[], 80, 10, None);
+        let frame = build_frame(&viewer, &[], 80, 10, FrameFooter::Controls);
         assert!(frame.contains("h/l 40 bp"));
         assert!(frame.contains("pgup/dn"));
         assert!(frame.contains("home/end"));
@@ -1810,12 +2013,21 @@ mod tests {
         viewer.window_len = 200;
         viewer.full_read_ids = true;
         viewer.show_insertions = true;
-        let toggled_frame = build_frame(&viewer, &[], 80, 10, None);
+        let toggled_frame = build_frame(&viewer, &[], 80, 10, FrameFooter::Controls);
         assert!(toggled_frame.contains("r short IDs"));
         assert!(toggled_frame.contains("i hide ins"));
         assert!(toggled_frame.contains("q quit"));
 
-        let prompt_frame = build_frame(&viewer, &[], 80, 10, Some("Go to CONTIG:START: dummyI:10"));
+        let prompt_frame = build_frame(
+            &viewer,
+            &[],
+            80,
+            10,
+            FrameFooter::PositionPrompt {
+                input: "dummyI:10",
+                error: None,
+            },
+        );
         assert!(prompt_frame.contains("Go to CONTIG:START: dummyI:10"));
         assert!(!prompt_frame.contains("q quit"));
     }

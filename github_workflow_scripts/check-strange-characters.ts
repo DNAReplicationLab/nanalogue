@@ -21,6 +21,14 @@ const ANSI_GOLDENS = new Set([
     "tests/goldens/bam_viewer_end_key_no_mods.ansi",
     "tests/goldens/bam_viewer_goto_mods.ansi",
     "tests/goldens/bam_viewer_goto_no_mods.ansi",
+    "tests/goldens/bam_viewer_goto_prompt.ansi",
+    "tests/goldens/bam_viewer_goto_error.ansi",
+    "tests/goldens/bam_viewer_goto_correcting.ansi",
+    "tests/goldens/bam_viewer_key_default.ansi",
+    "tests/goldens/bam_viewer_key_insertions.ansi",
+    "tests/goldens/bam_viewer_key_full_ids.ansi",
+    "tests/goldens/bam_viewer_key_page_down.ansi",
+    "tests/goldens/bam_viewer_key_right.ansi",
 ]);
 /** ASCII ESC, which introduces an ANSI control sequence. */
 const ANSI_ESCAPE_CODE_POINT = 0x1b;
