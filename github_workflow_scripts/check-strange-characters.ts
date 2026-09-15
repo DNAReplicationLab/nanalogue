@@ -17,6 +17,7 @@ const CACHED_ONLY = argv.includes("--cached-only");
 const MAX_GIT_BLOB_BYTES = 64 * 1024 * 1024;
 const ANSI_GOLDENS = new Set([
     "tests/goldens/bam_viewer_visible.ansi",
+    "tests/goldens/bam_viewer_contig_end.ansi",
     "tests/goldens/bam_viewer_end_key_mods.ansi",
     "tests/goldens/bam_viewer_end_key_no_mods.ansi",
     "tests/goldens/bam_viewer_goto_mods.ansi",
@@ -32,6 +33,10 @@ const ANSI_GOLDENS = new Set([
     "tests/goldens/bam_viewer_key_page_down.ansi",
     "tests/goldens/bam_viewer_key_right.ansi",
     "tests/goldens/bam_viewer_narrow_error.ansi",
+    "tests/goldens/bam_viewer_narrow_prompt.ansi",
+    "tests/goldens/bam_viewer_no_reads.ansi",
+    "tests/goldens/bam_viewer_short_terminal.ansi",
+    "tests/goldens/bam_viewer_zero_sequence.ansi",
 ]);
 /** ASCII ESC, which introduces an ANSI control sequence. */
 const ANSI_ESCAPE_CODE_POINT = 0x1b;

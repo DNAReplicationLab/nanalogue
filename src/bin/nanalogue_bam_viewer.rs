@@ -1026,7 +1026,15 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nanalogue_core::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
+    use nanalogue_core::{
+        simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation},
+        write_bam_denovo,
+    };
+    use rust_htslib::bam::{
+        self,
+        record::{Aux, Cigar, CigarString},
+    };
+    use std::path::Path;
 
     const DEMO_GOLDEN_COLS: u16 = 90;
     const DEMO_GOLDEN_ROWS: u16 = 20;
@@ -1189,6 +1197,36 @@ mod tests {
 
     fn handle_demo_key(viewer: &mut Viewer, key: KeyCode, records: &[RegionSequence]) -> bool {
         viewer.handle_key(key, records, DEMO_VISIBLE_READS)
+    }
+
+    fn write_zero_sequence_viewer_bam(
+        simulation: &TempBamSimulation,
+    ) -> Result<PathBuf, Box<dyn Error>> {
+        let mut record = bam::Record::new();
+        record.set_tid(0);
+        record.set_pos(0);
+        record.set_mapq(60);
+        record.unset_unmapped();
+        record.set(
+            b"sequence-not-stored",
+            Some(&CigarString::from(vec![Cigar::Match(5)])),
+            b"",
+            &[],
+        );
+        record.push_aux(b"MM", Aux::String("A+a?,0;"))?;
+        record.push_aux(b"ML", Aux::ArrayU8((&[200][..]).into()))?;
+        let path = Path::new(simulation.bam_path())
+            .parent()
+            .expect("simulation BAM has an owning directory")
+            .join("zero-sequence.bam");
+        write_bam_denovo(
+            [record],
+            [(String::from("chr1"), 20)],
+            [String::from("rg1")],
+            Vec::<String>::new(),
+            &path,
+        )?;
+        Ok(path)
     }
 
     fn goto_test_viewer() -> Viewer {
@@ -1683,6 +1721,93 @@ mod tests {
         assert_successful_prompt_goto(&mut viewer, &records)
     }
 
+    fn assert_empty_and_contig_end_goldens() -> Result<(), Box<dyn Error>> {
+        let mut empty_viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &InitialPosition {
+                contig: String::from("dummyIII"),
+                start: 20,
+            },
+            None,
+            10,
+        )?;
+        let empty_records = empty_viewer.visible_records()?;
+        assert!(empty_records.is_empty());
+        let empty_viewport =
+            render_demo_viewport(&empty_viewer, &empty_records, FrameFooter::Controls)?;
+        assert_ansi_golden("bam_viewer_no_reads.ansi", &empty_viewport)?;
+
+        let mut end_viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &InitialPosition {
+                contig: String::from("dummyI"),
+                start: 20,
+            },
+            None,
+            10,
+        )?;
+        assert_eq!(end_viewer.current_window_len(), 2);
+        let end_records = end_viewer.visible_records()?;
+        let end_viewport = render_demo_viewport(&end_viewer, &end_records, FrameFooter::Controls)?;
+        assert_ansi_golden("bam_viewer_contig_end.ansi", &end_viewport)?;
+        Ok(())
+    }
+
+    fn assert_zero_sequence_golden(simulation: &TempBamSimulation) -> Result<(), Box<dyn Error>> {
+        let path = write_zero_sequence_viewer_bam(simulation)?;
+        let mut viewer = Viewer::open(
+            path.clone(),
+            &InitialPosition {
+                contig: String::from("chr1"),
+                start: 0,
+            },
+            Some(ModChar::new('a')),
+            5,
+        )?;
+        viewer.path = PathBuf::from("zero-sequence.bam");
+        let records = viewer.visible_records()?;
+        assert_eq!(records.len(), 1);
+        assert_eq!(records.first().expect("one record").sequence(), "*");
+        let viewport = render_ansi_viewport(&viewer, &records, 50, 8, FrameFooter::Controls)?;
+        assert_ansi_golden("bam_viewer_zero_sequence.ansi", &viewport)?;
+        Ok(())
+    }
+
+    fn assert_terminal_size_goldens(simulation: &TempBamSimulation) -> Result<(), Box<dyn Error>> {
+        let mut viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &InitialPosition {
+                contig: String::from("contig_00000"),
+                start: 365,
+            },
+            Some(ModChar::new('m')),
+            window_len_for_columns(DEMO_GOLDEN_COLS),
+        )?;
+        viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
+        let records = viewer.visible_records()?;
+        let narrow_prompt = render_ansi_viewport(
+            &viewer,
+            &records,
+            27,
+            10,
+            FrameFooter::PositionPrompt {
+                input: "contig_name_that_is_far_too_long:123456789",
+                error: None,
+            },
+        )?;
+        assert_ansi_golden("bam_viewer_narrow_prompt.ansi", &narrow_prompt)?;
+
+        let short_terminal = render_ansi_viewport(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            4,
+            FrameFooter::Controls,
+        )?;
+        assert_ansi_golden("bam_viewer_short_terminal.ansi", &short_terminal)?;
+        Ok(())
+    }
+
     #[test]
     fn demo_navigation_viewports_match_ansi_goldens() -> Result<(), Box<dyn Error>> {
         let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
@@ -1693,6 +1818,9 @@ mod tests {
         assert_end_and_goto_goldens(&simulation)?;
         assert_display_key_goldens(&simulation)?;
         assert_goto_prompt_goldens(&simulation)?;
+        assert_terminal_size_goldens(&simulation)?;
+        assert_empty_and_contig_end_goldens()?;
+        assert_zero_sequence_golden(&simulation)?;
         Ok(())
     }
 
