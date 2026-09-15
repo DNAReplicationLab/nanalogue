@@ -1002,10 +1002,6 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
 /// Parses arguments and reports errors after terminal cleanup.
 fn main() {
-    // SAFETY: this is called before HTSlib work or additional threads begin.
-    unsafe {
-        nanalogue_core::init_ssl_certificates();
-    }
     let args = match Args::parse_from(env::args_os().skip(1)) {
         Ok(Some(args)) => args,
         Ok(None) => {
