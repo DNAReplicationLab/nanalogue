@@ -1001,6 +1001,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nanalogue_core::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct CapturedStyle {
@@ -1085,6 +1086,61 @@ mod tests {
             row_number = row_number.saturating_add(1);
         }
         Ok(output)
+    }
+
+    fn render_ansi_viewport(
+        viewer: &Viewer,
+        records: &[RegionSequence],
+        cols: u16,
+        rows: u16,
+    ) -> Result<String, Box<dyn Error>> {
+        let frame = build_frame(viewer, records, cols, rows, None);
+        let mut terminal = Terminal::new(TerminalOptions {
+            cols,
+            rows,
+            max_scrollback: 0,
+        })?;
+        terminal.vt_write(frame.as_bytes());
+        let mut render_state = RenderState::new()?;
+        let snapshot = render_state.update(&terminal)?;
+        let mut row_iterator = RowIterator::new()?;
+        let mut cell_iterator = CellIterator::new()?;
+        let actual = viewport_as_ansi(&snapshot, &mut row_iterator, &mut cell_iterator)?;
+
+        let mut replayed_terminal = Terminal::new(TerminalOptions {
+            cols,
+            rows,
+            max_scrollback: 0,
+        })?;
+        replayed_terminal.vt_write(actual.as_bytes());
+        let mut replayed_render_state = RenderState::new()?;
+        let replayed_snapshot = replayed_render_state.update(&replayed_terminal)?;
+        let mut replayed_row_iterator = RowIterator::new()?;
+        let mut replayed_cell_iterator = CellIterator::new()?;
+        let replayed = viewport_as_ansi(
+            &replayed_snapshot,
+            &mut replayed_row_iterator,
+            &mut replayed_cell_iterator,
+        )?;
+        assert_eq!(actual, replayed, "ANSI golden must reproduce its viewport");
+        Ok(actual)
+    }
+
+    fn assert_ansi_golden(name: &str, actual: &str) -> Result<(), Box<dyn Error>> {
+        let golden_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/goldens")
+            .join(name);
+        let update_golden = env::var("NANALOGUE_UPDATE_GOLDENS").as_deref() == Ok("1");
+        assert!(
+            !update_golden || env::var_os("CI").is_none(),
+            "golden files must not be updated in CI"
+        );
+        if update_golden {
+            std::fs::write(&golden_path, actual.as_bytes())?;
+        }
+        let expected = std::fs::read(&golden_path)?;
+        assert_eq!(actual.as_bytes(), expected);
+        Ok(())
     }
 
     fn goto_test_viewer() -> Viewer {
@@ -1263,48 +1319,75 @@ mod tests {
             7,
         )?;
         let records = viewer.visible_records()?;
-        let frame = build_frame(&viewer, &records, 26, 6, None);
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols: 26,
-            rows: 6,
-            max_scrollback: 0,
-        })?;
-        terminal.vt_write(frame.as_bytes());
-        let mut render_state = RenderState::new()?;
-        let snapshot = render_state.update(&terminal)?;
-        let mut row_iterator = RowIterator::new()?;
-        let mut cell_iterator = CellIterator::new()?;
-        let actual = viewport_as_ansi(&snapshot, &mut row_iterator, &mut cell_iterator)?;
+        let actual = render_ansi_viewport(&viewer, &records, 26, 6)?;
+        assert_ansi_golden("bam_viewer_visible.ansi", &actual)?;
+        Ok(())
+    }
 
-        let mut replayed_terminal = Terminal::new(TerminalOptions {
-            cols: 26,
-            rows: 6,
-            max_scrollback: 0,
-        })?;
-        replayed_terminal.vt_write(actual.as_bytes());
-        let mut replayed_render_state = RenderState::new()?;
-        let replayed_snapshot = replayed_render_state.update(&replayed_terminal)?;
-        let mut replayed_row_iterator = RowIterator::new()?;
-        let mut replayed_cell_iterator = CellIterator::new()?;
-        let replayed = viewport_as_ansi(
-            &replayed_snapshot,
-            &mut replayed_row_iterator,
-            &mut replayed_cell_iterator,
-        )?;
-        assert_eq!(actual, replayed, "ANSI golden must reproduce its viewport");
+    #[test]
+    fn demo_navigation_viewports_match_ansi_goldens() -> Result<(), Box<dyn Error>> {
+        const COLS: u16 = 90;
+        const ROWS: u16 = 20;
+        let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/bam_viewer_demo.json"
+        )))?;
+        let simulation = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
+        let initial_position = InitialPosition {
+            contig: String::from("contig_00000"),
+            start: 25,
+        };
 
-        let golden_path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens/bam_viewer_visible.ansi");
-        let update_golden = env::var("NANALOGUE_UPDATE_GOLDENS").as_deref() == Ok("1");
-        assert!(
-            !update_golden || env::var_os("CI").is_none(),
-            "golden files must not be updated in CI"
-        );
-        if update_golden {
-            std::fs::write(&golden_path, actual.as_bytes())?;
+        for (name_suffix, mod_type) in [("mods", Some(ModChar::new('m'))), ("no_mods", None)] {
+            let mut viewer = Viewer::open(
+                PathBuf::from(simulation.bam_path()),
+                &initial_position,
+                mod_type,
+                window_len_for_columns(COLS),
+            )?;
+            viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
+            let initial_records = viewer.visible_records()?;
+            assert_eq!(initial_records.len(), 187);
+            assert_eq!(
+                initial_records.iter().any(|record| {
+                    record
+                        .modifications_with_insertions()
+                        .iter()
+                        .any(|modified| *modified)
+                }),
+                mod_type.is_some()
+            );
+
+            assert!(!viewer.handle_key(KeyCode::Char('r'), &initial_records, 16));
+            assert!(!viewer.handle_key(KeyCode::Char('i'), &initial_records, 16));
+            assert!(!viewer.handle_key(KeyCode::End, &initial_records, 16));
+            assert_eq!(viewer.viewport.read_offset, 171);
+            let end_viewport = render_ansi_viewport(&viewer, &initial_records, COLS, ROWS)?;
+            assert_ansi_golden(
+                &format!("bam_viewer_end_key_{name_suffix}.ansi"),
+                &end_viewport,
+            )?;
+
+            assert!(viewer.go_to(&InitialPosition {
+                contig: String::from("contig_00000"),
+                start: 45,
+            })?);
+            assert!(!viewer.full_read_ids);
+            assert!(!viewer.show_insertions);
+            let goto_records = viewer.visible_records()?;
+            assert_eq!(goto_records.len(), 187);
+            assert_eq!(
+                goto_records
+                    .iter()
+                    .any(|record| { record.modifications().iter().any(|modified| *modified) }),
+                mod_type.is_some()
+            );
+            let goto_viewport = render_ansi_viewport(&viewer, &goto_records, COLS, ROWS)?;
+            assert_ansi_golden(
+                &format!("bam_viewer_goto_{name_suffix}.ansi"),
+                &goto_viewport,
+            )?;
         }
-        let expected = std::fs::read(&golden_path)?;
-        assert_eq!(actual.as_bytes(), expected);
         Ok(())
     }
 

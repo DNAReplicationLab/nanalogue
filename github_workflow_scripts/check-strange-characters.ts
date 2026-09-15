@@ -15,7 +15,13 @@ const ROOT = resolve(__dirname, "..");
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const CACHED_ONLY = argv.includes("--cached-only");
 const MAX_GIT_BLOB_BYTES = 64 * 1024 * 1024;
-const ANSI_GOLDENS = new Set(["tests/goldens/bam_viewer_visible.ansi"]);
+const ANSI_GOLDENS = new Set([
+    "tests/goldens/bam_viewer_visible.ansi",
+    "tests/goldens/bam_viewer_end_key_mods.ansi",
+    "tests/goldens/bam_viewer_end_key_no_mods.ansi",
+    "tests/goldens/bam_viewer_goto_mods.ansi",
+    "tests/goldens/bam_viewer_goto_no_mods.ansi",
+]);
 /** ASCII ESC, which introduces an ANSI control sequence. */
 const ANSI_ESCAPE_CODE_POINT = 0x1b;
 
