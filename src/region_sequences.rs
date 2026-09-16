@@ -636,6 +636,23 @@ mod tests {
     }
 
     #[test]
+    fn profiles_reject_empty_and_reversed_ranges() -> Result<(), Error> {
+        let path = write_test_bam("A+a?,0;", &[255])?;
+        let mut reader = RegionSequenceReader::from_path(&path)?;
+        let win = NonZeroU32::new(3).expect("non-zero");
+
+        for (start, end) in [(2, 2), (4, 1)] {
+            let error = reader
+                .profiles(0, start, end, ModChar::new('a'), win)
+                .expect_err("invalid ranges must be rejected");
+            assert!(matches!(error, Error::InvalidAlignCoords(_)));
+        }
+
+        remove_test_bam(&path);
+        Ok(())
+    }
+
+    #[test]
     fn profiles_preserve_independent_mod_strand_window_series() -> Result<(), Error> {
         let path = write_test_bam("A+a?,0,0;T-a?,0;", &[255, 255, 0])?;
         let mut reader = RegionSequenceReader::from_path(&path)?;
