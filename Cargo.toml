@@ -53,7 +53,7 @@ path = "src/bin/main_simulate_mod_bam.rs"
 
 [[bin]]
 name = "nanalogue_bam_viewer"
-path = "src/bin/nanalogue_bam_viewer.rs"
+path = "src/bam_viewer/mod.rs"
 required-features = ["bam-viewer"]
 
 [[bench]]
