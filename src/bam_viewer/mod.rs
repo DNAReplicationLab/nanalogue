@@ -457,7 +457,7 @@ mod tests {
     use super::*;
     use nanalogue_core::{
         simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation},
-        write_bam_denovo,
+        uuid, write_bam_denovo,
     };
     use rust_htslib::bam::{
         self,
@@ -660,6 +660,94 @@ mod tests {
             &path,
         )?;
         Ok(path)
+    }
+
+    fn profile_record(
+        read_id: &[u8],
+        tid: i32,
+        start: i64,
+        length: u32,
+        reverse: bool,
+        probabilities: Option<&[u8]>,
+    ) -> Result<bam::Record, Box<dyn Error>> {
+        let mut record = bam::Record::new();
+        record.set_tid(tid);
+        record.set_pos(start);
+        record.set_mapq(60);
+        record.unset_unmapped();
+        if reverse {
+            record.set_reverse();
+        }
+        let base = if reverse { b'T' } else { b'A' };
+        record.set(
+            read_id,
+            Some(&CigarString::from(vec![Cigar::Match(length)])),
+            &vec![base; usize::try_from(length)?],
+            &vec![30; usize::try_from(length)?],
+        );
+        if let Some(values) = probabilities {
+            let deltas = std::iter::repeat_n("0", values.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            record.push_aux(b"MM", Aux::String(&format!("A+a?,{deltas};")))?;
+            record.push_aux(b"ML", Aux::ArrayU8(values.into()))?;
+        }
+        Ok(record)
+    }
+
+    fn write_individual_semantics_bam() -> Result<PathBuf, Box<dyn Error>> {
+        let mut reverse_duplicate = profile_record(
+            b"duplicate",
+            0,
+            1,
+            30,
+            true,
+            Some(&[255, 0, 255, 0, 255, 0]),
+        )?;
+        reverse_duplicate.set_secondary();
+        let records = [
+            profile_record(
+                b"duplicate",
+                0,
+                0,
+                30,
+                false,
+                Some(&[255, 0, 255, 0, 255, 0]),
+            )?,
+            reverse_duplicate,
+            profile_record(b"no-calls", 0, 2, 30, false, None)?,
+            profile_record(b"goto-target", 1, 4, 20, false, Some(&[0, 255, 128]))?,
+        ];
+        let path = env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
+        write_bam_denovo(
+            records,
+            [(String::from("first"), 50), (String::from("second"), 50)],
+            [String::from("rg1")],
+            Vec::<String>::new(),
+            &path,
+        )?;
+        Ok(path)
+    }
+
+    fn remove_viewer_test_bam(path: &Path) -> Result<(), Box<dyn Error>> {
+        std::fs::remove_file(path)?;
+        std::fs::remove_file(format!("{}.bai", path.display()))?;
+        Ok(())
+    }
+
+    fn individual_semantics_viewer(path: &Path) -> Result<Viewer, Box<dyn Error>> {
+        Viewer::open_mode(
+            path.to_path_buf(),
+            &InitialPosition {
+                contig: String::from("first"),
+                start: 5,
+            },
+            Some(ModChar::new('a')),
+            ViewMode::Individual {
+                win: NonZeroU32::new(3).expect("non-zero"),
+            },
+            5,
+        )
     }
 
     fn goto_test_viewer() -> Viewer {
@@ -1255,6 +1343,119 @@ mod tests {
         assert_empty_and_contig_end_goldens()?;
         assert_zero_sequence_golden(&simulation)?;
         Ok(())
+    }
+
+    #[test]
+    fn individual_reverse_duplicate_alignments_are_independently_selectable()
+    -> Result<(), Box<dyn Error>> {
+        let path = write_individual_semantics_bam()?;
+        let mut viewer = individual_semantics_viewer(&path)?;
+        let profiles = viewer.visible_profiles(NonZeroU32::new(3).expect("non-zero"))?;
+        assert_eq!(profiles.len(), 3);
+
+        let forward = profiles.first().expect("forward duplicate profile");
+        assert_eq!(forward.read_id(), "duplicate");
+        assert!(!forward.is_reverse());
+        assert_eq!((forward.align_start(), forward.align_end()), (0, 30));
+
+        assert!(!viewer.handle_individual_key(KeyCode::Char('j'), profiles.len()));
+        assert_eq!(viewer.viewport.read_offset, 1);
+        let reverse = profiles
+            .get(viewer.viewport.read_offset)
+            .expect("selected reverse duplicate profile");
+        assert_eq!(reverse.read_id(), "duplicate");
+        assert!(reverse.is_reverse());
+        assert_eq!((reverse.align_start(), reverse.align_end()), (1, 31));
+        assert_eq!(
+            reverse.calls(),
+            [(25, 0), (26, 255), (27, 0), (28, 255), (29, 0), (30, 255)]
+        );
+        let first_window = reverse.windows().first().expect("first reverse window");
+        let second_window = reverse.windows().get(1).expect("second reverse window");
+        assert_eq!(first_window.0..first_window.1, 25..28);
+        assert!((first_window.2.val() - 1.0 / 3.0).abs() < f32::EPSILON);
+        assert_eq!(second_window.0..second_window.1, 28..31);
+        assert!((second_window.2.val() - 2.0 / 3.0).abs() < f32::EPSILON);
+        assert!(individual_status(&viewer, &profiles, 80).contains("duplicate - mods a win 3"));
+
+        assert!(!viewer.handle_individual_key(KeyCode::Char('k'), profiles.len()));
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert!(
+            !profiles
+                .first()
+                .expect("forward duplicate profile")
+                .is_reverse()
+        );
+        remove_viewer_test_bam(&path)
+    }
+
+    #[test]
+    fn individual_empty_and_no_call_states_match_goldens() -> Result<(), Box<dyn Error>> {
+        let path = write_individual_semantics_bam()?;
+        let mut viewer = individual_semantics_viewer(&path)?;
+        viewer.path = PathBuf::from("individual-states.bam");
+        let profiles = viewer.visible_profiles(NonZeroU32::new(3).expect("non-zero"))?;
+        let no_calls_index = profiles
+            .iter()
+            .position(|profile| profile.read_id() == "no-calls")
+            .expect("no-call profile");
+        let no_calls = profiles.get(no_calls_index).expect("no-call profile");
+        assert!(!no_calls.is_reverse());
+        assert_eq!((no_calls.align_start(), no_calls.align_end()), (2, 32));
+        assert!(no_calls.calls().is_empty());
+        assert!(no_calls.windows().is_empty());
+        viewer.viewport.read_offset = no_calls_index;
+        let no_calls_frame =
+            build_individual_frame(&viewer, &profiles, 60, 16, FrameFooter::Controls);
+        assert!(no_calls_frame.contains("no a calls in read"));
+        assert_ansi_golden(
+            "bam_viewer_individual_no_calls.ansi",
+            &render_frame_as_ansi(&no_calls_frame, 60, 16)?,
+        )?;
+
+        assert!(viewer.go_to(&InitialPosition {
+            contig: String::from("first"),
+            start: 40,
+        })?);
+        let empty_profiles = viewer.visible_profiles(NonZeroU32::new(3).expect("non-zero"))?;
+        assert!(empty_profiles.is_empty());
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert!(individual_status(&viewer, &empty_profiles, 60).contains("read 0/0"));
+        let empty_frame =
+            build_individual_frame(&viewer, &empty_profiles, 60, 16, FrameFooter::Controls);
+        assert!(empty_frame.contains("no reads span this window"));
+        assert_ansi_golden(
+            "bam_viewer_individual_no_reads.ansi",
+            &render_frame_as_ansi(&empty_frame, 60, 16)?,
+        )?;
+        remove_viewer_test_bam(&path)
+    }
+
+    #[test]
+    fn individual_goto_resets_selection_and_fetches_target() -> Result<(), Box<dyn Error>> {
+        let path = write_individual_semantics_bam()?;
+        let mut viewer = individual_semantics_viewer(&path)?;
+        viewer.viewport.read_offset = 2;
+
+        assert!(viewer.go_to(&InitialPosition {
+            contig: String::from("second"),
+            start: 5,
+        })?);
+        assert_eq!(viewer.target_name(), "second");
+        assert_eq!(viewer.viewport.start, 5);
+        assert_eq!(viewer.viewport.read_offset, 0);
+        let profiles = viewer.visible_profiles(NonZeroU32::new(3).expect("non-zero"))?;
+        assert_eq!(profiles.len(), 1);
+        let profile = profiles.first().expect("goto target profile");
+        assert_eq!(profile.read_id(), "goto-target");
+        assert!(!profile.is_reverse());
+        assert_eq!((profile.align_start(), profile.align_end()), (4, 24));
+        assert_eq!(profile.calls(), [(4, 0), (5, 255), (6, 128)]);
+        let window = profile.windows().first().expect("one goto profile window");
+        assert_eq!(window.0..window.1, 4..7);
+        assert!((window.2.val() - 2.0 / 3.0).abs() < f32::EPSILON);
+        assert!(individual_status(&viewer, &profiles, 80).contains("goto-target + mods a win 3"));
+        remove_viewer_test_bam(&path)
     }
 
     #[test]

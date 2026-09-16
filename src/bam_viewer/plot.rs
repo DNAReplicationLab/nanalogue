@@ -594,6 +594,19 @@ mod tests {
     }
 
     #[test]
+    fn reverse_mapped_calls_keep_reference_orientation() {
+        let calls = [(25, 0), (26, 255), (27, 0), (28, 255), (29, 0), (30, 255)];
+        let grid = rasterise_profile_data(1, 31, &calls, &[], &[], 30, 5);
+
+        for (row, column) in [(4, 24), (0, 25), (4, 26), (0, 27), (4, 28), (0, 29)] {
+            assert_eq!(
+                grid.get(row).and_then(|cells| cells.get(column)),
+                Some(&PlotCell::Dots(1))
+            );
+        }
+    }
+
+    #[test]
     fn plot_windows_form_continuous_steps_but_independent_series_do_not_join() {
         let high = nanalogue_core::F32Bw0and1::new(1.0).expect("bounded");
         let low = nanalogue_core::F32Bw0and1::new(0.0).expect("bounded");

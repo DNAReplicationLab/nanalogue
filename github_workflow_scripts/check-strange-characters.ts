@@ -42,6 +42,8 @@ const ANSI_GOLDENS = new Set([
     "tests/goldens/bam_viewer_individual_after_l.ansi",
     "tests/goldens/bam_viewer_individual_narrow.ansi",
     "tests/goldens/bam_viewer_individual_short.ansi",
+    "tests/goldens/bam_viewer_individual_no_calls.ansi",
+    "tests/goldens/bam_viewer_individual_no_reads.ansi",
 ]);
 /** ASCII ESC, which introduces an ANSI control sequence. */
 const ANSI_ESCAPE_CODE_POINT = 0x1b;
