@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-./github_workflow_scripts/check-repo-guardrails.sh
+./github_workflow_scripts/check-repo-guardrails.sh --cached-only
 node github_workflow_scripts/check-cargo-lints.ts
 node github_workflow_scripts/check-strange-characters.ts --cached-only
 node github_workflow_scripts/check-committed-secrets.ts --cached-only

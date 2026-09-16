@@ -3064,7 +3064,9 @@ mod read_generation_barcodes {
 )]
 mod read_generation_with_mods_tests {
     use super::*;
-    use crate::{CurrRead, ThresholdState, curr_reads_to_dataframe};
+    #[cfg(feature = "polars")]
+    use crate::curr_reads_to_dataframe;
+    use crate::{CurrRead, ThresholdState};
     use rust_htslib::bam::Read as _;
 
     /// Generates one full-length read with the supplied modification configuration.
@@ -3191,12 +3193,22 @@ mod read_generation_with_mods_tests {
         assert!(matches!(read.aux(b"ML"), Ok(Aux::ArrayU8(values)) if values.iter().eq([255; 4])));
     }
 
-    // Simulates ten full-length reads whose 25 T bases are all dropped, then
-    /// parses their modification data into a `DataFrame`.
-    fn all_dropped_t_mods_dataframe(
+    /// Simulates ten full-length reads whose 25 T bases are all dropped and parses them.
+    const ALL_DROPPED_READ_COUNT: usize = 10;
+    const ALL_DROPPED_CALL_COUNT: usize = 250;
+    const ALL_DROPPED_QUALITY: u8 = 0;
+    const ALL_DROPPED_BASE: u8 = b'T';
+    #[cfg(feature = "polars")]
+    const ALL_DROPPED_BASE_TEXT: &str = "T";
+    const ALL_DROPPED_MOD_CODE: char = 'T';
+    #[cfg(feature = "polars")]
+    const ALL_DROPPED_MOD_CODE_TEXT: &str = "T";
+    const ALL_DROPPED_STRAND: char = '+';
+
+    fn all_dropped_t_mods(
         suffix: MmSuffix,
         format: AlignmentFormat,
-    ) -> polars::prelude::DataFrame {
+    ) -> Vec<CurrRead<crate::read_utils::AlignAndModData>> {
         let contigs = ContigConfigBuilder::default()
             .number(1)
             .len_range((100, 100))
@@ -3216,7 +3228,7 @@ mod read_generation_with_mods_tests {
         ];
         let reads = vec![
             ReadConfigBuilder::default()
-                .number(10)
+                .number(u32::try_from(ALL_DROPPED_READ_COUNT).unwrap())
                 .len_range((1.0, 1.0))
                 .mods(mods)
                 .build()
@@ -3242,20 +3254,72 @@ mod read_generation_with_mods_tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(curr_reads.len(), 10, "simulation should generate ten reads");
-        curr_reads_to_dataframe(&curr_reads).unwrap()
+        assert_eq!(curr_reads.len(), ALL_DROPPED_READ_COUNT);
+        curr_reads
     }
 
+    #[cfg(feature = "polars")]
+    fn all_dropped_t_mods_dataframe(
+        suffix: MmSuffix,
+        format: AlignmentFormat,
+    ) -> polars::prelude::DataFrame {
+        curr_reads_to_dataframe(&all_dropped_t_mods(suffix, format)).unwrap()
+    }
+
+    fn assert_all_dropped_implicit_t_reads(reads: &[CurrRead<crate::read_utils::AlignAndModData>]) {
+        assert_eq!(
+            reads
+                .iter()
+                .map(|read| read
+                    .base_count_per_mod()
+                    .values()
+                    .map(|count| usize::try_from(*count).unwrap())
+                    .sum::<usize>())
+                .sum::<usize>(),
+            ALL_DROPPED_CALL_COUNT
+        );
+        for read in reads {
+            for base_mod in &read.mod_data().0.base_mods {
+                assert_eq!(base_mod.modified_base, ALL_DROPPED_BASE);
+                assert_eq!(base_mod.modification_type, ALL_DROPPED_MOD_CODE);
+                assert_eq!(base_mod.strand, ALL_DROPPED_STRAND);
+                assert!(
+                    base_mod
+                        .ranges
+                        .annotations
+                        .iter()
+                        .all(|annotation| annotation.qual == ALL_DROPPED_QUALITY)
+                );
+            }
+        }
+        assert_eq!(
+            reads
+                .iter()
+                .filter(|read| {
+                    read.mod_data()
+                        .0
+                        .base_mods
+                        .iter()
+                        .any(|base_mod| !base_mod.ranges.annotations.is_empty())
+                })
+                .map(CurrRead::read_id)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            ALL_DROPPED_READ_COUNT
+        );
+    }
+
+    #[cfg(feature = "polars")]
     /// Checks the parsed fields shared by the implicit all-dropped cases.
     fn assert_all_dropped_implicit_t_dataframe(df: &polars::prelude::DataFrame) {
-        assert_eq!(df.height(), 250);
+        assert_eq!(df.height(), ALL_DROPPED_CALL_COUNT);
         assert!(
             df.column("mod_quality")
                 .unwrap()
                 .u32()
                 .unwrap()
                 .into_iter()
-                .all(|probability| probability == Some(0))
+                .all(|probability| probability == Some(u32::from(ALL_DROPPED_QUALITY)))
         );
         assert!(
             df.column("mod_code")
@@ -3263,7 +3327,7 @@ mod read_generation_with_mods_tests {
                 .str()
                 .unwrap()
                 .into_iter()
-                .all(|mod_code| mod_code == Some("T"))
+                .all(|mod_code| mod_code == Some(ALL_DROPPED_MOD_CODE_TEXT))
         );
         assert!(
             df.column("base")
@@ -3271,7 +3335,7 @@ mod read_generation_with_mods_tests {
                 .str()
                 .unwrap()
                 .into_iter()
-                .all(|base| base == Some("T"))
+                .all(|base| base == Some(ALL_DROPPED_BASE_TEXT))
         );
         assert!(
             df.column("is_strand_plus")
@@ -3279,7 +3343,7 @@ mod read_generation_with_mods_tests {
                 .bool()
                 .unwrap()
                 .into_iter()
-                .all(|is_strand_plus| is_strand_plus == Some(true))
+                .all(|is_strand_plus| is_strand_plus == Some(ALL_DROPPED_STRAND == '+'))
         );
         let distinct_read_ids = df
             .column("read_id")
@@ -3288,37 +3352,80 @@ mod read_generation_with_mods_tests {
             .unwrap()
             .into_no_null_iter()
             .collect::<std::collections::HashSet<_>>();
-        assert_eq!(distinct_read_ids.len(), 10);
+        assert_eq!(distinct_read_ids.len(), ALL_DROPPED_READ_COUNT);
     }
 
+    #[cfg(feature = "polars")]
     /// Explicit missing-data suffixes should produce no calls for dropped bases.
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
     #[case::cram(AlignmentFormat::Cram)]
-    fn all_dropped_question_mark_suffix_has_no_dataframe_rows(#[case] format: AlignmentFormat) {
+    fn all_dropped_question_mark_suffix_has_no_dataframe_rows_with_polars(
+        #[case] format: AlignmentFormat,
+    ) {
         let df = all_dropped_t_mods_dataframe(MmSuffix::QuestionMark, format);
 
         assert_eq!(df.height(), 0);
     }
 
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn all_dropped_question_mark_suffix_has_no_mod_calls_without_polars(
+        #[case] format: AlignmentFormat,
+    ) {
+        let reads = all_dropped_t_mods(MmSuffix::QuestionMark, format);
+        assert!(reads.iter().all(|read| {
+            read.mod_data()
+                .0
+                .base_mods
+                .iter()
+                .all(|base_mod| base_mod.ranges.annotations.is_empty())
+        }));
+    }
+
+    #[cfg(feature = "polars")]
     /// Dot suffixes should report every dropped base as implicitly unmodified.
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
     #[case::cram(AlignmentFormat::Cram)]
-    fn all_dropped_dot_suffix_has_zero_probability_rows(#[case] format: AlignmentFormat) {
+    fn all_dropped_dot_suffix_has_zero_probability_rows_with_polars(
+        #[case] format: AlignmentFormat,
+    ) {
         let df = all_dropped_t_mods_dataframe(MmSuffix::Dot, format);
 
         assert_all_dropped_implicit_t_dataframe(&df);
     }
 
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn all_dropped_dot_suffix_has_zero_probability_calls_without_polars(
+        #[case] format: AlignmentFormat,
+    ) {
+        assert_all_dropped_implicit_t_reads(&all_dropped_t_mods(MmSuffix::Dot, format));
+    }
+
+    #[cfg(feature = "polars")]
     /// Suffix-free groups should report every dropped base as implicitly unmodified.
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
     #[case::cram(AlignmentFormat::Cram)]
-    fn all_dropped_no_suffix_has_zero_probability_rows(#[case] format: AlignmentFormat) {
+    fn all_dropped_no_suffix_has_zero_probability_rows_with_polars(
+        #[case] format: AlignmentFormat,
+    ) {
         let df = all_dropped_t_mods_dataframe(MmSuffix::None, format);
 
         assert_all_dropped_implicit_t_dataframe(&df);
+    }
+
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn all_dropped_no_suffix_has_zero_probability_calls_without_polars(
+        #[case] format: AlignmentFormat,
+    ) {
+        assert_all_dropped_implicit_t_reads(&all_dropped_t_mods(MmSuffix::None, format));
     }
 
     /// Tests read generation with desired properties but with modifications
@@ -4864,6 +4971,98 @@ mod read_generation_with_mods_tests {
         );
     }
 
+    fn mismatch_mod_reads(
+        format: AlignmentFormat,
+    ) -> Vec<CurrRead<crate::read_utils::AlignAndModData>> {
+        let json_str = r#"{
+            "contigs": {"number": 1, "len_range": [100, 100], "repeated_seq": "ACGT"},
+            "reads": [
+                {"number": 100, "len_range": [1.0, 1.0], "mods": [{"base": "C", "is_strand_plus": true, "mod_code": "m", "win": [1], "mod_range": [[1.0, 1.0]]}]},
+                {"number": 100, "len_range": [1.0, 1.0], "mismatch": 1.0, "mods": [{"base": "C", "is_strand_plus": true, "mod_code": "m", "win": [1], "mod_range": [[0.51, 0.51]]}]}
+            ]
+        }"#;
+        let config: SimulationConfig = serde_json::from_str(json_str).unwrap();
+        let sim = TempBamSimulation::new(config, format).unwrap();
+        bam::Reader::from_path(sim.bam_path())
+            .unwrap()
+            .records()
+            .map(|record_result| {
+                let record = record_result.unwrap();
+                CurrRead::default()
+                    .try_from_only_alignment(&record)
+                    .unwrap()
+                    .set_mod_data(&record, ThresholdState::GtEq(0), 0)
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    #[derive(Clone, Copy)]
+    enum MismatchAlignment {
+        Forward,
+        Reverse,
+        Unmapped,
+    }
+
+    struct MismatchObservation {
+        read_id: String,
+        quality: u32,
+        alignment: MismatchAlignment,
+        ref_position: Option<i64>,
+    }
+
+    fn mismatch_alignment(state: ReadState) -> MismatchAlignment {
+        match state {
+            ReadState::PrimaryFwd | ReadState::SecondaryFwd | ReadState::SupplementaryFwd => {
+                MismatchAlignment::Forward
+            }
+            ReadState::PrimaryRev | ReadState::SecondaryRev | ReadState::SupplementaryRev => {
+                MismatchAlignment::Reverse
+            }
+            ReadState::Unmapped => MismatchAlignment::Unmapped,
+        }
+    }
+
+    fn assert_mismatch_mod_observations(observations: &[MismatchObservation]) {
+        let mut group_zero_count = 0usize;
+        let mut group_one_count = 0usize;
+
+        for observation in observations {
+            let is_group_zero = observation.read_id.starts_with("0.");
+            let is_group_one = observation.read_id.starts_with("1.");
+            assert!(is_group_zero || is_group_one, "unexpected read id");
+            let expected_quality = if is_group_zero {
+                group_zero_count += 1;
+                255
+            } else {
+                group_one_count += 1;
+                130
+            };
+            assert_eq!(observation.quality, expected_quality);
+            assert_eq!(
+                matches!(observation.alignment, MismatchAlignment::Unmapped),
+                observation.ref_position.is_none(),
+                "alignment state and reference position disagree"
+            );
+
+            if let Some(position) = observation.ref_position {
+                assert!(position >= 0);
+                match observation.alignment {
+                    MismatchAlignment::Forward => {
+                        assert_eq!(position % 4 == 1, is_group_zero);
+                    }
+                    MismatchAlignment::Reverse => {
+                        assert_eq!(position % 4 == 2, is_group_zero);
+                    }
+                    MismatchAlignment::Unmapped => {}
+                }
+            }
+        }
+
+        assert!(group_zero_count > 0, "no observations from group 0");
+        assert!(group_one_count > 0, "no observations from group 1");
+    }
+
     /// Tests that mismatches affect modification reference positions while preserving mod quality
     ///
     /// This test creates two read groups:
@@ -4873,59 +5072,12 @@ mod read_generation_with_mods_tests {
     /// For a "ACGT" repeated contig, C's are at positions 1, 5, 9, 13, ... (form 4n+1).
     /// On reverse complement, G's become C's at positions 2, 6, 10, 14, ... (form 4n+2).
     /// With 100% mismatch, positions should be shifted and no longer follow these patterns.
+    #[cfg(feature = "polars")]
     #[rstest::rstest]
     #[case::bam(AlignmentFormat::Bam)]
     #[case::cram(AlignmentFormat::Cram)]
-    fn mismatch_mod_check(#[case] format: AlignmentFormat) {
-        let json_str = r#"{
-            "contigs": {
-                "number": 1,
-                "len_range": [100, 100],
-                "repeated_seq": "ACGT"
-            },
-            "reads": [
-                {
-                    "number": 100,
-                    "len_range": [1.0, 1.0],
-                    "mods": [{
-                        "base": "C",
-                        "is_strand_plus": true,
-                        "mod_code": "m",
-                        "win": [1],
-                        "mod_range": [[1.0, 1.0]]
-                    }]
-                },
-                {
-                    "number": 100,
-                    "len_range": [1.0, 1.0],
-                    "mismatch": 1.0,
-                    "mods": [{
-                        "base": "C",
-                        "is_strand_plus": true,
-                        "mod_code": "m",
-                        "win": [1],
-                        "mod_range": [[0.51, 0.51]]
-                    }]
-                }
-            ]
-        }"#;
-
-        let config: SimulationConfig = serde_json::from_str(json_str).unwrap();
-        let sim = TempBamSimulation::new(config, format).unwrap();
-
-        let mut bam = bam::Reader::from_path(sim.bam_path()).unwrap();
-        let mut df_collection = Vec::new();
-
-        for k in bam.records() {
-            let record = k.unwrap();
-            let curr_read = CurrRead::default()
-                .try_from_only_alignment(&record)
-                .unwrap()
-                .set_mod_data(&record, ThresholdState::GtEq(0), 0)
-                .unwrap();
-            df_collection.push(curr_read);
-        }
-
+    fn mismatch_mod_check_with_polars(#[case] format: AlignmentFormat) {
+        let df_collection = mismatch_mod_reads(format);
         let df = curr_reads_to_dataframe(df_collection.as_slice()).unwrap();
 
         let read_id_col = df.column("read_id").unwrap().str().unwrap();
@@ -4933,129 +5085,49 @@ mod read_generation_with_mods_tests {
         let alignment_type_col = df.column("alignment_type").unwrap().str().unwrap();
         let mod_quality_col = df.column("mod_quality").unwrap().u32().unwrap();
 
-        let mut row_count_0: usize = 0;
-        let mut row_count_1: usize = 0;
-
-        // Violation counters for debugging
-        let mut group0_forward_position_violations: usize = 0;
-        let mut group0_reverse_position_violations: usize = 0;
-        let mut group0_unmapped_position_violations: usize = 0;
-        let mut group0_quality_violations: usize = 0;
-        let mut group1_forward_position_violations: usize = 0;
-        let mut group1_reverse_position_violations: usize = 0;
-        let mut group1_unmapped_position_violations: usize = 0;
-        let mut group1_quality_violations: usize = 0;
-        let mut read_id_violations: usize = 0;
-
-        for i in 0..df.height() {
-            let read_id = read_id_col.get(i).unwrap();
-            let ref_position = ref_position_col.get(i).unwrap();
-            let alignment_type = alignment_type_col.get(i).unwrap();
-            let mod_quality = mod_quality_col.get(i).unwrap();
-
-            if read_id.starts_with("0.") {
-                // Group 0: no mismatch, mod positions should follow 4n+1 (forward) or 4n+2 (reverse)
-                if alignment_type.contains("forward") {
-                    assert!(
-                        ref_position >= 0,
-                        "aligned forward reads must have non-negative reference positions"
-                    );
-                    if ref_position % 4 != 1 {
-                        group0_forward_position_violations += 1;
-                    }
-                } else if alignment_type.contains("reverse") {
-                    assert!(
-                        ref_position >= 0,
-                        "aligned reverse reads must have non-negative reference positions"
-                    );
-                    if ref_position % 4 != 2 {
-                        group0_reverse_position_violations += 1;
-                    }
-                } else {
-                    // unmapped reads should have ref_position of -1
-                    if ref_position != -1 {
-                        group0_unmapped_position_violations += 1;
-                    }
+        let observations = (0..df.height())
+            .map(|i| {
+                let read_id = read_id_col.get(i).unwrap();
+                let ref_position = ref_position_col.get(i).unwrap();
+                let alignment_type = alignment_type_col.get(i).unwrap();
+                let mod_quality = mod_quality_col.get(i).unwrap();
+                let alignment = mismatch_alignment(alignment_type.parse::<ReadState>().unwrap());
+                MismatchObservation {
+                    read_id: read_id.to_owned(),
+                    quality: mod_quality,
+                    alignment,
+                    ref_position: (ref_position != -1).then_some(ref_position),
                 }
-                if mod_quality != 255 {
-                    group0_quality_violations += 1;
-                }
-                row_count_0 += 1;
-            } else if read_id.starts_with("1.") {
-                // Group 1: 100% mismatch, mod positions should NOT follow expected patterns
-                if alignment_type.contains("forward") {
-                    assert!(
-                        ref_position >= 0,
-                        "aligned forward reads must have non-negative reference positions"
-                    );
-                    if ref_position % 4 == 1 {
-                        group1_forward_position_violations += 1;
-                    }
-                } else if alignment_type.contains("reverse") {
-                    assert!(
-                        ref_position >= 0,
-                        "aligned reverse reads must have non-negative reference positions"
-                    );
-                    if ref_position % 4 == 2 {
-                        group1_reverse_position_violations += 1;
-                    }
-                } else {
-                    // unmapped reads should have ref_position of -1
-                    if ref_position != -1 {
-                        group1_unmapped_position_violations += 1;
-                    }
-                }
-                if mod_quality != 130 {
-                    group1_quality_violations += 1;
-                }
-                row_count_1 += 1;
-            } else {
-                read_id_violations += 1;
-            }
-        }
+            })
+            .collect::<Vec<_>>();
 
-        // Assert all violations are zero
-        assert_eq!(
-            group0_forward_position_violations, 0,
-            "Group 0 forward: expected 0 position violations"
-        );
-        assert_eq!(
-            group0_reverse_position_violations, 0,
-            "Group 0 reverse: expected 0 position violations"
-        );
-        assert_eq!(
-            group0_unmapped_position_violations, 0,
-            "Group 0 unmapped: expected 0 position violations"
-        );
-        assert_eq!(
-            group0_quality_violations, 0,
-            "Group 0: expected 0 quality violations"
-        );
-        assert_eq!(
-            group1_forward_position_violations, 0,
-            "Group 1 forward: expected 0 position violations"
-        );
-        assert_eq!(
-            group1_reverse_position_violations, 0,
-            "Group 1 reverse: expected 0 position violations"
-        );
-        assert_eq!(
-            group1_unmapped_position_violations, 0,
-            "Group 1 unmapped: expected 0 position violations"
-        );
-        assert_eq!(
-            group1_quality_violations, 0,
-            "Group 1: expected 0 quality violations"
-        );
-        assert_eq!(read_id_violations, 0, "expected 0 read_id violations");
-        assert!(
-            row_count_0 > 0,
-            "Should have processed some rows from group 0"
-        );
-        assert!(
-            row_count_1 > 0,
-            "Should have processed some rows from group 1"
-        );
+        assert_mismatch_mod_observations(&observations);
+    }
+
+    #[rstest::rstest]
+    #[case::bam(AlignmentFormat::Bam)]
+    #[case::cram(AlignmentFormat::Cram)]
+    fn mismatch_mod_check_without_polars(#[case] format: AlignmentFormat) {
+        let reads = mismatch_mod_reads(format);
+        let observations = reads
+            .iter()
+            .flat_map(|read| {
+                let alignment = mismatch_alignment(read.read_state());
+                read.mod_data()
+                    .0
+                    .base_mods
+                    .iter()
+                    .flat_map(|base_mod| &base_mod.ranges.annotations)
+                    .map(move |annotation| MismatchObservation {
+                        read_id: read.read_id().to_owned(),
+                        quality: u32::from(annotation.qual),
+                        alignment,
+                        ref_position: annotation.ref_pos.map(i64::from),
+                    })
+            })
+            .collect::<Vec<_>>();
+
+        assert_mismatch_mod_observations(&observations);
     }
 }
 

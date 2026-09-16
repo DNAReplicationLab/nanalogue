@@ -9,6 +9,7 @@ use crate::{
     constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS, NO_RECORDS_FOUND_FOR_ANALYSIS},
     ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
 };
+#[cfg(feature = "polars")]
 use polars::prelude::*;
 use rust_htslib::bam::Record;
 use serde::Serialize;
@@ -357,6 +358,7 @@ or some other possibility.",
     Ok(())
 }
 
+#[cfg(feature = "polars")]
 /// Creates a `DataFrame` from windowed modification data
 ///
 /// This function calls [`run`] with a buffer handle, then parses the output into a Polars `DataFrame`.
@@ -530,7 +532,7 @@ where
 /// Returns an error if BAM record reading, or output writing fails.
 /// This JSON command errors on blank BAM files so callers can distinguish that case from a
 /// non-blank BAM whose per-read `mod_table` entries may legitimately be empty.
-/// Unlike [`run`] and [`run_df`], records with no modifications are acceptable here because the
+/// Unlike [`run`] and `run_df`, records with no modifications are acceptable here because the
 /// JSON is not tabular and still carries other per-read information, making the absence of mods
 /// clear to an end user.
 ///
@@ -858,6 +860,7 @@ mod stochastic_tests {
         TempBamSimulation::new(config, format)
     }
 
+    #[cfg(feature = "polars")]
     /// Helper to run window analysis with `threshold_and_mean` aggregation function
     fn run_window_analysis_with_threshold(
         sim: &TempBamSimulation,
@@ -876,6 +879,7 @@ mod stochastic_tests {
         })
     }
 
+    #[cfg(feature = "polars")]
     /// Helper to assert dataframe has expected column headers
     fn assert_expected_columns(df: &DataFrame) {
         let expected_columns = vec![
@@ -904,6 +908,7 @@ mod stochastic_tests {
         );
     }
 
+    #[cfg(feature = "polars")]
     /// Test that `run_df` errors for BAM files with no modification data.
     ///
     /// This test creates a simulated BAM file without any modification information and verifies
@@ -931,6 +936,7 @@ mod stochastic_tests {
         let _ = run_window_analysis_with_threshold(&sim, 2, 1).unwrap();
     }
 
+    #[cfg(feature = "polars")]
     /// Test that `run_df` produces a non-empty dataframe with modification data
     ///
     /// This test creates a simulated BAM file with modification data and verifies that
@@ -984,6 +990,7 @@ mod stochastic_tests {
         Ok(())
     }
 
+    #[cfg(feature = "polars")]
     /// Test that `run_df` produces a non-empty dataframe with modification data,
     /// when reads that are 'noisy' i.e. not perfectly aligned are used.
     ///
@@ -1052,6 +1059,7 @@ mod stochastic_tests {
         Ok(())
     }
 
+    #[cfg(feature = "polars")]
     /// Test that `run_df` works as expected when we generate two types of reads,
     /// and that the statistics are as expected in the two groups of reads.
     #[rstest::rstest]
