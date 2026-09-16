@@ -17,6 +17,7 @@ packages=(
     liblzma-dev
     libssl-dev
     libzstd-dev
+    minisign
     perl
     pkg-config
     zlib1g-dev
@@ -47,11 +48,8 @@ rustup default stable
 
 step "Installing Zig 0.15.2 for libghostty-vt"
 zig_dir="$HOME/.local/zig-0.15.2"
-if [[ ! -x "$zig_dir/zig" ]]; then
-    mkdir -p "$zig_dir"
-    curl -fsSL https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz \
-        | tar -xJ --strip-components=1 -C "$zig_dir"
-fi
+sha256sum --check --strict github_workflow_scripts/install-zig-for-libghostty.sha256
+./github_workflow_scripts/install-zig-for-libghostty.sh
 
 step "Configuring future orb shells"
 profile_marker="# nanalogue Rust and Clang environment"

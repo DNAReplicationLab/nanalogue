@@ -54,10 +54,11 @@ jobs:
         run: cargo test
       - name: Install Zig for libghostty-vt
         run: |
-          mkdir -p "$HOME/.local/zig"
-          curl -fsSL https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz \
-            | tar -xJ --strip-components=1 -C "$HOME/.local/zig"
-          echo "$HOME/.local/zig" >> "$GITHUB_PATH"
+          sudo apt-get update -q
+          sudo apt-get install -y -q minisign
+          sha256sum --check --strict github_workflow_scripts/install-zig-for-libghostty.sha256
+          ./github_workflow_scripts/install-zig-for-libghostty.sh
+          echo "$HOME/.local/zig-0.15.2" >> "$GITHUB_PATH"
       - name: Test all features
         run: cargo test --all-features
       - name: Test remote URL access
