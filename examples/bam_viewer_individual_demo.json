@@ -1,0 +1,20 @@
+{
+  "contigs": {
+    "number": 3,
+    "len_range": [60000, 60000]
+  },
+  "reads": [{
+    "number": 150,
+    "mapq_range": [30, 60],
+    "base_qual_range": [30, 40],
+    "len_range": [0.05, 1.0],
+    "mods": [{
+      "base": "T",
+      "is_strand_plus": true,
+      "mod_code": "T",
+      "win": [300, 300],
+      "mod_range": [[0.05, 0.25], [0.7, 0.95]]
+    }]
+  }],
+  "seed": 314159
+}

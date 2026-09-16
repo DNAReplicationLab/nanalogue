@@ -1,11 +1,13 @@
 //! Sequence retrieval for the interactive BAM viewer.
 
 use crate::{
-    BamPreFilt as _, CurrRead, Error, ModChar, SeqCoordCalls, ThresholdState,
+    BamPreFilt as _, CurrRead, Error, F32Bw0and1, ModChar, SeqCoordCalls, ThresholdState,
+    analysis::threshold_and_mean,
     constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS},
     ensure_bounded_counter, ensure_record_data_capacity, nanalogue_indexed_bam_reader,
 };
-use rust_htslib::bam;
+use rust_htslib::bam::{self, ext::BamRecordExtensions as _};
+use std::num::NonZeroU32;
 
 /// A read ID and sequence projected onto a requested reference region.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +62,70 @@ impl RegionSequence {
     #[must_use]
     pub fn is_reverse(&self) -> bool {
         self.reverse
+    }
+}
+
+/// Raw and windowed modification calls for one aligned read.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct ReadModProfile {
+    /// Read identifier.
+    read_id: String,
+    /// Whether the alignment is on the reverse strand.
+    reverse: bool,
+    /// Zero-based inclusive alignment start on the reference.
+    align_start: u32,
+    /// Zero-based exclusive alignment end on the reference.
+    align_end: u32,
+    /// Reference position and raw ML probability for mapped calls.
+    calls: Vec<(u32, u8)>,
+    /// Reference bounds and thresholded mean for each complete call window.
+    windows: Vec<(u32, u32, F32Bw0and1)>,
+    /// Indices in `windows` at which independent modification series begin.
+    window_series_starts: Vec<usize>,
+}
+
+impl ReadModProfile {
+    /// Returns the read identifier.
+    #[must_use]
+    pub fn read_id(&self) -> &str {
+        &self.read_id
+    }
+
+    /// Returns whether the alignment is on the reverse strand.
+    #[must_use]
+    pub fn is_reverse(&self) -> bool {
+        self.reverse
+    }
+
+    /// Returns the zero-based inclusive alignment start.
+    #[must_use]
+    pub fn align_start(&self) -> u32 {
+        self.align_start
+    }
+
+    /// Returns the zero-based exclusive alignment end.
+    #[must_use]
+    pub fn align_end(&self) -> u32 {
+        self.align_end
+    }
+
+    /// Returns mapped raw calls as `(reference position, ML probability)`.
+    #[must_use]
+    pub fn calls(&self) -> &[(u32, u8)] {
+        &self.calls
+    }
+
+    /// Returns complete call windows as `(reference start, reference end, value)`.
+    #[must_use]
+    pub fn windows(&self) -> &[(u32, u32, F32Bw0and1)] {
+        &self.windows
+    }
+
+    /// Returns the window indices at which independent mod-strand series begin.
+    #[must_use]
+    pub fn window_series_starts(&self) -> &[usize] {
+        &self.window_series_starts
     }
 }
 
@@ -290,6 +356,120 @@ impl RegionSequenceReader {
         rows.sort_by(|left, right| left.read_id.cmp(&right.read_id));
         Ok(rows)
     }
+
+    /// Retrieves raw and non-overlapping windowed modification profiles for reads spanning a
+    /// complete reference interval.
+    ///
+    /// Raw insertion calls participate in windows but are omitted from [`ReadModProfile::calls`].
+    /// Windows containing no mapped calls are omitted. Rows are sorted by read ID.
+    ///
+    /// # Errors
+    /// Returns an error if the interval, an alignment, or its modification tags are invalid.
+    pub fn profiles(
+        &mut self,
+        tid: u32,
+        start: u32,
+        end: u32,
+        mod_type: ModChar,
+        win: NonZeroU32,
+    ) -> Result<Vec<ReadModProfile>, Error> {
+        if start >= end {
+            return Err(Error::InvalidAlignCoords(format!("{tid}:{start}-{end}")));
+        }
+        self.reader.fetch((tid, i64::from(start), i64::from(end)))?;
+        let region = crate::GenomicBed3::new(i32::try_from(tid)?, start, end);
+        let mut profiles = Vec::new();
+        let mut record_count = 0u32;
+        let win_size = usize::try_from(win.get())?;
+
+        for record_result in bam::Read::records(&mut self.reader) {
+            let record = record_result?;
+            if !record.filt_by_region(&region, true) {
+                continue;
+            }
+            ensure_bounded_counter(
+                &mut record_count,
+                MAX_RECORDS,
+                "region modification profiles",
+            )?;
+            ensure_record_data_capacity(
+                record.inner().m_data,
+                MAX_RECORD_CAPACITY_BYTES,
+                "region modification profiles",
+            )?;
+            let (curr_read, has_sequence) =
+                match CurrRead::default().try_from_only_alignment(&record) {
+                    Ok(curr_read) => (curr_read, true),
+                    Err(Error::ZeroSeqLen(_)) => (
+                        CurrRead::default().try_from_only_alignment_zero_seq_len(&record)?,
+                        false,
+                    ),
+                    Err(error) => return Err(error),
+                };
+            let align_start = u32::try_from(record.pos())?;
+            let align_end = u32::try_from(record.reference_end())?;
+            let read_id = String::from(curr_read.read_id());
+            let reverse = curr_read.strand() == '-';
+            let mut calls = Vec::new();
+            let mut windows = Vec::new();
+            let mut window_series_starts = Vec::new();
+
+            if has_sequence {
+                let read_with_mods = curr_read.set_mod_data_restricted(
+                    &record,
+                    ThresholdState::GtEq(0),
+                    |_| true,
+                    |_, _, observed_mod_type| *observed_mod_type == mod_type,
+                    0,
+                )?;
+                for base_mod in &read_with_mods.mod_data().0.base_mods {
+                    calls.extend(base_mod.ranges.annotations.iter().filter_map(|annotation| {
+                        annotation.ref_pos.map(|ref_pos| (ref_pos, annotation.qual))
+                    }));
+                    let series_start = windows.len();
+                    for chunk in base_mod.ranges.annotations.chunks_exact(win_size) {
+                        let mut reference_positions = chunk.iter().filter_map(|item| item.ref_pos);
+                        let Some(first_reference_position) = reference_positions.next() else {
+                            continue;
+                        };
+                        let (ref_win_start, ref_win_max) = reference_positions.fold(
+                            (first_reference_position, first_reference_position),
+                            |(minimum, maximum), position| {
+                                (minimum.min(position), maximum.max(position))
+                            },
+                        );
+                        let ref_win_end = ref_win_max.checked_add(1).ok_or_else(|| {
+                            Error::InvalidState(String::from(
+                                "reference modification window ends at u32::MAX",
+                            ))
+                        })?;
+                        let probabilities = chunk.iter().map(|item| item.qual).collect::<Vec<_>>();
+                        windows.push((
+                            ref_win_start,
+                            ref_win_end,
+                            threshold_and_mean(&probabilities)?,
+                        ));
+                    }
+                    if windows.len() > series_start {
+                        window_series_starts.push(series_start);
+                    }
+                }
+                calls.sort_unstable_by_key(|&(ref_pos, _probability)| ref_pos);
+            }
+
+            profiles.push(ReadModProfile {
+                read_id,
+                reverse,
+                align_start,
+                align_end,
+                calls,
+                windows,
+                window_series_starts,
+            });
+        }
+        profiles.sort_by(|left, right| left.read_id.cmp(&right.read_id));
+        Ok(profiles)
+    }
 }
 
 #[cfg(test)]
@@ -364,6 +544,115 @@ mod tests {
     fn remove_test_bam(path: &std::path::Path) {
         std::fs::remove_file(path).expect("remove test BAM");
         std::fs::remove_file(format!("{}.bai", path.display())).expect("remove test BAM index");
+    }
+
+    #[test]
+    fn profiles_keep_mapped_calls_and_window_in_read_order() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        record.set_tid(0);
+        record.set_pos(10);
+        record.set_mapq(60);
+        record.unset_unmapped();
+        record.set(
+            b"profile",
+            Some(&CigarString::from(vec![
+                Cigar::Match(2),
+                Cigar::Ins(1),
+                Cigar::Match(2),
+                Cigar::Del(1),
+                Cigar::Match(3),
+            ])),
+            b"AAAAAAAA",
+            &[30; 8],
+        );
+        record.push_aux(b"MM", Aux::String("A+a?,0,0,0,0,0,0,0,0;"))?;
+        record.push_aux(
+            b"ML",
+            Aux::ArrayU8((&[0, 127, 255, 128, 255, 0, 255, 128][..]).into()),
+        )?;
+        let path = std::env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
+        write_bam_denovo(
+            [record],
+            [(String::from("chr1"), 30)],
+            [String::from("rg1")],
+            Vec::<String>::new(),
+            &path,
+        )?;
+        let mut reader = RegionSequenceReader::from_path(&path)?;
+
+        let profiles = reader.profiles(
+            0,
+            10,
+            18,
+            ModChar::new('a'),
+            NonZeroU32::new(3).expect("non-zero"),
+        )?;
+        let profile = profiles.first().expect("one spanning read");
+        assert_eq!(profile.align_start(), 10);
+        assert_eq!(profile.align_end(), 18);
+        assert_eq!(profile.calls().len(), 7, "the insertion call is not a dot");
+        assert_eq!(
+            profile
+                .calls()
+                .iter()
+                .map(|call| call.0)
+                .collect::<Vec<_>>(),
+            [10, 11, 12, 13, 15, 16, 17]
+        );
+        assert_eq!(
+            profile.windows().len(),
+            2,
+            "the trailing two calls are unused"
+        );
+        let first_window = profile.windows().first().expect("first window");
+        let second_window = profile.windows().get(1).expect("second window");
+        assert_eq!(first_window.0..first_window.1, 10..12);
+        assert!((first_window.2.val() - 1.0 / 3.0).abs() < f32::EPSILON);
+        assert_eq!(second_window.0..second_window.1, 12..16);
+        assert!((second_window.2.val() - 2.0 / 3.0).abs() < f32::EPSILON);
+
+        remove_test_bam(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn profiles_return_empty_data_for_an_omitted_sequence() -> Result<(), Error> {
+        let path = write_zero_sequence_test_bam(vec![Cigar::Match(5)], None)?;
+        let mut reader = RegionSequenceReader::from_path(&path)?;
+
+        let profiles = reader.profiles(
+            0,
+            0,
+            5,
+            ModChar::new('a'),
+            NonZeroU32::new(3).expect("non-zero"),
+        )?;
+        let profile = profiles.first().expect("one spanning read");
+        assert!(profile.calls().is_empty());
+        assert!(profile.windows().is_empty());
+
+        remove_test_bam(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn profiles_preserve_independent_mod_strand_window_series() -> Result<(), Error> {
+        let path = write_test_bam("A+a?,0,0;T-a?,0;", &[255, 255, 0])?;
+        let mut reader = RegionSequenceReader::from_path(&path)?;
+
+        let profiles = reader.profiles(
+            0,
+            0,
+            5,
+            ModChar::new('a'),
+            NonZeroU32::new(1).expect("non-zero"),
+        )?;
+        let profile = profiles.first().expect("one spanning read");
+        assert_eq!(profile.windows().len(), 3);
+        assert_eq!(profile.window_series_starts(), [0, 2]);
+
+        remove_test_bam(&path);
+        Ok(())
     }
 
     #[test]

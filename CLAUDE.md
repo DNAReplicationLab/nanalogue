@@ -49,6 +49,23 @@ cargo run -q --features bam-viewer --bin nanalogue_bam_viewer -- \
 Keep the generated BAM, BAI, and FASTA files temporary and out of Git. The
 smaller example BAMs remain appropriate for focused automated assertions.
 
+For the whole-read individual probability plot, generate the longer random-sequence demo:
+
+```sh
+cargo run -q --bin nanalogue_sim_bam -- examples/bam_viewer_individual_demo.json \
+  /tmp/nanalogue-viewer-individual-demo.bam \
+  /tmp/nanalogue-viewer-individual-demo.fasta
+```
+
+Then launch the viewer at a central position with 300-modified-base, non-overlapping windows:
+
+```sh
+cargo run -q --features bam-viewer --bin nanalogue_bam_viewer -- \
+  /tmp/nanalogue-viewer-individual-demo.bam contig_00000:30000 T 300 individual
+```
+
+Use `j` and `k` to move among the differently sized reads spanning that window.
+
 ## Final review
 
 ### If codex is available to you and you can communicate with the service

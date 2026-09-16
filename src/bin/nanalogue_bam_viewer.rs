@@ -7,6 +7,14 @@
     clippy::print_stderr,
     reason = "command-line errors are intentionally reported to stderr"
 )]
+#![expect(
+    clippy::non_ascii_literal,
+    reason = "the terminal plot deliberately uses Unicode single-cell plotting glyphs"
+)]
+#![expect(
+    clippy::pattern_type_mismatch,
+    reason = "matching references to view enums is clearer without explicit reference patterns"
+)]
 
 use crossterm::{
     SynchronizedUpdate as _,
@@ -26,7 +34,7 @@ use libghostty_vt::{
 };
 use nanalogue_core::{
     ModChar,
-    region_sequences::{RegionSequence, RegionSequenceReader},
+    region_sequences::{ReadModProfile, RegionSequence, RegionSequenceReader},
 };
 use std::{
     env,
@@ -34,6 +42,7 @@ use std::{
     ffi::OsString,
     fmt::Write as _,
     io::{self, Stdout, Write as _},
+    num::NonZeroU32,
     path::PathBuf,
     str::FromStr as _,
     sync::Arc,
@@ -47,7 +56,7 @@ const MAX_REGION_LENGTH: u32 = 200;
 
 /// Usage, display conventions, and controls shown for help and argument errors.
 const USAGE: &str = concat!(
-    "Usage: nanalogue_bam_viewer <BAM> <CONTIG:START> [MOD_TYPE]\n",
+    "Usage: nanalogue_bam_viewer <BAM> <CONTIG:START> [MOD_TYPE [WINDOW_SIZE individual]]\n",
     "START is zero-based; displayed coordinates are one-based.\n",
     "The end coordinate is selected from the terminal width, up to 200 bp.\n",
     "MOD_TYPE is a letter or numeric ChEBI code; calls with probability >= 0.5 are ",
@@ -57,6 +66,10 @@ const USAGE: &str = concat!(
     "  Green reads are forward; yellow reads are reverse.\n",
     "  Lowercase bases are insertions; dots are deletions or reference skips.\n",
     "  An asterisk means the BAM alignment has no stored read sequence.\n",
+    "  Individual view plots grey raw ML calls over the whole read and a bold ",
+    "default-foreground step line of the per-window fraction of calls with ",
+    "probability >= 0.5.\n",
+    "  WINDOW_SIZE is a positive number of modified bases; windows are non-overlapping.\n",
     "\n",
     "Controls:\n",
     "  Left/Right or h/l move one genomic window.\n",
@@ -65,9 +78,23 @@ const USAGE: &str = concat!(
     "  Home/End jump to the first/last read; g prompts for CONTIG:START.\n",
     "  A successful goto also truncates read IDs and hides insertions.\n",
     "  In goto: type CONTIG:START; Backspace edits; Enter submits; Escape cancels.\n",
-    "  r toggles full read IDs; i toggles insertions.\n",
+    "  In table view, r toggles full read IDs and i toggles insertions.\n",
+    "  In individual view, j/k selects one read; r/i have no effect.\n",
     "  Outside goto, q or Escape quits; Ctrl-C or Ctrl-D always quits.",
 );
+
+/// Viewer presentation selected by command-line arguments.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ViewMode {
+    /// Region sequence table.
+    #[default]
+    Table,
+    /// Whole-read modification probability plot with non-overlapping windows.
+    Individual {
+        /// Number of modification calls per window.
+        win: NonZeroU32,
+    },
+}
 
 /// Initial reference and zero-based coordinate supplied on the command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,6 +140,9 @@ struct Args {
 
     /// Optional modification type to display in bold.
     mod_type: Option<ModChar>,
+
+    /// Requested presentation mode.
+    mode: ViewMode,
 }
 
 impl Args {
@@ -144,15 +174,42 @@ impl Args {
                 ModChar::from_str(&mod_type_string).map_err(|error| error.to_string())
             })
             .transpose()?;
+        let window_option = argument_iter.next();
+        let mode_argument = argument_iter.next();
+        let mode = match (mod_type, window_option, mode_argument) {
+            (None | Some(_), None, None) => ViewMode::Table,
+            (Some(_), Some(window_argument), Some(keyword)) => {
+                let window = window_argument
+                    .into_string()
+                    .map_err(|_window| String::from("WINDOW_SIZE must be valid UTF-8"))?
+                    .parse::<u32>()
+                    .map_err(|_error| String::from("WINDOW_SIZE must be a positive integer"))?;
+                let win = NonZeroU32::new(window)
+                    .ok_or_else(|| String::from("WINDOW_SIZE must be a positive integer"))?;
+                if keyword != "individual" {
+                    return Err(String::from(
+                        "expected literal 'individual' after WINDOW_SIZE",
+                    ));
+                }
+                ViewMode::Individual { win }
+            }
+            (None, _, Some(_)) | (None, Some(_), None) => {
+                return Err(String::from("individual view requires MOD_TYPE"));
+            }
+            (Some(_), None, Some(_)) | (Some(_), Some(_), None) => {
+                return Err(String::from(
+                    "WINDOW_SIZE and literal 'individual' must be supplied together",
+                ));
+            }
+        };
         if argument_iter.next().is_some() {
-            return Err(String::from(
-                "expected BAM, CONTIG:START, and optional MOD_TYPE arguments",
-            ));
+            return Err(String::from("unexpected trailing arguments"));
         }
         Ok(Some(Self {
             bam: PathBuf::from(bam),
             position,
             mod_type,
+            mode,
         }))
     }
 }
@@ -242,14 +299,28 @@ struct Viewer {
     show_insertions: bool,
     /// Modification type displayed in bold, if requested.
     mod_type: Option<ModChar>,
+    /// Active presentation mode.
+    mode: ViewMode,
 }
 
 impl Viewer {
     /// Opens an indexed BAM and chooses the initial viewport.
+    #[cfg(test)]
     fn open(
         path: PathBuf,
         position: &InitialPosition,
         mod_type: Option<ModChar>,
+        window_len: u32,
+    ) -> Result<Self, Box<dyn Error>> {
+        Self::open_mode(path, position, mod_type, ViewMode::Table, window_len)
+    }
+
+    /// Opens an indexed BAM with an explicit presentation mode.
+    fn open_mode(
+        path: PathBuf,
+        position: &InitialPosition,
+        mod_type: Option<ModChar>,
+        mode: ViewMode,
         window_len: u32,
     ) -> Result<Self, Box<dyn Error>> {
         let reader = RegionSequenceReader::from_path(&path)?;
@@ -282,6 +353,7 @@ impl Viewer {
             full_read_ids: false,
             show_insertions: false,
             mod_type,
+            mode,
         })
     }
 
@@ -363,11 +435,11 @@ impl Viewer {
         records: &[RegionSequence],
         visible_reads: usize,
     ) -> bool {
-        if key == KeyCode::Char('r') {
+        if key == KeyCode::Char('r') && self.mode == ViewMode::Table {
             self.toggle_read_id_width(records);
             return false;
         }
-        if key == KeyCode::Char('i') {
+        if key == KeyCode::Char('i') && self.mode == ViewMode::Table {
             self.show_insertions = !self.show_insertions;
             return false;
         }
@@ -399,6 +471,75 @@ impl Viewer {
             .reader
             .sequences(self.viewport.tid, self.viewport.start, end, self.mod_type)?)
     }
+
+    /// Fetches modification profiles spanning the visible genomic range.
+    fn visible_profiles(&mut self, win: NonZeroU32) -> Result<Vec<ReadModProfile>, Box<dyn Error>> {
+        let end = self
+            .viewport
+            .start
+            .saturating_add(self.current_window_len())
+            .min(self.target_len());
+        let mod_type = self
+            .mod_type
+            .ok_or("individual view requires a modification type")?;
+        Ok(self
+            .reader
+            .profiles(self.viewport.tid, self.viewport.start, end, mod_type, win)?)
+    }
+
+    /// Applies navigation in individual mode, where exactly one read is visible.
+    fn handle_individual_key(&mut self, key: KeyCode, read_count: usize) -> bool {
+        let previous_start = self.viewport.start;
+        self.viewport
+            .navigate(key, self.target_len(), self.window_len, read_count, 1);
+        self.viewport.start != previous_start
+    }
+}
+
+/// Cached records for the active view.
+#[derive(Debug)]
+enum ViewerRecords {
+    /// Projected sequences for the table view.
+    Table(Vec<RegionSequence>),
+    /// Whole-read profiles for the individual view.
+    Individual(Vec<ReadModProfile>),
+}
+
+impl ViewerRecords {
+    /// Returns the number of cached reads.
+    fn len(&self) -> usize {
+        match self {
+            Self::Table(records) => records.len(),
+            Self::Individual(records) => records.len(),
+        }
+    }
+
+    /// Returns a read ID at an index, if present.
+    fn read_id(&self, index: usize) -> Option<&str> {
+        match self {
+            Self::Table(records) => records.get(index).map(RegionSequence::read_id),
+            Self::Individual(records) => records.get(index).map(ReadModProfile::read_id),
+        }
+    }
+}
+
+/// Fetches records appropriate for the viewer's active mode.
+fn fetch_viewer_records(viewer: &mut Viewer) -> Result<ViewerRecords, Box<dyn Error>> {
+    match viewer.mode {
+        ViewMode::Table => Ok(ViewerRecords::Table(viewer.visible_records()?)),
+        ViewMode::Individual { win } => {
+            Ok(ViewerRecords::Individual(viewer.visible_profiles(win)?))
+        }
+    }
+}
+
+/// Re-selects a cached read by ID after a refetch, or clamps the previous index.
+fn reselect_read(records: &ViewerRecords, read_id: Option<&str>, previous_index: usize) -> usize {
+    read_id
+        .and_then(|selected| {
+            (0..records.len()).find(|&index| records.read_id(index) == Some(selected))
+        })
+        .unwrap_or_else(|| previous_index.min(records.len().saturating_sub(1)))
 }
 
 /// Type of the process-wide panic callback retained during a TUI session.
@@ -783,6 +924,546 @@ fn build_frame(
     frame
 }
 
+/// One raster cell in an individual-read plot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum PlotCell {
+    /// Empty background.
+    #[default]
+    Empty,
+    /// One or more raw calls mapped to this cell.
+    Dots(u16),
+    /// Windowed profile line, which takes precedence over raw calls.
+    Line(char),
+}
+
+/// Maps a raw ML value onto a plot row using integer round-to-nearest arithmetic.
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "bounded ML values are intentionally mapped with round-to-nearest integer arithmetic"
+)]
+fn probability_row(probability: u8, plot_rows: usize) -> usize {
+    if plot_rows <= 1 {
+        return 0;
+    }
+    let height = u32::try_from(plot_rows.saturating_sub(1)).unwrap_or(u32::MAX);
+    usize::try_from((u32::from(255u8.saturating_sub(probability)) * height + 127) / 255)
+        .unwrap_or(usize::MAX)
+        .min(plot_rows.saturating_sub(1))
+}
+
+/// Maps a thresholded window value onto a plot row.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "bounded probabilities and terminal dimensions are intentionally rasterised to cells"
+)]
+fn window_value_row(value: nanalogue_core::F32Bw0and1, plot_rows: usize) -> usize {
+    if plot_rows <= 1 {
+        return 0;
+    }
+    let height = plot_rows.saturating_sub(1) as f32;
+    ((1.0 - value.val()) * height).round() as usize
+}
+
+/// Maps a reference position onto a whole-read plot column.
+fn reference_column(profile: &ReadModProfile, position: u32, plot_cols: usize) -> usize {
+    reference_column_for_bounds(
+        profile.align_start(),
+        profile.align_end(),
+        position,
+        plot_cols,
+    )
+}
+
+/// Maps a reference position onto a whole-read plot column for explicit alignment bounds.
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "the specified whole-read mapping requires truncating u64 integer arithmetic"
+)]
+fn reference_column_for_bounds(
+    align_start: u32,
+    align_end: u32,
+    position: u32,
+    plot_cols: usize,
+) -> usize {
+    if plot_cols <= 1 || align_end <= align_start.saturating_add(1) {
+        return 0;
+    }
+    if position >= align_end.saturating_sub(1) {
+        return plot_cols.saturating_sub(1);
+    }
+    let offset = u64::from(position.saturating_sub(align_start));
+    let width = u64::try_from(plot_cols).unwrap_or(u64::MAX);
+    let span = u64::from(align_end.saturating_sub(align_start));
+    usize::try_from(offset.saturating_mul(width) / span)
+        .unwrap_or(usize::MAX)
+        .min(plot_cols.saturating_sub(1))
+}
+
+/// Adds a raw call without replacing a profile line.
+fn add_dot(cell: &mut PlotCell) {
+    match cell {
+        PlotCell::Empty => *cell = PlotCell::Dots(1),
+        PlotCell::Dots(count) => *count = count.saturating_add(1),
+        PlotCell::Line(_) => {}
+    }
+}
+
+/// Returns the density glyph for a raw-call count.
+fn dot_glyph(count: u16) -> char {
+    match count {
+        0 | 1 => '·',
+        2..=4 => '•',
+        _ => '●',
+    }
+}
+
+/// Rasterises a whole-read profile into plot cells.
+fn rasterise_profile(
+    profile: &ReadModProfile,
+    plot_cols: usize,
+    plot_rows: usize,
+) -> Vec<Vec<PlotCell>> {
+    rasterise_profile_data(
+        profile.align_start(),
+        profile.align_end(),
+        profile.calls(),
+        profile.windows(),
+        profile.window_series_starts(),
+        plot_cols,
+        plot_rows,
+    )
+}
+
+/// Rasterises profile primitives, keeping coordinate mapping independently testable.
+#[expect(
+    clippy::indexing_slicing,
+    clippy::needless_range_loop,
+    reason = "all raster indices are clamped and the arguments are the profile's primitive fields"
+)]
+fn rasterise_profile_data(
+    align_start: u32,
+    align_end: u32,
+    calls: &[(u32, u8)],
+    windows: &[(u32, u32, nanalogue_core::F32Bw0and1)],
+    window_series_starts: &[usize],
+    plot_cols: usize,
+    plot_rows: usize,
+) -> Vec<Vec<PlotCell>> {
+    let mut grid = vec![vec![PlotCell::Empty; plot_cols]; plot_rows];
+    if plot_cols == 0 || plot_rows == 0 {
+        return grid;
+    }
+    for &(ref_pos, probability) in calls {
+        let row = probability_row(probability, plot_rows);
+        let col = reference_column_for_bounds(align_start, align_end, ref_pos, plot_cols);
+        add_dot(&mut grid[row][col]);
+    }
+
+    let mut previous: Option<(u32, u32, usize, usize)> = None;
+    for (window_index, &(ref_start, ref_end, value)) in windows.iter().enumerate() {
+        if window_index > 0 && window_series_starts.binary_search(&window_index).is_ok() {
+            previous = None;
+        }
+        if ref_start >= ref_end {
+            continue;
+        }
+        let row = window_value_row(value, plot_rows);
+        let start_col = reference_column_for_bounds(align_start, align_end, ref_start, plot_cols);
+        let end_col = reference_column_for_bounds(
+            align_start,
+            align_end,
+            ref_end.saturating_sub(1),
+            plot_cols,
+        )
+        .max(start_col);
+        let boundary_cell_before = grid[row][start_col];
+        for col in start_col..=end_col {
+            grid[row][col] = PlotCell::Line('━');
+        }
+
+        if let Some((previous_start, previous_end, previous_row, previous_end_col)) = previous
+            && ref_start >= previous_start
+            && ref_start >= previous_end
+        {
+            let connector_col = start_col;
+            for col in previous_end_col.saturating_add(1)..=connector_col {
+                grid[previous_row][col] = PlotCell::Line('━');
+            }
+            if previous_row == row {
+                grid[row][connector_col] = match boundary_cell_before {
+                    PlotCell::Line(glyph) if connector_col == previous_end_col && glyph != '━' => {
+                        PlotCell::Line(glyph)
+                    }
+                    PlotCell::Empty | PlotCell::Dots(_) | PlotCell::Line(_) => PlotCell::Line('━'),
+                };
+                previous = Some((ref_start, ref_end, row, end_col));
+                continue;
+            }
+            let (top, bottom) = if previous_row <= row {
+                (previous_row, row)
+            } else {
+                (row, previous_row)
+            };
+            for connector_row in top..=bottom {
+                grid[connector_row][connector_col] = PlotCell::Line('┃');
+            }
+            if connector_col == previous_end_col {
+                // Multiple windows compressed into one column retain a continuous vertical spine.
+            } else if previous_row < row {
+                grid[previous_row][connector_col] = PlotCell::Line('┓');
+                grid[row][connector_col] = PlotCell::Line('┗');
+            } else {
+                grid[previous_row][connector_col] = PlotCell::Line('┛');
+                grid[row][connector_col] = PlotCell::Line('┏');
+            }
+        }
+        previous = Some((ref_start, ref_end, row, end_col));
+    }
+    grid
+}
+
+/// Truncates and pads Unicode text by terminal cells used by this viewer's single-width glyphs.
+fn unicode_line(text: &str, width: u16) -> String {
+    let cell_width = usize::from(width);
+    let mut line = text.chars().take(cell_width).collect::<String>();
+    line.extend(std::iter::repeat_n(
+        ' ',
+        cell_width.saturating_sub(line.chars().count()),
+    ));
+    line
+}
+
+/// Sanitises and truncates an external label without padding it.
+fn compact_label(text: &str, width: usize) -> String {
+    text.bytes()
+        .take(width)
+        .map(|byte| {
+            if byte.is_ascii_graphic() || byte == b' ' {
+                char::from(byte)
+            } else {
+                '?'
+            }
+        })
+        .collect()
+}
+
+/// Sanitises a label and marks truncation instead of presenting it as complete.
+fn abbreviated_label(text: &str, width: usize) -> String {
+    let mut label = compact_label(text, width);
+    if text.len() > width && width > 0 {
+        let _last_character = label.pop();
+        label.push('~');
+    }
+    label
+}
+
+/// Returns the first reference base actually plotted in a column.
+fn first_base_for_column(profile: &ReadModProfile, column: usize, plot_cols: usize) -> Option<u32> {
+    first_base_for_bounds(
+        profile.align_start(),
+        profile.align_end(),
+        column,
+        plot_cols,
+    )
+}
+
+/// Returns the first reference base actually plotted in a column for explicit bounds.
+#[expect(
+    clippy::arithmetic_side_effects,
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "ceiling division maps each ruler column to its first reference base"
+)]
+fn first_base_for_bounds(
+    align_start: u32,
+    align_end: u32,
+    column: usize,
+    plot_cols: usize,
+) -> Option<u32> {
+    if plot_cols == 0 || align_start >= align_end || column >= plot_cols {
+        return None;
+    }
+    let span = u64::from(align_end.saturating_sub(align_start));
+    let numerator = u64::try_from(column)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(span);
+    let denominator = u64::try_from(plot_cols).unwrap_or(u64::MAX).max(1);
+    let offset = numerator.saturating_add(denominator.saturating_sub(1)) / denominator;
+    let candidate = align_start.saturating_add(u32::try_from(offset).unwrap_or(u32::MAX));
+    if candidate < align_end
+        && reference_column_for_bounds(align_start, align_end, candidate, plot_cols) == column
+    {
+        Some(candidate)
+    } else if column == plot_cols.saturating_sub(1) {
+        let last_base = align_end.saturating_sub(1);
+        (reference_column_for_bounds(align_start, align_end, last_base, plot_cols) == column)
+            .then_some(last_base)
+    } else {
+        None
+    }
+}
+
+/// Writes a complete coordinate label when it fits; partial coordinates are never emitted.
+fn place_coordinate_label(labels: &mut [char], label_start: usize, coordinate: u32) -> bool {
+    let label = coordinate.to_string();
+    let label_end = label_start.saturating_add(label.len());
+    let Some(destination) = labels.get_mut(label_start..label_end) else {
+        return false;
+    };
+    for (cell, character) in destination.iter_mut().zip(label.chars()) {
+        *cell = character;
+    }
+    true
+}
+
+/// Builds the x-axis ruler and its labels for one whole-read profile.
+fn plot_ruler(viewer: &Viewer, profile: &ReadModProfile, plot_cols: usize) -> (String, String) {
+    let viewport_end = viewer
+        .viewport
+        .start
+        .saturating_add(viewer.current_window_len());
+    let shade_start = reference_column(profile, viewer.viewport.start, plot_cols);
+    let mut shade_end = reference_column(profile, viewport_end.saturating_sub(1), plot_cols);
+    shade_end = shade_end.max(shade_start);
+    let mut ruler = String::from("    └");
+    for column in 0..plot_cols {
+        ruler.push(if (shade_start..=shade_end).contains(&column) {
+            '▒'
+        } else if column.is_multiple_of(10) {
+            '┬'
+        } else {
+            '─'
+        });
+    }
+
+    let mut labels = vec![' '; plot_cols.saturating_add(5)];
+    let mut previous_coordinate = None;
+    for column in (0..plot_cols).step_by(10) {
+        let Some(coordinate) = first_base_for_column(profile, column, plot_cols)
+            .map(|position| position.saturating_add(1))
+        else {
+            continue;
+        };
+        if previous_coordinate == Some(coordinate) {
+            continue;
+        }
+        previous_coordinate = Some(coordinate);
+        let label_start = column.saturating_add(5);
+        let _label_was_placed = place_coordinate_label(&mut labels, label_start, coordinate);
+    }
+    (ruler, labels.into_iter().collect())
+}
+
+/// Builds a status line without ever partially clipping numeric fields.
+fn individual_status(viewer: &Viewer, profiles: &[ReadModProfile], width: u16) -> String {
+    let path_text = viewer
+        .path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("?");
+    let target_text = viewer.target_name();
+    let end = viewer
+        .viewport
+        .start
+        .saturating_add(viewer.current_window_len());
+    let mod_label = viewer
+        .mod_type
+        .map_or_else(|| String::from("?"), |value| value.to_string());
+    let win = match viewer.mode {
+        ViewMode::Individual { win } => win.get(),
+        ViewMode::Table => 0,
+    };
+    let selected = profiles.get(viewer.viewport.read_offset);
+    let read_number = selected.map_or(0, |_profile| viewer.viewport.read_offset.saturating_add(1));
+    let middle = format!(
+        ":{}-{end} reads {} read {read_number}/{} ",
+        viewer.viewport.start.saturating_add(1),
+        profiles.len(),
+        profiles.len()
+    );
+    let suffix = selected.map_or_else(
+        || format!("mods {mod_label} win {win}"),
+        |profile| {
+            format!(
+                " {} mods {mod_label} win {win}",
+                if profile.is_reverse() { '-' } else { '+' }
+            )
+        },
+    );
+    let variable_count = if selected.is_some() { 3 } else { 2 };
+    let fixed_width = middle.len().saturating_add(suffix.len()).saturating_add(2);
+    let available = usize::from(width).saturating_sub(fixed_width);
+    if available < variable_count {
+        let fallback = format!("win {win}");
+        return if fallback.len() <= usize::from(width) {
+            fallback
+        } else {
+            String::new()
+        };
+    }
+
+    let target_width = target_text
+        .len()
+        .min(available.saturating_sub(variable_count.saturating_sub(1)));
+    let remaining = available.saturating_sub(target_width);
+    let path_width = path_text
+        .len()
+        .min(8)
+        .min(remaining.saturating_sub(usize::from(selected.is_some())));
+    let id_width = remaining.saturating_sub(path_width);
+    let path = abbreviated_label(path_text, path_width);
+    let target = abbreviated_label(target_text, target_width);
+    selected.map_or_else(
+        || format!(" {path} {target}{middle}{suffix}"),
+        |profile| {
+            format!(
+                " {path} {target}{middle}{}{suffix}",
+                abbreviated_label(profile.read_id(), id_width)
+            )
+        },
+    )
+}
+
+/// Builds an ANSI frame for a whole-read modification probability plot.
+#[expect(
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "frame assembly is cohesive and midpoint arithmetic intentionally uses terminal cells"
+)]
+fn build_individual_frame(
+    viewer: &Viewer,
+    profiles: &[ReadModProfile],
+    cols: u16,
+    rows: u16,
+    footer_state: FrameFooter<'_>,
+) -> String {
+    let effective_cols = cols.max(1);
+    let mut frame = String::from("\x1b[H");
+    frame.push_str("\x1b[1;97;44m");
+    frame.push_str(&fixed_line(" nanalogue BAM viewer", effective_cols));
+    frame.push_str("\x1b[0m");
+    let selected = profiles.get(viewer.viewport.read_offset);
+
+    if rows > 1 {
+        let status = individual_status(viewer, profiles, effective_cols);
+        frame.push_str("\x1b[2;1H\x1b[36m");
+        frame.push_str(&fixed_line(&status, effective_cols));
+        frame.push_str("\x1b[0m");
+    }
+
+    if rows < 8 {
+        // Below eight rows, only title, status, and footer remain legible.
+    } else if effective_cols < 15 {
+        if rows > 2 {
+            frame.push_str("\x1b[3;1H");
+            frame.push_str(&fixed_line("terminal narrow", effective_cols));
+        }
+    } else if let Some(profile) = selected {
+        let plot_rows = usize::from(rows.saturating_sub(5));
+        let plot_cols = usize::from(effective_cols.saturating_sub(5));
+        let grid = rasterise_profile(profile, plot_cols, plot_rows);
+        for (row, cells) in grid.iter().enumerate() {
+            let terminal_row = row.saturating_add(3);
+            write!(frame, "\x1b[{terminal_row};1H").expect("writing to String cannot fail");
+            let label = match row {
+                0 => "1.0 ┤",
+                value if value == plot_rows / 2 && plot_rows % 2 == 1 => "0.5 ┤",
+                value if value.saturating_add(1) == plot_rows => "0.0 ┤",
+                _ => "    │",
+            };
+            frame.push_str(label);
+            let mut grey = false;
+            for cell in cells {
+                match cell {
+                    PlotCell::Empty => frame.push(' '),
+                    PlotCell::Dots(count) => {
+                        if !grey {
+                            frame.push_str("\x1b[90m");
+                            grey = true;
+                        }
+                        frame.push(dot_glyph(*count));
+                    }
+                    PlotCell::Line(glyph) => {
+                        if grey {
+                            frame.push_str("\x1b[39m");
+                            grey = false;
+                        }
+                        frame.push_str("\x1b[1m");
+                        frame.push(*glyph);
+                        frame.push_str("\x1b[22m");
+                    }
+                }
+            }
+            if grey {
+                frame.push_str("\x1b[39m");
+            }
+        }
+        if profile.calls().is_empty() && plot_rows > 0 {
+            let message = format!(
+                "no {} calls in read",
+                viewer
+                    .mod_type
+                    .map_or_else(|| String::from("?"), |value| value.to_string())
+            );
+            frame.push_str("\x1b[3;7H");
+            frame.push_str(&fixed_line(&message, effective_cols.saturating_sub(6)));
+        }
+        if rows > 4 {
+            let (ruler, labels) = plot_ruler(viewer, profile, plot_cols);
+            write!(frame, "\x1b[{};1H", rows.saturating_sub(2))
+                .expect("writing to String cannot fail");
+            frame.push_str(&unicode_line(&ruler, effective_cols));
+            write!(frame, "\x1b[{};1H", rows.saturating_sub(1))
+                .expect("writing to String cannot fail");
+            frame.push_str(&fixed_line(&labels, effective_cols));
+        }
+    } else if rows > 2 {
+        frame.push_str("\x1b[3;1H");
+        frame.push_str(&fixed_line(" no reads span this window", effective_cols));
+    } else {
+        // The title and optional status are the complete degraded view at this height.
+    }
+
+    if rows > 3 {
+        write!(frame, "\x1b[{rows};1H\x1b[7m").expect("writing to String cannot fail");
+        let footer = match footer_state {
+            FrameFooter::Controls => format!(
+                "j/k read  pgup/dn  home/end  h/l {} bp  g goto  q quit",
+                viewer.window_len
+            ),
+            FrameFooter::PositionPrompt { input, error } => error.map_or_else(
+                || position_prompt_footer(input, cols),
+                |message| position_error_footer(message, cols),
+            ),
+        };
+        frame.push_str(&fixed_line(&footer, effective_cols));
+        frame.push_str("\x1b[0m");
+    }
+    frame
+}
+
+/// Builds the frame appropriate for the active cached-record type.
+fn build_viewer_frame(
+    viewer: &Viewer,
+    cached_records: &ViewerRecords,
+    cols: u16,
+    rows: u16,
+    footer_state: FrameFooter<'_>,
+) -> String {
+    match cached_records {
+        ViewerRecords::Table(records) => build_frame(viewer, records, cols, rows, footer_state),
+        ViewerRecords::Individual(profiles) => {
+            build_individual_frame(viewer, profiles, cols, rows, footer_state)
+        }
+    }
+}
+
 /// Returns whether a key is one of the viewer's standard exit sequences.
 fn should_quit(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
@@ -909,13 +1590,13 @@ fn prompt_for_position(
     renderer: &mut GhosttyRenderer,
     stdout: &mut Stdout,
     viewer: &mut Viewer,
-    records: &[RegionSequence],
+    records: &ViewerRecords,
 ) -> Result<PositionPromptOutcome, Box<dyn Error>> {
     let mut input = String::new();
     let mut input_error: Option<String> = None;
     loop {
         let (cols, rows) = crossterm::terminal::size()?;
-        let frame = build_frame(
+        let frame = build_viewer_frame(
             viewer,
             records,
             cols,
@@ -943,33 +1624,48 @@ fn prompt_for_position(
 /// Runs the interactive event loop.
 fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let (initial_cols, initial_rows) = crossterm::terminal::size()?;
-    let mut viewer = Viewer::open(
+    let mut viewer = Viewer::open_mode(
         args.bam,
         &args.position,
         args.mod_type,
+        args.mode,
         window_len_for_columns(initial_cols),
     )?;
     let mut renderer = GhosttyRenderer::new(initial_cols, initial_rows)?;
     let mut stdout = io::stdout();
     let _guard = TerminalGuard::enter(&mut stdout)?;
-    let mut records = viewer.visible_records()?;
+    let mut records = fetch_viewer_records(&mut viewer)?;
 
     loop {
         let (cols, rows) = crossterm::terminal::size()?;
         let resized_window_len = window_len_for_columns(cols);
         if resized_window_len != viewer.window_len {
+            let selected_read_id = records
+                .read_id(viewer.viewport.read_offset)
+                .map(String::from);
             viewer.window_len = resized_window_len;
-            records = viewer.visible_records()?;
-            if viewer.full_read_ids {
-                viewer.read_label_width = full_read_label_width(&records);
+            records = fetch_viewer_records(&mut viewer)?;
+            viewer.viewport.read_offset = reselect_read(
+                &records,
+                selected_read_id.as_deref(),
+                viewer.viewport.read_offset,
+            );
+            if viewer.full_read_ids
+                && let ViewerRecords::Table(table_records) = &records
+            {
+                viewer.read_label_width = full_read_label_width(table_records);
             }
         }
-        let visible_reads = usize::from(rows.saturating_sub(4));
+        let visible_reads = if viewer.mode == ViewMode::Table {
+            usize::from(rows.saturating_sub(4))
+        } else {
+            1
+        };
         viewer.viewport.read_offset = viewer
             .viewport
             .read_offset
             .min(records.len().saturating_sub(visible_reads));
-        let frame = build_frame(&viewer, &records, cols, rows, FrameFooter::Controls);
+        let frame = build_viewer_frame(&viewer, &records, cols, rows, FrameFooter::Controls);
         renderer.draw(&mut stdout, &frame, cols, rows)?;
 
         let Event::Key(key) = event::read()? else {
@@ -987,14 +1683,22 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 PositionPromptOutcome::Quit => break,
                 PositionPromptOutcome::Navigated(changed) => {
                     if changed {
-                        records = viewer.visible_records()?;
+                        records = fetch_viewer_records(&mut viewer)?;
                     }
                 }
             }
             continue;
         }
-        if viewer.handle_key(key.code, &records, visible_reads) {
-            records = viewer.visible_records()?;
+        let refetch = match &records {
+            ViewerRecords::Table(table_records) => {
+                viewer.handle_key(key.code, table_records, visible_reads)
+            }
+            ViewerRecords::Individual(profiles) => {
+                viewer.handle_individual_key(key.code, profiles.len())
+            }
+        };
+        if refetch {
+            records = fetch_viewer_records(&mut viewer)?;
         }
     }
     Ok(())
@@ -1129,6 +1833,10 @@ mod tests {
         footer_state: FrameFooter<'_>,
     ) -> Result<String, Box<dyn Error>> {
         let frame = build_frame(viewer, records, cols, rows, footer_state);
+        render_frame_as_ansi(&frame, cols, rows)
+    }
+
+    fn render_frame_as_ansi(frame: &str, cols: u16, rows: u16) -> Result<String, Box<dyn Error>> {
         let mut terminal = Terminal::new(TerminalOptions {
             cols,
             rows,
@@ -1821,6 +2529,131 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one simulation is reused across related navigation and terminal-size goldens"
+    )]
+    fn individual_navigation_viewports_match_ansi_goldens() -> Result<(), Box<dyn Error>> {
+        let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/bam_viewer_individual_demo.json"
+        )))?;
+        let simulation = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
+        let mode = ViewMode::Individual {
+            win: NonZeroU32::new(300).expect("non-zero"),
+        };
+        let mut viewer = Viewer::open_mode(
+            PathBuf::from(simulation.bam_path()),
+            &InitialPosition {
+                contig: String::from("contig_00000"),
+                start: 30_000,
+            },
+            Some(ModChar::new('T')),
+            mode,
+            window_len_for_columns(80),
+        )?;
+        viewer.path = PathBuf::from("individual-demo.bam");
+        let mut profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
+        assert!((15..=30).contains(&profiles.len()));
+
+        viewer.viewport.read_offset = 5;
+        let selected_id = String::from(profiles.get(5).expect("at least six profiles").read_id());
+        viewer.window_len = window_len_for_columns(100);
+        profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
+        let resized_records = ViewerRecords::Individual(profiles);
+        viewer.viewport.read_offset = reselect_read(&resized_records, Some(&selected_id), 5);
+        assert_eq!(
+            resized_records.read_id(viewer.viewport.read_offset),
+            Some(selected_id.as_str())
+        );
+        assert_eq!(
+            reselect_read(
+                &resized_records,
+                Some("read-that-no-longer-spans"),
+                usize::MAX
+            ),
+            resized_records.len().saturating_sub(1)
+        );
+        viewer.viewport.read_offset = 0;
+        viewer.window_len = window_len_for_columns(80);
+        profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
+
+        let default_frame =
+            build_individual_frame(&viewer, &profiles, 80, 24, FrameFooter::Controls);
+        assert!(default_frame.contains("contig_00000:30001"));
+        assert!(default_frame.contains("mods T win 300"));
+        viewer.mod_type = Some(ModChar::from_str("472232").expect("numeric modification code"));
+        let numeric_status = individual_status(&viewer, &profiles, 80);
+        assert!(numeric_status.len() <= 80);
+        assert!(numeric_status.ends_with("mods 472232 win 300"));
+        viewer.mod_type = Some(ModChar::new('T'));
+        assert_eq!(individual_status(&viewer, &profiles, 6), "");
+        assert_eq!(individual_status(&viewer, &profiles, 7), "win 300");
+        viewer.mode = ViewMode::Individual {
+            win: NonZeroU32::new(u32::MAX).expect("non-zero"),
+        };
+        assert_eq!(individual_status(&viewer, &profiles, 13), "");
+        assert_eq!(individual_status(&viewer, &profiles, 14), "win 4294967295");
+        viewer.mode = mode;
+        assert_ansi_golden(
+            "bam_viewer_individual_default.ansi",
+            &render_frame_as_ansi(&default_frame, 80, 24)?,
+        )?;
+
+        assert!(!viewer.handle_individual_key(KeyCode::Char('j'), profiles.len()));
+        let after_j_frame =
+            build_individual_frame(&viewer, &profiles, 80, 24, FrameFooter::Controls);
+        assert_ansi_golden(
+            "bam_viewer_individual_after_j.ansi",
+            &render_frame_as_ansi(&after_j_frame, 80, 24)?,
+        )?;
+
+        assert!(viewer.handle_individual_key(KeyCode::Char('l'), profiles.len()));
+        profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
+        let horizontal_frame =
+            build_individual_frame(&viewer, &profiles, 80, 24, FrameFooter::Controls);
+        assert_ansi_golden(
+            "bam_viewer_individual_after_l.ansi",
+            &render_frame_as_ansi(&horizontal_frame, 80, 24)?,
+        )?;
+
+        viewer.window_len = window_len_for_columns(14);
+        let narrow_profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
+        let narrow =
+            build_individual_frame(&viewer, &narrow_profiles, 14, 24, FrameFooter::Controls);
+        assert_ansi_golden(
+            "bam_viewer_individual_narrow.ansi",
+            &render_frame_as_ansi(&narrow, 14, 24)?,
+        )?;
+        viewer.window_len = window_len_for_columns(80);
+        profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
+        let short = build_individual_frame(&viewer, &profiles, 80, 6, FrameFooter::Controls);
+        assert!(!short.contains("1.0 ┤"));
+        assert!(!short.contains('└'));
+        assert_ansi_golden(
+            "bam_viewer_individual_short.ansi",
+            &render_frame_as_ansi(&short, 80, 6)?,
+        )?;
+
+        assert!(viewer.go_to(&InitialPosition {
+            contig: String::from("contig_00001"),
+            start: 30_000,
+        })?);
+        let second_contig_profiles =
+            viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
+        let second_contig_frame = build_individual_frame(
+            &viewer,
+            &second_contig_profiles,
+            100,
+            24,
+            FrameFooter::Controls,
+        );
+        assert!(second_contig_frame.contains("contig_00001:30001"));
+        assert!(!second_contig_frame.contains("contig_000:30001"));
+        Ok(())
+    }
+
+    #[test]
     fn read_id_width_toggles_to_the_longest_cached_id() {
         let position = InitialPosition {
             contig: String::from("dummyIII"),
@@ -2127,7 +2960,10 @@ mod tests {
         assert!(USAGE.contains("g prompts for CONTIG:START"));
         assert!(USAGE.contains("A successful goto also truncates read IDs and hides insertions"));
         assert!(USAGE.contains("Backspace edits; Enter submits; Escape cancels"));
-        assert!(USAGE.contains("r toggles full read IDs; i toggles insertions"));
+        assert!(USAGE.contains("r toggles full read IDs and i toggles insertions"));
+        assert!(USAGE.contains("grey raw ML calls"));
+        assert!(USAGE.contains("WINDOW_SIZE is a positive number of modified bases"));
+        assert!(USAGE.contains("In individual view, j/k selects one read; r/i have no effect"));
         assert!(USAGE.contains("Ctrl-C or Ctrl-D always quits"));
     }
 
@@ -2185,6 +3021,42 @@ mod tests {
             args.mod_type.expect("modification type").to_string(),
             "472232"
         );
+        assert_eq!(args.mode, ViewMode::Table);
+    }
+
+    #[test]
+    fn argument_parser_accepts_individual_mode() {
+        let args = Args::parse_from([
+            OsString::from("reads.bam"),
+            OsString::from("chr1:10"),
+            OsString::from("m"),
+            OsString::from("300"),
+            OsString::from("individual"),
+        ])
+        .expect("valid individual arguments")
+        .expect("not help");
+        assert_eq!(args.mod_type, Some(ModChar::new('m')));
+        assert_eq!(
+            args.mode,
+            ViewMode::Individual {
+                win: NonZeroU32::new(300).expect("non-zero")
+            }
+        );
+    }
+
+    #[test]
+    fn argument_parser_rejects_incomplete_or_invalid_individual_mode() {
+        for arguments in [
+            vec!["reads.bam", "chr1:10", "m", "individual"],
+            vec!["reads.bam", "chr1:10", "m", "300"],
+            vec!["reads.bam", "chr1:10", "300", "individual"],
+            vec!["reads.bam", "chr1:10", "m", "0", "individual"],
+            vec!["reads.bam", "chr1:10", "m", "abc", "individual"],
+            vec!["reads.bam", "chr1:10", "m", "300", "individual", "extra"],
+        ] {
+            let _error = Args::parse_from(arguments.into_iter().map(OsString::from))
+                .expect_err("invalid individual argument combination must fail");
+        }
     }
 
     #[test]
@@ -2217,6 +3089,177 @@ mod tests {
         assert_eq!(window_len_for_columns(10), 1);
         assert_eq!(window_len_for_columns(100), 81);
         assert_eq!(window_len_for_columns(500), 200);
+    }
+
+    #[test]
+    fn plot_probability_and_reference_mapping_cover_boundaries() {
+        assert_eq!(probability_row(255, 5), 0);
+        assert_eq!(probability_row(0, 5), 4);
+        assert_eq!(probability_row(128, 5), 2);
+        assert_eq!(
+            window_value_row(nanalogue_core::F32Bw0and1::new(0.5).expect("bounded"), 5),
+            2
+        );
+
+        assert_eq!(reference_column_for_bounds(100, 200, 100, 10), 0);
+        assert_eq!(reference_column_for_bounds(100, 200, 199, 10), 9);
+        assert_eq!(reference_column_for_bounds(100, 103, 100, 10), 0);
+        assert_eq!(reference_column_for_bounds(100, 103, 101, 10), 3);
+        assert_eq!(reference_column_for_bounds(100, 103, 102, 10), 9);
+
+        let tick_coordinates = (0..30)
+            .step_by(10)
+            .map(|column| first_base_for_bounds(100, 103, column, 30))
+            .collect::<Vec<_>>();
+        assert_eq!(tick_coordinates, [Some(100), Some(101), None]);
+        for column in 0..30 {
+            if let Some(position) = first_base_for_bounds(100, 103, column, 30) {
+                assert!((100..103).contains(&position));
+                assert_eq!(reference_column_for_bounds(100, 103, position, 30), column);
+            }
+        }
+        assert_eq!(first_base_for_bounds(100, 101, 0, 30), Some(100));
+        assert_eq!(first_base_for_bounds(100, 101, 29, 30), None);
+
+        let mut labels = vec![' '; 80];
+        assert!(!place_coordinate_label(&mut labels, 75, 100_935));
+        assert!(labels.iter().all(|character| *character == ' '));
+        assert!(place_coordinate_label(&mut labels, 74, 100_935));
+        assert_eq!(labels.get(74..), Some(&['1', '0', '0', '9', '3', '5'][..]));
+    }
+
+    #[test]
+    fn plot_dot_density_and_line_precedence_are_unambiguous() {
+        assert_eq!(dot_glyph(1), '·');
+        assert_eq!(dot_glyph(2), '•');
+        assert_eq!(dot_glyph(4), '•');
+        assert_eq!(dot_glyph(5), '●');
+
+        let mut cell = PlotCell::Empty;
+        add_dot(&mut cell);
+        add_dot(&mut cell);
+        assert_eq!(cell, PlotCell::Dots(2));
+        cell = PlotCell::Line('━');
+        add_dot(&mut cell);
+        assert_eq!(cell, PlotCell::Line('━'));
+    }
+
+    #[test]
+    fn plot_windows_form_continuous_steps_but_independent_series_do_not_join() {
+        let high = nanalogue_core::F32Bw0and1::new(1.0).expect("bounded");
+        let low = nanalogue_core::F32Bw0and1::new(0.0).expect("bounded");
+        let windows = [(0, 3, high), (10, 13, low)];
+        let connected = rasterise_profile_data(0, 20, &[], &windows, &[0], 20, 3);
+        let top = connected.first().expect("top row");
+        assert!(
+            top.get(3..10)
+                .expect("gap columns")
+                .iter()
+                .all(|cell| *cell == PlotCell::Line('━'))
+        );
+        assert_eq!(top.get(10), Some(&PlotCell::Line('┓')));
+        assert_eq!(
+            connected.get(1).and_then(|row| row.get(10)),
+            Some(&PlotCell::Line('┃'))
+        );
+        assert_eq!(
+            connected.get(2).and_then(|row| row.get(10)),
+            Some(&PlotCell::Line('┗'))
+        );
+
+        let separate = rasterise_profile_data(0, 20, &[], &windows, &[0, 1], 20, 3);
+        assert!(
+            separate
+                .first()
+                .and_then(|row| row.get(3..10))
+                .expect("gap columns")
+                .iter()
+                .all(|cell| *cell == PlotCell::Empty)
+        );
+
+        let three_windows = [(0, 1, high), (10, 11, low), (20, 21, high)];
+        let three_step = rasterise_profile_data(0, 30, &[], &three_windows, &[0], 30, 3);
+        assert_eq!(
+            three_step.first().and_then(|row| row.get(10)),
+            Some(&PlotCell::Line('┓')),
+            "the third plateau must not erase the middle plateau's incoming corner"
+        );
+
+        let collapsed = rasterise_profile_data(
+            0,
+            100,
+            &[],
+            &[
+                (0, 1, high),
+                (1, 2, low),
+                (2, 3, nanalogue_core::F32Bw0and1::new(0.5).expect("bounded")),
+            ],
+            &[0],
+            1,
+            3,
+        );
+        assert!(
+            collapsed
+                .iter()
+                .all(|row| row.first() == Some(&PlotCell::Line('┃')))
+        );
+    }
+
+    #[test]
+    fn plot_flat_continuations_preserve_existing_connections() {
+        let high = nanalogue_core::F32Bw0and1::new(1.0).expect("bounded");
+        let low = nanalogue_core::F32Bw0and1::new(0.0).expect("bounded");
+        let flat =
+            rasterise_profile_data(0, 100, &[], &[(0, 25, high), (25, 50, high)], &[0], 10, 3);
+        assert!(
+            flat.first()
+                .and_then(|row| row.get(0..5))
+                .expect("flat plateau")
+                .iter()
+                .all(|cell| *cell == PlotCell::Line('━'))
+        );
+
+        let collapsed_flat_end = rasterise_profile_data(
+            0,
+            100,
+            &[],
+            &[(0, 1, high), (1, 2, low), (2, 3, low)],
+            &[0],
+            1,
+            3,
+        );
+        assert!(
+            collapsed_flat_end
+                .iter()
+                .all(|row| row.first() == Some(&PlotCell::Line('┃')))
+        );
+
+        let descending_then_flat = rasterise_profile_data(
+            0,
+            100,
+            &[],
+            &[(0, 10, high), (10, 15, low), (15, 30, low)],
+            &[0],
+            10,
+            3,
+        );
+        assert_eq!(
+            descending_then_flat.get(2).and_then(|row| row.get(1)),
+            Some(&PlotCell::Line('┗'))
+        );
+        let ascending_then_flat = rasterise_profile_data(
+            0,
+            100,
+            &[],
+            &[(0, 10, low), (10, 15, high), (15, 30, high)],
+            &[0],
+            10,
+            3,
+        );
+        assert_eq!(
+            ascending_then_flat.first().and_then(|row| row.get(1)),
+            Some(&PlotCell::Line('┏'))
+        );
     }
 
     #[test]

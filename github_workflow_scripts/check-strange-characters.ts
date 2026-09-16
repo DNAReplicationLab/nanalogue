@@ -37,6 +37,11 @@ const ANSI_GOLDENS = new Set([
     "tests/goldens/bam_viewer_no_reads.ansi",
     "tests/goldens/bam_viewer_short_terminal.ansi",
     "tests/goldens/bam_viewer_zero_sequence.ansi",
+    "tests/goldens/bam_viewer_individual_default.ansi",
+    "tests/goldens/bam_viewer_individual_after_j.ansi",
+    "tests/goldens/bam_viewer_individual_after_l.ansi",
+    "tests/goldens/bam_viewer_individual_narrow.ansi",
+    "tests/goldens/bam_viewer_individual_short.ansi",
 ]);
 /** ASCII ESC, which introduces an ANSI control sequence. */
 const ANSI_ESCAPE_CODE_POINT = 0x1b;
@@ -64,11 +69,13 @@ const ALLOWED_UNICODE_CODE_POINTS = new Set([
     0x2248, // almost equal to
     0x2264, // less-than or equal to
     0x2265, // greater-than or equal to
+    0x2592, // medium shade (BAM viewer selection marker)
     0x25b6, // black right-pointing triangle
     0x25b8, // black right-pointing small triangle
     0x25ba, // black right-pointing pointer
     0x25bc, // black down-pointing triangle
     0x25c0, // black left-pointing triangle
+    0x25cf, // black circle (BAM viewer dense call marker)
     0x26a0, // warning sign
     0x2713, // check mark
     0x2705, // white heavy check mark
