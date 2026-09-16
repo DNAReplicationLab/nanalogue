@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Optional `bam-viewer` feature and `nanalogue_bam_viewer` terminal executable,
+  with region read tables and individual whole-read modification probability plots
+
 ### Fixed
 - (Project tooling, not code) Fixed `install.sh` to use the correct ARM release archive name, matching the output from the relevant GitHub Actions workflow
 

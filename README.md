@@ -37,6 +37,7 @@ tag variants; other mixed-case or lowercase variants are not recognized.
     - [Building and testing notes](#building-and-testing-notes)
   - [Using Docker](#using-docker)
 - [Commands](#commands)
+  - [`nanalogue_bam_viewer`](#nanalogue_bam_viewer)
   - [`nanalogue read-info`](#nanalogue-read-info)
   - [`nanalogue read-table-hide-mods`](#nanalogue-read-table-hide-mods)
   - [`nanalogue read-table-show-mods`](#nanalogue-read-table-show-mods)
@@ -234,7 +235,7 @@ You can mount other directories using the `-v` option as needed.
 
 # Commands
 
-All the commands below have options you can specify on the command line.
+All the `nanalogue` subcommands below have options you can specify on the command line.
 Please run `--help` with a command to learn what these are. Among other operations,
 the options allow you to subsample the BAM file (`-s`),
 restrict read and/or modification data to a specific genomic region (`--region` or `--mod-region`),
@@ -244,10 +245,66 @@ a specific mapping type (`--read-filter`), filter modification data suitably
 
 ## Inputs
 
-The input can be a local path, a URL, or `-` for standard input i.e. if you want
-to pipe some command in. The input data format can be BAM/SAM/CRAM.
-BAM/CRAM indices allow faster access with a smaller data footprint in most commands
-when the user specifies a region on the command line.
+For the `nanalogue` subcommands, input can be a local path, a URL, or `-` for
+standard input i.e. if you want to pipe some command in. The input data format
+can be BAM/SAM/CRAM. BAM/CRAM indices allow faster access with a smaller data
+footprint in most commands when the user specifies a region on the command line.
+
+## `nanalogue_bam_viewer`
+
+`nanalogue_bam_viewer` is an optional interactive terminal viewer for a local,
+indexed BAM file. It is not built by default or included in the pre-built
+binary archives. To install it from a Git checkout, first install Zig (the
+viewer dependency is tested with Zig 0.15.2), then run:
+
+```bash
+cargo install --path . --features bam-viewer --bin nanalogue_bam_viewer
+```
+
+The viewer uses this positional syntax:
+
+```text
+nanalogue_bam_viewer <BAM> <CONTIG:START> [MOD_TYPE [WINDOW_SIZE individual]]
+```
+
+`BAM` must be a local BAM with an accessible index. `START` is zero-based,
+although displayed coordinates are one-based. The terminal width determines
+the displayed genomic window, up to 200 bases. Both modes show only reads whose
+alignments span that entire window, rather than every overlapping read.
+`MOD_TYPE` is an optional single-letter or numeric ChEBI modification code. For
+example, table mode can show `m` calls at `chr1:1000`:
+
+```bash
+nanalogue_bam_viewer reads.bam chr1:1000 m
+```
+
+When `WINDOW_SIZE individual` is omitted, the viewer shows a table of read
+sequences, with or without `MOD_TYPE`. Forward reads are green, reverse reads
+are yellow, deletions and reference skips are dots, and optional insertions are
+lowercase. When `MOD_TYPE` is given, matching calls with probability at least
+0.5 are bold and underlined.
+
+Supplying a positive `WINDOW_SIZE` followed by the literal `individual`
+selects one whole-read plot at a time. The window size counts modification
+calls, and windows are non-overlapping. Raw ML probabilities are grey points;
+the bold default-colour step line is the per-window fraction of calls with
+probability at least 0.5. Only complete call windows contribute to the step
+line; mapped calls in a trailing incomplete window remain as raw points. For
+example:
+
+```bash
+nanalogue_bam_viewer reads.bam chr1:1000 m 300 individual
+```
+
+Use Left/Right or `h`/`l` to move one genomic window, Up/Down or `k`/`j` to
+move one read, Page Up/Page Down to move one read page, and Home/End to jump to
+the first/last read. Press `g` to enter another `CONTIG:START`; Enter submits,
+Escape cancels, and Backspace edits. In table mode, `r` toggles full read IDs
+and `i` toggles insertions. Horizontal movement and every successful goto
+select the first read; in table mode they also truncate read IDs and hide
+insertions. In individual mode, read movement selects the plotted read and
+`r`/`i` have no effect. Outside the goto prompt, press `q` or Escape to quit;
+Ctrl-C and Ctrl-D always quit.
 
 ## `nanalogue read-info`
 Prints information about reads in JSON, including BAM mapping quality (`mapq`). A sample output snippet follows.
