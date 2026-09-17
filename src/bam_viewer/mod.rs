@@ -1588,7 +1588,7 @@ mod tests {
             window_len_for_columns(80),
         )?;
         viewer.path = PathBuf::from("individual-demo.bam");
-        let mut profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
+        let profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
         assert!((15..=30).contains(&profiles.len()));
 
         let default_frame =
