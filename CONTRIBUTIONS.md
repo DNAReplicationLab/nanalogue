@@ -14,8 +14,22 @@ Thank you for your interest in contributing to `nanalogue`! This project is larg
 
 - Rust toolchain (rustc, cargo) - Install from [rustup.rs](https://rustup.rs/)
 - Git for version control
+- Node.js 24.15.0 (the version used in CI) for repository hook scripts
 - Matching Clang and libclang 18–21 if the pinned `hts-sys`/bindgen build has
   compatibility trouble; avoid Clang 22 with this dependency stack
+
+### Repository Hooks
+
+Enable the repository hooks in every checkout before committing:
+
+```bash
+git config --local core.hooksPath .githooks
+```
+
+Verify that `git config --local --get core.hooksPath` prints `.githooks`.
+Amp orb setup and resume configure this automatically; ordinary clones need
+the command above. The hooks check repository guardrails, text hygiene, and
+commit messages.
 
 ### Building the Project
 
@@ -30,8 +44,13 @@ libclang shared library. Newer `hts-sys`/bindgen versions may support Clang 22.
 ### Running Tests
 
 ```bash
-cargo test
+cargo test -q
+cargo test -q --all-features
 ```
+
+Run both configurations: default builds omit Polars, while `--all-features`
+also exercises the optional Polars integration. Keep domain-behavior tests
+available without Polars; gate tests specific to DataFrames on the feature.
 
 Some tests deliberately construct invalid scenarios to verify that the program
 fails safely. HTSlib may therefore emit other errors or warnings during testing;
@@ -49,7 +68,7 @@ behavior.
 
 This project maintains high code quality standards. Before submitting a PR, ensure:
 
-1. **All tests pass**: Run `cargo test`
+1. **All tests pass**: Run `cargo test -q` and `cargo test -q --all-features`
 2. **Clippy lints pass**: Run `cargo clippy --all-features --all-targets -- -D warnings`
 3. **Code is formatted**: Run `cargo fmt`
 4. **Code coverage is maintained**: We aim for >92% test coverage
@@ -83,7 +102,10 @@ The project uses extensive clippy lints (see `Cargo.toml` for the full list). Yo
 ### Commit Messages
 
 - Write clear, descriptive commit messages
-- Use a present-tense verb led, concise first line for commit messages ("adds feature" not "added feature")
+- Keep the first line under 50 characters and start it with an allowed
+  third-person present-tense verb ("adds feature", not "add feature" or
+  "added feature"). The [commit-message hook](.githooks/commit-msg) enforces
+  these rules and lists the allowed verbs; matching is case-insensitive.
 - Reference issue numbers when applicable
 
 ## Pull Request Process

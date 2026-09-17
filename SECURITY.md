@@ -51,12 +51,15 @@ When processing BAM files:
 This package relies on:
 - `rust-htslib` - for BAM file I/O
 - vendored `fibertools-rs`-derived types and helpers for mod BAM parsing logic; see THIRD_PARTY_NOTICES.md
-- `bio` and `bio-types` - for bioinformatics operations
+- `bio-types` - for bioinformatics types
+- vendored Rust-Bio DNA complement and reverse-complement helpers; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md#rust-bio)
 - Various other Rust crates for data processing
 
-For a complete list of dependencies, see `Cargo.toml`.
-Security of these dependencies is maintained upstream.
-Users should keep dependencies updated.
+See `Cargo.toml` for direct crate dependencies, `Cargo.lock` for resolved
+versions, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for adapted
+third-party source. Upstream fixes to vendored code must be incorporated into
+nanalogue separately; updating Cargo dependencies alone does not update those
+copies.
 
 ## Disclosure Policy
 

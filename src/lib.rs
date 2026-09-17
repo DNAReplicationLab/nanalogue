@@ -78,6 +78,16 @@
 //! [`crate::read_utils::CurrRead`] struct. This is the centerpiece of our library, which receives
 //! BAM record data, processes the DNA/RNA modification information amongst other pieces of information,
 //! and exposes them for downstream usage.
+//!
+//! ## Optional Polars feature
+//!
+//! Polars integration is disabled by default; all CLI commands remain available without it.
+//! Library consumers using `curr_reads_to_dataframe`, `reads_table::run_df`, or
+//! `window_reads::run_df` must enable the `polars` Cargo feature on their `nanalogue`
+//! dependency.
+//! This crate configures docs.rs to build all features, including these optional APIs.
+//! Use `cargo doc --all-features` to include them in local documentation; default local
+//! documentation omits them.
 
 #[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64")))]
 compile_error!("This crate supports only 32-bit and 64-bit platforms.");

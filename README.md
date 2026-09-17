@@ -195,6 +195,23 @@ directly from Git. After obtaining a Git checkout, build it with:
 cargo build
 ```
 
+#### The optional `polars` feature
+
+Polars integration is disabled by default. All CLI commands remain available
+without it. Rust library consumers using `curr_reads_to_dataframe`,
+`reads_table::run_df`, or `window_reads::run_df` must enable the feature on
+their `nanalogue` dependency. For the unreleased code on Git `main`:
+
+```toml
+[dependencies]
+nanalogue = { git = "https://github.com/DNAReplicationLab/nanalogue.git", branch = "main", features = ["polars"] }
+```
+
+When building from a Git checkout, use `cargo build --features polars` and
+`cargo test --features polars` (or `cargo test --all-features`) to include the
+Polars integration in builds and tests. Note that the package is named
+`nanalogue`, while Rust code imports it as `nanalogue_core`.
+
 ### Building and testing notes
 
 If the pinned `hts-sys`/bindgen build has Clang compatibility trouble, use
@@ -227,7 +244,7 @@ docker pull dockerofsat/nanalogue:latest
 The following command runs `read-stats` on `some_file.bam` in the current working directory:
 
 ```bash
-docker run --rm -v $(pwd):$(pwd) -w $(pwd) dockerofsat/nanalogue:latest nanalogue read-stats some_file.bam
+docker run --rm -v "$(pwd):$(pwd)" -w "$(pwd)" dockerofsat/nanalogue:latest nanalogue read-stats some_file.bam
 ```
 
 You can mount other directories using the `-v` option as needed.
@@ -357,7 +374,8 @@ fffffff1-10d2-49cb-8ca3-e8d48979001b    33      33      primary_reverse T:1
 ```
 
 ## `nanalogue read-stats`
-Calculates various summary statistics on all reads. A sample output follows.
+Calculates various summary statistics on all reads. Sample output from
+`nanalogue read-stats examples/example_1.bam` follows.
 
 ```text
 key     value
@@ -369,19 +387,19 @@ n_reversed_reads        1
 align_len_mean  29
 align_len_max   48
 align_len_min   8
-align_len_median        8
+align_len_median        33
 align_len_n50   48
 seq_len_mean    34
 seq_len_max     48
 seq_len_min     8
-seq_len_median  33
+seq_len_median  48
 seq_len_n50     48
 ```
 
 ## `nanalogue find-modified-reads`
 Find names of modified reads through criteria specified by sub commands
-e.g.  at least one window with a modification density above
-some value (`any-dens-above`). Please run
+e.g. at least one window with a modification density at or above
+the value supplied to `--high` (`any-dens-above`). Please run
 `nanalogue find-modified-reads --help` to learn more.
 Output is a list of read ids that satisfy the specified criterion e.g.
 
@@ -392,7 +410,18 @@ fffffff1-10d2-49cb-8ca3-e8d48979001a
 ```
 
 ## `nanalogue window-dens`
-Output windowed densities of reads. Sample output follows.
+Output windowed modification densities within each read, not read coverage.
+Windows are formed separately for each base, strand, and modification type.
+The `win_val` column gives the fraction of retained modification-data positions
+in the window whose ML value is at least 128. The `--win` and `--step` options
+count retained positions after filtering, not sequence base pairs or necessarily
+every occurrence of the queried base. Implicit unmodified positions decoded from
+MM contribute zero.
+The `win_start`/`win_end` read coordinates and `ref_win_start`/`ref_win_end`
+reference coordinates use zero-based, start-inclusive/end-exclusive intervals.
+Both reference coordinates are `-1` when no modification call in the window
+has a reference position (for example, on an unmapped read).
+Sample output follows.
 
 ```text
 #contig ref_win_start   ref_win_end     read_id win_val strand  base    mod_strand      mod_type        win_start       win_end basecall_qual
@@ -447,10 +476,9 @@ For security concerns and vulnerability reporting, please see [SECURITY.md](SECU
 
 # Third-Party Notices
 
-This repository vendors a small number of third-party crates.
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the full
-list of vendored crates, their local paths, their license files, and the patch
-files that show the exact changes from upstream.
+This repository includes code adapted from third-party open source software.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution,
+upstream source references, and license information for that code.
 
 # Changelog
 
