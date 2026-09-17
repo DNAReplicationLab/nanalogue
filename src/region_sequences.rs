@@ -5,9 +5,10 @@ use crate::{
     analysis::threshold_and_mean,
     constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS},
     ensure_bounded_counter, ensure_record_data_capacity, nanalogue_indexed_bam_reader,
+    read_utils::{CurrReadState, CurrReadStateWithAlign},
 };
-use rust_htslib::bam::{self, ext::BamRecordExtensions as _};
-use std::{collections::BTreeMap, num::NonZeroU32};
+use rust_htslib::bam;
+use std::{collections::HashMap, num::NonZeroU32};
 
 /// A read ID and sequence projected onto a requested reference region.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,18 +70,8 @@ impl RegionSequence {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct ReadModProfile {
-    /// Read identifier.
-    read_id: String,
-    /// Stable BAM alignment identity used when a viewer window is refetched.
-    alignment_key: AlignmentKey,
-    /// Occurrence among records with the same read ID and alignment key.
-    alignment_occurrence: u32,
-    /// Whether the alignment is on the reverse strand.
-    reverse: bool,
-    /// Zero-based inclusive alignment start on the reference.
-    align_start: u32,
-    /// Zero-based exclusive alignment end on the reference.
-    align_end: u32,
+    /// BAM alignment identity used when a viewer window is refetched.
+    identity: AlignmentIdentity,
     /// Reference position and raw ML probability for mapped calls.
     calls: Vec<(u32, u8)>,
     /// Reference bounds and thresholded mean for each complete call window.
@@ -89,96 +80,95 @@ pub struct ReadModProfile {
     window_series_starts: Vec<usize>,
 }
 
-/// BAM fields that distinguish alignments sharing a read identifier.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct AlignmentKey {
-    /// BAM bit flags, including paired, secondary, and supplementary state.
-    flags: u16,
+/// BAM fields used to identify one alignment across viewer window refetches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AlignmentIdentity {
+    /// Read identifier.
+    read_id: String,
+    /// Supported alignment and strand state.
+    read_state: crate::ReadState,
     /// Target identifier.
     tid: i32,
     /// Zero-based alignment start.
-    pos: i64,
+    pos: u32,
     /// Mapping quality.
     mapq: u8,
-    /// CIGAR operations in SAM text form.
-    cigar: String,
-    /// Mate target identifier.
-    mate_tid: i32,
-    /// Zero-based mate alignment start.
-    mate_pos: i64,
-    /// Template length.
-    insert_size: i64,
+    /// Zero-based exclusive alignment end on the reference.
+    reference_end: u32,
+    /// Occurrence among records with the same preceding identity fields.
+    duplicate_index: u32,
 }
 
-impl AlignmentKey {
-    /// Captures the stable identifying fields from one BAM record.
-    fn from_record(record: &bam::Record) -> Self {
-        Self {
-            flags: record.flags(),
-            tid: record.tid(),
-            pos: record.pos(),
-            mapq: record.mapq(),
-            cigar: record.cigar().to_string(),
-            mate_tid: record.mtid(),
-            mate_pos: record.mpos(),
-            insert_size: record.insert_size(),
-        }
-    }
-}
+/// BAM fields shared by alignments that require a duplicate index.
+type AlignmentIdentityBase = (String, crate::ReadState, i32, u32, u8, u32);
 
-/// Returns one record's alignment key and stable occurrence among equal keys.
-fn alignment_identity(
-    record: &bam::Record,
-    read_id: &str,
-    occurrences: &mut BTreeMap<(String, AlignmentKey), u32>,
-) -> Result<(AlignmentKey, u32), Error> {
-    let alignment_key = AlignmentKey::from_record(record);
-    let next_occurrence = occurrences
-        .entry((String::from(read_id), alignment_key.clone()))
+/// Returns one read's alignment identity with an index among equal base identities.
+fn alignment_identity<S>(
+    read: &CurrRead<S>,
+    occurrences: &mut HashMap<AlignmentIdentityBase, u32>,
+) -> Result<AlignmentIdentity, Error>
+where
+    S: CurrReadState + CurrReadStateWithAlign,
+{
+    let read_id = String::from(read.read_id());
+    let read_state = read.read_state();
+    let (tid, pos) = read.contig_id_and_start()?;
+    let mapq = read.mapq();
+    let reference_end = pos.checked_add(read.align_len()?).ok_or_else(|| {
+        Error::InvalidState(String::from("alignment reference end exceeds u32::MAX"))
+    })?;
+    let next_duplicate_index = occurrences
+        .entry((read_id.clone(), read_state, tid, pos, mapq, reference_end))
         .or_insert(0u32);
-    let occurrence = *next_occurrence;
-    *next_occurrence = next_occurrence.checked_add(1).ok_or_else(|| {
+    let duplicate_index = *next_duplicate_index;
+    *next_duplicate_index = next_duplicate_index.checked_add(1).ok_or_else(|| {
         Error::InvalidState(String::from(
             "too many identical alignments in modification profiles",
         ))
     })?;
-    Ok((alignment_key, occurrence))
+    Ok(AlignmentIdentity {
+        read_id,
+        read_state,
+        tid,
+        pos,
+        mapq,
+        reference_end,
+        duplicate_index,
+    })
 }
 
 impl ReadModProfile {
     /// Returns the read identifier.
     #[must_use]
     pub fn read_id(&self) -> &str {
-        &self.read_id
+        &self.identity.read_id
     }
 
     /// Returns whether two profiles represent the same BAM alignment.
     ///
-    /// Unlike comparing read identifiers, this distinguishes paired, secondary,
-    /// supplementary, and otherwise identical duplicate-name records.
+    /// Unlike comparing read identifiers, this distinguishes alignment state,
+    /// coordinates, mapping quality, and otherwise equal duplicate-name records.
     #[must_use]
     pub fn is_same_alignment(&self, other: &Self) -> bool {
-        self.read_id == other.read_id
-            && self.alignment_key == other.alignment_key
-            && self.alignment_occurrence == other.alignment_occurrence
+        self.identity == other.identity
     }
 
     /// Returns whether the alignment is on the reverse strand.
     #[must_use]
     pub fn is_reverse(&self) -> bool {
-        self.reverse
+        self.identity.read_state.strand() == '-'
     }
 
     /// Returns the zero-based inclusive alignment start.
     #[must_use]
     pub fn align_start(&self) -> u32 {
-        self.align_start
+        self.identity.pos
     }
 
     /// Returns the zero-based exclusive alignment end.
     #[must_use]
     pub fn align_end(&self) -> u32 {
-        self.align_end
+        self.identity.reference_end
     }
 
     /// Returns mapped raw calls as `(reference position, ML probability)`.
@@ -450,7 +440,7 @@ impl RegionSequenceReader {
         self.reader.fetch((tid, i64::from(start), i64::from(end)))?;
         let region = crate::GenomicBed3::new(i32::try_from(tid)?, start, end);
         let mut profiles = Vec::new();
-        let mut alignment_occurrences = BTreeMap::new();
+        let mut alignment_occurrences = HashMap::new();
         let mut record_count = 0u32;
         let win_size = usize::try_from(win.get())?;
 
@@ -478,12 +468,7 @@ impl RegionSequenceReader {
                     ),
                     Err(error) => return Err(error),
                 };
-            let align_start = u32::try_from(record.pos())?;
-            let align_end = u32::try_from(record.reference_end())?;
-            let read_id = String::from(curr_read.read_id());
-            let (alignment_key, alignment_occurrence) =
-                alignment_identity(&record, &read_id, &mut alignment_occurrences)?;
-            let reverse = curr_read.strand() == '-';
+            let identity = alignment_identity(&curr_read, &mut alignment_occurrences)?;
             let mut calls = Vec::new();
             let mut windows = Vec::new();
             let mut window_series_starts = Vec::new();
@@ -532,18 +517,13 @@ impl RegionSequenceReader {
             }
 
             profiles.push(ReadModProfile {
-                read_id,
-                alignment_key,
-                alignment_occurrence,
-                reverse,
-                align_start,
-                align_end,
+                identity,
                 calls,
                 windows,
                 window_series_starts,
             });
         }
-        profiles.sort_by(|left, right| left.read_id.cmp(&right.read_id));
+        profiles.sort_by(|left, right| left.read_id().cmp(right.read_id()));
         Ok(profiles)
     }
 }
@@ -620,6 +600,43 @@ mod tests {
     fn remove_test_bam(path: &std::path::Path) {
         std::fs::remove_file(path).expect("remove test BAM");
         std::fs::remove_file(format!("{}.bai", path.display())).expect("remove test BAM index");
+    }
+
+    #[test]
+    fn alignment_identity_uses_read_state_end_and_duplicate_index() -> Result<(), Error> {
+        let read = |end, read_state| {
+            crate::CurrReadBuilder::default()
+                .alignment_type(read_state)
+                .alignment(
+                    crate::AlignmentInfoBuilder::default()
+                        .start(5)
+                        .end(end)
+                        .contig(String::from("chr1"))
+                        .contig_id(0)
+                        .build()?,
+                )
+                .read_id(String::from("shared-name"))
+                .mapq(60)
+                .seq_len(20)
+                .build()
+        };
+        let mut occurrences = HashMap::new();
+        let first = read(25, crate::ReadState::PrimaryFwd)?;
+        let first_identity = alignment_identity(&first, &mut occurrences)?;
+        let same_bounds = read(25, crate::ReadState::PrimaryFwd)?;
+        let same_bounds_identity = alignment_identity(&same_bounds, &mut occurrences)?;
+        assert_eq!(first_identity.duplicate_index, 0);
+        assert_eq!(same_bounds_identity.duplicate_index, 1);
+
+        let longer = read(26, crate::ReadState::PrimaryFwd)?;
+        let longer_identity = alignment_identity(&longer, &mut occurrences)?;
+        assert_eq!(longer_identity.reference_end, 26);
+        assert_eq!(longer_identity.duplicate_index, 0);
+
+        let reverse = read(25, crate::ReadState::PrimaryRev)?;
+        let reverse_identity = alignment_identity(&reverse, &mut occurrences)?;
+        assert_eq!(reverse_identity.duplicate_index, 0);
+        Ok(())
     }
 
     #[test]
