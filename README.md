@@ -414,6 +414,10 @@ Output windowed modification densities within each read, not read coverage.
 The `win_val` column gives the fraction of modification calls in the window
 whose ML value is at least 128. The `--win` and `--step` options count the
 base being queried (for example, cytosines), not all bases in the sequence.
+The `win_start`/`win_end` read coordinates and `ref_win_start`/`ref_win_end`
+reference coordinates use zero-based, start-inclusive/end-exclusive intervals.
+Both reference coordinates are `-1` when no modification call in the window
+has a reference position (for example, on an unmapped read).
 Sample output follows.
 
 ```text
