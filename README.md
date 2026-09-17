@@ -411,9 +411,12 @@ fffffff1-10d2-49cb-8ca3-e8d48979001a
 
 ## `nanalogue window-dens`
 Output windowed modification densities within each read, not read coverage.
-The `win_val` column gives the fraction of modification calls in the window
-whose ML value is at least 128. The `--win` and `--step` options count the
-base being queried (for example, cytosines), not all bases in the sequence.
+Windows are formed separately for each base, strand, and modification type.
+The `win_val` column gives the fraction of retained modification-data positions
+in the window whose ML value is at least 128. The `--win` and `--step` options
+count retained positions after filtering, not sequence base pairs or necessarily
+every occurrence of the queried base. Implicit unmodified positions decoded from
+MM contribute zero.
 The `win_start`/`win_end` read coordinates and `ref_win_start`/`ref_win_end`
 reference coordinates use zero-based, start-inclusive/end-exclusive intervals.
 Both reference coordinates are `-1` when no modification call in the window

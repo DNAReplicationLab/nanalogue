@@ -734,14 +734,14 @@ impl InputRegionOptions for InputBam {
 #[serde(default)]
 #[non_exhaustive]
 pub struct InputWindowing {
-    /// size of window in units of base being queried i.e.
-    /// if you are looking for cytosine modifications, then
-    /// a window of a value 300 means create windows each with
-    /// 300 cytosines irrespective of their modification status.
+    /// Size of a window in retained modification-data positions after filtering.
+    /// Windows are formed separately for each base, strand, and modification type,
+    /// so a value of 300 does not necessarily mean 300 occurrences of the queried
+    /// base in the sequence.
     #[clap(long)]
     #[builder(field(ty = "u32", build = "NonZeroU32::try_from(self.win)?"))]
     pub win: NonZeroU32,
-    /// step window by this size in units of base being queried.
+    /// Step a window by this many retained modification-data positions.
     #[clap(long)]
     #[builder(field(ty = "u32", build = "NonZeroU32::try_from(self.step)?"))]
     pub step: NonZeroU32,
