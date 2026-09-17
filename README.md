@@ -244,7 +244,7 @@ docker pull dockerofsat/nanalogue:latest
 The following command runs `read-stats` on `some_file.bam` in the current working directory:
 
 ```bash
-docker run --rm -v $(pwd):$(pwd) -w $(pwd) dockerofsat/nanalogue:latest nanalogue read-stats some_file.bam
+docker run --rm -v "$(pwd):$(pwd)" -w "$(pwd)" dockerofsat/nanalogue:latest nanalogue read-stats some_file.bam
 ```
 
 You can mount other directories using the `-v` option as needed.
