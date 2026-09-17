@@ -129,7 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Ran `cargo update` to update dependencies
 
-## [0.1.15] - 2026-01-18
+## [0.1.5] - 2026-01-18
 
 ### Changed
 - Improved struct documentation to reference Builder patterns in `src/simulate_mod_bam.rs`
