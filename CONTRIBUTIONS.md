@@ -102,7 +102,10 @@ The project uses extensive clippy lints (see `Cargo.toml` for the full list). Yo
 ### Commit Messages
 
 - Write clear, descriptive commit messages
-- Use a present-tense verb led, concise first line for commit messages ("adds feature" not "added feature")
+- Keep the first line under 50 characters and start it with an allowed
+  third-person present-tense verb ("adds feature", not "add feature" or
+  "added feature"). The [commit-message hook](.githooks/commit-msg) enforces
+  these rules and lists the allowed verbs; matching is case-insensitive.
 - Reference issue numbers when applicable
 
 ## Pull Request Process
