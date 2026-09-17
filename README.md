@@ -195,6 +195,23 @@ directly from Git. After obtaining a Git checkout, build it with:
 cargo build
 ```
 
+#### The optional `polars` feature
+
+Polars integration is disabled by default. All CLI commands remain available
+without it. Rust library consumers using `curr_reads_to_dataframe`,
+`reads_table::run_df`, or `window_reads::run_df` must enable the feature on
+their `nanalogue` dependency. For the unreleased code on Git `main`:
+
+```toml
+[dependencies]
+nanalogue = { git = "https://github.com/DNAReplicationLab/nanalogue.git", branch = "main", features = ["polars"] }
+```
+
+When building from a Git checkout, use `cargo build --features polars` and
+`cargo test --features polars` (or `cargo test --all-features`) to include the
+Polars integration in builds and tests. Note that the package is named
+`nanalogue`, while Rust code imports it as `nanalogue_core`.
+
 ### Building and testing notes
 
 If the pinned `hts-sys`/bindgen build has Clang compatibility trouble, use

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Made Polars an optional, default-off dependency. Library consumers using
+  `curr_reads_to_dataframe`, `reads_table::run_df`, `window_reads::run_df`, or
+  Polars-specific error handling must explicitly enable the `polars` Cargo
+  feature. CLI functionality is unchanged.
+
 ### Fixed
 - (Project tooling, not code) Fixed `install.sh` to use the correct ARM release archive name, matching the output from the relevant GitHub Actions workflow
 
