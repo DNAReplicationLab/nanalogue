@@ -346,7 +346,7 @@ pub(super) fn fetch_viewer_records(viewer: &mut Viewer) -> Result<ViewerRecords,
     }
 }
 
-/// Re-selects a cached read by ID after a refetch, or clamps the previous index.
+/// Re-selects a cached table read by ID after a refetch, or clamps the previous index.
 pub(super) fn reselect_read(
     records: &ViewerRecords,
     read_id: Option<&str>,

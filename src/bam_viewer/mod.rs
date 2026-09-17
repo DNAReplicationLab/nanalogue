@@ -53,8 +53,6 @@ mod state;
 
 use cli::{Args, InitialPosition, USAGE, ViewMode, window_len_for_columns};
 use plot::build_individual_frame;
-#[cfg(test)]
-use plot::individual_status;
 use render::{FrameFooter, build_frame};
 #[cfg(test)]
 use render::{
@@ -350,6 +348,36 @@ fn prompt_for_position(
     }
 }
 
+/// Refetches width-dependent table records after a terminal resize.
+///
+/// Individual profiles contain the complete selected read and are redrawn from the existing cache.
+fn handle_terminal_resize(
+    viewer: &mut Viewer,
+    records: &mut ViewerRecords,
+    resized_window_len: u32,
+) -> Result<(), Box<dyn Error>> {
+    if viewer.mode != ViewMode::Table || resized_window_len == viewer.window_len {
+        return Ok(());
+    }
+
+    let selected_read_id = records
+        .read_id(viewer.viewport.read_offset)
+        .map(String::from);
+    viewer.window_len = resized_window_len;
+    *records = fetch_viewer_records(viewer)?;
+    viewer.viewport.read_offset = reselect_read(
+        records,
+        selected_read_id.as_deref(),
+        viewer.viewport.read_offset,
+    );
+    if viewer.full_read_ids
+        && let ViewerRecords::Table(table_records) = records
+    {
+        viewer.read_label_width = full_read_label_width(table_records);
+    }
+    Ok(())
+}
+
 /// Runs the interactive event loop.
 fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let (initial_cols, initial_rows) = crossterm::terminal::size()?;
@@ -368,23 +396,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
     loop {
         let (cols, rows) = crossterm::terminal::size()?;
         let resized_window_len = window_len_for_columns(cols);
-        if resized_window_len != viewer.window_len {
-            let selected_read_id = records
-                .read_id(viewer.viewport.read_offset)
-                .map(String::from);
-            viewer.window_len = resized_window_len;
-            records = fetch_viewer_records(&mut viewer)?;
-            viewer.viewport.read_offset = reselect_read(
-                &records,
-                selected_read_id.as_deref(),
-                viewer.viewport.read_offset,
-            );
-            if viewer.full_read_ids
-                && let ViewerRecords::Table(table_records) = &records
-            {
-                viewer.read_label_width = full_read_label_width(table_records);
-            }
-        }
+        handle_terminal_resize(&mut viewer, &mut records, resized_window_len)?;
         let visible_reads = if viewer.mode == ViewMode::Table {
             usize::from(rows.saturating_sub(4))
         } else {
@@ -455,6 +467,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plot::{abbreviated_individual_read_label, individual_status};
     use nanalogue_core::{
         simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation},
         uuid, write_bam_denovo,
@@ -839,6 +852,28 @@ mod tests {
     }
 
     #[test]
+    fn table_reselection_clamps_when_qname_disappears() {
+        let position = InitialPosition {
+            contig: String::from("dummyIII"),
+            start: 23,
+        };
+        let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), &position, None, 7)
+            .expect("position should open");
+        let record = viewer
+            .visible_records()
+            .expect("records should load")
+            .into_iter()
+            .next()
+            .expect("one record");
+        let records = ViewerRecords::Table(vec![record.clone(), record]);
+
+        assert_eq!(
+            reselect_read(&records, Some("read-that-no-longer-spans"), usize::MAX),
+            1
+        );
+    }
+
+    #[test]
     fn viewer_bolds_only_requested_high_probability_modifications() {
         let mut reader = RegionSequenceReader::from_path("examples/example_1.bam")
             .expect("open indexed example");
@@ -866,6 +901,64 @@ mod tests {
             sequence_columns(row, 10, false),
             "ACA\x1b[1;4mT\x1b[22;24mCAA   "
         );
+    }
+
+    #[test]
+    fn individual_resize_reuses_cached_duplicate_qname_profiles() -> Result<(), Box<dyn Error>> {
+        let path = write_individual_semantics_bam()?;
+        let mut viewer = individual_semantics_viewer(&path)?;
+        let mut records = fetch_viewer_records(&mut viewer)?;
+        let ViewerRecords::Individual(profiles) = &records else {
+            return Err("individual viewer must fetch profiles".into());
+        };
+        assert_eq!(profiles.len(), 3);
+        assert_eq!(
+            abbreviated_individual_read_label(profiles, 0, usize::MAX).as_deref(),
+            Some("duplicate#1")
+        );
+        assert_eq!(
+            abbreviated_individual_read_label(profiles, 1, usize::MAX).as_deref(),
+            Some("duplicate#2")
+        );
+        assert_eq!(
+            abbreviated_individual_read_label(profiles, 1, 8).as_deref(),
+            Some("dupli~#2")
+        );
+        viewer.viewport.read_offset = 1;
+        assert!(individual_status(&viewer, profiles, 100).contains("duplicate#2"));
+        let ten_duplicates =
+            std::iter::repeat_n(profiles.first().expect("first duplicate").clone(), 10)
+                .collect::<Vec<_>>();
+        viewer.viewport.read_offset = 9;
+        for width in 1..=100 {
+            let status = individual_status(&viewer, &ten_duplicates, width);
+            assert!(
+                !status.contains("mods") || status.contains("#10"),
+                "a detailed width-{width} status must show the complete ordinal: {status:?}"
+            );
+        }
+        viewer.viewport.read_offset = 1;
+        // An individual fetch now fails, so a successful resize proves that it reused the cache.
+        viewer.mod_type = None;
+        handle_terminal_resize(&mut viewer, &mut records, 10)?;
+        assert_eq!(viewer.mod_type, None);
+        assert_eq!(viewer.window_len, 5);
+        assert_eq!(viewer.viewport.read_offset, 1);
+        let ViewerRecords::Individual(resized_profiles) = &records else {
+            return Err("individual resize must preserve cached profiles".into());
+        };
+        assert_eq!(resized_profiles.len(), 3);
+        let selected_calls = resized_profiles
+            .get(viewer.viewport.read_offset)
+            .expect("selected profile")
+            .calls();
+        assert_eq!(
+            selected_calls,
+            [(25, 0), (26, 255), (27, 0), (28, 255), (29, 0), (30, 255)],
+            "the reverse duplicate record must remain selected"
+        );
+
+        remove_viewer_test_bam(&path)
     }
 
     #[test]
@@ -1376,7 +1469,7 @@ mod tests {
         assert!((first_window.2.val() - 1.0 / 3.0).abs() < f32::EPSILON);
         assert_eq!(second_window.0..second_window.1, 28..31);
         assert!((second_window.2.val() - 2.0 / 3.0).abs() < f32::EPSILON);
-        assert!(individual_status(&viewer, &profiles, 80).contains("duplicate - mods a win 3"));
+        assert!(individual_status(&viewer, &profiles, 80).contains("duplicate#2 - mods a win 3"));
 
         assert!(!viewer.handle_individual_key(KeyCode::Char('k'), profiles.len()));
         assert_eq!(viewer.viewport.read_offset, 0);
@@ -1459,10 +1552,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one simulation is reused across related navigation and terminal-size goldens"
-    )]
     fn individual_navigation_viewports_match_ansi_goldens() -> Result<(), Box<dyn Error>> {
         let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1485,28 +1574,6 @@ mod tests {
         viewer.path = PathBuf::from("individual-demo.bam");
         let mut profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
         assert!((15..=30).contains(&profiles.len()));
-
-        viewer.viewport.read_offset = 5;
-        let selected_id = String::from(profiles.get(5).expect("at least six profiles").read_id());
-        viewer.window_len = window_len_for_columns(100);
-        profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
-        let resized_records = ViewerRecords::Individual(profiles);
-        viewer.viewport.read_offset = reselect_read(&resized_records, Some(&selected_id), 5);
-        assert_eq!(
-            resized_records.read_id(viewer.viewport.read_offset),
-            Some(selected_id.as_str())
-        );
-        assert_eq!(
-            reselect_read(
-                &resized_records,
-                Some("read-that-no-longer-spans"),
-                usize::MAX
-            ),
-            resized_records.len().saturating_sub(1)
-        );
-        viewer.viewport.read_offset = 0;
-        viewer.window_len = window_len_for_columns(80);
-        profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
 
         let default_frame =
             build_individual_frame(&viewer, &profiles, 80, 24, FrameFooter::Controls);
@@ -1547,16 +1614,11 @@ mod tests {
             &render_frame_as_ansi(&horizontal_frame, 80, 24)?,
         )?;
 
-        viewer.window_len = window_len_for_columns(14);
-        let narrow_profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
-        let narrow =
-            build_individual_frame(&viewer, &narrow_profiles, 14, 24, FrameFooter::Controls);
+        let narrow = build_individual_frame(&viewer, &profiles, 14, 24, FrameFooter::Controls);
         assert_ansi_golden(
             "bam_viewer_individual_narrow.ansi",
             &render_frame_as_ansi(&narrow, 14, 24)?,
         )?;
-        viewer.window_len = window_len_for_columns(80);
-        profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
         let short = build_individual_frame(&viewer, &profiles, 80, 6, FrameFooter::Controls);
         assert!(!short.contains("1.0 ┤"));
         assert!(!short.contains('└'));

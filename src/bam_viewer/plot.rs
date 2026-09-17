@@ -344,6 +344,48 @@ fn plot_ruler(viewer: &Viewer, profile: &ReadModProfile, plot_cols: usize) -> (S
     (ruler, labels.into_iter().collect())
 }
 
+/// Returns the ordinal suffix needed to distinguish a duplicate QNAME.
+fn individual_read_ordinal_suffix(
+    profiles: &[ReadModProfile],
+    selected_index: usize,
+) -> Option<String> {
+    let selected = profiles.get(selected_index)?;
+    let matching_count = profiles
+        .iter()
+        .filter(|profile| profile.read_id() == selected.read_id())
+        .count();
+    if matching_count == 1 {
+        return None;
+    }
+    let ordinal = profiles
+        .iter()
+        .take(selected_index.saturating_add(1))
+        .filter(|profile| profile.read_id() == selected.read_id())
+        .count();
+    Some(format!("#{ordinal}"))
+}
+
+/// Abbreviates an individual label while preserving a duplicate-QNAME ordinal.
+pub(super) fn abbreviated_individual_read_label(
+    profiles: &[ReadModProfile],
+    selected_index: usize,
+    width: usize,
+) -> Option<String> {
+    let selected = profiles.get(selected_index)?;
+    let Some(ordinal_suffix) = individual_read_ordinal_suffix(profiles, selected_index) else {
+        return Some(abbreviated_label(selected.read_id(), width));
+    };
+    if width < ordinal_suffix.len() {
+        return None;
+    }
+    let mut label = abbreviated_label(
+        selected.read_id(),
+        width.saturating_sub(ordinal_suffix.len()),
+    );
+    label.push_str(&ordinal_suffix);
+    Some(label)
+}
+
 /// Builds a status line without ever partially clipping numeric fields.
 pub(super) fn individual_status(
     viewer: &Viewer,
@@ -368,6 +410,8 @@ pub(super) fn individual_status(
         ViewMode::Table => 0,
     };
     let selected = profiles.get(viewer.viewport.read_offset);
+    let minimum_id_width = individual_read_ordinal_suffix(profiles, viewer.viewport.read_offset)
+        .map_or(1, |suffix| suffix.len());
     let read_number = selected.map_or(0, |_profile| viewer.viewport.read_offset.saturating_add(1));
     let middle = format!(
         ":{}-{end} reads {} read {read_number}/{} ",
@@ -384,7 +428,11 @@ pub(super) fn individual_status(
             )
         },
     );
-    let variable_count = if selected.is_some() { 3 } else { 2 };
+    let variable_count = if selected.is_some() {
+        minimum_id_width.saturating_add(2)
+    } else {
+        2
+    };
     let fixed_width = middle.len().saturating_add(suffix.len()).saturating_add(2);
     let available = usize::from(width).saturating_sub(fixed_width);
     if available < variable_count {
@@ -403,16 +451,21 @@ pub(super) fn individual_status(
     let path_width = path_text
         .len()
         .min(8)
-        .min(remaining.saturating_sub(usize::from(selected.is_some())));
+        .min(remaining.saturating_sub(if selected.is_some() {
+            minimum_id_width
+        } else {
+            0
+        }));
     let id_width = remaining.saturating_sub(path_width);
     let path = abbreviated_label(path_text, path_width);
     let target = abbreviated_label(target_text, target_width);
     selected.map_or_else(
         || format!(" {path} {target}{middle}{suffix}"),
-        |profile| {
+        |_profile| {
             format!(
                 " {path} {target}{middle}{}{suffix}",
-                abbreviated_label(profile.read_id(), id_width)
+                abbreviated_individual_read_label(profiles, viewer.viewport.read_offset, id_width)
+                    .expect("selected profile has a label")
             )
         },
     )
