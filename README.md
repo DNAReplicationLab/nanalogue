@@ -409,7 +409,11 @@ fffffff1-10d2-49cb-8ca3-e8d48979001a
 ```
 
 ## `nanalogue window-dens`
-Output windowed densities of reads. Sample output follows.
+Output windowed modification densities within each read, not read coverage.
+The `win_val` column gives the fraction of modification calls in the window
+whose ML value is at least 128. The `--win` and `--step` options count the
+base being queried (for example, cytosines), not all bases in the sequence.
+Sample output follows.
 
 ```text
 #contig ref_win_start   ref_win_end     read_id win_val strand  base    mod_strand      mod_type        win_start       win_end basecall_qual
