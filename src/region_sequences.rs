@@ -7,7 +7,7 @@ use crate::{
     ensure_bounded_counter, ensure_record_data_capacity, nanalogue_indexed_bam_reader,
 };
 use rust_htslib::bam::{self, ext::BamRecordExtensions as _};
-use std::num::NonZeroU32;
+use std::{collections::BTreeMap, num::NonZeroU32};
 
 /// A read ID and sequence projected onto a requested reference region.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +71,10 @@ impl RegionSequence {
 pub struct ReadModProfile {
     /// Read identifier.
     read_id: String,
+    /// Stable BAM alignment identity used when a viewer window is refetched.
+    alignment_key: AlignmentKey,
+    /// Occurrence among records with the same read ID and alignment key.
+    alignment_occurrence: u32,
     /// Whether the alignment is on the reverse strand.
     reverse: bool,
     /// Zero-based inclusive alignment start on the reference.
@@ -85,11 +89,78 @@ pub struct ReadModProfile {
     window_series_starts: Vec<usize>,
 }
 
+/// BAM fields that distinguish alignments sharing a read identifier.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct AlignmentKey {
+    /// BAM bit flags, including paired, secondary, and supplementary state.
+    flags: u16,
+    /// Target identifier.
+    tid: i32,
+    /// Zero-based alignment start.
+    pos: i64,
+    /// Mapping quality.
+    mapq: u8,
+    /// CIGAR operations in SAM text form.
+    cigar: String,
+    /// Mate target identifier.
+    mate_tid: i32,
+    /// Zero-based mate alignment start.
+    mate_pos: i64,
+    /// Template length.
+    insert_size: i64,
+}
+
+impl AlignmentKey {
+    /// Captures the stable identifying fields from one BAM record.
+    fn from_record(record: &bam::Record) -> Self {
+        Self {
+            flags: record.flags(),
+            tid: record.tid(),
+            pos: record.pos(),
+            mapq: record.mapq(),
+            cigar: record.cigar().to_string(),
+            mate_tid: record.mtid(),
+            mate_pos: record.mpos(),
+            insert_size: record.insert_size(),
+        }
+    }
+}
+
+/// Returns one record's alignment key and stable occurrence among equal keys.
+fn alignment_identity(
+    record: &bam::Record,
+    read_id: &str,
+    occurrences: &mut BTreeMap<(String, AlignmentKey), u32>,
+) -> Result<(AlignmentKey, u32), Error> {
+    let alignment_key = AlignmentKey::from_record(record);
+    let next_occurrence = occurrences
+        .entry((String::from(read_id), alignment_key.clone()))
+        .or_insert(0u32);
+    let occurrence = *next_occurrence;
+    *next_occurrence = next_occurrence.checked_add(1).ok_or_else(|| {
+        Error::InvalidState(String::from(
+            "too many identical alignments in modification profiles",
+        ))
+    })?;
+    Ok((alignment_key, occurrence))
+}
+
 impl ReadModProfile {
     /// Returns the read identifier.
     #[must_use]
     pub fn read_id(&self) -> &str {
         &self.read_id
+    }
+
+    /// Returns whether two profiles represent the same BAM alignment.
+    ///
+    /// Unlike comparing read identifiers, this distinguishes paired, secondary,
+    /// supplementary, and otherwise identical duplicate-name records.
+    #[must_use]
+    pub fn is_same_alignment(&self, other: &Self) -> bool {
+        self.read_id == other.read_id
+            && self.alignment_key == other.alignment_key
+            && self.alignment_occurrence == other.alignment_occurrence
     }
 
     /// Returns whether the alignment is on the reverse strand.
@@ -379,6 +450,7 @@ impl RegionSequenceReader {
         self.reader.fetch((tid, i64::from(start), i64::from(end)))?;
         let region = crate::GenomicBed3::new(i32::try_from(tid)?, start, end);
         let mut profiles = Vec::new();
+        let mut alignment_occurrences = BTreeMap::new();
         let mut record_count = 0u32;
         let win_size = usize::try_from(win.get())?;
 
@@ -409,6 +481,8 @@ impl RegionSequenceReader {
             let align_start = u32::try_from(record.pos())?;
             let align_end = u32::try_from(record.reference_end())?;
             let read_id = String::from(curr_read.read_id());
+            let (alignment_key, alignment_occurrence) =
+                alignment_identity(&record, &read_id, &mut alignment_occurrences)?;
             let reverse = curr_read.strand() == '-';
             let mut calls = Vec::new();
             let mut windows = Vec::new();
@@ -459,6 +533,8 @@ impl RegionSequenceReader {
 
             profiles.push(ReadModProfile {
                 read_id,
+                alignment_key,
+                alignment_occurrence,
                 reverse,
                 align_start,
                 align_end,

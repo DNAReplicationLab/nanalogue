@@ -318,6 +318,10 @@ pub(super) enum ViewerRecords {
     Individual(Vec<ReadModProfile>),
 }
 
+/// Selected individual alignment retained across a horizontal refetch.
+#[derive(Clone, Debug)]
+pub(super) struct IndividualSelection(ReadModProfile);
+
 impl ViewerRecords {
     /// Returns the number of cached reads.
     pub(super) fn len(&self) -> usize {
@@ -333,6 +337,14 @@ impl ViewerRecords {
             Self::Table(records) => records.get(index).map(RegionSequence::read_id),
             Self::Individual(records) => records.get(index).map(ReadModProfile::read_id),
         }
+    }
+
+    /// Captures the selected alignment when the viewer is in individual mode.
+    pub(super) fn individual_selection(&self, index: usize) -> Option<IndividualSelection> {
+        let Self::Individual(profiles) = self else {
+            return None;
+        };
+        profiles.get(index).cloned().map(IndividualSelection)
     }
 }
 
@@ -357,4 +369,21 @@ pub(super) fn reselect_read(
             (0..records.len()).find(|&index| records.read_id(index) == Some(selected))
         })
         .unwrap_or_else(|| previous_index.min(records.len().saturating_sub(1)))
+}
+
+/// Re-selects an individual alignment after refetch, falling back to the first entry.
+pub(super) fn reselect_individual_alignment(
+    records: &ViewerRecords,
+    selection: Option<&IndividualSelection>,
+) -> usize {
+    let ViewerRecords::Individual(profiles) = records else {
+        return 0;
+    };
+    selection
+        .and_then(|IndividualSelection(selected)| {
+            profiles
+                .iter()
+                .position(|profile| profile.is_same_alignment(selected))
+        })
+        .unwrap_or(0)
 }

@@ -60,7 +60,10 @@ use render::{
 };
 #[cfg(test)]
 use state::Viewport;
-use state::{Viewer, ViewerRecords, fetch_viewer_records, full_read_label_width, reselect_read};
+use state::{
+    Viewer, ViewerRecords, fetch_viewer_records, full_read_label_width,
+    reselect_individual_alignment, reselect_read,
+};
 
 /// Width reserved for read names and the separating space.
 const READ_LABEL_WIDTH: u16 = 19;
@@ -267,6 +270,29 @@ fn build_viewer_frame(
     }
 }
 
+/// Applies one viewer key and preserves an individual alignment across a horizontal refetch.
+fn handle_viewer_key(
+    viewer: &mut Viewer,
+    records: &mut ViewerRecords,
+    key: KeyCode,
+    visible_reads: usize,
+) -> Result<bool, Box<dyn Error>> {
+    let previous_read_offset = viewer.viewport.read_offset;
+    let refetch = match records {
+        ViewerRecords::Table(table_records) => viewer.handle_key(key, table_records, visible_reads),
+        ViewerRecords::Individual(profiles) => viewer.handle_individual_key(key, profiles.len()),
+    };
+    if refetch {
+        let individual_selection = records.individual_selection(previous_read_offset);
+        *records = fetch_viewer_records(viewer)?;
+        if viewer.mode != ViewMode::Table {
+            viewer.viewport.read_offset =
+                reselect_individual_alignment(records, individual_selection.as_ref());
+        }
+    }
+    Ok(refetch)
+}
+
 /// Applies one key press to the goto prompt.
 #[expect(
     clippy::wildcard_enum_match_arm,
@@ -430,17 +456,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
             }
             continue;
         }
-        let refetch = match &records {
-            ViewerRecords::Table(table_records) => {
-                viewer.handle_key(key.code, table_records, visible_reads)
-            }
-            ViewerRecords::Individual(profiles) => {
-                viewer.handle_individual_key(key.code, profiles.len())
-            }
-        };
-        if refetch {
-            records = fetch_viewer_records(&mut viewer)?;
-        }
+        let _refetched = handle_viewer_key(&mut viewer, &mut records, key.code, visible_reads)?;
     }
     Ok(())
 }
@@ -1597,25 +1613,68 @@ mod tests {
             &render_frame_as_ansi(&default_frame, 80, 24)?,
         )?;
 
-        assert!(!viewer.handle_individual_key(KeyCode::Char('j'), profiles.len()));
+        let mut records = ViewerRecords::Individual(profiles);
+        assert!(!handle_viewer_key(
+            &mut viewer,
+            &mut records,
+            KeyCode::Char('j'),
+            1
+        )?);
+        let ViewerRecords::Individual(after_j_profiles) = &records else {
+            return Err("individual records changed view mode".into());
+        };
         let after_j_frame =
-            build_individual_frame(&viewer, &profiles, 80, 24, FrameFooter::Controls);
+            build_individual_frame(&viewer, after_j_profiles, 80, 24, FrameFooter::Controls);
         assert_ansi_golden(
             "bam_viewer_individual_after_j.ansi",
             &render_frame_as_ansi(&after_j_frame, 80, 24)?,
         )?;
 
-        assert!(viewer.handle_individual_key(KeyCode::Char('l'), profiles.len()));
-        profiles = viewer.visible_profiles(NonZeroU32::new(300).expect("non-zero"))?;
+        let horizontal_selection = records.individual_selection(viewer.viewport.read_offset);
+        let selected_profile = after_j_profiles
+            .get(viewer.viewport.read_offset)
+            .cloned()
+            .expect("selected profile");
+        assert!(handle_viewer_key(
+            &mut viewer,
+            &mut records,
+            KeyCode::Char('l'),
+            1
+        )?);
+        let ViewerRecords::Individual(horizontal_profiles) = &records else {
+            return Err("individual records changed view mode".into());
+        };
+        assert!(
+            horizontal_profiles
+                .get(viewer.viewport.read_offset)
+                .is_some_and(|profile| profile.is_same_alignment(&selected_profile)),
+            "horizontal refetch must preserve a spanning selected alignment"
+        );
         let horizontal_frame =
-            build_individual_frame(&viewer, &profiles, 80, 24, FrameFooter::Controls);
+            build_individual_frame(&viewer, horizontal_profiles, 80, 24, FrameFooter::Controls);
         assert_ansi_golden(
             "bam_viewer_individual_after_l.ansi",
             &render_frame_as_ansi(&horizontal_frame, 80, 24)?,
         )?;
 
-        let height_resized_frame =
-            build_individual_frame(&viewer, &profiles, 80, 12, FrameFooter::Controls);
+        let mut missing_profiles = horizontal_profiles.clone();
+        missing_profiles.retain(|profile| !profile.is_same_alignment(&selected_profile));
+        assert_eq!(
+            reselect_individual_alignment(
+                &ViewerRecords::Individual(missing_profiles),
+                horizontal_selection.as_ref()
+            ),
+            0,
+            "a missing alignment must fall back to the first read"
+        );
+
+        let height_resized_frame = build_individual_frame(
+            &viewer,
+            horizontal_profiles,
+            80,
+            12,
+            FrameFooter::Controls,
+        );
         assert!(
             ['·', '•', '●']
                 .iter()
@@ -1627,12 +1686,14 @@ mod tests {
             &render_frame_as_ansi(&height_resized_frame, 80, 12)?,
         )?;
 
-        let narrow = build_individual_frame(&viewer, &profiles, 14, 24, FrameFooter::Controls);
+        let narrow =
+            build_individual_frame(&viewer, horizontal_profiles, 14, 24, FrameFooter::Controls);
         assert_ansi_golden(
             "bam_viewer_individual_narrow.ansi",
             &render_frame_as_ansi(&narrow, 14, 24)?,
         )?;
-        let short = build_individual_frame(&viewer, &profiles, 80, 6, FrameFooter::Controls);
+        let short =
+            build_individual_frame(&viewer, horizontal_profiles, 80, 6, FrameFooter::Controls);
         assert!(!short.contains("1.0 ┤"));
         assert!(!short.contains('└'));
         assert_ansi_golden(
@@ -1655,6 +1716,71 @@ mod tests {
         );
         assert!(second_contig_frame.contains("contig_00001:30001"));
         assert!(!second_contig_frame.contains("contig_000:30001"));
+        Ok(())
+    }
+
+    #[test]
+    fn individual_refetch_retains_identical_key_occurrence() -> Result<(), Box<dyn Error>> {
+        let make_record = |probability: u8| -> Result<bam::Record, Box<dyn Error>> {
+            let mut record = bam::Record::new();
+            record.set_tid(0);
+            record.set_pos(0);
+            record.set_mapq(60);
+            record.unset_unmapped();
+            record.set(
+                b"duplicate-name",
+                Some(&CigarString::from(vec![Cigar::Match(20)])),
+                b"AAAAAAAAAAAAAAAAAAAA",
+                &[30; 20],
+            );
+            record.push_aux(b"MM", Aux::String("A+a?,0;"))?;
+            record.push_aux(b"ML", Aux::ArrayU8((&[probability][..]).into()))?;
+            Ok(record)
+        };
+        let path = env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
+        write_bam_denovo(
+            [make_record(0)?, make_record(255)?],
+            [(String::from("chr1"), 30)],
+            [String::from("rg1")],
+            Vec::<String>::new(),
+            &path,
+        )?;
+        let mut viewer = Viewer::open_mode(
+            path.clone(),
+            &InitialPosition {
+                contig: String::from("chr1"),
+                start: 0,
+            },
+            Some(ModChar::new('a')),
+            ViewMode::Individual {
+                win: NonZeroU32::new(1).expect("non-zero"),
+            },
+            10,
+        )?;
+        let mut records = fetch_viewer_records(&mut viewer)?;
+        viewer.viewport.read_offset = 1;
+
+        assert!(handle_viewer_key(
+            &mut viewer,
+            &mut records,
+            KeyCode::Right,
+            1
+        )?);
+        let ViewerRecords::Individual(profiles) = records else {
+            return Err("individual records changed view mode".into());
+        };
+        assert_eq!(viewer.viewport.read_offset, 1);
+        assert_eq!(
+            profiles
+                .get(viewer.viewport.read_offset)
+                .and_then(|profile| profile.calls().first())
+                .map(|call| call.1),
+            Some(255),
+            "refetch must retain the selected occurrence, not the first equal key"
+        );
+
+        std::fs::remove_file(&path)?;
+        std::fs::remove_file(format!("{}.bai", path.display()))?;
         Ok(())
     }
 
