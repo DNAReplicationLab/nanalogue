@@ -1614,6 +1614,19 @@ mod tests {
             &render_frame_as_ansi(&horizontal_frame, 80, 24)?,
         )?;
 
+        let height_resized_frame =
+            build_individual_frame(&viewer, &profiles, 80, 12, FrameFooter::Controls);
+        assert!(
+            ['·', '•', '●']
+                .iter()
+                .any(|glyph| height_resized_frame.contains(*glyph))
+        );
+        assert!(height_resized_frame.contains('━'));
+        assert_ansi_golden(
+            "bam_viewer_individual_height_resize.ansi",
+            &render_frame_as_ansi(&height_resized_frame, 80, 12)?,
+        )?;
+
         let narrow = build_individual_frame(&viewer, &profiles, 14, 24, FrameFooter::Controls);
         assert_ansi_golden(
             "bam_viewer_individual_narrow.ansi",

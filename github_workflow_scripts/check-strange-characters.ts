@@ -40,6 +40,7 @@ const ANSI_GOLDENS = new Set([
     "tests/goldens/bam_viewer_individual_default.ansi",
     "tests/goldens/bam_viewer_individual_after_j.ansi",
     "tests/goldens/bam_viewer_individual_after_l.ansi",
+    "tests/goldens/bam_viewer_individual_height_resize.ansi",
     "tests/goldens/bam_viewer_individual_narrow.ansi",
     "tests/goldens/bam_viewer_individual_short.ansi",
     "tests/goldens/bam_viewer_individual_no_calls.ansi",
