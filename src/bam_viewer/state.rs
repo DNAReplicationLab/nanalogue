@@ -303,9 +303,19 @@ impl Viewer {
     /// Applies navigation in individual mode, where exactly one read is visible.
     pub(super) fn handle_individual_key(&mut self, key: KeyCode, read_count: usize) -> bool {
         let previous_start = self.viewport.start;
+        let previous_read_offset = self.viewport.read_offset;
         self.viewport
             .navigate(key, self.target_len(), self.window_len, read_count, 1);
-        self.viewport.start != previous_start
+        let moved_horizontally = self.viewport.start != previous_start;
+        if !moved_horizontally
+            && matches!(
+                key,
+                KeyCode::Left | KeyCode::Right | KeyCode::Char('h' | 'l')
+            )
+        {
+            self.viewport.read_offset = previous_read_offset;
+        }
+        moved_horizontally
     }
 }
 

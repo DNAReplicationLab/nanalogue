@@ -1568,6 +1568,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one simulation is reused across related navigation and resize goldens"
+    )]
     fn individual_navigation_viewports_match_ansi_goldens() -> Result<(), Box<dyn Error>> {
         let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1668,13 +1672,8 @@ mod tests {
             "a missing alignment must fall back to the first read"
         );
 
-        let height_resized_frame = build_individual_frame(
-            &viewer,
-            horizontal_profiles,
-            80,
-            12,
-            FrameFooter::Controls,
-        );
+        let height_resized_frame =
+            build_individual_frame(&viewer, horizontal_profiles, 80, 12, FrameFooter::Controls);
         assert!(
             ['·', '•', '●']
                 .iter()
@@ -1720,7 +1719,8 @@ mod tests {
     }
 
     #[test]
-    fn individual_refetch_retains_identical_key_occurrence() -> Result<(), Box<dyn Error>> {
+    fn individual_horizontal_navigation_retains_identical_occurrence() -> Result<(), Box<dyn Error>>
+    {
         let make_record = |probability: u8| -> Result<bam::Record, Box<dyn Error>> {
             let mut record = bam::Record::new();
             record.set_tid(0);
@@ -1740,7 +1740,7 @@ mod tests {
         let path = env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
         write_bam_denovo(
             [make_record(0)?, make_record(255)?],
-            [(String::from("chr1"), 30)],
+            [(String::from("chr1"), 20)],
             [String::from("rg1")],
             Vec::<String>::new(),
             &path,
@@ -1759,6 +1759,21 @@ mod tests {
         )?;
         let mut records = fetch_viewer_records(&mut viewer)?;
         viewer.viewport.read_offset = 1;
+        let selected_probability = |current_viewer: &Viewer, cached_records: &ViewerRecords| {
+            let ViewerRecords::Individual(profiles) = cached_records else {
+                return None;
+            };
+            profiles
+                .get(current_viewer.viewport.read_offset)
+                .and_then(|profile| profile.calls().first())
+                .map(|call| call.1)
+        };
+
+        for key in [KeyCode::Left, KeyCode::Char('h')] {
+            assert!(!handle_viewer_key(&mut viewer, &mut records, key, 1)?);
+            assert_eq!(viewer.viewport.read_offset, 1);
+            assert_eq!(selected_probability(&viewer, &records), Some(255));
+        }
 
         assert!(handle_viewer_key(
             &mut viewer,
@@ -1766,18 +1781,17 @@ mod tests {
             KeyCode::Right,
             1
         )?);
-        let ViewerRecords::Individual(profiles) = records else {
-            return Err("individual records changed view mode".into());
-        };
         assert_eq!(viewer.viewport.read_offset, 1);
         assert_eq!(
-            profiles
-                .get(viewer.viewport.read_offset)
-                .and_then(|profile| profile.calls().first())
-                .map(|call| call.1),
+            selected_probability(&viewer, &records),
             Some(255),
             "refetch must retain the selected occurrence, not the first equal key"
         );
+        for key in [KeyCode::Right, KeyCode::Char('l')] {
+            assert!(!handle_viewer_key(&mut viewer, &mut records, key, 1)?);
+            assert_eq!(viewer.viewport.read_offset, 1);
+            assert_eq!(selected_probability(&viewer, &records), Some(255));
+        }
 
         std::fs::remove_file(&path)?;
         std::fs::remove_file(format!("{}.bai", path.display()))?;
