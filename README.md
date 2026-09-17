@@ -397,8 +397,8 @@ seq_len_n50     48
 
 ## `nanalogue find-modified-reads`
 Find names of modified reads through criteria specified by sub commands
-e.g.  at least one window with a modification density above
-some value (`any-dens-above`). Please run
+e.g. at least one window with a modification density at or above
+the value supplied to `--high` (`any-dens-above`). Please run
 `nanalogue find-modified-reads --help` to learn more.
 Output is a list of read ids that satisfy the specified criterion e.g.
 
