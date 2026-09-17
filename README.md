@@ -374,7 +374,8 @@ fffffff1-10d2-49cb-8ca3-e8d48979001b    33      33      primary_reverse T:1
 ```
 
 ## `nanalogue read-stats`
-Calculates various summary statistics on all reads. A sample output follows.
+Calculates various summary statistics on all reads. Sample output from
+`nanalogue read-stats examples/example_1.bam` follows.
 
 ```text
 key     value
@@ -386,12 +387,12 @@ n_reversed_reads        1
 align_len_mean  29
 align_len_max   48
 align_len_min   8
-align_len_median        8
+align_len_median        33
 align_len_n50   48
 seq_len_mean    34
 seq_len_max     48
 seq_len_min     8
-seq_len_median  33
+seq_len_median  48
 seq_len_n50     48
 ```
 
