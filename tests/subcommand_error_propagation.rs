@@ -312,7 +312,8 @@ seq_len_n50\t5\n";
         );
     }
 
-    /// All-255 qualities keep the 255 sentinel; all-20 qualities average to 20.
+    /// All-255 qualities keep the sentinel; asymmetric qualities use the
+    /// probability-space mean of each distinct window.
     #[test]
     fn window_reads_preserves_sentinel_and_averages_qualities() {
         let sentinel = modified_record(
@@ -323,11 +324,11 @@ seq_len_n50\t5\n";
             &[255u8; 5],
         );
         let control = modified_record(
-            "qual_20",
+            "mixed_qual",
             "T+T,0,0,0,0,0;",
             &[200u8; 5],
             b"TTTTT",
-            &[20u8; 5],
+            &[10, 20, 30, 40, 50],
         );
 
         let mods = InputMods::<OptionalTag>::default();
@@ -359,8 +360,8 @@ mod_type\twin_start\twin_end\tbasecall_qual",
         let expected = [
             ("qual_255", "0", "4", "255"),
             ("qual_255", "1", "5", "255"),
-            ("qual_20", "0", "4", "20"),
-            ("qual_20", "1", "5", "20"),
+            ("mixed_qual", "0", "4", "16"),
+            ("mixed_qual", "1", "5", "26"),
         ];
         for (row, (read_id, win_start, win_end, basecall_qual)) in rows.iter().zip(expected) {
             assert_eq!(row.len(), 12, "every window row has twelve columns");

@@ -433,7 +433,11 @@ mod tests {
             1,
             "one contig was requested"
         );
-        assert_eq!(reader.records().count(), 2, "two reads were requested");
+        let records = reader
+            .records()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("all generated BAM records must decode");
+        assert_eq!(records.len(), 2, "two readable records were requested");
     }
 
     /// A mismatch pass that covers every position still preserves an `N` base,
