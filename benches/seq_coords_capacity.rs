@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Benchmarks successful coordinate extraction when the output retains spare capacity.
 
 use nanalogue_core::bedrs::Bed3;
