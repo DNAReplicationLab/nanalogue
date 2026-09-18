@@ -96,6 +96,62 @@ mod tests {
         error
     }
 
+    /// Asserts that blocked FASTA and FASTA-index paths fail at their exact
+    /// output stages rather than through an unrelated earlier error.
+    fn assert_output_path_failures(dir: &TempDir) {
+        let blocked_fasta = dir.path.join("blocked.fa");
+        std::fs::create_dir_all(&blocked_fasta).expect("test directory must be creatable");
+        let blocked_config: SimulationConfig =
+            serde_json::from_str(PLAIN_CONFIG).expect("plain fixture must deserialize");
+        let blocked_bam = dir.path.join("blocked.bam");
+        let blocked_error = run(blocked_config, &blocked_bam, &blocked_fasta)
+            .expect_err("an unusable FASTA path must fail the run");
+        assert!(
+            matches!(blocked_error, Error::InputOutputError(_)),
+            "the blocked FASTA must produce its I/O error, got {blocked_error:?}"
+        );
+        assert!(
+            blocked_bam.exists() && dir.path.join("blocked.bam.bai").exists(),
+            "the BAM and its index must be complete before FASTA creation fails"
+        );
+
+        let cram_config: SimulationConfig =
+            serde_json::from_str(PLAIN_CONFIG).expect("plain fixture must deserialize");
+        let blocked_cram = dir.path.join("blocked.cram");
+        let cram_error = run(cram_config, &blocked_cram, &blocked_fasta)
+            .expect_err("an unusable FASTA path must fail the CRAM run");
+        assert!(
+            matches!(cram_error, Error::InputOutputError(_)),
+            "the blocked CRAM FASTA must produce its I/O error, got {cram_error:?}"
+        );
+        assert!(
+            !blocked_cram.exists(),
+            "CRAM creation must not start before its FASTA is available"
+        );
+
+        std::fs::create_dir_all(dir.path.join("blocked_fai.fa.fai"))
+            .expect("test directory must be creatable");
+        let index_config: SimulationConfig =
+            serde_json::from_str(PLAIN_CONFIG).expect("plain fixture must deserialize");
+        let indexed_cram = dir.path.join("indexed.cram");
+        let indexed_fasta = dir.path.join("blocked_fai.fa");
+        let index_error = run(index_config, &indexed_cram, &indexed_fasta)
+            .expect_err("an unusable FASTA index path must fail the CRAM run");
+        assert!(
+            matches!(&index_error, Error::WriteOutput(message)
+                if message.starts_with("failed to create FASTA index:")),
+            "the blocked FASTA index must report its creation stage, got {index_error:?}"
+        );
+        assert!(
+            indexed_fasta.exists(),
+            "the FASTA must be written before its index creation fails"
+        );
+        assert!(
+            !indexed_cram.exists(),
+            "CRAM creation must not start until the FASTA index exists"
+        );
+    }
+
     /// An empty `win` schedule deserializes, but `run` rejects it at the
     /// `SimulationConfig::validate` boundary. With both schedules empty, that
     /// runtime win check still runs before read generation, where an empty
@@ -343,50 +399,7 @@ mod tests {
             "an empty sequence must be rejected"
         );
 
-        // A FASTA output path that is an existing directory cannot be created;
-        // the failure must propagate instead of being silently ignored.
-        let blocked_fasta = dir.path.join("blocked.fa");
-        std::fs::create_dir_all(&blocked_fasta).expect("test directory must be creatable");
-        let blocked_config: SimulationConfig =
-            serde_json::from_str(PLAIN_CONFIG).expect("plain fixture must deserialize");
-        let blocked_error = run(
-            blocked_config,
-            &dir.path.join("blocked.bam"),
-            &blocked_fasta,
-        )
-        .expect_err("an unusable FASTA path must fail the run");
-        assert!(
-            !matches!(blocked_error, Error::InvalidState(_)),
-            "the failure must be an output-write error, got {blocked_error:?}"
-        );
-
-        // The CRAM branch writes its FASTA before indexing, so an unusable
-        // FASTA path must propagate the write error on that branch as well.
-        let cram_config: SimulationConfig =
-            serde_json::from_str(PLAIN_CONFIG).expect("plain fixture must deserialize");
-        let cram_error = run(cram_config, &dir.path.join("blocked.cram"), &blocked_fasta)
-            .expect_err("an unusable FASTA path must fail the CRAM run");
-        assert!(
-            !matches!(cram_error, Error::InvalidState(_)),
-            "the CRAM failure must be an output-write error, got {cram_error:?}"
-        );
-
-        // If the FASTA index path is unusable, the CRAM branch fails while
-        // building the index after the FASTA itself was written.
-        std::fs::create_dir_all(dir.path.join("blocked_fai.fa.fai"))
-            .expect("test directory must be creatable");
-        let index_config: SimulationConfig =
-            serde_json::from_str(PLAIN_CONFIG).expect("plain fixture must deserialize");
-        let index_error = run(
-            index_config,
-            &dir.path.join("indexed.cram"),
-            &dir.path.join("blocked_fai.fa"),
-        )
-        .expect_err("an unusable FASTA index path must fail the CRAM run");
-        assert!(
-            !matches!(index_error, Error::InvalidState(_)),
-            "the FASTA index failure must be an output-write error, got {index_error:?}"
-        );
+        assert_output_path_failures(&dir);
     }
 
     /// A `.sam` alignment path is rejected by extension, while an uppercase

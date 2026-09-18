@@ -301,7 +301,7 @@ seq_len_n50\t5\n";
             window_options(),
             &mod_options,
             threshold_and_mean,
-            |windows: &Vec<F32Bw0and1>| !windows.is_empty(),
+            |_: &Vec<F32Bw0and1>| true,
         )
         .expect("a record with no windows is skipped, not fatal");
 
@@ -415,8 +415,8 @@ mod_type\twin_start\twin_end\tbasecall_qual",
         buffer: Vec<u8>,
         /// Bytes still accepted; `None` captures output instead of failing.
         bytes_left: Option<usize>,
-        /// Whether `flush` should fail as well.
-        fail_flush: bool,
+        /// Captured-byte threshold at which the next `flush` fails.
+        fail_flush_after: Option<usize>,
     }
 
     impl ProbeWriter {
@@ -425,22 +425,22 @@ mod_type\twin_start\twin_end\tbasecall_qual",
             Self {
                 buffer: Vec::new(),
                 bytes_left: None,
-                fail_flush: false,
+                fail_flush_after: None,
             }
         }
 
-        /// Accepts `bytes_left` bytes and then fails every write.
+        /// Accepts `bytes_left` bytes, fails one write, then accepts later writes.
         fn failing(bytes_left: usize) -> Self {
             Self {
                 buffer: Vec::new(),
                 bytes_left: Some(bytes_left),
-                fail_flush: false,
+                fail_flush_after: None,
             }
         }
 
-        /// Marks the handle so that its `flush` fails too.
-        fn with_failing_flush(mut self) -> Self {
-            self.fail_flush = true;
+        /// Fails one flush after at least `captured_bytes` have been written.
+        fn with_failing_flush_after(mut self, captured_bytes: usize) -> Self {
+            self.fail_flush_after = Some(captured_bytes);
             self
         }
 
@@ -457,7 +457,10 @@ mod_type\twin_start\twin_end\tbasecall_qual",
                     self.buffer.extend_from_slice(buf);
                     Ok(buf.len())
                 }
-                Some(0) => Err(io::Error::other("synthetic write failure")),
+                Some(0) => {
+                    self.bytes_left = None;
+                    Err(io::Error::other("synthetic write failure"))
+                }
                 Some(bytes_left) => {
                     let accepted = buf.len().min(bytes_left);
                     self.buffer.extend_from_slice(
@@ -475,12 +478,28 @@ mod_type\twin_start\twin_end\tbasecall_qual",
         }
 
         fn flush(&mut self) -> io::Result<()> {
-            if self.fail_flush {
+            if self
+                .fail_flush_after
+                .is_some_and(|threshold| self.buffer.len() >= threshold)
+            {
+                self.fail_flush_after = None;
                 Err(io::Error::other("synthetic flush failure"))
             } else {
                 Ok(())
             }
         }
+    }
+
+    /// Asserts that a synthetic writer failure is propagated unchanged.
+    fn assert_io_error(error: Error, label: &str, marker: &str) {
+        let Error::InputOutputError(source) = error else {
+            unreachable!("{label}: expected InputOutputError, got {error:?}")
+        };
+        assert_eq!(
+            source.to_string(),
+            marker,
+            "{label}: the originating writer failure must be preserved"
+        );
     }
 
     /// Fails `run_once` at every output position and expects `InputOutputError`.
@@ -502,21 +521,38 @@ mod_type\twin_start\twin_end\tbasecall_qual",
             let mut writer = ProbeWriter::failing(budget);
             let error = run_once(&mut writer)
                 .expect_err("a failing writer must surface an error instead of panicking");
-            assert!(
-                matches!(error, Error::InputOutputError(_)),
-                "{label}: write failure at byte {budget} must be InputOutputError, got {error:?}"
+            assert_io_error(
+                error,
+                &format!("{label}: write failure at byte {budget}"),
+                "synthetic write failure",
             );
             budget = budget
                 .checked_add(line.len().checked_add(1).expect("lines are short"))
                 .expect("outputs are small");
         }
 
-        let mut writer = ProbeWriter::failing(successful_output.len()).with_failing_flush();
-        let error = run_once(&mut writer)
-            .expect_err("a failing flush must surface an error instead of panicking");
-        assert!(
-            matches!(error, Error::InputOutputError(_)),
-            "{label}: flush failure must be InputOutputError, got {error:?}"
+        let mut immediate_writer = ProbeWriter::capture().with_failing_flush_after(0);
+        let immediate_error = run_once(&mut immediate_writer)
+            .expect_err("an immediate flush failure must surface instead of panicking");
+        assert_io_error(
+            immediate_error,
+            &format!("{label}: immediate flush failure"),
+            "synthetic flush failure",
+        );
+
+        let mut final_writer =
+            ProbeWriter::capture().with_failing_flush_after(successful_output.len());
+        let final_error = run_once(&mut final_writer)
+            .expect_err("the final flush failure must surface instead of panicking");
+        assert_eq!(
+            final_writer.buffer,
+            successful_output.as_bytes(),
+            "{label}: final flush must fail only after the complete output was written"
+        );
+        assert_io_error(
+            final_error,
+            &format!("{label}: final flush failure"),
+            "synthetic flush failure",
         );
     }
 
