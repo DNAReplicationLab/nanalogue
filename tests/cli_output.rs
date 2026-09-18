@@ -10,7 +10,13 @@ mod tests {
     #[test]
     fn missing_input_reports_runtime_failure_on_stderr() {
         let output = Command::new(env!("CARGO_BIN_EXE_nanalogue"))
-            .args(["read-info", "examples/example_1.bam/missing.bam"])
+            .args([
+                "read-info",
+                concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/examples/example_1.bam/missing.bam"
+                ),
+            ])
             .output()
             .expect("nanalogue executable should run");
 

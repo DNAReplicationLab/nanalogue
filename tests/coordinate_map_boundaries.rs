@@ -46,7 +46,8 @@ mod tests {
             read.seq_coords_from_ref_coords(&complete, &region).unwrap(),
             vec![Some((true, 0)), Some((true, 1)), Some((true, 2))]
         );
-        let error = read
+        let short_read = CurrRead::default().try_from_only_alignment(&short).unwrap();
+        let error = short_read
             .seq_coords_from_ref_coords(&short, &region)
             .unwrap_err();
         assert!(matches!(error, Error::InvalidState(message)
@@ -68,8 +69,12 @@ mod tests {
             if message == "failure from upstream libraries: missing sequence coordinates"));
 
         // A subinterval which is fully present still works with that record.
+        let shorter_read = CurrRead::default()
+            .try_from_only_alignment(&shorter)
+            .unwrap();
         assert_eq!(
-            read.seq_coords_from_ref_coords(&shorter, &GenomicBed3::new(0, 11, 13))
+            shorter_read
+                .seq_coords_from_ref_coords(&shorter, &GenomicBed3::new(0, 11, 13))
                 .unwrap(),
             vec![Some((true, 1)), Some((true, 2))]
         );
