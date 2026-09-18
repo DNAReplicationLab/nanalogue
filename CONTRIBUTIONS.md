@@ -71,7 +71,7 @@ This project maintains high code quality standards. Before submitting a PR, ensu
 1. **All tests pass**: Run `cargo test -q` and `cargo test -q --all-features`
 2. **Clippy lints pass**: Run `cargo clippy --all-features --all-targets -- -D warnings`
 3. **Code is formatted**: Run `cargo fmt`
-4. **Code coverage is maintained**: We aim for >92% test coverage
+4. **Code coverage is maintained**: We aim for >88% production-code region coverage
 
 The project uses extensive clippy lints (see `Cargo.toml` for the full list). Your code must pass all linting checks.
 
