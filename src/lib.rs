@@ -745,8 +745,9 @@ const _: () = assert!(
     "MAX_READ_ID_LEN must leave room for CRLF bytes in read-id line buffering"
 );
 
-/// Loads read IDs from a text reader, deduplicating them into a set while
-/// enforcing a maximum number of input lines processed.
+/// Loads read IDs from a text reader, ignoring a leading block of comment
+/// lines, deduplicating IDs into a set, and enforcing a maximum number of
+/// read-ID lines processed.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "`counter` is bounded by `max_read_ids`, and the nearby const assert guarantees `MAX_READ_ID_LEN + 2` cannot overflow"
@@ -757,6 +758,7 @@ fn load_read_ids_for_filtering<T: BufRead>(
 ) -> Result<HashSet<String>, Error> {
     let mut read_ids = HashSet::new();
     let mut counter: u32 = 0;
+    let mut has_read_id_section_started = false;
 
     let mut line = String::with_capacity((MAX_READ_ID_LEN + 2).into()); // allow 2 bytes for newline(s)
     loop {
@@ -764,12 +766,21 @@ fn load_read_ids_for_filtering<T: BufRead>(
         if bytes_read == 0 {
             break;
         }
+        if line.starts_with('#') {
+            if !has_read_id_section_started {
+                continue;
+            }
+            return Err(Error::InvalidState(
+                "comments must appear before read IDs in read id file".to_owned(),
+            ));
+        }
         if line.is_empty() {
             return Err(Error::InvalidState(
                 "blank line found in read id file!".to_owned(),
             ));
         }
         ensure_valid_read_id(line.as_bytes(), MAX_READ_ID_LEN)?;
+        has_read_id_section_started = true;
         let _: bool = read_ids.insert(line.clone());
         if counter < max_read_ids {
             counter += 1;
@@ -2229,6 +2240,20 @@ mod bam_rc_record_tests {
     }
 
     #[test]
+    #[should_panic(expected = "blank line found in read id file!")]
+    fn load_read_ids_for_filtering_disallows_blank_lines_before_comments() {
+        let reader = Cursor::new("\r\n# comment\nread_1\n");
+        drop(load_read_ids_for_filtering(reader, 1).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "blank line found in read id file!")]
+    fn load_read_ids_for_filtering_disallows_blank_lines_within_comments() {
+        let reader = Cursor::new("# comment\r\n\nread_1\n");
+        drop(load_read_ids_for_filtering(reader, 1).unwrap());
+    }
+
+    #[test]
     #[should_panic(expected = "too many lines in read id text input file for filtering")]
     fn load_read_ids_for_filtering_rejects_new_unique_past_limit() {
         let reader = Cursor::new("read_0\nread_1\nread_2\n");
@@ -2250,12 +2275,63 @@ mod bam_rc_record_tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "we do not accept read_id values starting with reserved leading characters"
-    )]
-    fn load_read_ids_for_filtering_rejects_comments() {
-        let reader = Cursor::new("#comment\nread_1\nread_2\n");
-        drop(load_read_ids_for_filtering(reader, 3).unwrap());
+    fn load_read_ids_for_filtering_ignores_comments() {
+        let reader = Cursor::new("# comment\n#another comment\r\nread_1\nread_2\r\n");
+
+        let read_id_set = load_read_ids_for_filtering(reader, 2).unwrap();
+
+        assert_eq!(read_id_set.len(), 2);
+        assert!(read_id_set.contains("read_1"));
+        assert!(read_id_set.contains("read_2"));
+    }
+
+    #[test]
+    fn load_read_ids_for_filtering_allows_only_leading_comments() {
+        let reader = Cursor::new("# comment\n#another comment\r\n");
+
+        let read_id_set = load_read_ids_for_filtering(reader, 0).unwrap();
+
+        assert!(read_id_set.is_empty());
+    }
+
+    #[test]
+    fn load_read_ids_for_filtering_allows_unterminated_comment_only_files() {
+        for comments in ["#", "# comment"] {
+            let reader = Cursor::new(comments);
+
+            let read_id_set = load_read_ids_for_filtering(reader, 0).unwrap();
+
+            assert!(read_id_set.is_empty());
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "line has unusual characters!")]
+    fn load_read_ids_for_filtering_rejects_non_ascii_comments() {
+        let reader = Cursor::new("# comment: \u{e9}\n");
+        drop(load_read_ids_for_filtering(reader, 0).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "line is too long")]
+    fn load_read_ids_for_filtering_rejects_long_comments() {
+        let comment = format!("#{}", "c".repeat(usize::from(MAX_READ_ID_LEN) + 2));
+        let reader = Cursor::new(comment);
+        drop(load_read_ids_for_filtering(reader, 0).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "comments must appear before read IDs in read id file")]
+    fn load_read_ids_for_filtering_rejects_comments_after_read_ids() {
+        let reader = Cursor::new("# comment\nread_1\n#another comment\nread_2\n");
+        drop(load_read_ids_for_filtering(reader, 2).unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "comments must appear before read IDs in read id file")]
+    fn load_read_ids_for_filtering_rejects_comment_after_read_id_at_eof() {
+        let reader = Cursor::new("read_1\n# comment");
+        drop(load_read_ids_for_filtering(reader, 1).unwrap());
     }
 
     #[test]

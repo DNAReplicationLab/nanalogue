@@ -175,7 +175,8 @@ pub struct InputBam {
     #[builder(setter(into, strip_option))]
     pub read_id: Option<String>,
     /// Path to file containing list of read IDs (one per line).
-    /// Lines starting with '#' are treated as comments and ignored.
+    /// Leading lines starting with '#' are treated as comments and ignored.
+    /// Comments after the first read ID are rejected.
     /// Cannot be used together with --read-id.
     #[clap(long, conflicts_with = "read_id")]
     #[builder(setter(into, strip_option))]
