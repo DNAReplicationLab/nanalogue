@@ -2029,6 +2029,7 @@ impl Drop for TempBamSimulation {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod temp_bam_simulation_ownership {
     use super::TempBamSimulation;
 
@@ -2073,6 +2074,7 @@ mod temp_bam_simulation_ownership {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod random_dna_generation_test {
     use super::*;
 
@@ -2088,6 +2090,7 @@ mod random_dna_generation_test {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod seeded_simulation_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
@@ -2132,6 +2135,7 @@ mod seeded_simulation_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "arithmetic in generated rstest case bodies operates on small test data"
@@ -2901,6 +2905,7 @@ mod read_generation_no_mods_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod read_generation_barcodes {
     use super::*;
     use rust_htslib::bam::Read as _;
@@ -3056,6 +3061,7 @@ mod read_generation_barcodes {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[expect(
     clippy::arithmetic_side_effects,
     clippy::integer_division_remainder_used,
@@ -5132,6 +5138,7 @@ mod read_generation_with_mods_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod contig_generation_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
@@ -5248,6 +5255,7 @@ mod contig_generation_tests {
 
 /// Tests for `PerfectSeqMatchToNot` methods
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod perfect_seq_match_to_not_tests {
     use super::*;
 

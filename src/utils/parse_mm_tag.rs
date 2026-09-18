@@ -168,6 +168,7 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

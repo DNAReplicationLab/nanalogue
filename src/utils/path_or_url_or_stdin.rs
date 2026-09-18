@@ -226,6 +226,7 @@ impl From<PathOrURLOrStdin> for InputBam {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[expect(
     clippy::panic,
     reason = "panic is acceptable in tests for assertion failures"

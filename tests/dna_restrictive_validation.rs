@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Constructor and JSON boundaries for the validated, nonempty DNA wrapper.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::{DNARestrictive, Error, GetDNARestrictive as _};
 

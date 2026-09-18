@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! BAM/CRAM matrix tests for simulated alignment parity.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation};
     use nanalogue_core::{CurrRead, Error, ThresholdState};

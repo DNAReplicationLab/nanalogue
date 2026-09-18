@@ -58,6 +58,7 @@ pub fn is_valid_v4(s: &str) -> bool {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

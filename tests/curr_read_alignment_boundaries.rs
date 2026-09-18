@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Bounds at the BAM-to-`CurrRead` alignment boundary.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::{CurrRead, Error, ReadState, constants::shared::MAX_CONTIGS};
     use rust_htslib::bam::{

@@ -129,6 +129,7 @@ impl<'de> Deserialize<'de> for MmSuffix {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

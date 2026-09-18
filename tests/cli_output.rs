@@ -1,7 +1,10 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Executable-level tests for CLI output stream contracts.
 
 /// Tests that invoke the compiled CLI executable.
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use std::process::Command;
 

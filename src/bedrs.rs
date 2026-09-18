@@ -156,6 +156,7 @@ pub mod prelude {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::{Bed3, Coordinates as _, Intersect as _, Strand, StrandedBed3};
 

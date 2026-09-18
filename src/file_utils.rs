@@ -825,6 +825,7 @@ pub(crate) fn read_line_capped<R: std::io::BufRead>(
 
 #[expect(clippy::panic, reason = "panic on error is standard practice in tests")]
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::{DNARestrictive, uuid};

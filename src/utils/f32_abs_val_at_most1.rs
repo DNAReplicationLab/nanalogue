@@ -133,6 +133,7 @@ impl TryFrom<f32> for F32AbsValAtMost1 {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

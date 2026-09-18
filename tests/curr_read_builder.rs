@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Tests for `CurrReadBuilder` extracted from doctests
 //! These tests verify the builder pattern functionality for creating `CurrRead` instances
 
@@ -7,6 +9,7 @@ use nanalogue_core::{
 };
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

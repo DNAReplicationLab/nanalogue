@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Deletion endpoints must retain an aligned base at each end of a simulated read.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::simulate_mod_bam::PerfectSeqMatchToNot;
     use nanalogue_core::{DNARestrictive, Error, OrdPair, ReadState};

@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Coordinate retrieval checks at the public BAM record boundary.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::{CurrRead, Error, GenomicBed3};
     use rust_htslib::bam::{
