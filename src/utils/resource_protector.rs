@@ -150,6 +150,7 @@ pub fn ensure_valid_contig(contig: &[u8], max_len: u8) -> Result<(), Error> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::{
         ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,

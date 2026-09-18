@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! # Nanalogue Core
 //!
 //! ## Introduction
@@ -6,7 +8,7 @@
 //! Nanalogue is a tool to parse or analyse BAM/Mod BAM files with a single-molecule focus.
 //!
 //! [![Cargo Build & Test](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/ci.yml/badge.svg)](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/ci.yml)
-//! [![Code test coverage > 92\%](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/cargo-llvm-cov.yml/badge.svg)](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/cargo-llvm-cov.yml)
+//! [![Code region coverage > 88\%](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/cargo-llvm-cov.yml/badge.svg)](https://github.com/DNAReplicationLab/nanalogue/actions/workflows/cargo-llvm-cov.yml)
 //! [![crates.io](https://img.shields.io/crates/v/nanalogue.svg)](https://crates.io/crates/nanalogue)
 //! [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 //!
@@ -1049,6 +1051,7 @@ impl BamPreFilt for bam::Record {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod mod_parse_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
@@ -1657,6 +1660,7 @@ mod mod_parse_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod zero_length_filtering_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
@@ -1703,6 +1707,7 @@ mod zero_length_filtering_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod invalid_seq_length_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
@@ -1722,6 +1727,7 @@ mod invalid_seq_length_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod base_qual_filtering_tests {
     use super::*;
     use rust_htslib::bam::Read as _;
@@ -1750,6 +1756,7 @@ mod base_qual_filtering_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod bam_rc_record_tests {
     use super::*;
     use rand::random_range;

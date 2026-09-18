@@ -134,6 +134,7 @@ impl<'de> Deserialize<'de> for DNARestrictive {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

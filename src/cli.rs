@@ -786,6 +786,7 @@ pub enum SeqDisplayOptions {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tag_struct_tests {
     use super::*;
 
@@ -832,6 +833,7 @@ mod tag_struct_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod input_windowing_tests {
     use super::*;
 
@@ -863,6 +865,7 @@ mod input_windowing_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod input_mods_required_tag_tests {
     use super::*;
 
@@ -918,6 +921,7 @@ mod input_mods_required_tag_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod input_bam_tests {
     use super::*;
     use crate::bedrs::Coordinates as _;
@@ -1117,6 +1121,7 @@ mod input_bam_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod input_region_options_tests {
     use super::*;
 
@@ -1148,6 +1153,7 @@ mod input_region_options_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod validate_builder_functions {
     use super::*;
 

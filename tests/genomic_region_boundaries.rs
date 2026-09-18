@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Boundary tests for genomic region parsing and header-aware conversion.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::{Error, GenomicBed3, GenomicRegion};
     use rust_htslib::bam;

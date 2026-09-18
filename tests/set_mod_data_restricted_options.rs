@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Tests for `set_mod_data_restricted_options` method in `read_utils.rs`
 //! Covers filtering by region, tag, strand, probability, base quality, and read end trimming
 
@@ -101,6 +103,7 @@ impl InputRegionOptions for MockModOptions {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

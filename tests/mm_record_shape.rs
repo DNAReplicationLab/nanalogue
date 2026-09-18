@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Record-shape validation at the public MM/ML parsing boundary.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::{BaseMods, Error, FiberAnnotation, nanalogue_mm_ml_parser};
     use rust_htslib::bam::{

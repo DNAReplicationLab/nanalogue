@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Cross-record modification limits for the public peek command.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use std::rc::Rc;
 

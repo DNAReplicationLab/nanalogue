@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Deterministic boundary tests for the UUIDs used as read identifiers.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::uuid::{is_valid_v4, v4_from_bytes};
 

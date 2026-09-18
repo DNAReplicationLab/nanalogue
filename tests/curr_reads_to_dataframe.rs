@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Tests for `curr_reads_to_dataframe` function
 
 #![cfg(feature = "polars")]
@@ -8,6 +10,7 @@ use nanalogue_core::{
 };
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

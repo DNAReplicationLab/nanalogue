@@ -390,6 +390,7 @@ impl From<polars::error::PolarsError> for Error {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     #[cfg(feature = "polars")]

@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Boundary coverage for BAM record pre-filters without file-backed fixtures.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::{BamPreFilt as _, GenomicBed3, InputBam};
     use rust_htslib::bam::record::{Cigar, CigarString, Record};

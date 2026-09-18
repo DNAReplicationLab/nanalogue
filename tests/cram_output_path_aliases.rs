@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Output aliases must be rejected before CRAM or reference files are created.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::{Error, file_utils::write_cram_denovo, uuid};
     use rust_htslib::bam::Record;

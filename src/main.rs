@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! # Nanalogue (Nucleic Acid Analogue)
 //!
 //! We process and calculate data associated with DNA/RNA molecules, their alignments to

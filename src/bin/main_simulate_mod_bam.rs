@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! # Nanalogue Simulate BAM or CRAM
 //!
 //! Companion tool to nanalogue which creates artificial BAM or CRAM files (with or without modifications)
@@ -130,6 +132,7 @@ fn run(cli: &Cli) -> Result<(), Error> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use clap::error::ErrorKind;

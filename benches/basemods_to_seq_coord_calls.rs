@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Long-read batch benchmark for sequence-coordinate base modification conversion.
 
 use std::alloc::{GlobalAlloc, Layout, System};

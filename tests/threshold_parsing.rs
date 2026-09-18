@@ -1,6 +1,9 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Boundary coverage for fraction-band parsing and its byte-length guard.
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::{Contains as _, Error, OrdPair, ThresholdState};
 
