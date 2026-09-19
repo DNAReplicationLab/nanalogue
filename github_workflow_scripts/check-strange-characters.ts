@@ -34,6 +34,7 @@ const ANSI_GOLDENS = new Set([
     "tests/goldens/bam_viewer_key_page_down.ansi",
     "tests/goldens/bam_viewer_key_end_page_up.ansi",
     "tests/goldens/bam_viewer_key_right.ansi",
+    "tests/goldens/bam_viewer_left_blocked.ansi",
     "tests/goldens/bam_viewer_narrow_error.ansi",
     "tests/goldens/bam_viewer_narrow_prompt.ansi",
     "tests/goldens/bam_viewer_no_reads.ansi",

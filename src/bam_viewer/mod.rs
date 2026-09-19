@@ -1734,6 +1734,119 @@ mod tests {
         assert_ansi_golden("bam_viewer_key_default.ansi", &final_viewport)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the blocked navigation sequence retains state, cache, and viewport assertions together"
+    )]
+    fn assert_blocked_left_resets_table_display_golden(
+        simulation: &TempBamSimulation,
+    ) -> Result<(), Box<dyn Error>> {
+        let position = InitialPosition {
+            contig: String::from("contig_00000"),
+            start: 0,
+        };
+        let mut clean_viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &position,
+            Some(ModChar::new('m')),
+            window_len_for_columns(DEMO_GOLDEN_COLS),
+        )?;
+        clean_viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
+        let clean_records = fetch_viewer_records(&mut clean_viewer)?;
+        assert!(clean_records.len() > DEMO_VISIBLE_READS);
+        let clean_frame = build_viewer_frame(
+            &clean_viewer,
+            &clean_records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let clean_viewport =
+            render_frames_as_ansi([clean_frame.as_str()], DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS)?;
+
+        let mut viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &position,
+            Some(ModChar::new('m')),
+            window_len_for_columns(DEMO_GOLDEN_COLS),
+        )?;
+        viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
+        let mut records = fetch_viewer_records(&mut viewer)?;
+        let cached_records = match &records {
+            ViewerRecords::Table(table_records) => table_records.as_ptr(),
+            ViewerRecords::Individual(_) => unreachable!("table viewer must cache table records"),
+        };
+        let cached_ids = (0..records.len())
+            .map(|index| String::from(records.read_id(index).expect("cached read ID")))
+            .collect::<Vec<_>>();
+
+        for key in [KeyCode::Char('i'), KeyCode::Char('r'), KeyCode::PageDown] {
+            assert!(!handle_viewer_key(
+                &mut viewer,
+                &mut records,
+                key,
+                DEMO_VISIBLE_READS
+            )?);
+        }
+        assert!(viewer.show_insertions);
+        assert!(viewer.full_read_ids);
+        assert!(viewer.viewport.read_offset > 0);
+        assert_ne!(viewer.read_label_width, READ_LABEL_WIDTH);
+        let before_left_frame = build_viewer_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let before_left_viewport = render_frames_as_ansi(
+            [before_left_frame.as_str()],
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+        )?;
+        assert_ne!(before_left_viewport, clean_viewport);
+
+        assert!(!handle_viewer_key(
+            &mut viewer,
+            &mut records,
+            KeyCode::Left,
+            DEMO_VISIBLE_READS
+        )?);
+        assert_eq!(viewer.viewport.start, 0);
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert_eq!(viewer.read_label_width, READ_LABEL_WIDTH);
+        assert!(!viewer.full_read_ids);
+        assert!(!viewer.show_insertions);
+        assert_eq!(
+            match &records {
+                ViewerRecords::Table(table_records) => table_records.as_ptr(),
+                ViewerRecords::Individual(_) =>
+                    unreachable!("table viewer must cache table records"),
+            },
+            cached_records
+        );
+        assert_eq!(
+            (0..records.len())
+                .map(|index| String::from(records.read_id(index).expect("cached read ID")))
+                .collect::<Vec<_>>(),
+            cached_ids
+        );
+        let final_frame = build_viewer_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let final_viewport = render_frames_as_ansi(
+            [before_left_frame.as_str(), final_frame.as_str()],
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+        )?;
+        assert_eq!(final_viewport, clean_viewport);
+        assert_ansi_golden("bam_viewer_left_blocked.ansi", &final_viewport)
+    }
+
     fn assert_empty_and_contig_end_goldens() -> Result<(), Box<dyn Error>> {
         let mut empty_viewer = Viewer::open(
             PathBuf::from("examples/example_1.bam"),
@@ -1889,6 +2002,7 @@ mod tests {
         assert_goto_prompt_goldens(&simulation)?;
         assert_scrolled_goto_cancel_goldens(&simulation)?;
         assert_same_position_goto_resets_display_goldens(&simulation)?;
+        assert_blocked_left_resets_table_display_golden(&simulation)?;
         assert_terminal_size_goldens(&simulation)?;
         assert_empty_and_contig_end_goldens()?;
         assert_zero_sequence_golden(&simulation)?;
