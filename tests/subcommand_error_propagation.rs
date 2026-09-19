@@ -16,6 +16,7 @@ mod tests {
         RequiredTag, SeqDisplayOptions, find_modified_reads, peek, read_stats, reads_table,
         window_reads,
     };
+    use rust_htslib::bam::ext::BamRecordExtensions as _;
     use rust_htslib::bam::record::{Aux, Cigar, CigarString};
     use rust_htslib::bam::{Header, HeaderView, Record, header::HeaderRecord};
     use rust_htslib::errors::Error as HtslibError;
@@ -206,16 +207,17 @@ seq_len_n50\t7\n";
         );
     }
 
-    /// CIGARs that consume no reference bases still report htslib's one-base span.
+    /// Characterises htslib's one-base floor for zero-reference-span CIGARs.
     ///
-    /// This test records why the expected `InvalidAlignLength` rejection of `5S`
-    /// and `5I` records at position 10 is not reachable: htslib's `bam_endpos`
-    /// floors a zero-length reference span to one base, so `en > st` always
-    /// holds for a mapped record and `set_align_len` computes a length of one.
-    /// The error branch is instead exercised by
+    /// This is a characterization of current behavior, not an assertion that
+    /// `5S` and `5I` semantically align one reference base. Htslib's
+    /// `bam_endpos` returns `pos + 1` for these records so that they can be
+    /// indexed, and `read_stats` currently observes that synthetic span through
+    /// `reference_end`. Rejecting such CIGARs would require inspecting them
+    /// before using `reference_end`; `InvalidAlignLength` remains covered by
     /// [`read_stats_rejects_negative_alignment_start`].
     #[test]
-    fn read_stats_accepts_zero_reference_span_cigars() {
+    fn read_stats_exposes_htslib_zero_span_floor() {
         let expected = "key\tvalue\n\
 n_primary_alignments\t1\n\
 n_secondary_alignments\t0\n\
@@ -235,15 +237,22 @@ seq_len_n50\t5\n";
 
         for (label, cigar) in [("5S", Cigar::SoftClip(5)), ("5I", Cigar::Ins(5))] {
             let record = mapped_record("zero_ref_span", cigar, b"ACGTA", &[30u8; 5]);
+            assert_eq!(record.pos(), START, "{label}: test precondition");
+            assert_eq!(
+                record.reference_end(),
+                START + 1,
+                "{label}: htslib floors the zero reference span for indexing"
+            );
+
             let mut output = Vec::new();
             read_stats::run(&mut output, records(vec![record])).unwrap_or_else(|error| {
-                unreachable!("{label}: expected acceptance, got {error:?}")
+                unreachable!("{label}: expected the current one-base-floor behavior, got {error:?}")
             });
 
             assert_eq!(
                 String::from_utf8(output).expect("read_stats writes UTF-8"),
                 expected,
-                "{label}: the five query bases are counted, the reference span is one"
+                "{label}: current statistics expose htslib's synthetic one-base span"
             );
         }
     }
