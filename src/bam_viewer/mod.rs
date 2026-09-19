@@ -2354,6 +2354,130 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the boundary sequence keeps selection, cache, frame, and viewport checks together"
+    )]
+    fn individual_blocked_left_preserves_selected_view_golden() -> Result<(), Box<dyn Error>> {
+        let path = env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
+        let records = [
+            profile_record(b"first-profile", 0, 0, 12, false, Some(&[0, 64, 0]))?,
+            profile_record(
+                b"second-profile",
+                0,
+                0,
+                20,
+                false,
+                Some(&[255, 192, 128, 255, 192]),
+            )?,
+        ];
+        write_bam_denovo(
+            records,
+            [(String::from("chr1"), 30)],
+            [String::from("rg1")],
+            Vec::<String>::new(),
+            &path,
+        )?;
+        let mut viewer = Viewer::open_mode(
+            path.clone(),
+            &InitialPosition {
+                contig: String::from("chr1"),
+                start: 0,
+            },
+            Some(ModChar::new('a')),
+            ViewMode::Individual {
+                win: NonZeroU32::new(1).expect("non-zero"),
+            },
+            10,
+        )?;
+        viewer.path = PathBuf::from("individual-blocked-left.bam");
+        let mut cached_records = fetch_viewer_records(&mut viewer)?;
+        let ViewerRecords::Individual(initial_profiles) = &cached_records else {
+            return Err("individual viewer must cache profiles".into());
+        };
+        assert_eq!(initial_profiles.len(), 2);
+        let first_profile = initial_profiles.first().expect("first profile");
+        assert_eq!(first_profile.read_id(), "first-profile");
+        assert_eq!(first_profile.align_end() - first_profile.align_start(), 12);
+        assert_eq!(first_profile.calls(), [(0, 0), (1, 64), (2, 0)]);
+
+        assert!(!handle_viewer_key(
+            &mut viewer,
+            &mut cached_records,
+            KeyCode::Char('j'),
+            1
+        )?);
+        assert_eq!(viewer.viewport.read_offset, 1);
+        let ViewerRecords::Individual(selected_profiles) = &cached_records else {
+            return Err("individual viewer must retain profiles after selection".into());
+        };
+        let selected_profile = selected_profiles.get(1).expect("second profile").clone();
+        assert_eq!(selected_profile.read_id(), "second-profile");
+        assert_eq!(
+            selected_profile.align_end() - selected_profile.align_start(),
+            20
+        );
+        assert_eq!(
+            selected_profile.calls(),
+            [(0, 255), (1, 192), (2, 128), (3, 255), (4, 192)]
+        );
+        let selected_display_label = abbreviated_individual_read_label(selected_profiles, 1, 8)
+            .expect("selected profile label");
+        viewer.viewport.read_offset = 0;
+        let first_profile_frame =
+            build_individual_frame(&viewer, selected_profiles, 60, 16, FrameFooter::Controls);
+        viewer.viewport.read_offset = 1;
+        let before_frame =
+            build_individual_frame(&viewer, selected_profiles, 60, 16, FrameFooter::Controls);
+        assert!(
+            before_frame.contains(&selected_display_label),
+            "selected label {selected_display_label:?} must appear in {before_frame:?}"
+        );
+        assert_ne!(
+            before_frame, first_profile_frame,
+            "different probabilities and read lengths must produce a distinct selected plot"
+        );
+        let viewport_before_left = viewer.viewport;
+        let profiles_before_left = selected_profiles.as_ptr();
+        let before_viewport = render_frames_as_ansi([before_frame.as_str()], 60, 16)?;
+
+        assert!(!handle_viewer_key(
+            &mut viewer,
+            &mut cached_records,
+            KeyCode::Char('h'),
+            1
+        )?);
+        assert_eq!(viewer.viewport, viewport_before_left);
+        assert_eq!(viewer.viewport.start, 0);
+        let ViewerRecords::Individual(final_profiles) = &cached_records else {
+            return Err("blocked horizontal move must not change view mode".into());
+        };
+        assert_eq!(
+            final_profiles.as_ptr(),
+            profiles_before_left,
+            "blocked move must not refetch"
+        );
+        let selected_after_left = final_profiles
+            .get(viewer.viewport.read_offset)
+            .expect("selected profile after blocked move");
+        assert!(selected_after_left.is_same_alignment(&selected_profile));
+        assert_eq!(
+            abbreviated_individual_read_label(final_profiles, viewer.viewport.read_offset, 8),
+            Some(selected_display_label),
+            "blocked move must preserve the selected label"
+        );
+        let after_frame =
+            build_individual_frame(&viewer, final_profiles, 60, 16, FrameFooter::Controls);
+        assert_eq!(after_frame, before_frame);
+        let after_viewport =
+            render_frames_as_ansi([before_frame.as_str(), after_frame.as_str()], 60, 16)?;
+        assert_eq!(after_viewport, before_viewport);
+        assert_ansi_golden("bam_viewer_individual_left_blocked.ansi", &after_viewport)?;
+
+        remove_viewer_test_bam(&path)
+    }
+
+    #[test]
     fn read_id_width_toggles_to_the_longest_cached_id() {
         let position = InitialPosition {
             contig: String::from("dummyIII"),
