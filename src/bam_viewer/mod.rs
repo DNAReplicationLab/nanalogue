@@ -1486,6 +1486,108 @@ mod tests {
         assert_ansi_golden("bam_viewer_key_page_down.ansi", &final_viewport)
     }
 
+    fn assert_same_position_goto_resets_display_goldens(
+        simulation: &TempBamSimulation,
+    ) -> Result<(), Box<dyn Error>> {
+        let position = InitialPosition {
+            contig: String::from("contig_00000"),
+            start: 365,
+        };
+        let mut viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &position,
+            Some(ModChar::new('m')),
+            window_len_for_columns(DEMO_GOLDEN_COLS),
+        )?;
+        viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
+        let records = viewer.visible_records()?;
+        let clean_default_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let clean_default_viewport = render_frames_as_ansi(
+            [clean_default_frame.as_str()],
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+        )?;
+        assert_ansi_golden("bam_viewer_key_default.ansi", &clean_default_viewport)?;
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('i'), &records));
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('r'), &records));
+        assert!(!handle_demo_key(&mut viewer, KeyCode::PageDown, &records));
+        assert_eq!(viewer.viewport.read_offset, 16);
+        assert!(viewer.full_read_ids);
+        assert!(viewer.show_insertions);
+
+        let cached_records = records.as_ptr();
+        let cached_record_count = records.len();
+        let before_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let mut input = String::new();
+        let mut input_error = None;
+        for character in "contig_00000:365".chars() {
+            assert_eq!(
+                prompt_key(
+                    &mut input,
+                    &mut input_error,
+                    KeyCode::Char(character),
+                    &mut viewer,
+                ),
+                None
+            );
+        }
+        let prompt_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::PositionPrompt {
+                input: &input,
+                error: input_error.as_deref(),
+            },
+        );
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Enter, &mut viewer),
+            Some(PositionPromptOutcome::Navigated(false))
+        );
+        assert_eq!(viewer.target_name(), "contig_00000");
+        assert_eq!(viewer.viewport.start, 365);
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert_eq!(viewer.read_label_width, READ_LABEL_WIDTH);
+        assert!(!viewer.full_read_ids);
+        assert!(!viewer.show_insertions);
+        assert_eq!(records.as_ptr(), cached_records);
+        assert_eq!(records.len(), cached_record_count);
+
+        let after_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let final_viewport = render_frames_as_ansi(
+            [
+                before_frame.as_str(),
+                prompt_frame.as_str(),
+                after_frame.as_str(),
+            ],
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+        )?;
+        assert!(!final_viewport.contains("Go to CONTIG:START:"));
+        assert_eq!(final_viewport, clean_default_viewport);
+        assert_ansi_golden("bam_viewer_key_default.ansi", &final_viewport)
+    }
+
     fn assert_empty_and_contig_end_goldens() -> Result<(), Box<dyn Error>> {
         let mut empty_viewer = Viewer::open(
             PathBuf::from("examples/example_1.bam"),
@@ -1639,6 +1741,7 @@ mod tests {
         assert_display_key_goldens(&simulation)?;
         assert_goto_prompt_goldens(&simulation)?;
         assert_scrolled_goto_cancel_goldens(&simulation)?;
+        assert_same_position_goto_resets_display_goldens(&simulation)?;
         assert_terminal_size_goldens(&simulation)?;
         assert_empty_and_contig_end_goldens()?;
         assert_zero_sequence_golden(&simulation)?;
