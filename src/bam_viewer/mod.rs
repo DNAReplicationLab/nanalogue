@@ -1238,6 +1238,152 @@ mod tests {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the scrolling sequence retains its rendered states and semantic assertions together"
+    )]
+    fn assert_intermediate_vertical_scroll_goldens(
+        simulation: &TempBamSimulation,
+    ) -> Result<(), Box<dyn Error>> {
+        let position = InitialPosition {
+            contig: String::from("contig_00000"),
+            start: 365,
+        };
+        let mut viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &position,
+            Some(ModChar::new('m')),
+            window_len_for_columns(DEMO_GOLDEN_COLS),
+        )?;
+        viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
+        let records = viewer.visible_records()?;
+        assert_eq!(records.len(), 187);
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('i'), &records));
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('r'), &records));
+        assert!(viewer.show_insertions);
+        assert!(viewer.full_read_ids);
+        let baseline_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        assert!(baseline_frame.contains("contig_00000:366-436  reads 187  row 1  mods m>=0.5"));
+        assert!(baseline_frame.contains("read id"));
+        assert!(baseline_frame.contains("....|.........|.........|"));
+        assert!(baseline_frame.contains("\x1b[1;4m"));
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('j'), &records));
+        assert_eq!(viewer.viewport.read_offset, 1);
+        assert_eq!(viewer.viewport.start, position.start);
+        let after_j_ids = records
+            .iter()
+            .skip(viewer.viewport.read_offset)
+            .take(DEMO_VISIBLE_READS)
+            .map(RegionSequence::read_id)
+            .collect::<Vec<_>>();
+        assert_eq!(after_j_ids.len(), DEMO_VISIBLE_READS);
+        let after_j_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        assert_eq!(
+            after_j_ids,
+            records
+                .iter()
+                .skip(1)
+                .take(DEMO_VISIBLE_READS)
+                .map(RegionSequence::read_id)
+                .collect::<Vec<_>>(),
+            "j must advance by one row while retaining all 16 visible reads"
+        );
+        assert!(after_j_frame.contains("contig_00000:366-436  reads 187  row 2  mods m>=0.5"));
+        assert!(after_j_frame.contains("....|.........|.........|"));
+        assert!(after_j_frame.contains("\x1b[1;4m"));
+        let after_j_viewport = render_frames_as_ansi(
+            [baseline_frame.as_str(), after_j_frame.as_str()],
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+        )?;
+        assert_ansi_golden("bam_viewer_key_j.ansi", &after_j_viewport)?;
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('k'), &records));
+        assert_eq!(viewer.viewport.read_offset, 0);
+        assert_eq!(viewer.viewport.start, position.start);
+        let restored_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let restored_viewport = render_frames_as_ansi(
+            [after_j_frame.as_str(), restored_frame.as_str()],
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+        )?;
+        assert_ansi_golden("bam_viewer_key_full_ids.ansi", &restored_viewport)?;
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::End, &records));
+        assert_eq!(viewer.viewport.read_offset, 171);
+        assert_eq!(viewer.viewport.start, position.start);
+        assert!(viewer.show_insertions);
+        assert!(viewer.full_read_ids);
+        assert_eq!(
+            records.iter().skip(171).take(DEMO_VISIBLE_READS).count(),
+            DEMO_VISIBLE_READS
+        );
+        let end_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        assert!(!handle_demo_key(&mut viewer, KeyCode::PageUp, &records));
+        assert_eq!(viewer.viewport.read_offset, 155);
+        assert_eq!(viewer.viewport.start, position.start);
+        assert!(viewer.show_insertions);
+        assert!(viewer.full_read_ids);
+        let page_up_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let visible_ids = records
+            .iter()
+            .skip(viewer.viewport.read_offset)
+            .take(DEMO_VISIBLE_READS)
+            .map(RegionSequence::read_id)
+            .collect::<Vec<_>>();
+        assert_eq!(visible_ids.len(), DEMO_VISIBLE_READS);
+        assert_eq!(
+            visible_ids,
+            records
+                .get(155..171)
+                .expect("the 187-read demo has a full intermediate page")
+                .iter()
+                .map(RegionSequence::read_id)
+                .collect::<Vec<_>>()
+        );
+        assert!(page_up_frame.contains("contig_00000:366-436  reads 187  row 156  mods m>=0.5"));
+        assert!(page_up_frame.contains("....|.........|.........|"));
+        assert!(page_up_frame.contains("\x1b[1;4m"));
+        let end_page_up_viewport = render_frames_as_ansi(
+            [end_frame.as_str(), page_up_frame.as_str()],
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+        )?;
+        assert_ansi_golden("bam_viewer_key_end_page_up.ansi", &end_page_up_viewport)
+    }
+
     fn assert_successful_prompt_goto(
         viewer: &mut Viewer,
         records: &[RegionSequence],
@@ -1739,6 +1885,7 @@ mod tests {
         let simulation = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
         assert_end_and_goto_goldens(&simulation)?;
         assert_display_key_goldens(&simulation)?;
+        assert_intermediate_vertical_scroll_goldens(&simulation)?;
         assert_goto_prompt_goldens(&simulation)?;
         assert_scrolled_goto_cancel_goldens(&simulation)?;
         assert_same_position_goto_resets_display_goldens(&simulation)?;
