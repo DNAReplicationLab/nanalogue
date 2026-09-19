@@ -48,11 +48,17 @@ pub mod shared {
     /// Hard cap on the length of a path e.g. to a file or a URL
     pub const MAX_PATH_LENGTH: u16 = 900;
 
-    /// Hard cap on the length of an array from an ML tag
-    pub const MAX_ML_ARRAY_LENGTH: u32 = 100_000_000;
+    /// Hard cap on the length of an array from an ML tag.
+    ///
+    /// This matches the total record-data capacity; an ML tag in a BAM record has a lower
+    /// effective limit because it shares that capacity with its encoding and the other fields.
+    pub const MAX_ML_ARRAY_LENGTH: u32 = MAX_RECORD_CAPACITY_BYTES;
 
-    /// Hard cap on the length of an MM tag
-    pub const MAX_MM_TAG_LENGTH: u32 = 100_000_000;
+    /// Hard cap on the length of an MM tag.
+    ///
+    /// This matches the total record-data capacity; an MM tag in a BAM record has a lower
+    /// effective limit because it shares that capacity with its encoding and the other fields.
+    pub const MAX_MM_TAG_LENGTH: u32 = MAX_RECORD_CAPACITY_BYTES;
 
     /// Hard cap on the length of a genomic region string (e.g. chr1:1000-2000)
     pub const MAX_GENOMIC_REGION_STRING_LENGTH: u8 = 255;
