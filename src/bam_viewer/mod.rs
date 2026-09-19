@@ -595,12 +595,26 @@ mod tests {
     }
 
     fn render_frame_as_ansi(frame: &str, cols: u16, rows: u16) -> Result<String, Box<dyn Error>> {
+        render_frames_as_ansi([frame], cols, rows)
+    }
+
+    /// Captures full frames after the reset that [`GhosttyRenderer::draw`] applies.
+    ///
+    /// This models renderer input state only; it does not exercise its incremental terminal output.
+    fn render_frames_as_ansi<'frame>(
+        frames: impl IntoIterator<Item = &'frame str>,
+        cols: u16,
+        rows: u16,
+    ) -> Result<String, Box<dyn Error>> {
         let mut terminal = Terminal::new(TerminalOptions {
             cols,
             rows,
             max_scrollback: 0,
         })?;
-        terminal.vt_write(frame.as_bytes());
+        for frame in frames {
+            terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
+            terminal.vt_write(frame.as_bytes());
+        }
         let mut render_state = RenderState::new()?;
         let snapshot = render_state.update(&terminal)?;
         let mut row_iterator = RowIterator::new()?;
@@ -1381,6 +1395,61 @@ mod tests {
         let end_viewport = render_demo_viewport(&end_viewer, &end_records, FrameFooter::Controls)?;
         assert_ansi_golden("bam_viewer_contig_end.ansi", &end_viewport)?;
         Ok(())
+    }
+
+    #[test]
+    fn populated_frame_does_not_leave_cells_in_empty_view() -> Result<(), Box<dyn Error>> {
+        let mut populated_viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &InitialPosition {
+                contig: String::from("dummyIII"),
+                start: 23,
+            },
+            None,
+            10,
+        )?;
+        let populated_records = populated_viewer.visible_records()?;
+        assert!(!populated_records.is_empty());
+        let populated_frame = build_frame(
+            &populated_viewer,
+            &populated_records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+
+        let mut empty_viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &InitialPosition {
+                contig: String::from("dummyIII"),
+                start: 20,
+            },
+            None,
+            10,
+        )?;
+        let empty_records = empty_viewer.visible_records()?;
+        assert!(empty_records.is_empty());
+        let empty_frame = build_frame(
+            &empty_viewer,
+            &empty_records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+
+        let populated_viewport =
+            render_frame_as_ansi(&populated_frame, DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS)?;
+        let persistent_empty_viewport = render_frames_as_ansi(
+            [populated_frame.as_str(), empty_frame.as_str()],
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+        )?;
+        let fresh_empty_viewport =
+            render_frame_as_ansi(&empty_frame, DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS)?;
+
+        assert_ne!(populated_viewport, fresh_empty_viewport);
+        assert_eq!(persistent_empty_viewport, fresh_empty_viewport);
+        assert_ansi_golden("bam_viewer_no_reads.ansi", &persistent_empty_viewport)
     }
 
     fn assert_zero_sequence_golden(simulation: &TempBamSimulation) -> Result<(), Box<dyn Error>> {
