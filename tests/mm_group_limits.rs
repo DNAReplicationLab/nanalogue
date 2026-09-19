@@ -14,7 +14,7 @@ mod tests {
         let limit = usize::try_from(MAX_MM_TAG_LENGTH).expect("supported platform");
         // No terminator: at the limit this must reach the syntax check, whereas
         // one byte beyond it must fail the length guard before scanning groups.
-        // Reuse the allocation to keep the peak memory near the 100 MB limit.
+        // Reuse the allocation to keep the peak memory near the configured text limit.
         let mut text = "x".repeat(limit.checked_add(1).expect("MM limit fits usize"));
         let too_long = mm_groups(&text).expect_err("over-limit text must fail");
         assert!(
