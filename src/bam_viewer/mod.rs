@@ -1365,6 +1365,127 @@ mod tests {
         assert_successful_prompt_goto(&mut viewer, &records)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the prompt lifecycle preserves each rendered state and its semantic assertions together"
+    )]
+    fn assert_scrolled_goto_cancel_goldens(
+        simulation: &TempBamSimulation,
+    ) -> Result<(), Box<dyn Error>> {
+        let position = InitialPosition {
+            contig: String::from("contig_00000"),
+            start: 365,
+        };
+        let mut viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &position,
+            Some(ModChar::new('m')),
+            window_len_for_columns(DEMO_GOLDEN_COLS),
+        )?;
+        viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
+        let records = viewer.visible_records()?;
+
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('i'), &records));
+        assert!(!handle_demo_key(&mut viewer, KeyCode::Char('r'), &records));
+        assert!(!handle_demo_key(&mut viewer, KeyCode::PageDown, &records));
+        assert_eq!(viewer.viewport.read_offset, 16);
+        assert!(viewer.full_read_ids);
+        assert!(viewer.show_insertions);
+
+        let cached_records = records.as_ptr();
+        let cached_record_count = records.len();
+        let original_target = String::from(viewer.target_name());
+        let original_viewport = viewer.viewport;
+        let original_label_width = viewer.read_label_width;
+        let pre_prompt_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let pre_prompt_viewport = render_frames_as_ansi(
+            [pre_prompt_frame.as_str()],
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+        )?;
+        assert_ansi_golden("bam_viewer_key_page_down.ansi", &pre_prompt_viewport)?;
+
+        let mut input = String::new();
+        let mut input_error = None;
+        let prompt_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::PositionPrompt {
+                input: &input,
+                error: input_error.as_deref(),
+            },
+        );
+        for character in "missing:0".chars() {
+            assert_eq!(
+                prompt_key(
+                    &mut input,
+                    &mut input_error,
+                    KeyCode::Char(character),
+                    &mut viewer,
+                ),
+                None
+            );
+        }
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Enter, &mut viewer),
+            None
+        );
+        let error_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::PositionPrompt {
+                input: &input,
+                error: input_error.as_deref(),
+            },
+        );
+        let error_viewport =
+            render_frames_as_ansi([error_frame.as_str()], DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS)?;
+        assert!(error_viewport.contains("Error: unknown reference 'missing'"));
+
+        assert_eq!(
+            prompt_key(&mut input, &mut input_error, KeyCode::Esc, &mut viewer),
+            Some(PositionPromptOutcome::Cancelled)
+        );
+        let final_frame = build_frame(
+            &viewer,
+            &records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let final_viewport = render_frames_as_ansi(
+            [
+                pre_prompt_frame.as_str(),
+                prompt_frame.as_str(),
+                error_frame.as_str(),
+                final_frame.as_str(),
+            ],
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+        )?;
+
+        assert_eq!(viewer.target_name(), original_target);
+        assert_eq!(viewer.viewport, original_viewport);
+        assert_eq!(viewer.read_label_width, original_label_width);
+        assert!(viewer.full_read_ids);
+        assert!(viewer.show_insertions);
+        assert_eq!(records.as_ptr(), cached_records);
+        assert_eq!(records.len(), cached_record_count);
+        assert!(!final_viewport.contains("Error:"));
+        assert_eq!(final_viewport, pre_prompt_viewport);
+        assert_ansi_golden("bam_viewer_key_page_down.ansi", &final_viewport)
+    }
+
     fn assert_empty_and_contig_end_goldens() -> Result<(), Box<dyn Error>> {
         let mut empty_viewer = Viewer::open(
             PathBuf::from("examples/example_1.bam"),
@@ -1517,6 +1638,7 @@ mod tests {
         assert_end_and_goto_goldens(&simulation)?;
         assert_display_key_goldens(&simulation)?;
         assert_goto_prompt_goldens(&simulation)?;
+        assert_scrolled_goto_cancel_goldens(&simulation)?;
         assert_terminal_size_goldens(&simulation)?;
         assert_empty_and_contig_end_goldens()?;
         assert_zero_sequence_golden(&simulation)?;
