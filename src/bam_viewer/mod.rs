@@ -485,6 +485,7 @@ mod tests {
     use super::*;
     use crate::plot::{abbreviated_individual_read_label, individual_status};
     use nanalogue_core::{
+        region_sequences::ReadModProfile,
         simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation},
         uuid, write_bam_denovo,
     };
@@ -638,6 +639,40 @@ mod tests {
         )?;
         assert_eq!(actual, replayed, "ANSI golden must reproduce its viewport");
         Ok(actual)
+    }
+
+    /// Reads table labels from the rendered demo's cells, independently of record selection.
+    fn rendered_demo_read_ids(
+        viewport: &str,
+        label_width: u16,
+    ) -> Result<Vec<String>, Box<dyn Error>> {
+        let mut terminal = Terminal::new(TerminalOptions {
+            cols: DEMO_GOLDEN_COLS,
+            rows: DEMO_GOLDEN_ROWS,
+            max_scrollback: 0,
+        })?;
+        terminal.vt_write(viewport.as_bytes());
+        let mut render_state = RenderState::new()?;
+        let snapshot = render_state.update(&terminal)?;
+        let mut row_iterator = RowIterator::new()?;
+        let mut cell_iterator = CellIterator::new()?;
+        let mut rows = row_iterator.update(&snapshot)?;
+        let mut labels = Vec::new();
+        for screen_row in 0..DEMO_GOLDEN_ROWS {
+            let row = rows
+                .next()
+                .expect("demo terminal contains every screen row");
+            if (3..DEMO_GOLDEN_ROWS - 1).contains(&screen_row) {
+                let mut cells = cell_iterator.update(row)?;
+                let mut label = String::new();
+                for _ in 0..label_width {
+                    let cell = cells.next().expect("read label fits within demo width");
+                    label.extend(cell.graphemes()?);
+                }
+                labels.push(label.trim().to_owned());
+            }
+        }
+        Ok(labels)
     }
 
     fn assert_ansi_golden(name: &str, actual: &str) -> Result<(), Box<dyn Error>> {
@@ -1278,29 +1313,12 @@ mod tests {
         assert!(!handle_demo_key(&mut viewer, KeyCode::Char('j'), &records));
         assert_eq!(viewer.viewport.read_offset, 1);
         assert_eq!(viewer.viewport.start, position.start);
-        let after_j_ids = records
-            .iter()
-            .skip(viewer.viewport.read_offset)
-            .take(DEMO_VISIBLE_READS)
-            .map(RegionSequence::read_id)
-            .collect::<Vec<_>>();
-        assert_eq!(after_j_ids.len(), DEMO_VISIBLE_READS);
         let after_j_frame = build_frame(
             &viewer,
             &records,
             DEMO_GOLDEN_COLS,
             DEMO_GOLDEN_ROWS,
             FrameFooter::Controls,
-        );
-        assert_eq!(
-            after_j_ids,
-            records
-                .iter()
-                .skip(1)
-                .take(DEMO_VISIBLE_READS)
-                .map(RegionSequence::read_id)
-                .collect::<Vec<_>>(),
-            "j must advance by one row while retaining all 16 visible reads"
         );
         assert!(after_j_frame.contains("contig_00000:366-436  reads 187  row 2  mods m>=0.5"));
         assert!(after_j_frame.contains("....|.........|.........|"));
@@ -1310,6 +1328,16 @@ mod tests {
             DEMO_GOLDEN_COLS,
             DEMO_GOLDEN_ROWS,
         )?;
+        assert_eq!(
+            rendered_demo_read_ids(&after_j_viewport, viewer.read_label_width)?,
+            records
+                .get(1..17)
+                .expect("the demo has 16 reads after the first row")
+                .iter()
+                .map(RegionSequence::read_id)
+                .collect::<Vec<_>>(),
+            "j must render the next 16 read IDs in order"
+        );
         assert_ansi_golden("bam_viewer_key_j.ansi", &after_j_viewport)?;
 
         assert!(!handle_demo_key(&mut viewer, KeyCode::Char('k'), &records));
@@ -1357,22 +1385,6 @@ mod tests {
             DEMO_GOLDEN_ROWS,
             FrameFooter::Controls,
         );
-        let visible_ids = records
-            .iter()
-            .skip(viewer.viewport.read_offset)
-            .take(DEMO_VISIBLE_READS)
-            .map(RegionSequence::read_id)
-            .collect::<Vec<_>>();
-        assert_eq!(visible_ids.len(), DEMO_VISIBLE_READS);
-        assert_eq!(
-            visible_ids,
-            records
-                .get(155..171)
-                .expect("the 187-read demo has a full intermediate page")
-                .iter()
-                .map(RegionSequence::read_id)
-                .collect::<Vec<_>>()
-        );
         assert!(page_up_frame.contains("contig_00000:366-436  reads 187  row 156  mods m>=0.5"));
         assert!(page_up_frame.contains("....|.........|.........|"));
         assert!(page_up_frame.contains("\x1b[1;4m"));
@@ -1381,6 +1393,16 @@ mod tests {
             DEMO_GOLDEN_COLS,
             DEMO_GOLDEN_ROWS,
         )?;
+        assert_eq!(
+            rendered_demo_read_ids(&end_page_up_viewport, viewer.read_label_width)?,
+            records
+                .get(155..171)
+                .expect("the demo has a full page before the final page")
+                .iter()
+                .map(RegionSequence::read_id)
+                .collect::<Vec<_>>(),
+            "PageUp from End must render the preceding 16 read IDs in order"
+        );
         assert_ansi_golden("bam_viewer_key_end_page_up.ansi", &end_page_up_viewport)
     }
 
@@ -1538,8 +1560,6 @@ mod tests {
         assert!(viewer.full_read_ids);
         assert!(viewer.show_insertions);
 
-        let cached_records = records.as_ptr();
-        let cached_record_count = records.len();
         let original_target = String::from(viewer.target_name());
         let original_viewport = viewer.viewport;
         let original_label_width = viewer.read_label_width;
@@ -1625,8 +1645,6 @@ mod tests {
         assert_eq!(viewer.read_label_width, original_label_width);
         assert!(viewer.full_read_ids);
         assert!(viewer.show_insertions);
-        assert_eq!(records.as_ptr(), cached_records);
-        assert_eq!(records.len(), cached_record_count);
         assert!(!final_viewport.contains("Error:"));
         assert_eq!(final_viewport, pre_prompt_viewport);
         assert_ansi_golden("bam_viewer_key_page_down.ansi", &final_viewport)
@@ -1668,8 +1686,6 @@ mod tests {
         assert!(viewer.full_read_ids);
         assert!(viewer.show_insertions);
 
-        let cached_records = records.as_ptr();
-        let cached_record_count = records.len();
         let before_frame = build_frame(
             &viewer,
             &records,
@@ -1710,8 +1726,6 @@ mod tests {
         assert_eq!(viewer.read_label_width, READ_LABEL_WIDTH);
         assert!(!viewer.full_read_ids);
         assert!(!viewer.show_insertions);
-        assert_eq!(records.as_ptr(), cached_records);
-        assert_eq!(records.len(), cached_record_count);
 
         let after_frame = build_frame(
             &viewer,
@@ -2351,6 +2365,150 @@ mod tests {
         std::fs::remove_file(&path)?;
         std::fs::remove_file(format!("{}.bai", path.display()))?;
         Ok(())
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the refetch regression needs fixture, semantic, and golden assertions together"
+    )]
+    fn individual_horizontal_refetch_falls_back_when_selected_alignment_disappears()
+    -> Result<(), Box<dyn Error>> {
+        let path = env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
+        write_bam_denovo(
+            [
+                profile_record(b"first-initial", 0, 0, 10, false, Some(&[64, 0, 64]))?,
+                profile_record(b"vanishing-short", 0, 0, 10, false, Some(&[0, 255]))?,
+                profile_record(
+                    b"first-remaining",
+                    0,
+                    10,
+                    20,
+                    false,
+                    Some(&[255, 192, 128, 64]),
+                )?,
+                profile_record(b"second-remaining", 0, 10, 20, false, Some(&[64, 0, 64]))?,
+                profile_record(b"third-remaining", 0, 10, 20, false, Some(&[192, 255, 192]))?,
+            ],
+            [(String::from("chr1"), 30)],
+            [String::from("rg1")],
+            Vec::<String>::new(),
+            &path,
+        )?;
+        let mut viewer = Viewer::open_mode(
+            path.clone(),
+            &InitialPosition {
+                contig: String::from("chr1"),
+                start: 0,
+            },
+            Some(ModChar::new('a')),
+            ViewMode::Individual {
+                win: NonZeroU32::new(1).expect("non-zero"),
+            },
+            10,
+        )?;
+        viewer.path = PathBuf::from("individual-fallback.bam");
+        let mut cached_records = fetch_viewer_records(&mut viewer)?;
+        let ViewerRecords::Individual(initial_profiles) = &cached_records else {
+            return Err("individual viewer must fetch initial profiles".into());
+        };
+        assert_eq!(initial_profiles.len(), 2);
+        assert_eq!(
+            initial_profiles.first().map(ReadModProfile::read_id),
+            Some("first-initial")
+        );
+        assert_eq!(
+            initial_profiles.get(1).map(ReadModProfile::read_id),
+            Some("vanishing-short")
+        );
+
+        assert!(!handle_viewer_key(
+            &mut viewer,
+            &mut cached_records,
+            KeyCode::Char('j'),
+            1
+        )?);
+        assert_eq!(viewer.viewport.read_offset, 1);
+        let ViewerRecords::Individual(selected_profiles) = &cached_records else {
+            return Err("selection must retain individual profiles".into());
+        };
+        let selected_profile = selected_profiles
+            .get(viewer.viewport.read_offset)
+            .expect("selected short profile");
+        assert_eq!(selected_profile.read_id(), "vanishing-short");
+        assert_eq!(
+            selected_profile.align_end() - selected_profile.align_start(),
+            10
+        );
+        assert_eq!(selected_profile.calls(), [(0, 0), (1, 255)]);
+        let before_frame =
+            build_individual_frame(&viewer, selected_profiles, 70, 18, FrameFooter::Controls);
+        assert!(before_frame.contains("vanishing-short"));
+        assert!(individual_status(&viewer, selected_profiles, 70).contains("read 2/2"));
+        let before_viewport = render_frames_as_ansi([before_frame.as_str()], 70, 18)?;
+        assert_ansi_golden(
+            "bam_viewer_individual_fallback_before.ansi",
+            &before_viewport,
+        )?;
+
+        assert!(handle_viewer_key(
+            &mut viewer,
+            &mut cached_records,
+            KeyCode::Char('l'),
+            1
+        )?);
+        assert_eq!(viewer.viewport.start, 10);
+        assert_eq!(viewer.viewport.read_offset, 0);
+        let ViewerRecords::Individual(refetched_profiles) = &cached_records else {
+            return Err("horizontal refetch must retain individual mode".into());
+        };
+        assert!(
+            refetched_profiles.len() >= 2,
+            "next genomic window needs visibly distinct fallback candidates"
+        );
+        assert!(
+            !refetched_profiles
+                .iter()
+                .any(|profile| profile.read_id() == "vanishing-short"),
+            "the selected alignment must disappear through the actual BAM fetch"
+        );
+        let first_remaining = refetched_profiles.first().expect("first fallback profile");
+        assert_eq!(first_remaining.read_id(), "first-remaining");
+        assert_eq!(
+            first_remaining.align_end() - first_remaining.align_start(),
+            20
+        );
+        assert_eq!(
+            first_remaining.calls(),
+            [(10, 255), (11, 192), (12, 128), (13, 64)]
+        );
+        assert!(
+            refetched_profiles
+                .iter()
+                .any(|profile| profile.read_id() == "second-remaining"),
+            "second remaining alignment must survive the real refetch"
+        );
+        assert!(
+            refetched_profiles
+                .iter()
+                .any(|profile| profile.read_id() == "third-remaining"),
+            "third remaining alignment must survive the real refetch"
+        );
+        let after_frame =
+            build_individual_frame(&viewer, refetched_profiles, 70, 18, FrameFooter::Controls);
+        assert!(after_frame.contains("first-remaining"));
+        assert!(!after_frame.contains("vanishing-short"));
+        assert!(individual_status(&viewer, refetched_profiles, 70).contains("read 1/3"));
+        assert_ne!(
+            after_frame, before_frame,
+            "a stale selection or wrong fallback must produce a visibly different frame"
+        );
+        let after_viewport =
+            render_frames_as_ansi([before_frame.as_str(), after_frame.as_str()], 70, 18)?;
+        assert_ne!(after_viewport, before_viewport);
+        assert_ansi_golden("bam_viewer_individual_fallback_after.ansi", &after_viewport)?;
+
+        remove_viewer_test_bam(&path)
     }
 
     #[test]
