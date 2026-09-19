@@ -52,11 +52,23 @@ pub enum PathOrURLOrStdin {
     URL(Url),
 }
 
-/// Schemes accepted by the URL variant. Kept in sync with the equivalent
-/// list in `FromStr::from_str` to ensure JSON deserialization cannot
-/// produce a `URL(_)` variant containing a non-allow-listed scheme such as
-/// `file://` (which `hts_open` would happily dereference as a local file).
+/// Schemes accepted for remote BAM URLs. Kept in one shared validator so the
+/// CLI parser and the public URL-reader helpers cannot pass different schemes
+/// to `HTSlib`.
 const ALLOWED_NETWORK_SCHEMES: &[&str] = &["http", "https", "ftp"];
+
+/// Validates that a URL uses one of the supported remote BAM schemes.
+pub(crate) fn assert_allowed_network_url(url: &Url) -> Result<(), Error> {
+    if ALLOWED_NETWORK_SCHEMES.contains(&url.scheme()) {
+        Ok(())
+    } else {
+        Err(Error::InvalidState(format!(
+            "URL scheme `{}` is not in the allow-list ({})",
+            url.scheme(),
+            ALLOWED_NETWORK_SCHEMES.join(", ")
+        )))
+    }
+}
 
 /// Validate shared path/URL.
 fn assert_valid_path_or_url(s: &str) -> Result<(), Error> {
@@ -120,15 +132,8 @@ impl TryFrom<PathOrURLOrStdinShadow> for PathOrURLOrStdin {
             PathOrURLOrStdinShadow::URL(u) => {
                 let s = u.as_str();
                 assert_valid_path_or_url(s)?;
-                if ALLOWED_NETWORK_SCHEMES.contains(&u.scheme()) {
-                    Ok(PathOrURLOrStdin::URL(u))
-                } else {
-                    Err(Error::InvalidState(format!(
-                        "URL scheme `{}` is not in the allow-list ({}); use a Path variant instead",
-                        u.scheme(),
-                        ALLOWED_NETWORK_SCHEMES.join(", ")
-                    )))
-                }
+                assert_allowed_network_url(&u)?;
+                Ok(PathOrURLOrStdin::URL(u))
             }
         }
     }
@@ -183,7 +188,7 @@ impl FromStr for PathOrURLOrStdin {
             // Try to parse as URL with allowed network schemes
             if let Ok(parsed_url) = Url::parse(s) {
                 // Only accept known network schemes to avoid misclassifying local paths
-                if ALLOWED_NETWORK_SCHEMES.contains(&parsed_url.scheme()) {
+                if assert_allowed_network_url(&parsed_url).is_ok() {
                     return Ok(PathOrURLOrStdin::URL(parsed_url));
                 }
                 // If it's a valid URL but with an unsupported scheme, fall through to treat as path

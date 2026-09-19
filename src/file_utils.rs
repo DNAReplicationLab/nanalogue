@@ -1,6 +1,6 @@
 //! Utility functions for file I/O operations with BAM and FASTA files.
 
-use crate::{Error, GetDNARestrictive};
+use crate::{Error, GetDNARestrictive, utils::path_or_url_or_stdin::assert_allowed_network_url};
 use rust_htslib::{bam, htslib};
 use std::ffi::CString;
 use std::fs::File;
@@ -68,8 +68,10 @@ pub fn nanalogue_bam_reader_from_stdin() -> Result<bam::Reader, Error> {
 ///
 /// # Errors
 ///
-/// Returns an error if the BAM data cannot be read.
+/// Returns an error if the URL scheme is not HTTP, HTTPS, or FTP, or if the
+/// BAM data cannot be read.
 pub fn nanalogue_bam_reader_from_url(url: &Url) -> Result<bam::Reader, Error> {
+    assert_allowed_network_url(url)?;
     Ok(bam::Reader::from_url(url)?)
 }
 
@@ -204,11 +206,13 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if the BAM data cannot be read.
+/// Returns an error if the URL scheme is not HTTP, HTTPS, or FTP, or if the
+/// BAM data cannot be read.
 pub fn nanalogue_indexed_bam_reader_from_url(
     url: &Url,
     fetch_definition: bam::FetchDefinition,
 ) -> Result<bam::IndexedReader, Error> {
+    assert_allowed_network_url(url)?;
     let mut bam_reader = bam::IndexedReader::from_url(url)?;
     bam_reader.fetch(fetch_definition)?;
     Ok(bam_reader)
