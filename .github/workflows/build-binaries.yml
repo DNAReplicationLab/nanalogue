@@ -125,14 +125,13 @@ jobs:
           rustup default stable
           rustup target add "$RUST_TARGET"
 
-      - name: Install Zig
+      - name: Install Zig 0.15.2
         run: |
-          zig_version=0.14.0
-          zig_dir="$HOME/.local/zig"
-          mkdir -p "$zig_dir"
-          curl -fsSL "https://ziglang.org/download/${zig_version}/zig-linux-x86_64-${zig_version}.tar.xz" \
-            | tar -xJ --strip-components=1 -C "$zig_dir"
-          echo "$zig_dir" >> "$GITHUB_PATH"
+          sudo apt-get update -q
+          sudo apt-get install -y -q minisign
+          sha256sum --check --strict github_workflow_scripts/install-zig-for-libghostty.sha256
+          ./github_workflow_scripts/install-zig-for-libghostty.sh
+          echo "$HOME/.local/zig-0.15.2" >> "$GITHUB_PATH"
 
       - name: Install build dependencies
         run: |
@@ -165,6 +164,13 @@ jobs:
           echo "TARGET=$target" >> "$GITHUB_ENV"
 
       - name: Build binaries
+        env:
+          # Zig 0.15's Clang rejects libdeflate's AVX-512 target attributes
+          # when cargo-zigbuild sets a versioned glibc target. Keep the
+          # portable SIMD variants used by the release compatibility targets.
+          CFLAGS_x86_64_unknown_linux_gnu: >-
+            -DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI
+            -DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ
         run: cargo zigbuild --release --target "$TARGET" --bins
 
       - name: Package binaries

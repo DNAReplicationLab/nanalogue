@@ -1,0 +1,4 @@
+[env]
+# Build the vendored terminal emulator with Zig's fastest release mode whenever
+# the optional BAM viewer feature is enabled.
+LIBGHOSTTY_VT_SYS_OPTIMIZE = { value = "ReleaseFast", force = true }
