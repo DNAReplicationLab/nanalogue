@@ -34,6 +34,7 @@ tag variants; other mixed-case or lowercase variants are not recognized.
   - [Using Cargo](#using-cargo)
     - [Cargo locked](#using-cargo-locked)
     - [Building from a Git checkout](#building-from-a-git-checkout)
+      - [Performance note](#performance-note)
     - [Building and testing notes](#building-and-testing-notes)
   - [Using Docker](#using-docker)
 - [Commands](#commands)
@@ -192,8 +193,16 @@ You can also use Cargo to build a copy of `nanalogue` from source code obtained
 directly from Git. After obtaining a Git checkout, build it with:
 
 ```bash
-cargo build
+cargo build --release
 ```
+
+#### Performance note
+
+On some systems, a native release build may perform better than the pre-built
+Linux binaries. The pre-built binaries prioritize broad platform compatibility
+and are built with `cargo zigbuild`. Performance depends on the build toolchain,
+system, and workload; differences are most likely for BAM/CRAM
+compression-intensive workloads.
 
 #### The optional `polars` feature
 
