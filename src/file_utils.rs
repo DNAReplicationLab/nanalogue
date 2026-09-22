@@ -456,6 +456,7 @@ struct CramWriter {
 impl CramWriter {
     /// Open a CRAM 3.1 stream using an external FASTA reference.
     fn open(output_path: &Path, reference_path: &Path, threads: NonZeroU32) -> Result<Self, Error> {
+        let thread_count = i32::try_from(threads.get())?;
         let output = path_to_c_string(output_path)?;
         let index = path_to_c_string(&crai_path(output_path))?;
         let reference = path_to_c_string(reference_path)?;
@@ -506,7 +507,6 @@ impl CramWriter {
         if unsafe { htslib::hts_set_fai_filename(writer.file, reference.as_ptr()) } != 0 {
             return Err(Error::WriteOutput("failed to load FASTA reference".into()));
         }
-        let thread_count = i32::try_from(threads.get())?;
         // SAFETY: `writer.file` is valid and `thread_count` is a plain integer argument.
         if unsafe { htslib::hts_set_threads(writer.file, thread_count) } != 0 {
             return Err(Error::WriteOutput(

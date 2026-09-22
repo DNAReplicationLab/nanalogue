@@ -228,7 +228,7 @@ mod tests {
     }
 
     /// The public CRAM writer rejects a thread count beyond `HTSlib`'s signed
-    /// range before writing a header or CRAI, while preserving its reference.
+    /// range before creating output, while preserving its reference.
     #[test]
     fn cram_thread_count_must_fit_htslib() -> Result<(), Error> {
         let temp = TempDir::new("cram_threads");
@@ -262,7 +262,10 @@ mod tests {
         )
         .expect_err("HTSlib's thread count must fit i32");
         assert!(matches!(error, Error::IntConversionError(_)));
-        assert!(cram_path.is_file(), "the stream opens before conversion");
+        assert!(
+            !cram_path.exists(),
+            "invalid thread counts must be rejected before opening the CRAM"
+        );
         assert!(!temp.join("output.cram.crai").exists());
         assert_eq!(fs::read(reference)?, original_reference);
         Ok(())
