@@ -103,6 +103,24 @@ mod tests {
             .expect("the matching profile count was checked")
     }
 
+    /// Returns the two fixture records with exactly matching public properties.
+    fn exact_duplicate_profiles(profiles: &[ReadModProfile]) -> (&ReadModProfile, &ReadModProfile) {
+        let matches = profiles
+            .iter()
+            .filter(|profile| {
+                profile.read_id() == "shared"
+                    && profile.align_start() == 3
+                    && profile.align_end() == 33
+                    && !profile.is_reverse()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 2);
+        (
+            matches.first().expect("duplicate count was checked"),
+            matches.get(1).expect("duplicate count was checked"),
+        )
+    }
+
     /// Profiles expose alignment properties, sort by read ID, distinguish
     /// same-name alignments and duplicates, and retain identity after refetch.
     #[test]
@@ -134,22 +152,7 @@ mod tests {
         assert!(!zeta.is_reverse());
         assert_eq!((zeta.align_start(), zeta.align_end()), (2, 32));
 
-        let exact_duplicates = first_fetch
-            .iter()
-            .filter(|profile| {
-                profile.read_id() == "shared"
-                    && profile.align_start() == 3
-                    && profile.align_end() == 33
-                    && !profile.is_reverse()
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(exact_duplicates.len(), 2);
-        let first_duplicate = exact_duplicates
-            .first()
-            .expect("the duplicate count was checked");
-        let second_duplicate = exact_duplicates
-            .get(1)
-            .expect("the duplicate count was checked");
+        let (first_duplicate, second_duplicate) = exact_duplicate_profiles(&first_fetch);
         assert!(
             !first_duplicate.is_same_alignment(second_duplicate),
             "otherwise identical records have distinct occurrence identities"

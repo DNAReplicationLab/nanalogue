@@ -30,9 +30,8 @@ mod tests {
             .expect("viewer executable should run")
     }
 
-    /// Checks the common contract for failures detected during argument parsing.
-    fn assert_argument_error<const N: usize>(arguments: [&str; N], expected_error: &str) {
-        let output = run_viewer(arguments);
+    /// Checks a captured failure detected during argument parsing.
+    fn assert_argument_error_output(output: &Output, expected_error: &str) {
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         assert_eq!(
@@ -52,6 +51,12 @@ mod tests {
             stderr.contains(USAGE_LINE),
             "argument error should include usage; got: {stderr}"
         );
+    }
+
+    /// Checks the common contract for failures detected during argument parsing.
+    fn assert_argument_error<const N: usize>(arguments: [&str; N], expected_error: &str) {
+        let output = run_viewer(arguments);
+        assert_argument_error_output(&output, expected_error);
     }
 
     /// Help is a successful request written solely to stdout.
@@ -76,6 +81,27 @@ mod tests {
         );
     }
 
+    /// The short help alias has the same successful stream and status contract.
+    #[test]
+    fn short_help_prints_usage_and_succeeds() {
+        let output = run_viewer(["-h"]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "short help should exit successfully"
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "short help should not write to stderr"
+        );
+        assert!(
+            stdout.starts_with(USAGE_LINE),
+            "short help should begin with usage; got: {stdout}"
+        );
+    }
+
     /// The two compulsory positional arguments are diagnosed independently.
     #[test]
     fn missing_bam_or_position_is_an_argument_error() {
@@ -91,9 +117,47 @@ mod tests {
             "position must have the form CONTIG:START",
         );
         assert_argument_error(
+            ["reads.bam", ":7"],
+            "position must have the form CONTIG:START",
+        );
+        assert_argument_error(
+            ["reads.bam", "chr1:"],
+            "position must have the form CONTIG:START",
+        );
+        assert_argument_error(
             ["reads.bam", "chr1:-7"],
             "START must be a non-negative integer",
         );
+        assert_argument_error(
+            ["reads.bam", "chr1:4294967296"],
+            "START must be a non-negative integer",
+        );
+    }
+
+    /// Modification types report their own syntax errors before mode parsing.
+    #[test]
+    fn malformed_modification_types_are_rejected() {
+        assert_argument_error(["reads.bam", "chr1:7", ""], "empty mod type: ``");
+        assert_argument_error(["reads.bam", "chr1:7", "@123"], "invalid mod type: `@123`");
+        assert_argument_error(
+            ["reads.bam", "chr1:7", "1114112"],
+            "invalid mod type: `1114112`",
+        );
+        assert_argument_error(
+            ["reads.bam", "chr1:7", "4294967296"],
+            "integer parsing error: `number too large to fit in target type`",
+        );
+    }
+
+    /// Window parsing distinguishes malformed and overflowing values from zero.
+    #[test]
+    fn malformed_or_overflowing_windows_are_rejected() {
+        for window in ["", "seven", "4294967296"] {
+            assert_argument_error(
+                ["reads.bam", "chr1:7", "m", window, "individual"],
+                "WINDOW_SIZE must be a positive integer",
+            );
+        }
     }
 
     /// Individual mode requires a complete positive-window triplet with its literal keyword.
@@ -130,25 +194,39 @@ mod tests {
 
         let invalid_position = OsString::from_vec(b"chr1:\xff".to_vec());
         let output = run_viewer([OsString::from("reads.bam"), invalid_position]);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_argument_error_output(&output, "position must be valid UTF-8");
+    }
 
-        assert_eq!(
-            output.status.code(),
-            Some(2),
-            "invalid UTF-8 should be an argument error; stderr: {stderr}"
-        );
-        assert!(
-            output.stdout.is_empty(),
-            "invalid UTF-8 should not write to stdout"
-        );
-        assert!(
-            stderr.starts_with("Error: position must be valid UTF-8\n"),
-            "stderr should identify the invalid position encoding; got: {stderr}"
-        );
-        assert!(
-            stderr.contains(USAGE_LINE),
-            "invalid UTF-8 should include usage; got: {stderr}"
-        );
+    /// Unix-only non-UTF-8 modification types fail before modification parsing.
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_modification_type_is_rejected() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt as _};
+
+        let invalid_mod_type = OsString::from_vec(vec![0xff]);
+        let output = run_viewer([
+            OsString::from("reads.bam"),
+            OsString::from("chr1:7"),
+            invalid_mod_type,
+        ]);
+        assert_argument_error_output(&output, "MOD_TYPE must be valid UTF-8");
+    }
+
+    /// Unix-only non-UTF-8 windows fail before integer parsing.
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_window_size_is_rejected() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt as _};
+
+        let invalid_window = OsString::from_vec(vec![0xff]);
+        let output = run_viewer([
+            OsString::from("reads.bam"),
+            OsString::from("chr1:7"),
+            OsString::from("m"),
+            invalid_window,
+            OsString::from("individual"),
+        ]);
+        assert_argument_error_output(&output, "WINDOW_SIZE must be valid UTF-8");
     }
 
     /// Test-owned `tput` fallback that makes terminal-size discovery deterministic.
@@ -164,9 +242,15 @@ mod tests {
         /// Creates an executable that reports fixed columns and lines.
         fn new() -> Self {
             use std::os::unix::fs::PermissionsExt as _;
+            use std::sync::atomic::{AtomicU32, Ordering};
 
-            let directory = std::env::temp_dir()
-                .join(format!("nanalogue-viewer-cli-tput-{}", std::process::id()));
+            static NEXT_DIRECTORY_ID: AtomicU32 = AtomicU32::new(0);
+
+            let directory = std::env::temp_dir().join(format!(
+                "nanalogue-viewer-cli-tput-{}-{}",
+                std::process::id(),
+                NEXT_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed)
+            ));
             std::fs::create_dir_all(&directory)
                 .expect("temporary tput directory should be created");
             let executable = directory.join("tput");
@@ -237,5 +321,48 @@ mod tests {
             !stderr.contains(USAGE_LINE),
             "runtime failures should not be presented as usage errors; got: {stderr}"
         );
+    }
+
+    /// Valid table and individual options both proceed beyond argument parsing.
+    #[cfg(unix)]
+    #[test]
+    fn valid_optional_modes_reach_bam_opening() {
+        let missing_bam = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/this-viewer-input-does-not-exist.bam");
+        let fake_tput = FakeTput::new();
+
+        for optional_arguments in [&["472232"][..], &["m", "4294967295", "individual"][..]] {
+            let output = Command::new(env!("CARGO_BIN_EXE_nanalogue_bam_viewer"))
+                .arg(missing_bam.as_os_str())
+                .arg("chr7:4294967295")
+                .args(optional_arguments)
+                .env("PATH", fake_tput.child_path())
+                .env_remove("TERM")
+                .output()
+                .expect("viewer executable should run");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "valid options should reach BAM opening; stderr: {stderr}"
+            );
+            assert!(
+                output.stdout.is_empty(),
+                "BAM-open failure should not write to stdout"
+            );
+            assert!(
+                stderr.starts_with("Error: rust_htslib error: `file not found:"),
+                "stderr should identify the BAM-open failure; got: {stderr}"
+            );
+            assert!(
+                stderr.contains("this-viewer-input-does-not-exist.bam"),
+                "runtime error should name the missing BAM; got: {stderr}"
+            );
+            assert!(
+                !stderr.contains(USAGE_LINE),
+                "valid options should not produce a usage error; got: {stderr}"
+            );
+        }
     }
 }
