@@ -139,10 +139,9 @@ mod tests {
         }
     }
 
-    /// Iterator failures leave only the opening bracket because records are
-    /// unwrapped before the first-record newline is emitted.
+    /// Iterator failures before the first record leave output untouched.
     #[test]
-    fn iterator_error_preserves_exact_partial_output() {
+    fn iterator_error_before_first_record_writes_nothing() {
         let input = vec![Err(HtslibError::BamInvalidIndex {
             target: "absent.bai".to_owned(),
         })];
@@ -163,7 +162,47 @@ mod tests {
                 if target == "absent.bai"),
             "the source error must be preserved"
         );
-        assert_eq!(output, b"[");
+        assert!(
+            output.is_empty(),
+            "the JSON array must not begin before the first record is available"
+        );
+    }
+
+    /// Record validation finishes before the opener or next delimiter is
+    /// emitted, so a failing record contributes no bytes to streamed output.
+    #[test]
+    fn validation_error_does_not_emit_a_record_delimiter() {
+        let mut first_output = Vec::new();
+        let first_error = read_info::run(
+            &mut first_output,
+            records(vec![unmapped_record("invalid_first", b"", 0)]),
+            InputMods::<OptionalTag>::default(),
+            Some(false),
+        )
+        .expect_err("a zero-length first record must fail validation");
+        assert!(matches!(first_error, Error::ZeroSeqLen(_)));
+        assert!(
+            first_output.is_empty(),
+            "first-record validation must precede the array opener"
+        );
+
+        let mut later_output = Vec::new();
+        let later_error = read_info::run(
+            &mut later_output,
+            records(vec![
+                unmapped_record("valid", b"ACG", 7),
+                unmapped_record("invalid_second", b"", 0),
+            ]),
+            InputMods::<OptionalTag>::default(),
+            Some(false),
+        )
+        .expect_err("a zero-length second record must fail validation");
+        assert!(matches!(later_error, Error::ZeroSeqLen(_)));
+        assert_eq!(
+            later_output,
+            b"[\n{\"alignment_type\":\"unmapped\",\"mod_table\":[],\"read_id\":\"valid\",\"mapq\":7,\"seq_len\":3}",
+            "the failing second record must not add a comma or newline"
+        );
     }
 
     /// A writer that accepts a fixed prefix and then fails once.
