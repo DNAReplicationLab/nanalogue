@@ -658,6 +658,7 @@ pos retrieval/mod colouring without seq_region"
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use clap::CommandFactory as _;

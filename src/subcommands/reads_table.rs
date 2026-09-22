@@ -975,6 +975,7 @@ pub fn sort_output_lines(output: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::{GenomicBed3, nanalogue_bam_reader};
@@ -1408,6 +1409,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod sequencing_summary_tests {
     use super::*;
     use crate::uuid;
@@ -1822,6 +1824,7 @@ mod sequencing_summary_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "generated rstest cases use direct assertions on locally named expected values"
@@ -2616,6 +2619,7 @@ mod stochastic_tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod stochastic_tests_with_mods {
     use super::stochastic_tests::{TestRoute, run_reads_table};
     use super::*;

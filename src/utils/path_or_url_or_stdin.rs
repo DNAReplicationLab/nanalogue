@@ -52,11 +52,23 @@ pub enum PathOrURLOrStdin {
     URL(Url),
 }
 
-/// Schemes accepted by the URL variant. Kept in sync with the equivalent
-/// list in `FromStr::from_str` to ensure JSON deserialization cannot
-/// produce a `URL(_)` variant containing a non-allow-listed scheme such as
-/// `file://` (which `hts_open` would happily dereference as a local file).
+/// Schemes accepted for remote BAM URLs. Kept in one shared validator so the
+/// CLI parser and the public URL-reader helpers cannot pass different schemes
+/// to `HTSlib`.
 const ALLOWED_NETWORK_SCHEMES: &[&str] = &["http", "https", "ftp"];
+
+/// Validates that a URL uses one of the supported remote BAM schemes.
+pub(crate) fn assert_allowed_network_url(url: &Url) -> Result<(), Error> {
+    if ALLOWED_NETWORK_SCHEMES.contains(&url.scheme()) {
+        Ok(())
+    } else {
+        Err(Error::InvalidState(format!(
+            "URL scheme `{}` is not in the allow-list ({})",
+            url.scheme(),
+            ALLOWED_NETWORK_SCHEMES.join(", ")
+        )))
+    }
+}
 
 /// Validate shared path/URL.
 fn assert_valid_path_or_url(s: &str) -> Result<(), Error> {
@@ -120,15 +132,8 @@ impl TryFrom<PathOrURLOrStdinShadow> for PathOrURLOrStdin {
             PathOrURLOrStdinShadow::URL(u) => {
                 let s = u.as_str();
                 assert_valid_path_or_url(s)?;
-                if ALLOWED_NETWORK_SCHEMES.contains(&u.scheme()) {
-                    Ok(PathOrURLOrStdin::URL(u))
-                } else {
-                    Err(Error::InvalidState(format!(
-                        "URL scheme `{}` is not in the allow-list ({}); use a Path variant instead",
-                        u.scheme(),
-                        ALLOWED_NETWORK_SCHEMES.join(", ")
-                    )))
-                }
+                assert_allowed_network_url(&u)?;
+                Ok(PathOrURLOrStdin::URL(u))
             }
         }
     }
@@ -183,7 +188,7 @@ impl FromStr for PathOrURLOrStdin {
             // Try to parse as URL with allowed network schemes
             if let Ok(parsed_url) = Url::parse(s) {
                 // Only accept known network schemes to avoid misclassifying local paths
-                if ALLOWED_NETWORK_SCHEMES.contains(&parsed_url.scheme()) {
+                if assert_allowed_network_url(&parsed_url).is_ok() {
                     return Ok(PathOrURLOrStdin::URL(parsed_url));
                 }
                 // If it's a valid URL but with an unsupported scheme, fall through to treat as path
@@ -226,6 +231,7 @@ impl From<PathOrURLOrStdin> for InputBam {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[expect(
     clippy::panic,
     reason = "panic is acceptable in tests for assertion failures"
@@ -498,5 +504,118 @@ mod tests {
             serde_json::from_str(r#"{"URL":"https://example.com/file.bam"}"#)
                 .expect("https should deserialize");
         assert!(matches!(good, PathOrURLOrStdin::URL(_)));
+    }
+
+    /// Explicit Path payloads preserve their variant, even when `FromStr` would choose a URL.
+    #[test]
+    fn deserialize_path_preserves_literal_payload() {
+        for literal in ["relative file.bam", "./-", "https://example.com/data.bam"] {
+            let payload = serde_json::json!({"Path": literal});
+            let parsed: PathOrURLOrStdin =
+                serde_json::from_value(payload.clone()).expect("valid literal path");
+            assert_eq!(parsed, PathOrURLOrStdin::Path(PathBuf::from(literal)));
+            assert_eq!(parsed.to_string(), literal);
+            assert_eq!(
+                serde_json::to_value(&parsed).expect("serialize path"),
+                payload
+            );
+        }
+        assert_eq!(
+            serde_json::from_str::<PathOrURLOrStdin>(r#""Stdin""#).expect("stdin variant"),
+            PathOrURLOrStdin::Stdin
+        );
+    }
+
+    /// The inclusive length limit applies identically to string and serde Path inputs.
+    #[test]
+    fn deserialize_path_length_boundary_matches_parser() {
+        let accepted = "p".repeat(usize::from(MAX_PATH_LENGTH));
+        let expected = PathOrURLOrStdin::Path(PathBuf::from(&accepted));
+        assert_eq!(
+            PathOrURLOrStdin::from_str(&accepted).expect("exact limit is valid"),
+            expected
+        );
+        assert_eq!(
+            serde_json::from_value::<PathOrURLOrStdin>(serde_json::json!({"Path": accepted}))
+                .expect("serde accepts exact limit"),
+            expected
+        );
+
+        let rejected = format!("{accepted}x");
+        let direct = PathOrURLOrStdin::from_str(&rejected).unwrap_err();
+        let Error::InvalidState(message) = direct else {
+            panic!("overlength paths must return InvalidState");
+        };
+        assert_eq!(
+            message,
+            format!("path or url too long i.e. > {MAX_PATH_LENGTH}")
+        );
+        let error =
+            serde_json::from_value::<PathOrURLOrStdin>(serde_json::json!({"Path": rejected}))
+                .unwrap_err();
+        assert!(
+            error.to_string().contains(&message),
+            "serde must retain validation error"
+        );
+    }
+
+    /// JSON escaping must not bypass the shared path character validator.
+    #[test]
+    fn deserialize_path_rejects_invalid_characters() {
+        for literal in ["a\0b", "a\u{1f}b", "a\u{7f}b", "a\u{80}b"] {
+            let error =
+                serde_json::from_value::<PathOrURLOrStdin>(serde_json::json!({"Path": literal}))
+                    .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("path or url contains invalid characters"),
+                "escaped invalid characters must still be rejected: {literal:?}"
+            );
+        }
+        let error = serde_json::from_str::<PathOrURLOrStdin>(r#"{"Path":""}"#).unwrap_err();
+        assert!(
+            error.to_string().contains("path or url is empty"),
+            "empty path is invalid"
+        );
+    }
+
+    /// Unix can construct this shadow state, although JSON strings cannot encode it.
+    #[cfg(unix)]
+    #[test]
+    fn shadow_path_rejects_non_utf8_before_character_validation() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let path = PathBuf::from(OsString::from_vec(vec![b'a', 0xff, b'b']));
+        let error = PathOrURLOrStdin::try_from(PathOrURLOrStdinShadow::Path(path)).unwrap_err();
+        let Error::InvalidState(message) = error else {
+            panic!("malformed UTF-8 must return InvalidState");
+        };
+        assert_eq!(message, "path is malformed!");
+    }
+
+    /// Every accepted URL scheme round-trips through serde without becoming a Path.
+    #[test]
+    fn deserialize_network_schemes_round_trip() {
+        for literal in [
+            "http://example.com/a.bam?part=2",
+            "https://example.com/b.bam#offset",
+            "ftp://example.com/c.bam",
+        ] {
+            let expected = PathOrURLOrStdin::URL(Url::parse(literal).expect("valid URL"));
+            let payload = serde_json::json!({"URL": literal});
+            let parsed: PathOrURLOrStdin =
+                serde_json::from_value(payload.clone()).expect("allow-listed scheme");
+            assert_eq!(parsed, expected);
+            assert_eq!(
+                PathOrURLOrStdin::from_str(literal).expect("parse URL"),
+                expected
+            );
+            assert_eq!(
+                serde_json::to_value(parsed).expect("serialize URL"),
+                payload
+            );
+        }
     }
 }

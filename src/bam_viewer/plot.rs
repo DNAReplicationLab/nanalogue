@@ -590,6 +590,7 @@ pub(super) fn build_individual_frame(
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

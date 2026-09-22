@@ -341,6 +341,7 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

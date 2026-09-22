@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional `bam-viewer` feature and `nanalogue_bam_viewer` terminal executable,
   with region read tables and individual whole-read modification probability plots
 
+### Changed
+- Made Polars an optional, default-off dependency. Library consumers using
+  `curr_reads_to_dataframe`, `reads_table::run_df`, `window_reads::run_df`, or
+  Polars-specific error handling must explicitly enable the `polars` Cargo
+  feature. CLI functionality is unchanged.
+
 ### Fixed
 - (Project tooling, not code) Fixed `install.sh` to use the correct ARM release archive name, matching the output from the relevant GitHub Actions workflow
 
@@ -20,7 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - (GitHub workflow, not code) Switched release binary builds to `cargo zigbuild` and expanded the matrix to cover additional Linux targets/compatibility tiers
 - (Project tooling, not code) Updated `install.sh` to match the expanded artifact names and architecture aliases, and refreshed the install-script checksum file
 - (Documentation, not code) Updated `README.md` install guidance to point at the GitHub Actions artifact section and list the current artifact names/suffixes
-- Relaxed the reverse-complement size guard from 4GB to 3GB
+- Lowered the reverse-complement pre-reservation cap from 4 GiB to 3 GiB
+  to avoid overflowing `usize` on 32-bit platforms
 - Unvendored `hts-sys` and `rust-htslib`, updated third-party notices, and
   refreshed `Cargo.lock` to use crates.io directly
 
@@ -127,7 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Ran `cargo update` to update dependencies
 
-## [0.1.15] - 2026-01-18
+## [0.1.5] - 2026-01-18
 
 ### Changed
 - Improved struct documentation to reference Builder patterns in `src/simulate_mod_bam.rs`

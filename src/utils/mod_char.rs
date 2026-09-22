@@ -157,6 +157,7 @@ impl<'de> Deserialize<'de> for ModChar {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

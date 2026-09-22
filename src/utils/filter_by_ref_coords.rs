@@ -157,6 +157,7 @@ impl FilterModsByRefCoords for Ranges {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::FiberAnnotation;
@@ -553,6 +554,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod window_state_tests {
     use super::*;
 

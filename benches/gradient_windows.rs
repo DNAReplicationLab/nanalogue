@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Benchmark repeated gradient calculation over overlapping windows.
 
 use std::hint::black_box;

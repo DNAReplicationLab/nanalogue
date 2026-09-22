@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Interactive terminal viewer for indexed BAM files.
 //!
 //! `libghostty-vt` owns the virtual screen and interprets each ANSI frame.
@@ -32,19 +34,12 @@ use libghostty_vt::{
     render::{CellIterator, RowIterator},
     style::Underline,
 };
-#[cfg(test)]
-use nanalogue_core::{
-    ModChar,
-    region_sequences::{RegionSequence, RegionSequenceReader},
-};
 use std::{
     env,
     error::Error,
     io::{self, Stdout, Write as _},
     sync::Arc,
 };
-#[cfg(test)]
-use std::{ffi::OsString, fmt::Write as _, num::NonZeroU32, path::PathBuf, str::FromStr as _};
 
 mod cli;
 mod plot;
@@ -54,12 +49,6 @@ mod state;
 use cli::{Args, InitialPosition, USAGE, ViewMode, window_len_for_columns};
 use plot::build_individual_frame;
 use render::{FrameFooter, build_frame};
-#[cfg(test)]
-use render::{
-    fixed_line, label_column, position_error_footer, position_prompt_footer, sequence_columns,
-};
-#[cfg(test)]
-use state::Viewport;
 use state::{
     Viewer, ViewerRecords, fetch_viewer_records, full_read_label_width,
     reselect_individual_alignment, reselect_read,
@@ -481,11 +470,14 @@ fn main() {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::plot::{abbreviated_individual_read_label, individual_status};
     use nanalogue_core::{
+        ModChar,
         region_sequences::ReadModProfile,
+        region_sequences::{RegionSequence, RegionSequenceReader},
         simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation},
         uuid, write_bam_denovo,
     };
@@ -493,7 +485,21 @@ mod tests {
         self,
         record::{Aux, Cigar, CigarString},
     };
-    use std::path::Path;
+    use std::{
+        ffi::OsString,
+        fmt::Write as _,
+        num::NonZeroU32,
+        path::{Path, PathBuf},
+        str::FromStr as _,
+    };
+
+    use crate::{
+        render::{
+            fixed_line, label_column, position_error_footer, position_prompt_footer,
+            sequence_columns,
+        },
+        state::Viewport,
+    };
 
     const DEMO_GOLDEN_COLS: u16 = 90;
     const DEMO_GOLDEN_ROWS: u16 = 20;

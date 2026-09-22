@@ -529,6 +529,7 @@ impl RegionSequenceReader {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::{file_utils::write_bam_denovo, uuid};

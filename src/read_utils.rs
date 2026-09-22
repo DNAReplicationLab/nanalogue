@@ -2594,6 +2594,7 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod test_defaults {
     use super::*;
 
@@ -2611,6 +2612,7 @@ mod test_defaults {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod test_error_handling {
     use super::*;
     use crate::nanalogue_bam_reader;
@@ -2817,6 +2819,7 @@ mod test_error_handling {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod test_serde {
     use super::*;
     use crate::nanalogue_bam_reader;

@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Tests for `read_utils.rs` extracted from doctests
 
 use nanalogue_core::bedrs::{Bed3, Coordinates as _, Strand};
@@ -10,6 +12,7 @@ use rust_htslib::bam::Read as _;
 use std::collections::{HashMap, hash_map::Entry};
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[expect(
     clippy::panic,
     clippy::arithmetic_side_effects,
@@ -888,6 +891,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod test_curr_read_align_and_mod_data {
     use super::*;
     use nanalogue_core::read_utils::AlignAndModData;

@@ -269,6 +269,7 @@ impl TryFrom<(String, (u32, u32))> for GenomicRegion {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::bedrs::Coordinates as _;

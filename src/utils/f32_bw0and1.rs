@@ -170,6 +170,7 @@ impl From<F32Bw0and1> for F32AbsValAtMost1 {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

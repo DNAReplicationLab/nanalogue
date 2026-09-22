@@ -1,12 +1,16 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Tests for `CurrReadBuilder` extracted from doctests
 //! These tests verify the builder pattern functionality for creating `CurrRead` instances
 
 use nanalogue_core::{
-    AlignmentInfoBuilder, CurrRead, CurrReadBuilder, Error, ModTableEntryBuilder, ReadState,
-    constants::shared::MAX_CONTIGS, read_utils::AlignAndModData,
+    AlignmentInfoBuilder, CurrRead, CurrReadBuilder, Error, ModChar, ModTableEntryBuilder,
+    ReadState, constants::shared::MAX_CONTIGS, read_utils::AlignAndModData,
 };
+use std::collections::HashMap;
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
@@ -143,6 +147,98 @@ mod tests {
             .seq_len(40)
             .mod_table([mod_table_entry_1, mod_table_entry_2].into())
             .build()?;
+        Ok(())
+    }
+
+    /// Modification counts combine identical codes from separate strand tracks.
+    #[test]
+    fn base_count_per_mod_combines_opposite_strands() -> Result<(), Error> {
+        let m_plus = ModTableEntryBuilder::default()
+            .base('C')
+            .is_strand_plus(true)
+            .mod_code("m".into())
+            .data([(0, -1, 17), (5, -1, 71)])
+            .build()?;
+        let m_minus = ModTableEntryBuilder::default()
+            .base('C')
+            .is_strand_plus(false)
+            .mod_code("m".into())
+            .data([(1, -1, 29), (3, -1, 43), (6, -1, 89)])
+            .build()?;
+        let other = ModTableEntryBuilder::default()
+            .base('A')
+            .is_strand_plus(true)
+            .mod_code("h".into())
+            .data([(4, -1, 113)])
+            .build()?;
+
+        let read: CurrRead<AlignAndModData> = CurrReadBuilder::default()
+            .read_id("opposite_strands".into())
+            .seq_len(7)
+            .mod_table(vec![m_plus.clone(), m_minus.clone(), other.clone()])
+            .build()?;
+        let expected_counts = HashMap::from([(ModChar::new('m'), 5), (ModChar::new('h'), 1)]);
+        assert_eq!(read.base_count_per_mod(), expected_counts);
+
+        let reversed_tracks: CurrRead<AlignAndModData> = CurrReadBuilder::default()
+            .read_id("reversed_opposite_strands".into())
+            .seq_len(7)
+            .mod_table(vec![other.clone(), m_minus.clone(), m_plus.clone()])
+            .build()?;
+        assert_eq!(reversed_tracks.base_count_per_mod(), expected_counts);
+
+        let empty_m_minus = ModTableEntryBuilder::default()
+            .base('C')
+            .is_strand_plus(false)
+            .mod_code("m".into())
+            .data([])
+            .build()?;
+        let empty_opposite_track: CurrRead<AlignAndModData> = CurrReadBuilder::default()
+            .read_id("empty_opposite_strand".into())
+            .seq_len(7)
+            .mod_table(vec![m_plus, empty_m_minus, other])
+            .build()?;
+        assert_eq!(
+            empty_opposite_track.base_count_per_mod(),
+            HashMap::from([(ModChar::new('m'), 2), (ModChar::new('h'), 1)])
+        );
+
+        let serialized: serde_json::Value = serde_json::to_value(&read)?;
+        let mod_table = serialized
+            .get("mod_table")
+            .and_then(serde_json::Value::as_array);
+        let expected_m_tracks = vec![
+            serde_json::json!({
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "data": [[0, -1, 17], [5, -1, 71]],
+            }),
+            serde_json::json!({
+                "base": "C",
+                "is_strand_plus": false,
+                "mod_code": "m",
+                "data": [[1, -1, 29], [3, -1, 43], [6, -1, 89]],
+            }),
+        ];
+        assert_eq!(
+            mod_table.map(|entries| {
+                entries
+                    .iter()
+                    .filter(|entry| entry.get("mod_code") == Some(&serde_json::json!("m")))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            }),
+            Some(expected_m_tracks)
+        );
+        let deserialized: CurrRead<AlignAndModData> = serde_json::from_value(serialized.clone())?;
+        assert_eq!(deserialized, read);
+        assert_eq!(
+            serde_json::to_value(&deserialized)?,
+            serialized,
+            "roundtrip serialization must retain both m strand tracks"
+        );
+
         Ok(())
     }
 

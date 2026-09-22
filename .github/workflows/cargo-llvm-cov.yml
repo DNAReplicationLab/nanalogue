@@ -1,4 +1,4 @@
-name: Code coverage > 92%
+name: Region coverage > 88%
 
 on:
   schedule:
@@ -25,9 +25,9 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-      - name: Update Rust
+      - name: Install nightly Rust
         run: |
-          rustup update stable && rustup default stable
+          rustup toolchain install nightly --profile minimal --component llvm-tools-preview
       - name: Aggressive cleanup
         run: |
           # Remove unnecessary tools to increase available disk space
@@ -55,18 +55,39 @@ jobs:
       - name: Generate code coverage
         id: llvm_cov_run
         run: |
-          # install code coverage tool and measure coverage
-          cargo install cargo-llvm-cov
-          cargo llvm-cov --all-features --workspace --json --summary-only --output-path ./output.json
-          functions=$(jq -r '.data[0].totals.functions.percent | round | tostring' ./output.json)
-          lines=$(jq -r '.data[0].totals.lines.percent | round | tostring' ./output.json)
-          regions=$(jq -r '.data[0].totals.regions.percent | round | tostring' ./output.json)
-          branches=$(jq -r '(.data[0].totals.branches.percent // "NA") | if . == "NA" then "NA" else (. | round | tostring) end' ./output.json)
-          echo "function coverage: $functions"
-          echo "lines coverage: $lines"
-          echo "regions coverage: $regions"
-          echo "branches coverage (may not be output if not nightly): $branches"
-          if [ "$regions" -le 92 ]; then
+          cargo +nightly install cargo-llvm-cov --locked
+          REF_PATH=/path/that/does/not/exist cargo +nightly llvm-cov \
+            --all-features \
+            --workspace \
+            --branch \
+            --json \
+            --summary-only \
+            --output-path ./output.json
+
+          functions=$(jq -r '.data[0].totals.functions.percent' ./output.json)
+          lines=$(jq -r '.data[0].totals.lines.percent' ./output.json)
+          regions=$(jq -r '.data[0].totals.regions.percent' ./output.json)
+          branches=$(jq -r '.data[0].totals.branches.percent' ./output.json)
+
+          printf 'function coverage: %.2f%%\n' "$functions"
+          printf 'line coverage: %.2f%%\n' "$lines"
+          printf 'region coverage: %.2f%%\n' "$regions"
+          printf 'branch coverage: %.2f%%\n' "$branches"
+
+          {
+            echo '### Nightly production-code coverage'
+            echo
+            echo '| Metric | Coverage |'
+            echo '| --- | ---: |'
+            printf '| Functions | %.2f%% |\n' "$functions"
+            printf '| Lines | %.2f%% |\n' "$lines"
+            printf '| Regions | %.2f%% |\n' "$regions"
+            printf '| Branches | %.2f%% |\n' "$branches"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if ! jq -e '.data[0].totals.regions.percent > 88' ./output.json >/dev/null; then
+            echo "::error::Region coverage ($regions%) must be greater than 88%"
             exit 1;
-          fi;
+          fi
+
           rm ./output.json

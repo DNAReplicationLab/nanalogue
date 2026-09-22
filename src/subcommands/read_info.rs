@@ -44,8 +44,6 @@ where
     let mut is_first_record_not_written = true;
     let mut idx: u32 = 0;
 
-    write!(handle, "[")?;
-
     // Go record by record in the BAM file, and print entries
     for k in bam_records {
         let record = k?;
@@ -56,27 +54,28 @@ where
             "read info",
         )?;
 
-        if is_first_record_not_written {
-            writeln!(handle)?;
-            is_first_record_not_written = false;
-        } else {
-            writeln!(handle, ",")?;
-        }
         let curr_read = CurrRead::default()
             .try_from_only_alignment(&record)?
             .set_mod_data_restricted_options(&record, &mods)?;
-        write!(
-            handle,
-            "{}",
-            match detailed {
-                None => curr_read.to_string(),
-                Some(false) => serde_json::to_string(&curr_read)?,
-                Some(true) => serde_json::to_string_pretty(&curr_read)?,
-            }
-        )?;
+        let rendered = match detailed {
+            None => curr_read.to_string(),
+            Some(false) => serde_json::to_string(&curr_read)?,
+            Some(true) => serde_json::to_string_pretty(&curr_read)?,
+        };
+
+        if is_first_record_not_written {
+            write!(handle, "[\n{rendered}")?;
+            is_first_record_not_written = false;
+        } else {
+            write!(handle, ",\n{rendered}")?;
+        }
     }
 
-    writeln!(handle, "\n]")?;
+    if is_first_record_not_written {
+        writeln!(handle, "[\n]")?;
+    } else {
+        writeln!(handle, "\n]")?;
+    }
     handle.flush()?;
     Ok(())
 }
@@ -84,6 +83,7 @@ where
 // Tests follow
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::{InputModsBuilder, OrdPair, nanalogue_bam_reader};

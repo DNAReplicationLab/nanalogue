@@ -640,6 +640,7 @@ where
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::F32Bw0and1;
@@ -839,6 +840,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[expect(
     clippy::arithmetic_side_effects,
     clippy::let_underscore_untyped,

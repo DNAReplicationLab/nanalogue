@@ -1,9 +1,12 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Integration tests for `FilterModsByRefCoords` functionality
 //! Tests focus on filtering reads by reference coordinates
 
 use nanalogue_core::{CurrRead, FilterModsByRefCoords as _, read_utils::AlignAndModData};
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

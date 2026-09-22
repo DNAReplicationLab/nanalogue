@@ -1,6 +1,6 @@
 //! Utility functions for file I/O operations with BAM and FASTA files.
 
-use crate::{Error, GetDNARestrictive};
+use crate::{Error, GetDNARestrictive, utils::path_or_url_or_stdin::assert_allowed_network_url};
 use rust_htslib::{bam, htslib};
 use std::ffi::CString;
 use std::fs::File;
@@ -68,8 +68,10 @@ pub fn nanalogue_bam_reader_from_stdin() -> Result<bam::Reader, Error> {
 ///
 /// # Errors
 ///
-/// Returns an error if the BAM data cannot be read.
+/// Returns an error if the URL scheme is not HTTP, HTTPS, or FTP, or if the
+/// BAM data cannot be read.
 pub fn nanalogue_bam_reader_from_url(url: &Url) -> Result<bam::Reader, Error> {
+    assert_allowed_network_url(url)?;
     Ok(bam::Reader::from_url(url)?)
 }
 
@@ -204,11 +206,13 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if the BAM data cannot be read.
+/// Returns an error if the URL scheme is not HTTP, HTTPS, or FTP, or if the
+/// BAM data cannot be read.
 pub fn nanalogue_indexed_bam_reader_from_url(
     url: &Url,
     fetch_definition: bam::FetchDefinition,
 ) -> Result<bam::IndexedReader, Error> {
+    assert_allowed_network_url(url)?;
     let mut bam_reader = bam::IndexedReader::from_url(url)?;
     bam_reader.fetch(fetch_definition)?;
     Ok(bam_reader)
@@ -452,6 +456,7 @@ struct CramWriter {
 impl CramWriter {
     /// Open a CRAM 3.1 stream using an external FASTA reference.
     fn open(output_path: &Path, reference_path: &Path, threads: NonZeroU32) -> Result<Self, Error> {
+        let thread_count = i32::try_from(threads.get())?;
         let output = path_to_c_string(output_path)?;
         let index = path_to_c_string(&crai_path(output_path))?;
         let reference = path_to_c_string(reference_path)?;
@@ -502,7 +507,6 @@ impl CramWriter {
         if unsafe { htslib::hts_set_fai_filename(writer.file, reference.as_ptr()) } != 0 {
             return Err(Error::WriteOutput("failed to load FASTA reference".into()));
         }
-        let thread_count = i32::try_from(threads.get())?;
         // SAFETY: `writer.file` is valid and `thread_count` is a plain integer argument.
         if unsafe { htslib::hts_set_threads(writer.file, thread_count) } != 0 {
             return Err(Error::WriteOutput(
@@ -626,14 +630,27 @@ where
     L: IntoIterator<Item = String>,
     M: AsRef<Path> + ?Sized,
 {
+    let output = output_path.as_ref();
+    let bai_path = alignment_sidecar_path(output, ".bai");
+    match std::fs::symlink_metadata(&bai_path) {
+        Ok(metadata) if metadata.is_dir() => {
+            return Err(Error::InvalidState(
+                "BAM index output path must not be a directory".into(),
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+
     let header = denovo_alignment_header(contigs, read_groups, comments);
 
     // Write BAM file ensuring reads are already sorted
-    let mut writer = bam::Writer::from_path(output_path, &header, bam::Format::Bam)?;
+    let mut writer = bam::Writer::from_path(output, &header, bam::Format::Bam)?;
     write_sorted_reads(reads, |read| writer.write(read).map_err(Error::from))?;
     drop(writer); // Close BAM file before creating index
 
-    bam::index::build(output_path, None, bam::index::Type::Bai, 2)?;
+    bam::index::build(output, None, bam::index::Type::Bai, 2)?;
 
     Ok(())
 }
@@ -825,6 +842,7 @@ pub(crate) fn read_line_capped<R: std::io::BufRead>(
 
 #[expect(clippy::panic, reason = "panic on error is standard practice in tests")]
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::{DNARestrictive, uuid};

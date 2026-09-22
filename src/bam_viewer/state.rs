@@ -116,6 +116,7 @@ pub(super) struct Viewer {
 impl Viewer {
     /// Opens an indexed BAM and chooses the initial viewport.
     #[cfg(test)]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub(super) fn open(
         path: PathBuf,
         position: &InitialPosition,

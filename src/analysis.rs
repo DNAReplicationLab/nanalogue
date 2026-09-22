@@ -139,6 +139,7 @@ pub fn threshold_and_mean_and_thres_win(
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

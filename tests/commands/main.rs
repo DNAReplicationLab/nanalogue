@@ -1,7 +1,10 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 //! Integration tests for [`commands::run`]
 
 /// Integration tests for [`commands::run`]
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
 
     use clap::Parser as _;
@@ -168,6 +171,7 @@ mod tests {
 
 /// Tests for BAM input option retrieval from `Commands` and `FindModReadsSubcommands`
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod bam_input_option_retrieval_from_commands {
     use nanalogue_core::{
         F32Bw0and1, InputBam, InputBamBuilder, InputMods, InputModsBuilder, InputWindowing,
@@ -416,6 +420,7 @@ mod bam_input_option_retrieval_from_commands {
 ///   Read names are formatted as `{group_number}.{uuid}`, so we verify that all output
 ///   starts with "1." and has at least ~1000 lines.
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod find_modified_reads_tests {
     use clap::Parser as _;
     use nanalogue_core::commands;

@@ -383,6 +383,7 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> TryFrom<(T, T)> for OrdPa
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
