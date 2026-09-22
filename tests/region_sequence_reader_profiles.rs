@@ -116,8 +116,8 @@ mod tests {
 
         let a_profiles = reader.profiles(
             0,
-            10,
-            20,
+            12,
+            18,
             ModChar::new('a'),
             NonZeroU32::new(3).expect("three is nonzero"),
         )?;

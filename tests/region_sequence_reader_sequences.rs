@@ -176,6 +176,18 @@ mod tests {
             false,
         );
 
+        let clipped_rows = reader.sequences(0, 11, 17, Some(ModChar::new('a')))?;
+        assert_eq!(clipped_rows.len(), 1);
+        assert_row(
+            clipped_rows.first().expect("one clipped row"),
+            "modified",
+            "CTA..C",
+            "CaTA..C",
+            &[false, false, true, false, false, false],
+            &[false, true, false, true, false, false, false],
+            false,
+        );
+
         let m_rows = reader.sequences(0, 10, 18, Some(ModChar::new('m')))?;
         assert_eq!(m_rows.len(), 1);
         assert_row(

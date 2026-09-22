@@ -178,27 +178,42 @@ mod tests {
             }
         }
 
-        let second_fetch = reader.profiles(0, 11, 19, ModChar::new('a'), win)?;
-        assert_eq!(second_fetch.len(), first_fetch.len());
+        let second_fetch = reader.profiles(0, 10, 33, ModChar::new('a'), win)?;
+        assert_eq!(second_fetch.len(), first_fetch.len() - 1);
+        assert!(
+            second_fetch
+                .iter()
+                .all(|profile| profile.read_id() != "zeta"),
+            "the narrowed refetch excludes the alignment ending before its interval"
+        );
         for original in &first_fetch {
             let matching_refetches = second_fetch
                 .iter()
                 .filter(|refetched| original.is_same_alignment(refetched))
                 .count();
+            let expected_matches = usize::from(original.read_id() != "zeta");
             assert_eq!(
-                matching_refetches, 1,
-                "each alignment, including each duplicate occurrence, matches once after refetch"
+                matching_refetches, expected_matches,
+                "each surviving alignment, including each duplicate occurrence, matches once"
             );
         }
         for refetched in &second_fetch {
+            let matching_originals = first_fetch
+                .iter()
+                .filter(|original| refetched.is_same_alignment(original))
+                .collect::<Vec<_>>();
             assert_eq!(
-                first_fetch
-                    .iter()
-                    .filter(|original| refetched.is_same_alignment(original))
-                    .count(),
+                matching_originals.len(),
                 1,
-                "refetch matching is a one-to-one correspondence"
+                "refetch matching is one-to-one"
             );
+            let original = matching_originals
+                .first()
+                .expect("the matching original count was checked");
+            assert_eq!(refetched.read_id(), original.read_id());
+            assert_eq!(refetched.align_start(), original.align_start());
+            assert_eq!(refetched.align_end(), original.align_end());
+            assert_eq!(refetched.is_reverse(), original.is_reverse());
         }
         Ok(())
     }
