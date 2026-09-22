@@ -38,24 +38,24 @@ jobs:
   cargo-test:
     name: Cargo tests (locked)
     needs: [version-check]
-    uses: ./.github/workflows/ci.yml
+    uses: $/.github/workflows/ci.yml
 
   cargo-test-non-locked:
     name: Cargo tests (non-locked)
     needs: [version-check]
-    uses: ./.github/workflows/ci_non_locked_packages.yml
+    uses: $/.github/workflows/ci_non_locked_packages.yml
 
   build-binaries:
     needs: [cargo-test, cargo-test-non-locked]
-    uses: ./.github/workflows/build-binaries.yml
+    uses: $/.github/workflows/build-binaries.yml
 
   build-docker-amd64:
     needs: [cargo-test, cargo-test-non-locked]
-    uses: ./.github/workflows/build-docker-image.yml
+    uses: $/.github/workflows/build-docker-image.yml
 
   build-docker-arm64:
     needs: [cargo-test, cargo-test-non-locked]
-    uses: ./.github/workflows/build-docker-image-arm64.yml
+    uses: $/.github/workflows/build-docker-image-arm64.yml
 
   upload-to-release:
     name: Upload artifacts to release
@@ -111,13 +111,13 @@ jobs:
     name: Test install script
     needs: [upload-to-release]
     if: github.event_name == 'release'
-    uses: ./.github/workflows/test-install-script.yml
+    uses: $/.github/workflows/test-install-script.yml
 
   push-docker-images:
     name: Push Docker images
     needs: [test-install-script]
     if: github.event_name == 'release'
-    uses: ./.github/workflows/push-docker-images.yml
+    uses: $/.github/workflows/push-docker-images.yml
     with:
       tag: ${{ github.event.release.tag_name }}
       dry_run: false
@@ -129,6 +129,6 @@ jobs:
     permissions:
       contents: read
       id-token: write # Required because publish-crates.yml uses crates.io trusted publishing via OIDC.
-    uses: ./.github/workflows/publish-crates.yml
+    uses: $/.github/workflows/publish-crates.yml
     with:
       dry_run: false
