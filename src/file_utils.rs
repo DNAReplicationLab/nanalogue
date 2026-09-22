@@ -630,14 +630,27 @@ where
     L: IntoIterator<Item = String>,
     M: AsRef<Path> + ?Sized,
 {
+    let output = output_path.as_ref();
+    let bai_path = alignment_sidecar_path(output, ".bai");
+    match std::fs::symlink_metadata(&bai_path) {
+        Ok(metadata) if metadata.is_dir() => {
+            return Err(Error::InvalidState(
+                "BAM index output path must not be a directory".into(),
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+
     let header = denovo_alignment_header(contigs, read_groups, comments);
 
     // Write BAM file ensuring reads are already sorted
-    let mut writer = bam::Writer::from_path(output_path, &header, bam::Format::Bam)?;
+    let mut writer = bam::Writer::from_path(output, &header, bam::Format::Bam)?;
     write_sorted_reads(reads, |read| writer.write(read).map_err(Error::from))?;
     drop(writer); // Close BAM file before creating index
 
-    bam::index::build(output_path, None, bam::index::Type::Bai, 2)?;
+    bam::index::build(output, None, bam::index::Type::Bai, 2)?;
 
     Ok(())
 }

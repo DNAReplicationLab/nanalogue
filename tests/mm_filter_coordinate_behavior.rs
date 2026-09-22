@@ -69,11 +69,32 @@ mod tests {
 
     #[test]
     fn reverse_fallback_mapping_applies_all_filters_in_forward_space() -> Result<(), Error> {
-        // For a reverse record the qualities are traversed as
-        // [255, 50, 30, 40, 20, 50]. Across the six N calls, index 0 tests
-        // unavailable quality, 5 probability rejection, 4 low quality, 3
-        // position rejection, 2 inclusive quality acceptance, and 1 a mapped
-        // reference coordinate. Incorrect quality orientation changes the result.
+        // The multi-operation `1S 2M 1I 2M` CIGAR forces the parser to build
+        // reference coordinates through `aligned_pairs_full` instead of its
+        // optimized contiguous-match path. The MM tag below calls every one of
+        // the six `N` candidates in the original forward-sequence orientation.
+        // Because this record is reverse-strand, its stored qualities
+        // `[50, 20, 40, 30, 50, 255]` must be traversed as
+        // `[255, 50, 30, 40, 20, 50]` while filtering those calls.
+        //
+        // Each call independently witnesses one behavior:
+        //
+        // | forward index | probability | quality | result                    |
+        // |---------------|-------------|---------|---------------------------|
+        // | 0             | 107         | 255     | unavailable-quality reject|
+        // | 1             | 104         | 50      | accepted                  |
+        // | 2             | 103         | 30      | accepted at both bounds   |
+        // | 3             | 105         | 40      | position-filter reject    |
+        // | 4             | 106         | 20      | minimum-quality reject    |
+        // | 5             | 102         | 50      | probability-filter reject |
+        //
+        // Thus only forward indices 1 and 2 survive. On a six-base reverse
+        // read they become stored positions 4 and 3 respectively. Index 2 is
+        // the inserted base and therefore has no reference coordinate, while
+        // index 1 maps to reference position 102. Reverse-read output ordering
+        // then yields `(3, 103, None)` followed by `(4, 104, Some(102))`.
+        // Reversing the wrong array, making either threshold exclusive, or
+        // mapping the insertion onto the reference will therefore fail below.
         let mut record = complex_record(16, b"ACGTAC", &[50, 20, 40, 30, 50, 255]);
         add_mod_tags(
             &mut record,

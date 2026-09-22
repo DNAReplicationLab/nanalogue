@@ -192,11 +192,10 @@ mod tests {
         );
     }
 
-    /// Index creation happens only after the BAM stream closes. Blocking the
-    /// conventional BAI path therefore reports an index error while leaving a
-    /// complete, sequentially readable BAM and the pre-existing path intact.
+    /// An unsuitable conventional BAI path is rejected before the BAM is
+    /// created, and the pre-existing path remains intact.
     #[test]
-    fn blocked_bai_path_preserves_completed_bam() -> Result<(), Error> {
+    fn blocked_bai_path_prevents_bam_creation() -> Result<(), Error> {
         let temp = TempDir::new("blocked_bai");
         let bam_path = temp.join("output.bam");
         let bai_path = temp.join("output.bam.bai");
@@ -212,18 +211,14 @@ mod tests {
         .expect_err("a directory at the BAI path must block index creation");
         assert!(matches!(
             error,
-            Error::RustHtslibError(source)
-                if matches!(source.as_ref(), HtslibError::BamWriteIndex)
+            Error::InvalidState(message)
+                if message == "BAM index output path must not be a directory"
         ));
         assert!(bai_path.is_dir(), "the blocker must not be replaced");
-
-        let mut reader = nanalogue_bam_reader(&bam_path)?;
-        let records = reader.records().collect::<Result<Vec<_>, _>>()?;
-        assert_eq!(records.len(), 1);
-        let record = records.first().expect("one record was read");
-        assert_eq!(record.qname(), b"persisted");
-        assert_eq!(record.tid(), 0);
-        assert_eq!(record.pos(), 11);
+        assert!(
+            !bam_path.exists(),
+            "an unsuitable BAI path must be rejected before opening the BAM"
+        );
         Ok(())
     }
 
