@@ -10,6 +10,7 @@ mod tests {
         Error, InputBamBuilder, PathOrURLOrStdin,
         commands::{self, Cli, CliBuilder, Commands},
     };
+    use rust_htslib::errors::Error as HtslibError;
     use url::Url;
 
     /// Runs a parsed command and returns its UTF-8 output.
@@ -80,37 +81,30 @@ mod tests {
         );
     }
 
-    /// A missing regional path must return the indexed reader's open error,
-    /// rather than falling back as though only its index were absent.
+    /// A fetch failure from an indexed BAM must be propagated rather than
+    /// falling back as though only its index were absent.
     #[test]
     fn run_propagates_indexed_path_open_errors() {
-        let missing_path = format!(
-            "/tmp/nanalogue_missing_routing_input_{}.bam",
-            std::process::id()
-        );
         let cli = Cli::parse_from([
             "nanalogue",
             "read-stats",
             "--region",
-            "chr1:1-10",
-            &missing_path,
+            "absent:1-10",
+            "./examples/example_1.bam",
         ]);
         let mut output = Vec::new();
 
         let error = commands::run(cli, &mut output)
-            .expect_err("opening a nonexistent regional BAM should fail");
+            .expect_err("fetching an absent contig from an indexed BAM should fail");
 
         assert!(
             output.is_empty(),
-            "an open failure must not emit statistics"
+            "an indexed fetch failure must not emit statistics"
         );
         assert!(
-            matches!(error, Error::RustHtslibError(_)),
-            "the indexed reader error should be propagated, got {error:?}"
-        );
-        assert!(
-            error.to_string().contains(&missing_path),
-            "the error should identify the missing BAM: {error}"
+            matches!(&error, Error::RustHtslibError(source)
+                if matches!(source.as_ref(), HtslibError::Fetch)),
+            "the indexed reader's fetch error should be propagated, got {error:?}"
         );
     }
 
