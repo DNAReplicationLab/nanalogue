@@ -130,8 +130,14 @@ mod tests {
         );
         assert_argument_error(
             ["reads.bam", "chr1:4294967296"],
-            "START must be a non-negative integer",
+            "START exceeds the maximum supported value (4294967295)",
         );
+        for malformed in ["chr1:4294967296x", "chr1:4294967296 "] {
+            assert_argument_error(
+                ["reads.bam", malformed],
+                "START must be a non-negative integer",
+            );
+        }
     }
 
     /// Modification types report their own syntax errors before mode parsing.
@@ -149,12 +155,22 @@ mod tests {
         );
     }
 
-    /// Window parsing distinguishes malformed and overflowing values from zero.
+    /// Window parsing distinguishes malformed and zero values from overflow.
     #[test]
     fn malformed_or_overflowing_windows_are_rejected() {
-        for window in ["", "seven", "4294967296"] {
+        for window in ["", "seven", "0"] {
             assert_argument_error(
                 ["reads.bam", "chr1:7", "m", window, "individual"],
+                "WINDOW_SIZE must be a positive integer",
+            );
+        }
+        assert_argument_error(
+            ["reads.bam", "chr1:7", "m", "4294967296", "individual"],
+            "WINDOW_SIZE exceeds the maximum supported value (4294967295)",
+        );
+        for malformed in ["4294967296x", "4294967296 "] {
+            assert_argument_error(
+                ["reads.bam", "chr1:7", "m", malformed, "individual"],
                 "WINDOW_SIZE must be a positive integer",
             );
         }
