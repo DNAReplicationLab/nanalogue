@@ -15,8 +15,8 @@ mod tests {
     use std::net::TcpListener;
     use std::rc::Rc;
     use std::sync::{
-        Arc, Mutex, MutexGuard,
-        atomic::{AtomicBool, Ordering},
+        Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering},
     };
     use std::thread;
     use std::time::Duration;
@@ -25,26 +25,37 @@ mod tests {
         "#contig\tref_win_start\tref_win_end\tread_id\twin_val\tstrand\t",
         "base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual\n"
     );
-    static INDEX_LOCK: Mutex<()> = Mutex::new(());
     struct BamServer {
         stop: Arc<AtomicBool>,
+        index_requested: Arc<AtomicBool>,
         thread: Option<thread::JoinHandle<()>>,
         url: String,
-        _guard: MutexGuard<'static, ()>,
     }
     impl BamServer {
+        #[expect(
+            clippy::too_many_lines,
+            reason = "the complete HTTP fixture lifecycle is clearer in one constructor"
+        )]
         fn start(serve_index: bool) -> Self {
-            let guard = INDEX_LOCK.lock().expect("index fixture lock is available");
             let listener = TcpListener::bind("127.0.0.1:0").expect("test server should bind");
             listener
                 .set_nonblocking(true)
                 .expect("listener should become nonblocking");
             let address = listener.local_addr().expect("listener has an address");
-            let bam = std::fs::read("./examples/example_1.bam").expect("example BAM is readable");
-            let bai = std::fs::read("./examples/example_1.bam.bai")
-                .expect("example BAM index is readable");
+            let bam = std::fs::read(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/examples/example_1.bam"
+            ))
+            .expect("example BAM is readable");
+            let bai = std::fs::read(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/examples/example_1.bam.bai"
+            ))
+            .expect("example BAM index is readable");
             let stop = Arc::new(AtomicBool::new(false));
             let thread_stop = Arc::clone(&stop);
+            let index_requested = Arc::new(AtomicBool::new(false));
+            let thread_index_requested = Arc::clone(&index_requested);
             let thread = thread::spawn(move || {
                 let index: &[u8] = if serve_index { &bai } else { b"invalid index" };
                 while !thread_stop.load(Ordering::Relaxed) {
@@ -68,11 +79,14 @@ mod tests {
                             }
                             drop(reader);
                             let first_line = request_text.lines().next().unwrap_or_default();
+                            let requests_index = first_line.contains(" /input.bam.bai ")
+                                || first_line.contains(" /input.bai ");
+                            if requests_index {
+                                thread_index_requested.store(true, Ordering::Relaxed);
+                            }
                             let requested_content = if first_line.contains(" /input.bam ") {
                                 Some(bam.as_slice())
-                            } else if first_line.contains(" /input.bam.bai ")
-                                || first_line.contains(" /input.bai ")
-                            {
+                            } else if requests_index {
                                 Some(index)
                             } else {
                                 None
@@ -125,10 +139,14 @@ mod tests {
             });
             Self {
                 stop,
+                index_requested,
                 thread: Some(thread),
                 url: format!("http://{address}/input.bam"),
-                _guard: guard,
             }
+        }
+
+        fn index_was_requested(&self) -> bool {
+            self.index_requested.load(Ordering::Relaxed)
         }
     }
 
@@ -140,9 +158,28 @@ mod tests {
                 .expect("server thread exists")
                 .join()
                 .expect("server thread should stop");
-            std::fs::remove_file("input.bam.bai").unwrap_or_else(|error| {
-                assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
-            });
+        }
+    }
+
+    struct TestDirectory(std::path::PathBuf);
+
+    impl TestDirectory {
+        fn new(name: &str) -> Self {
+            static NEXT_ID: AtomicU32 = AtomicU32::new(0);
+
+            let path = std::env::temp_dir().join(format!(
+                "nanalogue-{name}-{}-{}",
+                std::process::id(),
+                NEXT_ID.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).expect("test working directory should be created");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).expect("test working directory should be removed");
         }
     }
 
@@ -441,22 +478,34 @@ mod tests {
     #[test]
     fn regional_url_falls_back_to_unindexed_windowing() {
         let server = BamServer::start(false);
-        let cli = commands::Cli::parse_from([
-            "nanalogue",
-            "window-dens",
-            "--region",
-            "dummyI:1-22",
-            "--win",
-            "2",
-            "--step",
-            "1",
-            &server.url,
-        ]);
-        let mut output = Vec::new();
+        let working_directory = TestDirectory::new("invalid-remote-index");
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_nanalogue"))
+            .args([
+                "window-dens",
+                "--region",
+                "dummyI:1-22",
+                "--win",
+                "2",
+                "--step",
+                "1",
+                &server.url,
+            ])
+            .current_dir(&working_directory.0)
+            .output()
+            .expect("nanalogue executable should run");
 
-        commands::run(cli, &mut output).expect("missing remote index should fall back");
+        assert!(output.status.success(), "unindexed fallback should succeed");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("# cannot find index file. region retrieval could be slower."),
+            "invalid remote index should report fallback: {stderr}"
+        );
+        assert!(
+            server.index_was_requested(),
+            "server should receive an index request"
+        );
 
-        let text = String::from_utf8(output).expect("window output is UTF-8");
+        let text = String::from_utf8(output.stdout).expect("window output is UTF-8");
         assert!(text.starts_with("#contig\tref_win_start"));
         assert!(
             text.lines()
@@ -474,18 +523,28 @@ mod tests {
     #[test]
     fn regional_url_uses_remote_index_when_available() {
         let server = BamServer::start(true);
-        let cli = commands::Cli::parse_from([
-            "nanalogue",
-            "read-stats",
-            "--region",
-            "dummyI:1-22",
-            &server.url,
-        ]);
-        let mut output = Vec::new();
+        let working_directory = TestDirectory::new("valid-remote-index");
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_nanalogue"))
+            .args(["read-stats", "--region", "dummyI:1-22", &server.url])
+            .current_dir(&working_directory.0)
+            .output()
+            .expect("nanalogue executable should run");
 
-        commands::run(cli, &mut output).expect("the remote index should support a region fetch");
+        assert!(
+            output.status.success(),
+            "indexed region fetch should succeed"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !stderr.contains("# cannot find index file. region retrieval could be slower."),
+            "valid remote index should not report fallback: {stderr}"
+        );
+        assert!(
+            server.index_was_requested(),
+            "server should receive an index request"
+        );
 
-        let text = String::from_utf8(output).expect("statistics are UTF-8");
+        let text = String::from_utf8(output.stdout).expect("statistics are UTF-8");
         let values: std::collections::HashMap<_, _> = text
             .lines()
             .skip(1)

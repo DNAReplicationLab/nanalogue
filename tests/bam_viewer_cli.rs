@@ -465,17 +465,43 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(20));
         }
+        let mut cancel_controls_baseline = None;
         for keys in key_chunks {
-            let controls_before_cancel = (keys == b"\x1b").then(|| {
+            let prompts_before_goto = (keys == b"g").then(|| {
                 terminal_text(&std::fs::read(&output_path).unwrap_or_default())
-                    .matches("h/l 10 bp")
+                    .matches("Go to CONTIG:START: ")
                     .count()
             });
             if let Err(error) = input.write_all(keys).and_then(|()| input.flush()) {
                 input_error = Some(format!("viewer keys could not be written: {error}"));
                 break;
             }
-            if let Some(previous_control_frames) = controls_before_cancel {
+            if let Some(previous_prompt_frames) = prompts_before_goto {
+                let prompt_deadline = Instant::now()
+                    .checked_add(Duration::from_secs(2))
+                    .expect("short prompt timeout should fit in Instant");
+                loop {
+                    let text = terminal_text(&std::fs::read(&output_path).unwrap_or_default());
+                    if text.matches("Go to CONTIG:START: ").count() > previous_prompt_frames {
+                        cancel_controls_baseline = Some(text.matches("h/l 10 bp").count());
+                        break;
+                    }
+                    if Instant::now() >= prompt_deadline {
+                        input_error = Some(String::from(
+                            "goto key did not render the prompt before cancellation",
+                        ));
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(20));
+                }
+            }
+            if keys == b"\x1b" {
+                let Some(previous_control_frames) = cancel_controls_baseline else {
+                    input_error = Some(String::from(
+                        "goto prompt was not observed before cancellation",
+                    ));
+                    break;
+                };
                 let redraw_deadline = Instant::now()
                     .checked_add(Duration::from_secs(2))
                     .expect("short redraw timeout should fit in Instant");
@@ -495,6 +521,9 @@ mod tests {
                     }
                     thread::sleep(Duration::from_millis(20));
                 }
+            }
+            if input_error.is_some() {
+                break;
             }
             thread::sleep(Duration::from_millis(80));
         }
