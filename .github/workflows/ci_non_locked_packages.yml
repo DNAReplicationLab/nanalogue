@@ -61,11 +61,19 @@ jobs:
         run: cargo build
       - name: Test default features
         run: cargo test
-      - name: Install Zig for libghostty-vt
+      - name: Install Zig for libghostty-vt on Linux
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q minisign
           sha256sum --check --strict github_workflow_scripts/install-zig-for-libghostty.sha256
+          ./github_workflow_scripts/install-zig-for-libghostty.sh
+          echo "$HOME/.local/zig-0.15.2" >> "$GITHUB_PATH"
+      - name: Install Zig for libghostty-vt on macOS
+        if: runner.os == 'macOS'
+        run: |
+          brew install minisign
+          shasum -a 256 -c github_workflow_scripts/install-zig-for-libghostty.sha256
           ./github_workflow_scripts/install-zig-for-libghostty.sh
           echo "$HOME/.local/zig-0.15.2" >> "$GITHUB_PATH"
       - name: Test all features

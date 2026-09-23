@@ -1,13 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
-    echo "Zig 0.15.2 installation requires Linux x86_64." >&2
-    exit 1
-fi
+case "$(uname -s):$(uname -m)" in
+    Linux:x86_64)
+        archive_name="zig-x86_64-linux-0.15.2.tar.xz"
+        archive_sha256="02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239"
+        ;;
+    Darwin:x86_64)
+        archive_name="zig-x86_64-macos-0.15.2.tar.xz"
+        archive_sha256="375b6909fc1495d16fc2c7db9538f707456bfc3373b14ee83fdd3e22b3d43f7f"
+        ;;
+    Darwin:arm64)
+        archive_name="zig-aarch64-macos-0.15.2.tar.xz"
+        archive_sha256="3cc2bab367e185cdfb27501c4b30b1b0653c28d9f73df8dc91488e66ece5fa6b"
+        ;;
+    *)
+        echo "Zig 0.15.2 installation requires Linux x86_64 or macOS." >&2
+        exit 1
+        ;;
+esac
 
-archive_name="zig-x86_64-linux-0.15.2.tar.xz"
-archive_sha256="02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239"
 zsf_minisign_key="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
 zig_dir="$HOME/.local/zig-0.15.2"
 checksum_marker="$zig_dir/.archive.sha256"
@@ -33,14 +45,11 @@ fi
 
 curl --proto '=https' --tlsv1.2 -fsSLo "$mirror_list" \
     https://ziglang.org/download/community-mirrors.txt
-mapfile -t mirrors < <(shuf "$mirror_list")
-if ((${#mirrors[@]} == 0)); then
-    echo "No Zig community mirrors were returned." >&2
-    exit 1
-fi
 
 verified=false
-for mirror in "${mirrors[@]:0:10}"; do
+mirror_count=0
+while IFS= read -r mirror; do
+    ((mirror_count += 1))
     if [[ "$mirror" != https://* || "$mirror" == *[[:space:]]* ]]; then
         echo "Invalid Zig community mirror URL: $mirror" >&2
         exit 1
@@ -57,7 +66,7 @@ for mirror in "${mirrors[@]:0:10}"; do
         continue
     fi
     if ! printf '%s  %s\n' "$archive_sha256" "$archive" \
-        | sha256sum --check --strict -; then
+        | shasum -a 256 -c -; then
         continue
     fi
     if ! minisign -Vm "$archive" -x "$signature" -P "$zsf_minisign_key"; then
@@ -78,7 +87,12 @@ for mirror in "${mirrors[@]:0:10}"; do
 
     verified=true
     break
-done
+done < <(head -n 10 "$mirror_list")
+
+if ((mirror_count == 0)); then
+    echo "No Zig community mirrors were returned." >&2
+    exit 1
+fi
 
 if [[ "$verified" != true ]]; then
     echo "Zig download is not possible after trying up to 10 community mirrors." >&2
