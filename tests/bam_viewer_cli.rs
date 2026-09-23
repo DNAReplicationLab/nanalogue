@@ -365,4 +365,289 @@ mod tests {
             );
         }
     }
+
+    /// Result captured from a viewer session running in a real Linux pseudo-terminal.
+    #[cfg(target_os = "linux")]
+    #[derive(Debug)]
+    struct PtySession {
+        status: std::process::ExitStatus,
+        output: Vec<u8>,
+        stderr: Vec<u8>,
+        input_error: Option<String>,
+    }
+
+    /// Runs the viewer under util-linux `script`, with an inner GNU `timeout`
+    /// directly supervising the viewer and an outer timeout supervising `script`.
+    #[cfg(target_os = "linux")]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the PTY lifecycle is clearer in one test harness than split across stateful helpers"
+    )]
+    fn run_viewer_in_pty(bam_name: &str, cols: u16, key_chunks: &[&[u8]]) -> PtySession {
+        use std::{
+            fs::File,
+            io::Write as _,
+            process::Stdio,
+            sync::atomic::{AtomicU32, Ordering},
+            thread,
+            time::{Duration, Instant},
+        };
+
+        static NEXT_SESSION_ID: AtomicU32 = AtomicU32::new(0);
+
+        let session_id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed);
+        let file_prefix = std::env::temp_dir().join(format!(
+            "nanalogue-viewer-pty-{}-{session_id}",
+            std::process::id()
+        ));
+        let output_path = file_prefix.with_extension("out");
+        let stderr_path = file_prefix.with_extension("err");
+        let output_file = File::create(&output_path).expect("PTY output file should be created");
+        let stderr_file = File::create(&stderr_path).expect("PTY stderr file should be created");
+        let bam = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join(bam_name);
+
+        // The command is constant: paths travel through environment variables,
+        // so spaces or shell metacharacters in the checkout cannot alter it.
+        let mut child = Command::new("timeout")
+            .args([
+                "--kill-after=3s",
+                "12s",
+                "script",
+                "--quiet",
+                "--return",
+                "--flush",
+                "--echo",
+                "never",
+                "--output-limit",
+                "2M",
+                "--command",
+                concat!(
+                    "stty rows 24 cols \"$NANALOGUE_COLS\"; ",
+                    "before=$(stty -g) || exit 125; ",
+                    "timeout --foreground --kill-after=1s 7s \"$NANALOGUE_VIEWER\" ",
+                    "\"$NANALOGUE_BAM\" dummyI:0 m; status=$?; ",
+                    "after=$(stty -g) || exit 125; ",
+                    "if [ \"$before\" = \"$after\" ]; then ",
+                    "printf '\\nNANALOGUE_STTY_RESTORED=yes\\n'; else ",
+                    "printf '\\nNANALOGUE_STTY_RESTORED=no\\n'; fi; ",
+                    "exit \"$status\""
+                ),
+                "/dev/null",
+            ])
+            .env(
+                "NANALOGUE_VIEWER",
+                env!("CARGO_BIN_EXE_nanalogue_bam_viewer"),
+            )
+            .env("NANALOGUE_BAM", bam)
+            .env("NANALOGUE_COLS", cols.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::from(output_file))
+            .stderr(Stdio::from(stderr_file))
+            .spawn()
+            .expect("util-linux script and GNU timeout should be installed");
+
+        let mut input = child.stdin.take().expect("PTY input pipe should exist");
+        let mut input_error = None;
+        let startup_deadline = Instant::now()
+            .checked_add(Duration::from_secs(3))
+            .expect("short startup timeout should fit in Instant");
+        loop {
+            let started = terminal_text(&std::fs::read(&output_path).unwrap_or_default())
+                .contains("nanalogue BAM viewer");
+            if started {
+                break;
+            }
+            if Instant::now() >= startup_deadline {
+                input_error = Some(String::from("initial viewer frame did not render"));
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        for keys in key_chunks {
+            let controls_before_cancel = (keys == b"\x1b").then(|| {
+                terminal_text(&std::fs::read(&output_path).unwrap_or_default())
+                    .matches("h/l 10 bp")
+                    .count()
+            });
+            if let Err(error) = input.write_all(keys).and_then(|()| input.flush()) {
+                input_error = Some(format!("viewer keys could not be written: {error}"));
+                break;
+            }
+            if let Some(previous_control_frames) = controls_before_cancel {
+                let redraw_deadline = Instant::now()
+                    .checked_add(Duration::from_secs(2))
+                    .expect("short redraw timeout should fit in Instant");
+                loop {
+                    let controls_after_cancel =
+                        terminal_text(&std::fs::read(&output_path).unwrap_or_default())
+                            .matches("h/l 10 bp")
+                            .count();
+                    if controls_after_cancel > previous_control_frames {
+                        break;
+                    }
+                    if Instant::now() >= redraw_deadline {
+                        input_error = Some(String::from(
+                            "goto cancellation did not redraw the controls before quit",
+                        ));
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(20));
+                }
+            }
+            thread::sleep(Duration::from_millis(80));
+        }
+
+        // Keep stdin open while waiting: script maps pipe EOF to Ctrl-D, which
+        // must not provide a second, accidental way for either quit test to pass.
+        let outer_deadline = Instant::now()
+            .checked_add(Duration::from_secs(17))
+            .expect("short outer timeout should fit in Instant");
+        let status = loop {
+            if let Some(status) = child
+                .try_wait()
+                .expect("PTY child status should be readable")
+            {
+                break status;
+            }
+            if Instant::now() >= outer_deadline {
+                drop(child.kill());
+                input_error = Some(String::from(
+                    "GNU timeout failed to terminate the PTY process group",
+                ));
+                break child.wait().expect("killed PTY child should be reaped");
+            }
+            thread::sleep(Duration::from_millis(20));
+        };
+        drop(input);
+
+        let output = std::fs::read(&output_path).expect("PTY output should be readable");
+        let stderr = std::fs::read(&stderr_path).expect("PTY stderr should be readable");
+        std::fs::remove_file(output_path).expect("PTY output should be removed");
+        std::fs::remove_file(stderr_path).expect("PTY stderr should be removed");
+        PtySession {
+            status,
+            output,
+            stderr,
+            input_error,
+        }
+    }
+
+    /// Removes CSI escape sequences from renderer output while retaining the
+    /// printable cell contents in draw order for decisive text assertions.
+    #[cfg(target_os = "linux")]
+    fn terminal_text(output: &[u8]) -> String {
+        let mut printable = Vec::with_capacity(output.len());
+        let mut bytes = output.iter().copied();
+        while let Some(byte) = bytes.next() {
+            if byte == 0x1b {
+                if bytes.next() == Some(b'[') {
+                    for sequence_byte in bytes.by_ref() {
+                        if (0x40..=0x7e).contains(&sequence_byte) {
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+            if byte >= b' ' {
+                printable.push(byte);
+            }
+        }
+        String::from_utf8_lossy(&printable).into_owned()
+    }
+
+    /// Checks both the rendered frame and `TerminalGuard`'s normal-exit cleanup.
+    #[cfg(target_os = "linux")]
+    fn assert_clean_pty_exit(session: &PtySession) {
+        assert_eq!(
+            session.status.code(),
+            Some(0),
+            "PTY viewer should exit successfully; stderr: {}",
+            String::from_utf8_lossy(&session.stderr)
+        );
+        assert!(
+            session.stderr.is_empty(),
+            "successful session has no stderr"
+        );
+        assert_eq!(
+            session.input_error, None,
+            "all keys and synchronization points should complete"
+        );
+        assert!(
+            session.output.starts_with(b"\x1b[?1049h\x1b[?25l"),
+            "viewer should enter the alternate screen and hide the cursor"
+        );
+        assert!(
+            session
+                .output
+                .windows(8)
+                .any(|bytes| bytes == b"\x1b[?2026h"),
+            "GhosttyRenderer should use synchronized terminal updates"
+        );
+        assert!(
+            session
+                .output
+                .windows(14)
+                .any(|bytes| bytes == b"\x1b[?25h\x1b[?1049l"),
+            "TerminalGuard should show the cursor and leave the alternate screen"
+        );
+        assert!(
+            terminal_text(&session.output).contains("NANALOGUE_STTY_RESTORED=yes"),
+            "TerminalGuard should restore the PTY's raw-mode settings"
+        );
+    }
+
+    /// A queued quit key is consumed only after raw mode starts and exits cleanly.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pty_immediate_quit_draws_and_restores_terminal() {
+        let session = run_viewer_in_pty("example_1.bam", 100, &[b"q"]);
+        assert_clean_pty_exit(&session);
+
+        let text = terminal_text(&session.output);
+        assert!(text.contains("nanalogue BAM viewer"));
+        assert!(
+            text.contains("h/l 81 bp"),
+            "PTY width should be fixed at 100"
+        );
+        assert!(text.contains("g goto  r full IDs  i show ins  q quit"));
+    }
+
+    /// Drives display toggles, arrow navigation, and goto cancellation before quitting.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pty_interactive_flow_dispatches_keys_and_quits() {
+        let session = run_viewer_in_pty(
+            "example_3.bam",
+            29,
+            &[b"r", b"i", b"\x1b[C", b"\x1b[B", b"g", b"\x1b", b"q"],
+        );
+        assert_clean_pty_exit(&session);
+
+        let text = terminal_text(&session.output);
+        let initial_position = text
+            .find("dummyI:1-10")
+            .expect("initial position should draw");
+        let moved_position = text
+            .find("dummyI:11-20")
+            .expect("Right should navigate one genomic window");
+        assert!(
+            initial_position < moved_position,
+            "navigation should move right"
+        );
+        assert!(
+            text.contains("read001"),
+            "a checked-in BAM read should render"
+        );
+        assert!(
+            text.contains("Go to CONTIG:START: "),
+            "g should render the goto prompt before Escape cancels it"
+        );
+        assert!(
+            text.matches("nanalogue BAM viewer").count() >= 6,
+            "each dispatched key should redraw the viewer"
+        );
+    }
 }
