@@ -1064,7 +1064,10 @@ mod mod_parse_tests {
     #[test]
     #[expect(clippy::too_many_lines, reason = "Comprehensive integration test")]
     fn mod_bam_parsing_from_example_1_compatible_variants() -> Result<(), Error> {
-        for file_path in ["examples/example_1.bam", "examples/example_1.Mm_Ml.bam"] {
+        for file_path in [
+            "examples/example_1.bam",
+            "examples/example_1.legacy_tags.bam",
+        ] {
             let mut reader = nanalogue_bam_reader(file_path)?;
             for (count, record) in reader.records().enumerate() {
                 let r = record?;
@@ -1282,8 +1285,8 @@ mod mod_parse_tests {
     #[test]
     fn mod_bam_parsing_from_example_1_failure_variants() -> Result<(), Error> {
         for file_path in [
-            "examples/example_1.mM_mL.bam",
-            "examples/example_1.mm_ml.bam",
+            "examples/example_1.unsupported_mixed_tags.bam",
+            "examples/example_1.unsupported_lowercase_tags.bam",
         ] {
             let mut reader = nanalogue_bam_reader(file_path)?;
             for record in reader.records() {
