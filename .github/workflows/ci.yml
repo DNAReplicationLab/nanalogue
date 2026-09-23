@@ -18,12 +18,15 @@ env:
 jobs:
   build_and_test:
     concurrency:
-      group: ci-${{ github.ref }}-${{ matrix.toolchain }}
+      group: ci-${{ github.ref }}-${{ matrix.os }}-${{ matrix.toolchain }}
       cancel-in-progress: true
-    name: Rust project - latest
-    runs-on: ubuntu-latest
+    name: Rust project - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
         toolchain:
           - stable
     steps:

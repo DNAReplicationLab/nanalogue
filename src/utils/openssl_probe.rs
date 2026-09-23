@@ -106,9 +106,15 @@ const CERTIFICATE_FILE_NAMES: &[&str] = &["/data/data/com.termux/files/usr/etc/t
 #[cfg(target_os = "haiku")]
 const CERTIFICATE_FILE_NAMES: &[&str] = &["/boot/system/data/ssl/CARootCertificates.pem"];
 
-/// Default certificate bundle file on other platforms, including macOS.
+/// Known certificate bundle files on macOS.
+#[cfg(target_os = "macos")]
+const CERTIFICATE_FILE_NAMES: &[&str] =
+    &["/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt"];
+
+/// Default certificate bundle file on other platforms.
 #[cfg(not(any(
     target_os = "linux",
+    target_os = "macos",
     target_os = "freebsd",
     target_os = "dragonfly",
     target_os = "netbsd",
