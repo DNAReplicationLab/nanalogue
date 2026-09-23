@@ -166,27 +166,62 @@ mod tests {
         Ok(())
     }
 
-    /// `HTSlib` accepts unknown nonnegative targets and coordinates beyond the
-    /// BAI address space as successful fetches with no indexed records.
+    /// Both retrieval APIs reject targets and coordinates outside the header
+    /// rather than inheriting `HTSlib`'s successful empty-fetch behavior.
     #[test]
-    fn out_of_range_fetches_have_no_records() -> Result<(), Error> {
+    fn retrieval_rejects_regions_outside_the_header() -> Result<(), Error> {
         let temp = TempDir::new("out_of_range_fetches");
         let path = temp.join("fetches.bam");
         write_fixture(&path)?;
         let mut reader = RegionSequenceReader::from_path(&path)?;
         let win = NonZeroU32::new(2).expect("two is nonzero");
 
-        assert_eq!(
-            reader.sequences(2, 0, 1, None)?,
-            [],
-            "an unknown nonnegative target has no indexed records"
-        );
+        for tid in [2, u32::MAX] {
+            let expected = format!("target {tid} is not in the BAM header");
+            let unknown_sequence_error = reader
+                .sequences(tid, 0, 1, None)
+                .expect_err("sequences should reject an unknown target");
+            assert!(matches!(
+                unknown_sequence_error,
+                Error::InvalidAlignCoords(message) if message == expected
+            ));
+            let unknown_profile_error = reader
+                .profiles(tid, 0, 1, ModChar::new('m'), win)
+                .expect_err("profiles should reject an unknown target");
+            assert!(matches!(
+                unknown_profile_error,
+                Error::InvalidAlignCoords(message) if message == expected
+            ));
+        }
 
-        assert_eq!(
-            reader.profiles(0, u32::MAX - 1, u32::MAX, ModChar::new('m'), win,)?,
-            [],
-            "coordinates beyond the BAI range have no indexed records"
-        );
+        for (tid, name, len, start, end) in [
+            (0, "zeta", 40, 40, 41),
+            (0, "zeta", 40, 39, 41),
+            (0, "zeta", 40, u32::MAX - 1, u32::MAX),
+            (1, "alpha", 12, 11, 13),
+        ] {
+            let expected =
+                format!("{tid}:{start}-{end} is outside reference '{name}' (length {len})");
+            let sequence_error = reader
+                .sequences(tid, start, end, None)
+                .expect_err("sequences should reject coordinates outside the reference");
+            assert!(matches!(
+                sequence_error,
+                Error::InvalidAlignCoords(message) if message == expected
+            ));
+            let profile_error = reader
+                .profiles(tid, start, end, ModChar::new('m'), win)
+                .expect_err("profiles should reject coordinates outside the reference");
+            assert!(matches!(
+                profile_error,
+                Error::InvalidAlignCoords(message) if message == expected
+            ));
+        }
+
+        assert_eq!(reader.sequences(0, 39, 40, None)?, []);
+        assert_eq!(reader.profiles(0, 39, 40, ModChar::new('m'), win)?, []);
+        assert_eq!(reader.sequences(1, 11, 12, None)?, []);
+        assert_eq!(reader.profiles(1, 11, 12, ModChar::new('m'), win)?, []);
         Ok(())
     }
 
