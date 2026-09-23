@@ -413,7 +413,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         let resized_window_len = window_len_for_columns(cols);
         handle_terminal_resize(&mut viewer, &mut records, resized_window_len)?;
         let visible_reads = if viewer.mode == ViewMode::Table {
-            usize::from(rows.saturating_sub(4))
+            usize::from(rows.saturating_sub(4)).max(1)
         } else {
             1
         };
@@ -901,6 +901,15 @@ mod tests {
         assert_eq!(viewport.read_offset, 0);
         viewport.navigate(KeyCode::End, 1_000, 20, 20, 4);
         assert_eq!(viewport.read_offset, 16);
+    }
+
+    #[test]
+    fn navigation_with_no_visible_rows_stays_in_read_bounds() {
+        let mut viewport = Viewport::default();
+
+        viewport.navigate(KeyCode::End, 1_000, 20, 180, 0);
+
+        assert_eq!(viewport.read_offset, 179);
     }
 
     #[test]

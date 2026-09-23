@@ -37,7 +37,8 @@ impl Viewport {
         visible_reads: usize,
     ) {
         let max_start = contig_len.saturating_sub(window_len);
-        let max_offset = read_count.saturating_sub(visible_reads);
+        let navigation_page_size = visible_reads.max(1);
+        let max_offset = read_count.saturating_sub(navigation_page_size);
         match key {
             KeyCode::Left | KeyCode::Char('h') => {
                 self.start = self.start.saturating_sub(window_len);
@@ -58,12 +59,12 @@ impl Viewport {
                 self.read_offset = self.read_offset.saturating_add(1).min(max_offset);
             }
             KeyCode::PageUp => {
-                self.read_offset = self.read_offset.saturating_sub(visible_reads);
+                self.read_offset = self.read_offset.saturating_sub(navigation_page_size);
             }
             KeyCode::PageDown => {
                 self.read_offset = self
                     .read_offset
-                    .saturating_add(visible_reads)
+                    .saturating_add(navigation_page_size)
                     .min(max_offset);
             }
             KeyCode::Home => {
