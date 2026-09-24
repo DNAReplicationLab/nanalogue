@@ -425,7 +425,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///
     /// # Errors
     /// Returns errors if alignment len is already set, instance is
-    /// unmapped, or if alignment coordinates are malformed
+    /// unmapped, has no CIGAR, or if alignment coordinates are malformed
     /// (e.g. end < start).
     pub fn set_align_len(mut self, record: &Record) -> Result<Self, Error> {
         self.align_len = match self.align_len {
@@ -439,19 +439,12 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                         "cannot set alignment properties for unmapped reads, read_id: {}",
                         self.read_id()
                     )))
+                } else if record.cigar().is_empty() {
+                    Err(Error::InvalidAlignLength(format!(
+                        "mapped read has no CIGAR, read_id: {}",
+                        self.read_id()
+                    )))
                 } else {
-                    // NOTE: right now, I don't know of a way to test the error below
-                    // as rust htslib initializes an empty record with an alignment
-                    // length of 1 (see the code below). This is only a note about
-                    // the error variant, not the normal function of this code block
-                    // which is fine.
-                    // ```
-                    // use rust_htslib::bam::ext::BamRecordExtensions;
-                    // let r = Record::new();
-                    // assert_eq!(r.seq_len(), 0);
-                    // assert_eq!(r.pos(), 0);
-                    // assert_eq!(r.reference_end(), 1);
-                    // ```
                     let st = record.pos();
                     let en = record.reference_end();
                     if en > st && st >= 0 && en <= u32::MAX.into() {

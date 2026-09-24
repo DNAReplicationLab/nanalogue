@@ -257,6 +257,42 @@ seq_len_n50\t5\n";
         }
     }
 
+    /// Missing CIGAR data must not be reported as `HTSlib`'s synthetic one-base span.
+    #[test]
+    fn read_stats_rejects_mapped_record_without_cigar() {
+        let valid = mapped_record("valid_first", Cigar::Match(5), b"ACGTA", &[30u8; 5]);
+        let mut missing_cigar = Record::new();
+        missing_cigar.set(b"missing_cigar", None, b"ACGTA", &[30u8; 5]);
+        missing_cigar.set_header(Arc::new(header()));
+        missing_cigar.set_flags(0);
+        missing_cigar.set_tid(0);
+        missing_cigar.set_pos(START);
+
+        assert!(
+            missing_cigar.cigar().is_empty(),
+            "test record must have CIGAR=*"
+        );
+        assert_eq!(
+            missing_cigar.reference_end(),
+            START + 1,
+            "HTSlib floors the absent reference span to one base"
+        );
+
+        let mut output = Vec::new();
+        let error = read_stats::run(&mut output, records(vec![valid, missing_cigar]))
+            .expect_err("a later mapped record cannot define an alignment without a CIGAR");
+
+        assert!(
+            matches!(error, Error::InvalidAlignLength(message)
+                if message == "mapped read has no CIGAR, read_id: missing_cigar"),
+            "the missing CIGAR must be reported at the shared alignment boundary"
+        );
+        assert!(
+            output.is_empty(),
+            "a later invalid record must prevent partial statistics output"
+        );
+    }
+
     /// A mapped record with a negative start cannot yield a span and is rejected.
     #[test]
     fn read_stats_rejects_negative_alignment_start() {
