@@ -72,6 +72,30 @@ mod tests {
     }
 
     #[test]
+    fn mapped_record_without_cigar_is_rejected_before_htslib_floor() {
+        let mut record = mapped_record();
+        record.set(b"missing-cigar", None, b"ACGT", &[30; 4]);
+
+        assert!(record.cigar().is_empty(), "test record must have CIGAR=*");
+        assert_eq!(
+            record.reference_end(),
+            record.pos() + 1,
+            "HTSlib invents a one-base span for an empty CIGAR"
+        );
+
+        let error = CurrRead::default()
+            .set_read_state_and_id(&record)
+            .unwrap()
+            .set_align_len(&record)
+            .unwrap_err();
+        assert!(
+            matches!(error, Error::InvalidAlignLength(message)
+                if message == "mapped read has no CIGAR, read_id: missing-cigar"),
+            "the synthetic HTSlib span must not become alignment metadata"
+        );
+    }
+
+    #[test]
     fn numeric_contig_ids_exclude_negative_and_limit_values() {
         let mut record = mapped_record();
         let limit = i32::try_from(MAX_CONTIGS).unwrap();
