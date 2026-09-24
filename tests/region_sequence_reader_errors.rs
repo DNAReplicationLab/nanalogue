@@ -186,11 +186,10 @@ mod tests {
         Ok(())
     }
 
-    /// A mapped BAM record without a CIGAR still has `HTSlib`'s one-base
-    /// reference span. Sequence projection needs coordinates for that span,
-    /// whereas profiles without MM data need only alignment metadata.
+    /// Both retrieval APIs reject a mapped record without a CIGAR rather than
+    /// accepting `HTSlib`'s synthetic one-base reference span.
     #[test]
-    fn missing_cigar_affects_only_sequence_projection() -> Result<(), Error> {
+    fn missing_cigar_is_rejected_before_projection() -> Result<(), Error> {
         let temp = TempDir::new("missing_cigar");
         let path = temp.join("missing-cigar.bam");
         let mut record = Record::new();
@@ -202,29 +201,28 @@ mod tests {
         write_fixture(&path, record)?;
 
         let mut sequence_reader = RegionSequenceReader::from_path(&path)?;
-        let error = sequence_reader
+        let sequence_error = sequence_reader
             .sequences(0, 10, 11, None)
-            .expect_err("a mapped record without CIGAR coordinates must fail projection");
-        assert!(matches!(
-            error,
-            Error::InvalidState(message)
-                if message == "failure from upstream libraries: missing sequence coordinates"
-        ));
+            .expect_err("sequence retrieval must reject a mapped record without a CIGAR");
 
         let mut profile_reader = RegionSequenceReader::from_path(&path)?;
-        let result = profile_reader.profiles(
-            0,
-            10,
-            11,
-            ModChar::new('m'),
-            NonZeroU32::new(2).expect("two is nonzero"),
-        )?;
-        assert_eq!(result.len(), 1);
-        let profile = result.first().expect("one spanning profile");
-        assert_eq!(profile.read_id(), "missing-cigar");
-        assert_eq!((profile.align_start(), profile.align_end()), (10, 11));
-        assert!(profile.calls().is_empty());
-        assert!(profile.windows().is_empty());
+        let profile_error = profile_reader
+            .profiles(
+                0,
+                10,
+                11,
+                ModChar::new('m'),
+                NonZeroU32::new(2).expect("two is nonzero"),
+            )
+            .expect_err("profile retrieval must reject a mapped record without a CIGAR");
+
+        for error in [sequence_error, profile_error] {
+            assert!(matches!(
+                error,
+                Error::InvalidAlignLength(message)
+                    if message == "mapped read has no CIGAR, read_id: missing-cigar"
+            ));
+        }
         Ok(())
     }
 
