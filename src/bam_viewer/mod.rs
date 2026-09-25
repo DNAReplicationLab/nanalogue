@@ -3071,6 +3071,32 @@ mod tests {
     }
 
     #[test]
+    fn argument_parser_distinguishes_numeric_overflow() {
+        assert_eq!(
+            InitialPosition::parse("chr1:4294967296")
+                .expect_err("an overflowing start should fail"),
+            "START exceeds the maximum supported value (4294967295)"
+        );
+        assert_eq!(
+            InitialPosition::parse("chr1:+4294967296")
+                .expect_err("an overflowing explicitly positive start should fail"),
+            "START exceeds the maximum supported value (4294967295)"
+        );
+        let window_error = Args::parse_from([
+            OsString::from("reads.bam"),
+            OsString::from("chr1:10"),
+            OsString::from("m"),
+            OsString::from("4294967296"),
+            OsString::from("individual"),
+        ])
+        .expect_err("an overflowing window should fail");
+        assert_eq!(
+            window_error,
+            "WINDOW_SIZE exceeds the maximum supported value (4294967295)"
+        );
+    }
+
+    #[test]
     fn position_parser_allows_colons_in_contig_names() {
         assert_eq!(
             InitialPosition::parse("chr1:alternate:10").expect("valid position"),

@@ -133,4 +133,19 @@ mod tests {
             Error::Unmapped(_)
         ));
     }
+
+    #[test]
+    fn mapped_record_requires_a_cigar() {
+        let mut record = mapped_record();
+        record.set(b"missing-cigar", None, b"A", &[30]);
+
+        let error = CurrRead::default()
+            .try_from_only_alignment(&record)
+            .expect_err("mapped records without CIGAR operations must fail");
+        assert!(matches!(
+            error,
+            Error::InvalidAlignLength(message)
+                if message == "mapped read has no CIGAR, read_id: missing-cigar"
+        ));
+    }
 }

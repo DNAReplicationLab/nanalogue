@@ -330,6 +330,23 @@ impl RegionSequenceReader {
         self.target_lengths.get(usize::try_from(tid).ok()?).copied()
     }
 
+    /// Validates a half-open reference interval against the BAM header.
+    fn validate_region(&self, tid: u32, start: u32, end: u32) -> Result<(), Error> {
+        if start >= end {
+            return Err(Error::InvalidAlignCoords(format!("{tid}:{start}-{end}")));
+        }
+        let target_len = self.target_len(tid).ok_or_else(|| {
+            Error::InvalidAlignCoords(format!("target {tid} is not in the BAM header"))
+        })?;
+        if start >= target_len || end > target_len {
+            let target_name = self.target_name(tid).unwrap_or("unknown");
+            return Err(Error::InvalidAlignCoords(format!(
+                "{tid}:{start}-{end} is outside reference '{target_name}' (length {target_len})"
+            )));
+        }
+        Ok(())
+    }
+
     /// Retrieves reads spanning a complete reference interval and their projected sequences.
     ///
     /// This uses the same full-region filter and coordinate conversion as the read-table command.
@@ -347,9 +364,7 @@ impl RegionSequenceReader {
         end: u32,
         mod_type: Option<ModChar>,
     ) -> Result<Vec<RegionSequence>, Error> {
-        if start >= end {
-            return Err(Error::InvalidAlignCoords(format!("{tid}:{start}-{end}")));
-        }
+        self.validate_region(tid, start, end)?;
         self.reader.fetch((tid, i64::from(start), i64::from(end)))?;
         let region = crate::GenomicBed3::new(i32::try_from(tid)?, start, end);
         let mut rows = Vec::new();
@@ -434,9 +449,7 @@ impl RegionSequenceReader {
         mod_type: ModChar,
         win: NonZeroU32,
     ) -> Result<Vec<ReadModProfile>, Error> {
-        if start >= end {
-            return Err(Error::InvalidAlignCoords(format!("{tid}:{start}-{end}")));
-        }
+        self.validate_region(tid, start, end)?;
         self.reader.fetch((tid, i64::from(start), i64::from(end)))?;
         let region = crate::GenomicBed3::new(i32::try_from(tid)?, start, end);
         let mut profiles = Vec::new();

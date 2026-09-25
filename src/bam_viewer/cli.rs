@@ -2,7 +2,12 @@
 
 use super::{MAX_REGION_LENGTH, READ_LABEL_WIDTH};
 use nanalogue_core::ModChar;
-use std::{ffi::OsString, num::NonZeroU32, path::PathBuf, str::FromStr as _};
+use std::{
+    ffi::OsString,
+    num::{IntErrorKind, NonZeroU32},
+    path::PathBuf,
+    str::FromStr as _,
+};
 
 /// Usage, display conventions, and controls shown for help and argument errors.
 pub(super) const USAGE: &str = concat!(
@@ -46,6 +51,12 @@ pub(super) enum ViewMode {
     },
 }
 
+/// Returns whether a value contains only decimal digits after an optional leading plus.
+fn is_unsigned_decimal(value: &str) -> bool {
+    let digits = value.strip_prefix('+').unwrap_or(value);
+    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 /// Initial reference and zero-based coordinate supplied on the command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct InitialPosition {
@@ -64,9 +75,13 @@ impl InitialPosition {
         if contig.is_empty() || start_text.is_empty() {
             return Err(String::from("position must have the form CONTIG:START"));
         }
-        let start = start_text
-            .parse::<u32>()
-            .map_err(|_error| String::from("START must be a non-negative integer"))?;
+        let start = start_text.parse::<u32>().map_err(|error| {
+            if error.kind() == &IntErrorKind::PosOverflow && is_unsigned_decimal(start_text) {
+                format!("START exceeds the maximum supported value ({})", u32::MAX)
+            } else {
+                String::from("START must be a non-negative integer")
+            }
+        })?;
         Ok(Self {
             contig: String::from(contig),
             start,
@@ -129,11 +144,21 @@ impl Args {
         let mode = match (mod_type, window_option, mode_argument) {
             (None | Some(_), None, None) => ViewMode::Table,
             (Some(_), Some(window_argument), Some(keyword)) => {
-                let window = window_argument
+                let window_text = window_argument
                     .into_string()
-                    .map_err(|_window| String::from("WINDOW_SIZE must be valid UTF-8"))?
-                    .parse::<u32>()
-                    .map_err(|_error| String::from("WINDOW_SIZE must be a positive integer"))?;
+                    .map_err(|_window| String::from("WINDOW_SIZE must be valid UTF-8"))?;
+                let window = window_text.parse::<u32>().map_err(|error| {
+                    if error.kind() == &IntErrorKind::PosOverflow
+                        && is_unsigned_decimal(&window_text)
+                    {
+                        format!(
+                            "WINDOW_SIZE exceeds the maximum supported value ({})",
+                            u32::MAX
+                        )
+                    } else {
+                        String::from("WINDOW_SIZE must be a positive integer")
+                    }
+                })?;
                 let win = NonZeroU32::new(window)
                     .ok_or_else(|| String::from("WINDOW_SIZE must be a positive integer"))?;
                 if keyword != "individual" {

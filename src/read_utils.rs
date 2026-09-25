@@ -439,6 +439,11 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                         "cannot set alignment properties for unmapped reads, read_id: {}",
                         self.read_id()
                     )))
+                } else if record.cigar_len() == 0 {
+                    Err(Error::InvalidAlignLength(format!(
+                        "mapped read has no CIGAR, read_id: {}",
+                        self.read_id()
+                    )))
                 } else {
                     // NOTE: right now, I don't know of a way to test the error below
                     // as rust htslib initializes an empty record with an alignment
