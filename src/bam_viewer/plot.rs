@@ -582,6 +582,7 @@ pub(super) fn build_individual_frame(
                 || position_prompt_footer(input, cols),
                 |message| position_error_footer(message, cols),
             ),
+            FrameFooter::Message(message) => String::from(message),
         };
         frame.push_str(&fixed_line(&footer, effective_cols));
         frame.push_str("\x1b[0m");

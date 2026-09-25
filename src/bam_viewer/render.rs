@@ -4,6 +4,52 @@ use super::state::Viewer;
 use nanalogue_core::region_sequences::RegionSequence;
 use std::fmt::Write as _;
 
+/// Zero-based terminal rectangle occupied by displayed table sequences.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct TableSequenceGeometry {
+    /// First sequence column, inclusive.
+    pub first_column: u16,
+    /// Column after the last sequence cell.
+    pub column_end: u16,
+    /// First displayed read row, inclusive.
+    pub first_row: u16,
+    /// Row after the last displayed read.
+    pub row_end: u16,
+}
+
+impl TableSequenceGeometry {
+    /// Returns whether one terminal cell is inside a displayed sequence rectangle.
+    pub(super) fn contains(self, row: u16, column: u16) -> bool {
+        (self.first_row..self.row_end).contains(&row)
+            && (self.first_column..self.column_end).contains(&column)
+    }
+}
+
+/// Calculates the table sequence rectangle shared by rendering and snapshots.
+pub(super) fn table_sequence_geometry(
+    viewer: &Viewer,
+    record_count: usize,
+    cols: u16,
+    rows: u16,
+) -> TableSequenceGeometry {
+    let effective_cols = cols.max(1);
+    let genome_cols = effective_cols
+        .saturating_sub(viewer.read_label_width)
+        .max(1)
+        .min(u16::try_from(viewer.current_window_len()).expect("maximum region length fits u16"));
+    let first_column = viewer.read_label_width.min(effective_cols);
+    let sequence_width = genome_cols.min(effective_cols.saturating_sub(first_column));
+    let displayed_reads = record_count
+        .saturating_sub(viewer.viewport.read_offset)
+        .min(usize::from(rows.saturating_sub(4)));
+    TableSequenceGeometry {
+        first_column,
+        column_end: first_column.saturating_add(sequence_width),
+        first_row: 3,
+        row_end: 3u16.saturating_add(u16::try_from(displayed_reads).unwrap_or(u16::MAX)),
+    }
+}
+
 /// Converts arbitrary BAM text bytes into fixed-width printable ASCII.
 fn printable_label(bytes: &[u8], width: usize) -> String {
     let mut label = bytes
@@ -75,7 +121,7 @@ pub(super) fn label_column(label: &str, width: u16) -> String {
 /// Builds the compact footer while preserving its existing action-oriented toggle labels.
 fn default_footer(viewer: &Viewer) -> String {
     format!(
-        "h/l {} bp  j/k row  pgup/dn  home/end  g goto  r {} IDs  i {} ins  q quit",
+        "h/l {} bp j/k row pgup/dn home/end g goto r {} IDs i {} ins s save q quit",
         viewer.window_len,
         if viewer.full_read_ids {
             "short"
@@ -102,6 +148,8 @@ pub(super) enum FrameFooter<'a> {
         /// The current validation error, if input submission failed.
         error: Option<&'a str>,
     },
+    /// Show one-keypress save success or failure feedback.
+    Message(&'a str),
 }
 
 /// Builds the ANSI frame that Ghostty parses into a terminal screen.
@@ -113,11 +161,11 @@ pub(super) fn build_frame(
     footer_state: FrameFooter<'_>,
 ) -> String {
     let effective_cols = cols.max(1);
-    let genome_cols = effective_cols
-        .saturating_sub(viewer.read_label_width)
-        .max(1)
-        .min(u16::try_from(viewer.current_window_len()).expect("maximum region length fits u16"));
-    let visible_reads = usize::from(rows.saturating_sub(4));
+    let sequence_geometry = table_sequence_geometry(viewer, records.len(), cols, rows);
+    let genome_cols = sequence_geometry
+        .column_end
+        .saturating_sub(sequence_geometry.first_column);
+    let visible_reads = usize::from(sequence_geometry.row_end.saturating_sub(3));
     let end = viewer
         .viewport
         .start
@@ -176,9 +224,8 @@ pub(super) fn build_frame(
         .enumerate()
     {
         let terminal_row = screen_row.saturating_add(4);
-        let visible_label_width = viewer.read_label_width.min(effective_cols);
-        let visible_sequence_width =
-            genome_cols.min(effective_cols.saturating_sub(visible_label_width));
+        let visible_label_width = sequence_geometry.first_column;
+        let visible_sequence_width = genome_cols;
         write!(&mut frame, "\x1b[{terminal_row};1H").expect("writing to String cannot fail");
         frame.push_str(if record.is_reverse() {
             "\x1b[33m"
@@ -205,6 +252,7 @@ pub(super) fn build_frame(
                 || position_prompt_footer(input, cols),
                 |message| position_error_footer(message, cols),
             ),
+            FrameFooter::Message(message) => String::from(message),
         };
         frame.push_str(&fixed_line(&footer, effective_cols));
         frame.push_str("\x1b[0m");

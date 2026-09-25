@@ -33,8 +33,9 @@ pub(super) const USAGE: &str = concat!(
     "  Home/End jump to the first/last read; g prompts for CONTIG:START.\n",
     "  A successful goto also truncates read IDs and hides insertions.\n",
     "  In goto: type CONTIG:START; Backspace edits; Enter submits; Escape cancels.\n",
-    "  In table view, r toggles full read IDs and i toggles insertions.\n",
-    "  In individual view, j/k selects one read; r/i have no effect.\n",
+    "  In table view, r toggles full read IDs, i toggles insertions, and s saves ",
+    "the rendered screen as paired text and modification-mask files.\n",
+    "  In individual view, j/k selects one read; r/i/s have no effect.\n",
     "  Outside goto, q or Escape quits; Ctrl-C or Ctrl-D always quits.",
 );
 

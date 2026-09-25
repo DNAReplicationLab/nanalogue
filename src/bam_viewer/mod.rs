@@ -38,17 +38,20 @@ use std::{
     env,
     error::Error,
     io::{self, Stdout, Write as _},
+    path::Path,
     sync::Arc,
 };
 
 mod cli;
 mod plot;
 mod render;
+mod snapshot;
 mod state;
 
 use cli::{Args, InitialPosition, USAGE, ViewMode, window_len_for_columns};
 use plot::build_individual_frame;
-use render::{FrameFooter, build_frame};
+use render::{FrameFooter, build_frame, table_sequence_geometry};
+use snapshot::{project_text_snapshot, snapshot_prefix, write_snapshot_pair};
 use state::{
     Viewer, ViewerRecords, fetch_viewer_records, full_read_label_width,
     reselect_individual_alignment, reselect_read,
@@ -222,6 +225,27 @@ impl GhosttyRenderer {
             Ok(())
         })??;
         Ok(())
+    }
+
+    /// Saves the already-parsed table viewport as text and modification-mask files.
+    fn save_table_snapshot(
+        &mut self,
+        viewer: &Viewer,
+        record_count: usize,
+        cols: u16,
+        rows: u16,
+        directory: &Path,
+    ) -> Result<String, String> {
+        let snapshot = self
+            .render_state
+            .update(&self.terminal)
+            .map_err(|error| error.to_string())?;
+        let geometry = table_sequence_geometry(viewer, record_count, cols, rows);
+        let projected = project_text_snapshot(&snapshot, &mut self.rows, &mut self.cells, geometry)
+            .map_err(|error| error.to_string())?;
+        let prefix = snapshot_prefix(viewer);
+        let _paths = write_snapshot_pair(directory, &prefix, &projected)?;
+        Ok(format!("Saved {prefix} (.txt + .mods.txt)"))
     }
 }
 
@@ -407,6 +431,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let mut stdout = io::stdout();
     let _guard = TerminalGuard::enter(&mut stdout)?;
     let mut records = fetch_viewer_records(&mut viewer)?;
+    let mut save_feedback: Option<String> = None;
 
     loop {
         let (cols, rows) = crossterm::terminal::size()?;
@@ -421,7 +446,10 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
             .viewport
             .read_offset
             .min(records.len().saturating_sub(visible_reads));
-        let frame = build_viewer_frame(&viewer, &records, cols, rows, FrameFooter::Controls);
+        let footer_state = save_feedback
+            .as_deref()
+            .map_or(FrameFooter::Controls, FrameFooter::Message);
+        let frame = build_viewer_frame(&viewer, &records, cols, rows, footer_state);
         renderer.draw(&mut stdout, &frame, cols, rows)?;
 
         let Event::Key(key) = event::read()? else {
@@ -430,8 +458,27 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        save_feedback = None;
         if should_quit(key) {
             break;
+        }
+        if key.code == KeyCode::Char('s')
+            && viewer.mode == ViewMode::Table
+            && let ViewerRecords::Table(table_records) = &records
+        {
+            save_feedback = Some(match env::current_dir() {
+                Ok(current_directory) => renderer
+                    .save_table_snapshot(
+                        &viewer,
+                        table_records.len(),
+                        cols,
+                        rows,
+                        &current_directory,
+                    )
+                    .unwrap_or_else(|error| format!("Save failed: {error}")),
+                Err(error) => format!("Save failed: cannot inspect current directory: {error}"),
+            });
+            continue;
         }
         if key.code == KeyCode::Char('g') {
             match prompt_for_position(&mut renderer, &mut stdout, &mut viewer, &records)? {
@@ -485,25 +532,59 @@ mod tests {
         self,
         record::{Aux, Cigar, CigarString},
     };
-    use std::{
-        ffi::OsString,
-        fmt::Write as _,
-        num::NonZeroU32,
-        path::{Path, PathBuf},
-        str::FromStr as _,
-    };
+    use std::{ffi::OsString, fmt::Write as _, num::NonZeroU32, path::PathBuf, str::FromStr as _};
 
     use crate::{
         render::{
             fixed_line, label_column, position_error_footer, position_prompt_footer,
             sequence_columns,
         },
+        snapshot::{TextSnapshot, write_snapshot_pair_with_test_opener},
         state::Viewport,
     };
 
     const DEMO_GOLDEN_COLS: u16 = 90;
     const DEMO_GOLDEN_ROWS: u16 = 20;
     const DEMO_VISIBLE_READS: usize = 16;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum WriterFailure {
+        None,
+        Write,
+        Flush,
+    }
+
+    #[derive(Debug)]
+    struct ControlledWriter {
+        file: std::fs::File,
+        failure: WriterFailure,
+        partial_write_completed: bool,
+    }
+
+    impl io::Write for ControlledWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.failure != WriterFailure::Write {
+                return self.file.write(buf);
+            }
+            if self.partial_write_completed {
+                return Err(io::Error::other("injected write failure"));
+            }
+            self.partial_write_completed = true;
+            let partial_length = buf.len().div_ceil(2);
+            self.file.write(
+                buf.get(..partial_length)
+                    .expect("partial length is within the write buffer"),
+            )
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if self.failure == WriterFailure::Flush {
+                Err(io::Error::other("injected flush failure"))
+            } else {
+                self.file.flush()
+            }
+        }
+    }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct CapturedStyle {
@@ -605,6 +686,46 @@ mod tests {
         render_frames_as_ansi([frame], cols, rows)
     }
 
+    fn render_frame_as_text_snapshot(
+        frame: &str,
+        cols: u16,
+        rows: u16,
+        geometry: render::TableSequenceGeometry,
+    ) -> Result<TextSnapshot, Box<dyn Error>> {
+        let mut terminal = Terminal::new(TerminalOptions {
+            cols,
+            rows,
+            max_scrollback: 0,
+        })?;
+        terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
+        terminal.vt_write(frame.as_bytes());
+        let mut render_state = RenderState::new()?;
+        let snapshot = render_state.update(&terminal)?;
+        let mut row_iterator = RowIterator::new()?;
+        let mut cell_iterator = CellIterator::new()?;
+        Ok(project_text_snapshot(
+            &snapshot,
+            &mut row_iterator,
+            &mut cell_iterator,
+            geometry,
+        )?)
+    }
+
+    fn render_table_text_snapshot(
+        viewer: &Viewer,
+        records: &[RegionSequence],
+        cols: u16,
+        rows: u16,
+    ) -> Result<TextSnapshot, Box<dyn Error>> {
+        let frame = build_frame(viewer, records, cols, rows, FrameFooter::Controls);
+        render_frame_as_text_snapshot(
+            &frame,
+            cols,
+            rows,
+            table_sequence_geometry(viewer, records.len(), cols, rows),
+        )
+    }
+
     /// Captures full frames after the reset that [`GhosttyRenderer::draw`] applies.
     ///
     /// This models renderer input state only; it does not exercise its incremental terminal output.
@@ -696,6 +817,54 @@ mod tests {
         let expected = std::fs::read(&golden_path)?;
         assert_eq!(actual.as_bytes(), expected);
         Ok(())
+    }
+
+    fn assert_text_golden(name: &str, actual: &str) -> Result<(), Box<dyn Error>> {
+        let golden_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/goldens")
+            .join(name);
+        let update_golden = env::var("NANALOGUE_UPDATE_GOLDENS").as_deref() == Ok("1");
+        assert!(
+            !update_golden || env::var_os("CI").is_none(),
+            "golden files must not be updated in CI"
+        );
+        if update_golden {
+            std::fs::write(&golden_path, actual.as_bytes())?;
+        }
+        assert_eq!(actual.as_bytes(), std::fs::read(&golden_path)?);
+        Ok(())
+    }
+
+    fn assert_snapshot_grid(
+        snapshot: &TextSnapshot,
+        geometry: render::TableSequenceGeometry,
+        cols: u16,
+        rows: u16,
+    ) {
+        assert!(!snapshot.text.as_bytes().contains(&b'\x1b'));
+        assert!(!snapshot.modifications.as_bytes().contains(&b'\x1b'));
+        for grid in [&snapshot.text, &snapshot.modifications] {
+            let lines = grid.split_terminator('\n').collect::<Vec<_>>();
+            assert_eq!(lines.len(), usize::from(rows));
+            assert!(lines.iter().all(|line| line.len() == usize::from(cols)));
+            assert!(grid.ends_with('\n'));
+        }
+        let text_lines = snapshot.text.split_terminator('\n').collect::<Vec<_>>();
+        let mask_lines = snapshot
+            .modifications
+            .split_terminator('\n')
+            .collect::<Vec<_>>();
+        for (row, (text_line, mask_line)) in (0..rows).zip(text_lines.iter().zip(&mask_lines)) {
+            for (column, (&text, &mask)) in
+                (0..cols).zip(text_line.as_bytes().iter().zip(mask_line.as_bytes().iter()))
+            {
+                if geometry.contains(row, column) {
+                    assert!(matches!(mask, b'0' | b'1'));
+                } else {
+                    assert_eq!(mask, text);
+                }
+            }
+        }
     }
 
     fn render_demo_viewport(
@@ -1101,6 +1270,251 @@ mod tests {
         let records = viewer.visible_records()?;
         let actual = render_ansi_viewport(&viewer, &records, 26, 6, FrameFooter::Controls)?;
         assert_ansi_golden("bam_viewer_visible.ansi", &actual)?;
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_mask_uses_only_rendered_underlines_inside_sequence_cells()
+    -> Result<(), Box<dyn Error>> {
+        let geometry = render::TableSequenceGeometry {
+            first_column: 4,
+            column_end: 11,
+            first_row: 3,
+            row_end: 4,
+        };
+        let snapshot =
+            render_frame_as_text_snapshot("\x1b[4;5HA\x1b[4mC\x1b[24mNa.* ", 20, 6, geometry)?;
+        assert_snapshot_grid(&snapshot, geometry, 20, 6);
+        let text_row = snapshot
+            .text
+            .split_terminator('\n')
+            .nth(3)
+            .expect("sequence row");
+        let mask_row = snapshot
+            .modifications
+            .split_terminator('\n')
+            .nth(3)
+            .expect("mask row");
+        assert_eq!(text_row.get(4..11), Some("ACNa.* "));
+        assert_eq!(mask_row.get(4..11), Some("0100000"));
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_pair_never_overwrites_and_cleans_up_an_open_failure() -> Result<(), Box<dyn Error>>
+    {
+        let directory = env::temp_dir().join(format!("nanalogue-snapshot-{}", uuid::v4_random()));
+        std::fs::create_dir_all(&directory)?;
+        let snapshot = TextSnapshot {
+            text: String::from("screen  \n"),
+            modifications: String::from("mask    \n"),
+        };
+
+        let paths = write_snapshot_pair(&directory, "collision", &snapshot)?;
+        assert_eq!(std::fs::read_to_string(&paths.text)?, snapshot.text);
+        assert_eq!(
+            std::fs::read_to_string(&paths.modifications)?,
+            snapshot.modifications
+        );
+        let collision_error = write_snapshot_pair(&directory, "collision", &snapshot)
+            .expect_err("an existing pair must not be overwritten");
+        assert!(
+            collision_error.starts_with("files already exist; nothing replaced"),
+            "the actionable reason must remain visible before the long filename"
+        );
+        assert_eq!(std::fs::read_to_string(&paths.text)?, snapshot.text);
+        assert_eq!(
+            std::fs::read_to_string(&paths.modifications)?,
+            snapshot.modifications
+        );
+
+        let cleanup_text = directory.join("cleanup.txt");
+        let cleanup_modifications = directory.join("cleanup.mods.txt");
+        std::fs::write(&cleanup_modifications, b"existing")?;
+        let _cleanup_error = write_snapshot_pair(&directory, "cleanup", &snapshot)
+            .expect_err("an existing mask must prevent a partial pair");
+        assert!(!cleanup_text.exists());
+        assert_eq!(std::fs::read(&cleanup_modifications)?, b"existing");
+
+        std::fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_pair_removes_both_files_after_write_or_flush_failure() -> Result<(), Box<dyn Error>>
+    {
+        let directory = env::temp_dir().join(format!("nanalogue-snapshot-{}", uuid::v4_random()));
+        std::fs::create_dir_all(&directory)?;
+        let snapshot = TextSnapshot {
+            text: String::from("a complete rendered screen\n"),
+            modifications: String::from("a complete rendered mask  \n"),
+        };
+
+        for (failure, failing_file) in [
+            (WriterFailure::Write, 0usize),
+            (WriterFailure::Write, 1),
+            (WriterFailure::Flush, 0),
+            (WriterFailure::Flush, 1),
+        ] {
+            let mut opened_files = 0usize;
+            let _error =
+                write_snapshot_pair_with_test_opener(&directory, "rollback", &snapshot, |path| {
+                    let file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(path)?;
+                    let writer_failure = if opened_files == failing_file {
+                        failure
+                    } else {
+                        WriterFailure::None
+                    };
+                    opened_files = opened_files.saturating_add(1);
+                    Ok(ControlledWriter {
+                        file,
+                        failure: writer_failure,
+                        partial_write_completed: false,
+                    })
+                })
+                .expect_err("the controlled writer must fail");
+            assert!(!directory.join("rollback.txt").exists());
+            assert!(!directory.join("rollback.mods.txt").exists());
+        }
+
+        std::fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_prefix_is_safe_and_saving_does_not_change_the_viewport()
+    -> Result<(), Box<dyn Error>> {
+        let position = InitialPosition {
+            contig: String::from("dummyIII"),
+            start: 23,
+        };
+        let mut viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &position,
+            Some(ModChar::new('T')),
+            7,
+        )?;
+        viewer.path = PathBuf::from("../../bad name?.bam");
+        let records = viewer.visible_records()?;
+        let original_viewport = viewer.viewport;
+        let prefix = snapshot_prefix(&viewer);
+        assert_eq!(prefix, "nanalogue-bad_name_.bam-dummyIII-24-30-row-1");
+        assert!(!prefix.contains('/'));
+
+        let directory = env::temp_dir().join(format!("nanalogue-snapshot-{}", uuid::v4_random()));
+        std::fs::create_dir_all(&directory)?;
+        let cols = 80;
+        let rows = 8;
+        let frame = build_frame(
+            &viewer,
+            &records,
+            cols,
+            rows,
+            FrameFooter::Message("captured before save feedback"),
+        );
+        let geometry = table_sequence_geometry(&viewer, records.len(), cols, rows);
+        let expected = render_frame_as_text_snapshot(&frame, cols, rows, geometry)?;
+        let mut renderer = GhosttyRenderer::new(cols, rows)?;
+        renderer.terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
+        renderer.terminal.vt_write(frame.as_bytes());
+        {
+            let screen_snapshot = renderer.render_state.update(&renderer.terminal)?;
+            let mut consumed_rows = renderer.rows.update(&screen_snapshot)?;
+            if let Some(first_row) = consumed_rows.next() {
+                let mut consumed_cells = renderer.cells.update(first_row)?;
+                let _first_cell = consumed_cells.next();
+            }
+        }
+
+        let success =
+            renderer.save_table_snapshot(&viewer, records.len(), cols, rows, &directory)?;
+        assert!(success.starts_with("Saved nanalogue-bad_name_.bam"));
+        let text_path = directory.join(format!("{prefix}.txt"));
+        let modifications_path = directory.join(format!("{prefix}.mods.txt"));
+        let saved_text = std::fs::read_to_string(&text_path)?;
+        let saved_modifications = std::fs::read_to_string(&modifications_path)?;
+        assert!(saved_text.contains("captured before save feedback"));
+        assert!(!saved_text.contains("Saved nanalogue"));
+        assert_eq!(saved_text, expected.text);
+        assert_eq!(saved_modifications, expected.modifications);
+        assert_snapshot_grid(&expected, geometry, cols, rows);
+        assert_eq!(viewer.viewport, original_viewport);
+        std::fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
+    fn assert_table_snapshot_goldens(simulation: &TempBamSimulation) -> Result<(), Box<dyn Error>> {
+        let initial_position = InitialPosition {
+            contig: String::from("contig_00000"),
+            start: 25,
+        };
+        for (suffix, mod_type) in [
+            ("with_mods", Some(ModChar::new('m'))),
+            ("without_mods", None),
+        ] {
+            let mut viewer = Viewer::open(
+                PathBuf::from(simulation.bam_path()),
+                &initial_position,
+                mod_type,
+                window_len_for_columns(DEMO_GOLDEN_COLS),
+            )?;
+            viewer.path = PathBuf::from("nanalogue-viewer-demo.bam");
+            assert!(viewer.go_to(&InitialPosition {
+                contig: String::from("contig_00000"),
+                start: 45,
+            })?);
+            let records = viewer.visible_records()?;
+            assert_eq!(records.len(), 187);
+            let frame = build_frame(
+                &viewer,
+                &records,
+                DEMO_GOLDEN_COLS,
+                DEMO_GOLDEN_ROWS,
+                FrameFooter::Controls,
+            );
+            let ansi = render_frame_as_ansi(&frame, DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS)?;
+            assert_ansi_golden(
+                if mod_type.is_some() {
+                    "bam_viewer_goto_mods.ansi"
+                } else {
+                    "bam_viewer_goto_no_mods.ansi"
+                },
+                &ansi,
+            )?;
+            let snapshot =
+                render_table_text_snapshot(&viewer, &records, DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS)?;
+            let geometry =
+                table_sequence_geometry(&viewer, records.len(), DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS);
+            assert_snapshot_grid(&snapshot, geometry, DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS);
+            let sequence_mask = snapshot
+                .modifications
+                .split_terminator('\n')
+                .enumerate()
+                .filter(|(row, _line)| {
+                    (usize::from(geometry.first_row)..usize::from(geometry.row_end)).contains(row)
+                })
+                .flat_map(|(_row, line)| {
+                    line.as_bytes()
+                        .get(usize::from(geometry.first_column)..usize::from(geometry.column_end))
+                        .expect("validated snapshot row contains the complete sequence rectangle")
+                        .iter()
+                        .copied()
+                })
+                .collect::<Vec<_>>();
+            if mod_type.is_some() {
+                assert!(sequence_mask.contains(&b'1'));
+            } else {
+                assert!(sequence_mask.iter().all(|cell| *cell == b'0'));
+            }
+            assert_text_golden(&format!("bam_viewer_snapshot_{suffix}.txt"), &snapshot.text)?;
+            assert_text_golden(
+                &format!("bam_viewer_snapshot_{suffix}.mods.txt"),
+                &snapshot.modifications,
+            )?;
+        }
         Ok(())
     }
 
@@ -2035,6 +2449,7 @@ mod tests {
         assert_terminal_size_goldens(&simulation)?;
         assert_empty_and_contig_end_goldens()?;
         assert_zero_sequence_golden(&simulation)?;
+        assert_table_snapshot_goldens(&simulation)?;
         Ok(())
     }
 
@@ -2957,10 +3372,10 @@ mod tests {
         assert!(USAGE.contains("g prompts for CONTIG:START"));
         assert!(USAGE.contains("A successful goto also truncates read IDs and hides insertions"));
         assert!(USAGE.contains("Backspace edits; Enter submits; Escape cancels"));
-        assert!(USAGE.contains("r toggles full read IDs and i toggles insertions"));
+        assert!(USAGE.contains("r toggles full read IDs, i toggles insertions, and s saves"));
         assert!(USAGE.contains("grey raw ML calls"));
         assert!(USAGE.contains("WINDOW_SIZE is a positive number of modified bases"));
-        assert!(USAGE.contains("In individual view, j/k selects one read; r/i have no effect"));
+        assert!(USAGE.contains("In individual view, j/k selects one read; r/i/s have no effect"));
         assert!(USAGE.contains("Ctrl-C or Ctrl-D always quits"));
     }
 
@@ -3131,6 +3546,7 @@ mod tests {
         assert!(frame.contains("g goto"));
         assert!(frame.contains("r full IDs"));
         assert!(frame.contains("i show ins"));
+        assert!(frame.contains("s save"));
         assert!(frame.contains("q quit"));
 
         viewer.window_len = 200;
@@ -3139,6 +3555,7 @@ mod tests {
         let toggled_frame = build_frame(&viewer, &[], 80, 10, FrameFooter::Controls);
         assert!(toggled_frame.contains("r short IDs"));
         assert!(toggled_frame.contains("i hide ins"));
+        assert!(toggled_frame.contains("s save"));
         assert!(toggled_frame.contains("q quit"));
 
         let prompt_frame = build_frame(

@@ -657,7 +657,7 @@ mod tests {
             text.contains("h/l 81 bp"),
             "PTY width should be fixed at 100"
         );
-        assert!(text.contains("g goto  r full IDs  i show ins  q quit"));
+        assert!(text.contains("g goto r full IDs i show ins s save q quit"));
     }
 
     /// Drives display toggles, arrow navigation, and goto cancellation before quitting.
