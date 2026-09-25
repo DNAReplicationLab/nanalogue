@@ -295,8 +295,9 @@ nanalogue_bam_viewer <BAM> <CONTIG:START> [MOD_TYPE [WINDOW_SIZE individual]]
 
 `BAM` must be a local BAM with an accessible index. `START` is zero-based,
 although displayed coordinates are one-based. The terminal width determines
-the displayed genomic window, up to 200 bases. Both modes show only reads whose
-alignments span that entire window, rather than every overlapping read.
+the displayed genomic window, up to 200 bases. Table mode shows every alignment
+that overlaps the window. Individual mode shows only reads whose alignments span
+the entire window.
 `MOD_TYPE` is an optional single-letter or numeric ChEBI modification code. For
 example, table mode can show `m` calls at `chr1:1000`:
 
@@ -306,9 +307,9 @@ nanalogue_bam_viewer reads.bam chr1:1000 m
 
 When `WINDOW_SIZE individual` is omitted, the viewer shows a table of read
 sequences, with or without `MOD_TYPE`. Forward reads are green, reverse reads
-are yellow, deletions and reference skips are dots, and optional insertions are
-lowercase. When `MOD_TYPE` is given, matching calls with probability at least
-0.5 are bold and underlined.
+are yellow, positions outside an alignment are spaces, deletions and reference
+skips are dots, and optional insertions are lowercase. When `MOD_TYPE` is given,
+matching calls with probability at least 0.5 are bold and underlined.
 
 Supplying a positive `WINDOW_SIZE` followed by the literal `individual`
 selects one whole-read plot at a time. The window size counts modification

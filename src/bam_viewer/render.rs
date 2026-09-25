@@ -88,16 +88,25 @@ pub(super) fn sequence_columns(
         modifications.len(),
         "region sequence and modification calls must have equal lengths"
     );
+    let region_offset = usize::try_from(record.region_offset())
+        .expect("reference offsets fit usize on supported platforms");
     let mut output = String::new();
     let mut bold = false;
     for offset in 0..usize::from(width) {
-        let modified = modifications.get(offset).copied().unwrap_or(false);
+        let sequence_offset = offset.checked_sub(region_offset);
+        let modified = sequence_offset
+            .and_then(|index| modifications.get(index))
+            .copied()
+            .unwrap_or(false);
         if modified != bold {
             output.push_str(if modified { "\x1b[1;4m" } else { "\x1b[22;24m" });
             bold = modified;
         }
         output.push(char::from(
-            sequence.as_bytes().get(offset).copied().unwrap_or(b' '),
+            sequence_offset
+                .and_then(|index| sequence.as_bytes().get(index))
+                .copied()
+                .unwrap_or(b' '),
         ));
     }
     if bold {

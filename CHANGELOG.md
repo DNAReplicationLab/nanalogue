@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paired modification mask when a modification type is requested
 
 ### Changed
+- BAM viewer table mode now shows every overlapping alignment, using spaces for
+  positions before a read starts or after it ends
 - Made Polars an optional, default-off dependency. Library consumers using
   `curr_reads_to_dataframe`, `reads_table::run_df`, `window_reads::run_df`, or
   Polars-specific error handling must explicitly enable the `polars` Cargo

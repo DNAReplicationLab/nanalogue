@@ -947,12 +947,12 @@ mod tests {
     ) -> Result<PathBuf, Box<dyn Error>> {
         let mut record = bam::Record::new();
         record.set_tid(0);
-        record.set_pos(0);
+        record.set_pos(2);
         record.set_mapq(60);
         record.unset_unmapped();
         record.set(
             b"sequence-not-stored",
-            Some(&CigarString::from(vec![Cigar::Match(5)])),
+            Some(&CigarString::from(vec![Cigar::Match(3)])),
             b"",
             &[],
         );
@@ -1142,17 +1142,20 @@ mod tests {
     fn viewer_uses_nanalogue_region_sequences() {
         let mut reader = RegionSequenceReader::from_path("examples/example_1.bam")
             .expect("open indexed example");
-        assert!(
-            reader
-                .sequences(2, 20, 30, None)
-                .expect("retrieve a partially covered region")
-                .is_empty(),
-            "a read that does not span the full region must be excluded"
-        );
+        let partial_rows = reader
+            .sequences(2, 20, 30, None)
+            .expect("retrieve a partially covered region");
+        let partial_row = partial_rows
+            .first()
+            .expect("one partially overlapping read");
+        assert_eq!(partial_row.region_offset(), 3);
+        assert_eq!(sequence_columns(partial_row, 10, false), "   ACATCAA");
+
         let rows = reader
             .sequences(2, 23, 30, None)
             .expect("retrieve nanalogue region sequences");
         let row = rows.first().expect("one overlapping read");
+        assert_eq!(row.region_offset(), 0);
         assert_eq!(row.read_id(), "a4f36092-b4d5-47a9-813e-c22c3b477a0c");
         assert_eq!(sequence_columns(row, 10, false), "ACATCAA   ");
     }
@@ -1206,6 +1209,17 @@ mod tests {
         assert_eq!(
             sequence_columns(row, 10, false),
             "ACA\x1b[1;4mT\x1b[22;24mCAA   "
+        );
+
+        let partial_rows = reader
+            .sequences(2, 20, 30, Some(ModChar::new('T')))
+            .expect("retrieve a partially overlapping modified sequence");
+        let partial_row = partial_rows
+            .first()
+            .expect("one partially overlapping read");
+        assert_eq!(
+            sequence_columns(partial_row, 10, false),
+            "   ACA\x1b[1;4mT\x1b[22;24mCAA"
         );
     }
 
@@ -2397,7 +2411,7 @@ mod tests {
             PathBuf::from("examples/example_1.bam"),
             &InitialPosition {
                 contig: String::from("dummyIII"),
-                start: 20,
+                start: 0,
             },
             None,
             10,
@@ -2449,7 +2463,7 @@ mod tests {
             PathBuf::from("examples/example_1.bam"),
             &InitialPosition {
                 contig: String::from("dummyIII"),
-                start: 20,
+                start: 0,
             },
             None,
             10,
@@ -2493,7 +2507,10 @@ mod tests {
         viewer.path = PathBuf::from("zero-sequence.bam");
         let records = viewer.visible_records()?;
         assert_eq!(records.len(), 1);
-        assert_eq!(records.first().expect("one record").sequence(), "*");
+        let record = records.first().expect("one record");
+        assert_eq!(record.region_offset(), 2);
+        assert_eq!(record.sequence(), "*");
+        assert_eq!(sequence_columns(record, 5, false), "  *  ");
         let viewport = render_ansi_viewport(&viewer, &records, 50, 8, FrameFooter::Controls)?;
         assert_ansi_golden("bam_viewer_zero_sequence.ansi", &viewport)?;
         Ok(())
@@ -3464,9 +3481,9 @@ mod tests {
     #[test]
     fn usage_describes_display_and_controls() {
         assert!(USAGE.contains("bold and underlined"));
-        assert!(
-            USAGE.contains("Lowercase bases are insertions; dots are deletions or reference skips")
-        );
+        assert!(USAGE.contains("Spaces are outside an alignment"));
+        assert!(USAGE.contains("dots are deletions or reference skips"));
+        assert!(USAGE.contains("Lowercase bases are insertions"));
         assert!(USAGE.contains("asterisk means the BAM alignment has no stored read sequence"));
         assert!(USAGE.contains("Horizontal movement truncates read IDs and hides insertions"));
         assert!(USAGE.contains("Page Up/Page Down"));

@@ -16,6 +16,8 @@ use std::{collections::HashMap, num::NonZeroU32};
 pub struct RegionSequence {
     /// Read identifier.
     read_id: String,
+    /// Number of requested reference positions before this alignment begins.
+    region_offset: u32,
     /// Region sequence with insertions omitted and deletions represented by `.`.
     sequence: String,
     /// Region sequence with insertions represented by lowercase bases.
@@ -33,6 +35,12 @@ impl RegionSequence {
     #[must_use]
     pub fn read_id(&self) -> &str {
         &self.read_id
+    }
+
+    /// Returns the number of requested reference positions before this alignment begins.
+    #[must_use]
+    pub fn region_offset(&self) -> u32 {
+        self.region_offset
     }
 
     /// Returns the sequence intersecting the requested region.
@@ -347,13 +355,14 @@ impl RegionSequenceReader {
         Ok(())
     }
 
-    /// Retrieves reads spanning a complete reference interval and their projected sequences.
+    /// Retrieves reads overlapping a reference interval and their projected sequences.
     ///
-    /// This uses the same full-region filter and coordinate conversion as the read-table command.
     /// Insertions are omitted and deletions or reference skips are represented by `.`.
     /// When `mod_type` is present, matching calls with probability at least 128 are marked.
     /// Modification tags are not parsed when `mod_type` is absent.
-    /// Rows are sorted by read ID. A mapped record whose sequence is omitted is returned as `*`.
+    /// Rows are sorted by read ID. [`RegionSequence::region_offset`] reports any requested
+    /// reference positions before an alignment starts. A mapped record whose sequence is omitted
+    /// is returned as `*`.
     ///
     /// # Errors
     /// Returns an error if the interval or any fetched alignment record is invalid.
@@ -371,7 +380,7 @@ impl RegionSequenceReader {
         let mut record_count = 0u32;
         for record_result in bam::Read::records(&mut self.reader) {
             let record = record_result?;
-            if !record.filt_by_region(&region, true) {
+            if !record.filt_by_region(&region, false) {
                 continue;
             }
             ensure_bounded_counter(&mut record_count, MAX_RECORDS, "region sequence table")?;
@@ -391,6 +400,8 @@ impl RegionSequenceReader {
                 };
             let read_id = String::from(curr_read.read_id());
             let reverse = curr_read.strand() == '-';
+            let (_alignment_tid, alignment_start) = curr_read.contig_id_and_start()?;
+            let region_offset = alignment_start.saturating_sub(start);
             let (sequence, sequence_with_insertions, modifications, modifications_with_insertions) =
                 if has_sequence {
                     let read_sequence = record.seq().as_bytes();
@@ -422,6 +433,7 @@ impl RegionSequenceReader {
                 };
             rows.push(RegionSequence {
                 read_id,
+                region_offset,
                 sequence,
                 sequence_with_insertions,
                 modifications,
@@ -605,6 +617,7 @@ mod tests {
 
     fn assert_zero_sequence_placeholder(row: &RegionSequence) {
         assert_eq!(row.read_id(), "sequence-not-stored");
+        assert_eq!(row.region_offset(), 0);
         assert_eq!(row.sequence(), "*");
         assert_eq!(row.sequence_with_insertions(), "*");
         assert_eq!(row.modifications(), [false]);
@@ -849,6 +862,8 @@ mod tests {
 
         let rows = reader.sequences(0, 0, 5, None)?;
         assert_zero_sequence_placeholder(rows.first().expect("one read"));
+        let clipped_rows = reader.sequences(0, 2, 5, None)?;
+        assert_zero_sequence_placeholder(clipped_rows.first().expect("one clipped read"));
 
         remove_test_bam(&path);
         Ok(())

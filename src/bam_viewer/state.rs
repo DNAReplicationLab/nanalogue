@@ -272,7 +272,7 @@ impl Viewer {
         self.viewport.start != previous_start
     }
 
-    /// Fetches records spanning the visible genomic range.
+    /// Fetches records overlapping the visible genomic range.
     pub(super) fn visible_records(&mut self) -> Result<Vec<RegionSequence>, Box<dyn Error>> {
         let end = self
             .viewport

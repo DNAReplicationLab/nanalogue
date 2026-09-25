@@ -225,19 +225,34 @@ mod tests {
         Ok(())
     }
 
-    /// Overlapping records must cover both interval boundaries to be returned.
+    /// Sequence rows include partial overlaps, while profiles still require both boundaries.
     #[test]
-    fn valid_interval_without_spanning_records_is_empty() -> Result<(), Error> {
-        let temp = TempDir::new("no_spanning_records");
+    fn sequence_rows_include_partial_overlaps() -> Result<(), Error> {
+        let temp = TempDir::new("partial_overlaps");
         let path = temp.join("partial.bam");
         write_fixture(&path)?;
         let mut reader = RegionSequenceReader::from_path(&path)?;
 
-        assert_eq!(
-            reader.sequences(0, 4, 14, None)?,
-            [],
-            "a record starting after the interval does not span it"
-        );
+        assert_eq!(reader.sequences(0, 0, 5, None)?, []);
+        assert_eq!(reader.sequences(0, 15, 20, None)?, []);
+
+        let starts_inside_rows = reader.sequences(0, 2, 10, None)?;
+        let starts_inside = starts_inside_rows
+            .first()
+            .expect("one overlapping sequence");
+        assert_eq!(starts_inside.region_offset(), 3);
+        assert_eq!(starts_inside.sequence(), "ACGTA");
+
+        let ends_inside_rows = reader.sequences(0, 10, 18, None)?;
+        let ends_inside = ends_inside_rows.first().expect("one overlapping sequence");
+        assert_eq!(ends_inside.region_offset(), 0);
+        assert_eq!(ends_inside.sequence(), "CGTAC");
+
+        let contained_rows = reader.sequences(0, 2, 18, None)?;
+        let contained = contained_rows.first().expect("one contained sequence");
+        assert_eq!(contained.region_offset(), 3);
+        assert_eq!(contained.sequence(), "ACGTACGTAC");
+
         assert_eq!(
             reader.profiles(
                 0,
@@ -251,9 +266,10 @@ mod tests {
         );
 
         let rows = reader.sequences(0, 5, 15, None)?;
-        assert_eq!(rows.len(), 1, "the exact alignment interval is spanned");
+        assert_eq!(rows.len(), 1, "the exact alignment interval overlaps");
         let row = rows.first().expect("the row count was checked");
         assert_eq!(row.read_id(), "partial-span");
+        assert_eq!(row.region_offset(), 0);
         assert_eq!(row.sequence(), "ACGTACGTAC");
 
         let profiles = reader.profiles(
