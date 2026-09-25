@@ -327,15 +327,16 @@ move one read, Page Up/Page Down to move one read page, and Home/End to jump to
 the first/last read. Press `g` to enter another `CONTIG:START`; Enter submits,
 Escape cancels, and Backspace edits. In table mode, `r` toggles full read IDs
 and `i` toggles insertions. Press `s` in table mode to save the currently
-rendered terminal grid in the working directory as a paired `<prefix>.txt` and
-`<prefix>.mods.txt` snapshot. The text file preserves the fixed-width screen
-without ANSI escapes; the matching mask uses `1` for underlined modification
-cells and `0` for every other displayed sequence cell. Existing snapshot files
-are never replaced. Horizontal movement and every successful goto select the
-first read; in table mode they also truncate read IDs and hide insertions. In
-individual mode, read movement selects the plotted read and `r`/`i`/`s` have no
-effect. Outside the goto prompt, press `q` or Escape to quit; Ctrl-C and Ctrl-D
-always quit.
+rendered terminal grid in the working directory as `<prefix>.txt`. When
+`MOD_TYPE` is supplied, the save also includes `<prefix>.mods.txt`; this mask
+uses `1` for underlined modification cells and `0` for every other displayed
+sequence cell. The text file preserves the fixed-width screen without ANSI
+escapes. Existing snapshot files are never replaced. Save feedback disappears
+on the next keypress or automatically after three seconds. Horizontal movement
+and every successful goto select the first read; in table mode they also
+truncate read IDs and hide insertions. In individual mode, read movement selects
+the plotted read and `r`/`i`/`s` have no effect. Outside the goto prompt, press
+`q` or Escape to quit; Ctrl-C and Ctrl-D always quit.
 
 ## `nanalogue read-info`
 Prints information about reads in JSON, including BAM mapping quality (`mapq`). A sample output snippet follows.

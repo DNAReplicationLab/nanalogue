@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Optional `bam-viewer` feature and `nanalogue_bam_viewer` terminal executable,
   with region read tables and individual whole-read modification probability plots
-- Paired fixed-width text and modification-mask snapshots of the rendered BAM
-  viewer table screen
+- Fixed-width text snapshots of the rendered BAM viewer table screen, with a
+  paired modification mask when a modification type is requested
 
 ### Changed
 - Made Polars an optional, default-off dependency. Library consumers using

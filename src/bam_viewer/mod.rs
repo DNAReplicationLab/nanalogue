@@ -40,6 +40,7 @@ use std::{
     io::{self, Stdout, Write as _},
     path::Path,
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 mod cli;
@@ -51,7 +52,7 @@ mod state;
 use cli::{Args, InitialPosition, USAGE, ViewMode, window_len_for_columns};
 use plot::build_individual_frame;
 use render::{FrameFooter, build_frame, table_sequence_geometry};
-use snapshot::{project_text_snapshot, snapshot_prefix, write_snapshot_pair};
+use snapshot::{project_text_snapshot, snapshot_prefix, write_snapshot_pair, write_text_snapshot};
 use state::{
     Viewer, ViewerRecords, fetch_viewer_records, full_read_label_width,
     reselect_individual_alignment, reselect_read,
@@ -62,6 +63,35 @@ const READ_LABEL_WIDTH: u16 = 19;
 
 /// Maximum number of genomic bases displayed regardless of terminal width.
 const MAX_REGION_LENGTH: u32 = 200;
+
+/// Time save feedback remains visible without another keypress.
+const SAVE_FEEDBACK_DURATION: Duration = Duration::from_secs(3);
+
+/// Temporary footer message and its automatic expiry time.
+#[derive(Debug)]
+struct SaveFeedback {
+    /// Message rendered in the footer.
+    message: String,
+    /// Time at which normal controls should return.
+    expires_at: Instant,
+}
+
+impl SaveFeedback {
+    /// Creates feedback with the standard display duration.
+    fn new(message: String, now: Instant) -> Self {
+        Self {
+            message,
+            expires_at: now
+                .checked_add(SAVE_FEEDBACK_DURATION)
+                .expect("three-second feedback deadline fits in Instant"),
+        }
+    }
+
+    /// Returns the remaining display time, or `None` once feedback has expired.
+    fn remaining(&self, now: Instant) -> Option<Duration> {
+        (now < self.expires_at).then(|| self.expires_at.saturating_duration_since(now))
+    }
+}
 
 /// Type of the process-wide panic callback retained during a TUI session.
 type PanicHook = dyn Fn(&std::panic::PanicHookInfo<'_>) + Send + Sync + 'static;
@@ -227,7 +257,7 @@ impl GhosttyRenderer {
         Ok(())
     }
 
-    /// Saves the already-parsed table viewport as text and modification-mask files.
+    /// Saves the already-parsed table viewport in the files appropriate for its mod state.
     fn save_table_snapshot(
         &mut self,
         viewer: &Viewer,
@@ -244,8 +274,13 @@ impl GhosttyRenderer {
         let projected = project_text_snapshot(&snapshot, &mut self.rows, &mut self.cells, geometry)
             .map_err(|error| error.to_string())?;
         let prefix = snapshot_prefix(viewer);
-        let _paths = write_snapshot_pair(directory, &prefix, &projected)?;
-        Ok(format!("Saved {prefix} (.txt + .mods.txt)"))
+        if viewer.mod_type.is_some() {
+            let _paths = write_snapshot_pair(directory, &prefix, &projected)?;
+            Ok(format!("Saved {prefix} (.txt + .mods.txt)"))
+        } else {
+            let _path = write_text_snapshot(directory, &prefix, &projected)?;
+            Ok(format!("Saved {prefix}.txt"))
+        }
     }
 }
 
@@ -431,9 +466,15 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let mut stdout = io::stdout();
     let _guard = TerminalGuard::enter(&mut stdout)?;
     let mut records = fetch_viewer_records(&mut viewer)?;
-    let mut save_feedback: Option<String> = None;
+    let mut save_feedback: Option<SaveFeedback> = None;
 
     loop {
+        if save_feedback
+            .as_ref()
+            .is_some_and(|feedback| feedback.remaining(Instant::now()).is_none())
+        {
+            save_feedback = None;
+        }
         let (cols, rows) = crossterm::terminal::size()?;
         let resized_window_len = window_len_for_columns(cols);
         handle_terminal_resize(&mut viewer, &mut records, resized_window_len)?;
@@ -447,12 +488,27 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
             .read_offset
             .min(records.len().saturating_sub(visible_reads));
         let footer_state = save_feedback
-            .as_deref()
-            .map_or(FrameFooter::Controls, FrameFooter::Message);
+            .as_ref()
+            .map_or(FrameFooter::Controls, |feedback| {
+                FrameFooter::Message(&feedback.message)
+            });
         let frame = build_viewer_frame(&viewer, &records, cols, rows, footer_state);
         renderer.draw(&mut stdout, &frame, cols, rows)?;
 
-        let Event::Key(key) = event::read()? else {
+        let next_event = if let Some(feedback) = &save_feedback {
+            let Some(timeout) = feedback.remaining(Instant::now()) else {
+                save_feedback = None;
+                continue;
+            };
+            if !event::poll(timeout)? {
+                save_feedback = None;
+                continue;
+            }
+            event::read()?
+        } else {
+            event::read()?
+        };
+        let Event::Key(key) = next_event else {
             continue;
         };
         if key.kind != KeyEventKind::Press {
@@ -466,7 +522,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
             && viewer.mode == ViewMode::Table
             && let ViewerRecords::Table(table_records) = &records
         {
-            save_feedback = Some(match env::current_dir() {
+            let message = match env::current_dir() {
                 Ok(current_directory) => renderer
                     .save_table_snapshot(
                         &viewer,
@@ -477,7 +533,8 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     )
                     .unwrap_or_else(|error| format!("Save failed: {error}")),
                 Err(error) => format!("Save failed: cannot inspect current directory: {error}"),
-            });
+            };
+            save_feedback = Some(SaveFeedback::new(message, Instant::now()));
             continue;
         }
         if key.code == KeyCode::Char('g') {
@@ -1336,6 +1393,29 @@ mod tests {
         assert!(!cleanup_text.exists());
         assert_eq!(std::fs::read(&cleanup_modifications)?, b"existing");
 
+        let text_only_path = directory.join("text-only.txt");
+        let text_only_modifications = directory.join("text-only.mods.txt");
+        std::fs::write(&text_only_modifications, b"existing mask")?;
+        let _text_only_error = write_text_snapshot(&directory, "text-only", &snapshot)
+            .expect_err("a pre-existing mask must also block a text-only save");
+        assert!(!text_only_path.exists());
+        assert_eq!(std::fs::read(&text_only_modifications)?, b"existing mask");
+
+        #[cfg(unix)]
+        {
+            let dangling_text = directory.join("dangling.txt");
+            let dangling_modifications = directory.join("dangling.mods.txt");
+            std::os::unix::fs::symlink(&dangling_text, &dangling_modifications)?;
+            let _dangling_error = write_text_snapshot(&directory, "dangling", &snapshot)
+                .expect_err("a dangling mask symlink must block a text-only save");
+            assert!(!dangling_text.exists());
+            assert!(
+                std::fs::symlink_metadata(&dangling_modifications)?
+                    .file_type()
+                    .is_symlink()
+            );
+        }
+
         std::fs::remove_dir_all(directory)?;
         Ok(())
     }
@@ -1442,6 +1522,26 @@ mod tests {
         assert_eq!(saved_modifications, expected.modifications);
         assert_snapshot_grid(&expected, geometry, cols, rows);
         assert_eq!(viewer.viewport, original_viewport);
+
+        let plain_directory = directory.join("without-mods");
+        std::fs::create_dir_all(&plain_directory)?;
+        viewer.mod_type = None;
+        let plain_records = viewer.visible_records()?;
+        let plain_frame = build_frame(&viewer, &plain_records, cols, rows, FrameFooter::Controls);
+        renderer.terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
+        renderer.terminal.vt_write(plain_frame.as_bytes());
+        let plain_success = renderer.save_table_snapshot(
+            &viewer,
+            plain_records.len(),
+            cols,
+            rows,
+            &plain_directory,
+        )?;
+        assert_eq!(plain_success, format!("Saved {prefix}.txt"));
+        assert!(plain_directory.join(format!("{prefix}.txt")).is_file());
+        assert!(!plain_directory.join(format!("{prefix}.mods.txt")).exists());
+        assert_eq!(viewer.viewport, original_viewport);
+
         std::fs::remove_dir_all(directory)?;
         Ok(())
     }
@@ -1510,10 +1610,12 @@ mod tests {
                 assert!(sequence_mask.iter().all(|cell| *cell == b'0'));
             }
             assert_text_golden(&format!("bam_viewer_snapshot_{suffix}.txt"), &snapshot.text)?;
-            assert_text_golden(
-                &format!("bam_viewer_snapshot_{suffix}.mods.txt"),
-                &snapshot.modifications,
-            )?;
+            if mod_type.is_some() {
+                assert_text_golden(
+                    &format!("bam_viewer_snapshot_{suffix}.mods.txt"),
+                    &snapshot.modifications,
+                )?;
+            }
         }
         Ok(())
     }
@@ -3653,6 +3755,22 @@ mod tests {
             KeyCode::Char('c'),
             KeyModifiers::NONE
         )));
+    }
+
+    #[test]
+    fn save_feedback_expires_after_three_seconds() {
+        let now = Instant::now();
+        let feedback = SaveFeedback::new(String::from("Saved snapshot.txt"), now);
+        assert_eq!(feedback.remaining(now), Some(SAVE_FEEDBACK_DURATION));
+        let just_before_expiry = feedback
+            .expires_at
+            .checked_sub(Duration::from_millis(1))
+            .expect("one millisecond before the feedback deadline is valid");
+        assert_eq!(
+            feedback.remaining(just_before_expiry),
+            Some(Duration::from_millis(1))
+        );
+        assert_eq!(feedback.remaining(feedback.expires_at), None);
     }
 
     #[test]

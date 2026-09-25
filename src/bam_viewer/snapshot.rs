@@ -7,7 +7,7 @@ use libghostty_vt::{
 };
 use std::{
     fs::{self, File, OpenOptions},
-    io,
+    io::{self, Write as _},
     path::{Path, PathBuf},
 };
 
@@ -117,6 +117,41 @@ pub(super) struct SnapshotPaths {
     pub text: PathBuf,
     /// Modification mask path.
     pub modifications: PathBuf,
+}
+
+/// Writes a text-only snapshot without replacing an existing destination.
+pub(super) fn write_text_snapshot(
+    directory: &Path,
+    prefix: &str,
+    snapshot: &TextSnapshot,
+) -> Result<PathBuf, String> {
+    let text_path = directory.join(format!("{prefix}.txt"));
+    let modifications_path = directory.join(format!("{prefix}.mods.txt"));
+    match fs::symlink_metadata(&modifications_path) {
+        Ok(_metadata) => return Err(String::from("files already exist; nothing replaced")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!("{} checking modification mask", io_failure(&error)));
+        }
+    }
+    let mut text_file = create_new(&text_path).map_err(|error| {
+        format!(
+            "{} creating text snapshot ({})",
+            io_failure(&error),
+            text_path
+                .file_name()
+                .unwrap_or(text_path.as_os_str())
+                .to_string_lossy()
+        )
+    })?;
+    if let Err(error) = text_file
+        .write_all(snapshot.text.as_bytes())
+        .and_then(|()| text_file.flush())
+    {
+        drop(text_file);
+        return Err(failed_write_error(&error, &[&text_path]));
+    }
+    Ok(text_path)
 }
 
 /// Opens a destination without replacing any existing filesystem entry.

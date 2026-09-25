@@ -34,7 +34,7 @@ pub(super) const USAGE: &str = concat!(
     "  A successful goto also truncates read IDs and hides insertions.\n",
     "  In goto: type CONTIG:START; Backspace edits; Enter submits; Escape cancels.\n",
     "  In table view, r toggles full read IDs, i toggles insertions, and s saves ",
-    "the rendered screen as paired text and modification-mask files.\n",
+    "the rendered screen as text, plus a modification mask when MOD_TYPE is set.\n",
     "  In individual view, j/k selects one read; r/i/s have no effect.\n",
     "  Outside goto, q or Escape quits; Ctrl-C or Ctrl-D always quits.",
 );
