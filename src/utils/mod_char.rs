@@ -116,7 +116,7 @@ impl FromStr for ModChar {
             'A'..='Z' | 'a'..='z' if mod_type.len() == 1 => Ok(ModChar(first_char)),
             '0'..='9' => {
                 let val = char::from_u32(mod_type.parse()?)
-                    .ok_or(Error::InvalidModType(mod_type.to_owned()))?;
+                    .ok_or_else(|| Error::InvalidModType(mod_type.to_owned()))?;
                 Ok(ModChar(val))
             }
             _ => Err(Error::InvalidModType(mod_type.to_owned())),

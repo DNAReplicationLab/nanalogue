@@ -14,6 +14,16 @@ use polars::prelude::*;
 use rust_htslib::bam::Record;
 use serde::Serialize;
 use std::rc::Rc;
+use std::sync::LazyLock;
+
+/// Lookup table of `10^(-0.1 * d)` for every possible `u8` quality difference `d`,
+/// used when averaging base qualities in probability space. Replaces a per-base
+/// `powf` call; values are computed with the same expression, so results are identical.
+static QUAL_DIFF_TO_ERR_RATIO: LazyLock<[f64; 256]> = LazyLock::new(|| {
+    std::array::from_fn(|d| {
+        10f64.powf(-0.1f64 * f64::from(u8::try_from(d).expect("0..=255 fits in u8")))
+    })
+});
 
 /// A single modification type's windowed data
 #[derive(Serialize)]
@@ -175,7 +185,10 @@ where
                     let quals_min = quals.iter().min().expect("no error");
                     let data_size = f64::from(i32::try_from(win_end)? - i32::try_from(win_start)?);
                     let x = quals.iter().fold(0f64, |acc, x| {
-                        acc + (10f64).powf(-0.1f64 * f64::from(x - quals_min))
+                        acc + QUAL_DIFF_TO_ERR_RATIO
+                            .get(usize::from(x - quals_min))
+                            .copied()
+                            .expect("a u8 always indexes a 256-entry table")
                     });
                     quals_min.saturating_add((-10f64 * f64::log10(x / data_size)).round() as u8)
                 }
