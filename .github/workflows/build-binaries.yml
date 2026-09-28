@@ -125,13 +125,24 @@ jobs:
           rustup default stable
           rustup target add "$RUST_TARGET"
 
-      - name: Install Zig
+      - name: Install Zig 0.15.2
         run: |
-          zig_version=0.14.0
-          zig_dir="$HOME/.local/zig"
+          zig_version=0.15.2
+          zig_archive="zig-x86_64-linux-${zig_version}.tar.xz"
+          zig_sha256="02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239"
+          zig_dir="$HOME/.local/zig-${zig_version}"
+
+          curl --proto '=https' --tlsv1.2 -fsSLo "$RUNNER_TEMP/$zig_archive" \
+            "https://ziglang.org/download/${zig_version}/${zig_archive}"
+          printf '%s  %s\n' "$zig_sha256" "$RUNNER_TEMP/$zig_archive" \
+            | sha256sum --check --strict -
+
           mkdir -p "$zig_dir"
-          curl -fsSL "https://ziglang.org/download/${zig_version}/zig-linux-x86_64-${zig_version}.tar.xz" \
-            | tar -xJ --strip-components=1 -C "$zig_dir"
+          tar -xJ --strip-components=1 \
+            -C "$zig_dir" \
+            -f "$RUNNER_TEMP/$zig_archive"
+
+          test "$("$zig_dir/zig" version)" = "$zig_version"
           echo "$zig_dir" >> "$GITHUB_PATH"
 
       - name: Install build dependencies
@@ -151,7 +162,7 @@ jobs:
             zlib1g-dev
 
       - name: Install cargo-zigbuild
-        run: cargo install --locked cargo-zigbuild
+        run: cargo install --locked --version '=0.23.4' cargo-zigbuild
 
       - name: Determine Zig target
         env:
@@ -165,6 +176,13 @@ jobs:
           echo "TARGET=$target" >> "$GITHUB_ENV"
 
       - name: Build binaries
+        env:
+          # Zig 0.15's Clang rejects libdeflate's AVX-512 target attributes
+          # when cargo-zigbuild sets a versioned glibc target. Keep the
+          # portable SIMD variants used by the release compatibility targets.
+          CFLAGS_x86_64_unknown_linux_gnu: >-
+            -DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI
+            -DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ
         run: cargo zigbuild --release --target "$TARGET" --bins
 
       - name: Package binaries
