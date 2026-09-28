@@ -416,10 +416,13 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Errors
     /// Error if sequence length is not set
     pub fn seq_len(&self) -> Result<u32, Error> {
-        self.seq_len.ok_or(Error::UnavailableData(format!(
-            "seq len not available, read_id: {}",
-            self.read_id()
-        )))
+        let Some(seq_len) = self.seq_len else {
+            return Err(Error::UnavailableData(format!(
+                "seq len not available, read_id: {}",
+                self.read_id()
+            )));
+        };
+        Ok(seq_len)
     }
     /// set alignment length from BAM record if available
     ///
@@ -982,7 +985,16 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
         }
 
         let interval = {
-            let intersected_region = region.intersect(&GenomicStrandedBed3::try_from(self)?);
+            let read_region = GenomicStrandedBed3::try_from(self)?;
+            assert!(
+                read_region.start() <= read_region.end(),
+                "read region start cannot exceed end"
+            );
+            assert!(
+                region.start() <= region.end(),
+                "region start cannot exceed end"
+            );
+            let intersected_region = region.intersect(&read_region);
             let Some(v) = intersected_region else {
                 return Err(Error::UnavailableData(
                     "coord-retrieval: region does not intersect with read".to_owned(),
@@ -990,11 +1002,15 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
             };
             let start = i64::from(v.start());
             let end = i64::from(v.end());
-            (start < end && start >= 0)
-                .then_some(start..end)
-                .ok_or(Error::UnavailableData(String::from(
+            assert!(start >= 0, "intersection start cannot be negative");
+            assert!(start <= end, "intersection start cannot exceed end");
+            if start == end {
+                Err(Error::UnavailableData(String::from(
                     "coord-retrieval: region does not intersect with read",
                 )))
+            } else {
+                Ok(start..end)
+            }
         }?;
 
         let seq_len: i64 = i64::try_from(record.seq_len())?;
