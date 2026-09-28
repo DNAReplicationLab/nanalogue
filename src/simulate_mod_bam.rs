@@ -2409,6 +2409,9 @@ mod read_generation_no_mods_tests {
                 .all(|record| (10..=20).contains(&record.mapq()))
         );
 
+        // rust-htslib 1.0.0 drops an indexed CRAM's file handle before its index, which can
+        // SIGSEGV here on musl when `indexed_reader` is dropped. Fixed upstream but unpublished:
+        // https://github.com/rust-bio/rust-htslib/issues/517
         let mut indexed_reader = bam::IndexedReader::from_path(&cram_path).unwrap();
         indexed_reader.fetch((0, 0, 200)).unwrap();
         assert!(indexed_reader.records().next().is_some());

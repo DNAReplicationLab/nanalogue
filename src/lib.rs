@@ -614,9 +614,11 @@ where
                     let prob = ml_tag
                         .as_ref()
                         .and_then(|tag| tag.get(num_mods_seen + cur_mod_idx))
-                        .ok_or(Error::InvalidModProbs(
-                            "ML tag appears to be insufficiently long!".into(),
-                        ))?;
+                        .ok_or_else(|| {
+                            Error::InvalidModProbs(
+                                "ML tag appears to be insufficiently long!".into(),
+                            )
+                        })?;
                     if filter_mod_prob(&prob) && is_seq_pos_pass {
                         modified_positions.push(cur_seq_idx);
                         modified_probabilities.push(prob);
@@ -644,7 +646,7 @@ where
             if cur_mod_idx == mod_dists.len() {
                 num_mods_seen = num_mods_seen
                     .checked_add(cur_mod_idx)
-                    .ok_or(Error::Arithmetic("in MM ML parsing".to_owned()))?;
+                    .ok_or_else(|| Error::Arithmetic("in MM ML parsing".to_owned()))?;
             } else {
                 return Err(Error::InvalidModCoords(format!(
                     "Problem with parsing MM/ML data, counts do not match {} != {}",
