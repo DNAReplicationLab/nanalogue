@@ -416,10 +416,13 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Errors
     /// Error if sequence length is not set
     pub fn seq_len(&self) -> Result<u32, Error> {
-        self.seq_len.ok_or(Error::UnavailableData(format!(
-            "seq len not available, read_id: {}",
-            self.read_id()
-        )))
+        let Some(seq_len) = self.seq_len else {
+            return Err(Error::UnavailableData(format!(
+                "seq len not available, read_id: {}",
+                self.read_id()
+            )));
+        };
+        Ok(seq_len)
     }
     /// set alignment length from BAM record if available
     ///
@@ -427,6 +430,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// Returns errors if alignment len is already set, instance is
     /// unmapped, has no CIGAR, or if alignment coordinates are malformed
     /// (e.g. end < start).
+    ///
+    /// # Panics
+    /// Panics if alignment-length subtraction overflows. This is unreachable:
+    /// the preceding checks establish `0 <= start < end <= u32::MAX`.
     pub fn set_align_len(mut self, record: &Record) -> Result<Self, Error> {
         self.align_len = match self.align_len {
             Some(_) => Err(Error::InvalidDuplicates(format!(
@@ -450,9 +457,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                     if en > st && st >= 0 && en <= u32::MAX.into() {
                         let align_len: u32 = en
                             .checked_sub(st)
-                            .ok_or(Error::InvalidState(String::from(
-                                "unreachable overflow in align len calculation",
-                            )))?
+                            .expect("0 <= st < en <= u32::MAX ensures subtraction fits in i64")
                             .try_into()?;
                         Ok(Some(align_len))
                     } else {
@@ -980,7 +985,16 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
         }
 
         let interval = {
-            let intersected_region = region.intersect(&GenomicStrandedBed3::try_from(self)?);
+            let read_region = GenomicStrandedBed3::try_from(self)?;
+            assert!(
+                read_region.start() <= read_region.end(),
+                "read region start cannot exceed end"
+            );
+            assert!(
+                region.start() <= region.end(),
+                "region start cannot exceed end"
+            );
+            let intersected_region = region.intersect(&read_region);
             let Some(v) = intersected_region else {
                 return Err(Error::UnavailableData(
                     "coord-retrieval: region does not intersect with read".to_owned(),
@@ -988,11 +1002,15 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
             };
             let start = i64::from(v.start());
             let end = i64::from(v.end());
-            (start < end && start >= 0)
-                .then_some(start..end)
-                .ok_or(Error::UnavailableData(String::from(
+            assert!(start >= 0, "intersection start cannot be negative");
+            assert!(start <= end, "intersection start cannot exceed end");
+            if start == end {
+                Err(Error::UnavailableData(String::from(
                     "coord-retrieval: region does not intersect with read",
                 )))
+            } else {
+                Ok(start..end)
+            }
         }?;
 
         let seq_len: i64 = i64::try_from(record.seq_len())?;
@@ -2020,18 +2038,64 @@ impl Default for CurrReadBuilder {
 ///
 /// See documentation of [`CurrReadBuilder`] on how to use
 /// this struct.
-#[derive(Builder, Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-#[builder(default, build_fn(error = "Error"), pattern = "owned")]
+#[derive(Builder, Debug, Clone, Serialize)]
+#[builder(
+    build_fn(error = "Error", validate = "Self::validate"),
+    pattern = "owned"
+)]
 pub struct AlignmentInfo {
     /// Start position on reference
+    #[builder(default)]
     start: u32,
     /// End position on reference
+    #[builder(default)]
     end: u32,
     /// Contig/chromosome name
+    #[builder(default)]
     contig: String,
     /// Contig/chromosome ID
+    #[builder(default)]
     contig_id: i32,
+}
+
+impl AlignmentInfoBuilder {
+    /// Validates that the alignment coordinates form a nonempty interval.
+    fn validate(&self) -> Result<(), Error> {
+        let start = self.start.unwrap_or_default();
+        let end = self.end.unwrap_or_default();
+        if start >= end {
+            Err(Error::InvalidAlignCoords(format!(
+                "alignment end {end} must be greater than alignment start {start}"
+            )))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AlignmentInfo {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Default, Deserialize)]
+        #[serde(default, rename = "AlignmentInfo")]
+        struct SerializedAlignmentInfo {
+            start: u32,
+            end: u32,
+            contig: String,
+            contig_id: i32,
+        }
+
+        let serialized = SerializedAlignmentInfo::deserialize(deserializer)?;
+        AlignmentInfoBuilder::default()
+            .start(serialized.start)
+            .end(serialized.end)
+            .contig(serialized.contig)
+            .contig_id(serialized.contig_id)
+            .build()
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 /// Data per type of modification in [`CurrReadBuilder`].
@@ -2180,12 +2244,7 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
                     .end
                     .checked_sub(alignment.start)
                     .filter(|len| *len > 0)
-                    .ok_or_else(|| {
-                        Error::InvalidAlignCoords(format!(
-                            "is align end {0} <= align start {1}? read {2} failed in `CurrRead` building!",
-                            alignment.end, alignment.start, serialized.read_id
-                        ))
-                    })?;
+                    .expect("AlignmentInfo guarantees start < end");
                 ensure_valid_contig_id(alignment.contig_id)?;
                 let contig_id_and_start = Some((alignment.contig_id, alignment.start));
                 let contig = alignment.contig.clone();

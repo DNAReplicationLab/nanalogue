@@ -1,88 +1,7 @@
 //! `FilterModsByRefCoords` trait for filtering by coordinates on the reference genome
 //! Provides interface for coordinate-based filtering operations
 
-use crate::{Error, Intersects as _, OrdPair, Ranges};
-use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, fmt};
-
-/// Categorizes the types of windows into two possibilities.
-///
-/// `OrdPair<u32>`'s checked `Deserialize` enforces `start <= end` for the
-/// inner pair on every serde input source.
-#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize)]
-pub struct WindowState(Option<OrdPair<u32>>);
-
-impl fmt::Display for WindowState {
-    /// converts to string for display i.e. "low, high" or "undefined"
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            WindowState(None) => "undefined".to_owned(),
-            WindowState(Some(v)) => v.to_string(),
-        }
-        .fmt(f)
-    }
-}
-
-impl WindowState {
-    /// Construct a new `WindowState` given `Options` for `start` and `end`
-    ///
-    /// # Errors
-    /// If open windows are encountered i.e. `start` or `end` are `None` but not
-    /// both (both are `None` is fine), or if `start` or `end` are negative or
-    /// ordered incorrectly, which will lead to an `OrdPair` error i.e. `start > end`
-    pub fn new(start: Option<u32>, end: Option<u32>) -> Result<Self, Error> {
-        Ok(match (start, end) {
-            (None, None) => WindowState(None),
-            (Some(v), None) | (None, Some(v)) => {
-                return Err(Error::NotImplemented(format!(
-                    "window was (None, {v}) or ({v}, None) - we cannot deal with these"
-                )));
-            }
-            (Some(v), Some(w)) => WindowState(Some(OrdPair::<u32>::new(v, w)?)),
-        })
-    }
-
-    /// Intersects with a genomic region
-    #[must_use]
-    pub fn intersects(&self, interval: OrdPair<u32>) -> bool {
-        match *self {
-            WindowState(None) => false,
-            WindowState(Some(v)) => {
-                let lo = v.low();
-                let hi = v.high();
-                (interval.low()..interval.high()).intersects(&(lo..hi))
-            }
-        }
-    }
-}
-
-impl PartialEq for WindowState {
-    fn eq(&self, other: &Self) -> bool {
-        match (*self, *other) {
-            (WindowState(None), WindowState(None)) => true,
-            (WindowState(Some(v)), WindowState(Some(w))) if v == w => true,
-            _ => false,
-        }
-    }
-}
-
-impl PartialOrd for WindowState {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (*self, *other) {
-            (WindowState(None), WindowState(None)) => Some(Ordering::Equal),
-            (WindowState(None), WindowState(Some(_))) => Some(Ordering::Less),
-            (WindowState(Some(_)), WindowState(None)) => Some(Ordering::Greater),
-            (WindowState(Some(v)), WindowState(Some(w))) if v == w => Some(Ordering::Equal),
-            (WindowState(Some(v)), WindowState(Some(w))) if v.high() <= w.low() => {
-                Some(Ordering::Less)
-            }
-            (WindowState(Some(v)), WindowState(Some(w))) if w.high() <= v.low() => {
-                Some(Ordering::Greater)
-            }
-            _ => None,
-        }
-    }
-}
+use crate::{Error, OrdPair, Ranges};
 
 /// Implements filter by coordinates on the reference genome.
 pub trait FilterModsByRefCoords {
@@ -103,55 +22,40 @@ impl FilterModsByRefCoords for Ranges {
     /// are retained. does not use contig in filtering.
     fn filter_mods_by_ref_pos(&mut self, start: u32, end: u32) -> Result<(), Error> {
         let interval = OrdPair::new(start, end)?;
-
-        let (start_index, stop_index_plus_one) = {
-            let mut coord_limits: Option<OrdPair<usize>> = None;
-            let mut previous_window = WindowState(None);
-            for (idx, ann) in self.annotations.iter().enumerate() {
-                // as ref annotations are points, treat as [ref_pos, ref_pos + 1) for interval
-                // intersection
-                let window_state = WindowState::new(
-                    ann.ref_pos,
-                    match ann.ref_pos {
-                        None => None,
-                        Some(v) => Some(v.checked_add(1).ok_or(Error::Arithmetic(
-                            "overflow error in coordinates while filtering by ref".to_owned(),
-                        ))?),
-                    },
-                )?;
-                match window_state {
-                    WindowState(None) => {}
-                    w @ WindowState(Some(_)) if previous_window < w => previous_window = w,
-                    v => {
-                        return Err(Error::WrongOrder(format!(
-                            "windows are not ordered, previous window {previous_window} is > or overlaps with {v}!"
-                        )));
-                    }
-                }
-                if window_state.intersects(interval) {
-                    if coord_limits.is_none() {
-                        coord_limits = Some(OrdPair::<usize>::new(idx, idx)?);
-                    } else {
-                        let Some(ref mut v) = coord_limits else {
-                            unreachable!("we've checked for the `Some` variant already")
-                        };
-                        v.update_high(idx)?;
-                    }
-                }
-            }
-            if let Some(item) = coord_limits {
+        let matching_indices = self
+            .annotations
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, ann)| {
+                ann.ref_pos
+                    .filter(|pos| (interval.low()..interval.high()).contains(pos))
+                    .map(|_| idx)
+            });
+        let (start_index, stop_index) = matching_indices
+            .clone()
+            .next()
+            .zip(matching_indices.clone().next_back())
+            .map_or((0, 0), |(first, last)| {
                 (
-                    item.low(),
-                    item.high().checked_add(1).ok_or(Error::Arithmetic(
-                        "overflow error in coordinates while filtering by ref".to_owned(),
-                    ))?,
+                    first,
+                    last.checked_add(1)
+                        .expect("an existing vector index can be incremented"),
                 )
-            } else {
-                (0usize, 0usize)
-            }
-        };
-        self.annotations.truncate(stop_index_plus_one);
-        self.annotations.drain(0..start_index).for_each(drop);
+            });
+
+        self.annotations.truncate(stop_index);
+        self.annotations.drain(..start_index).for_each(drop);
+
+        if !self
+            .annotations
+            .iter()
+            .filter_map(|annotation| annotation.ref_pos)
+            .is_sorted_by(|previous, next| previous < next)
+        {
+            return Err(Error::WrongOrder(
+                "reference positions are not strictly increasing".to_owned(),
+            ));
+        }
         Ok(())
     }
 }
@@ -276,6 +180,24 @@ mod tests {
         let mut excluded = base.clone();
         excluded.filter_mods_by_ref_pos(21, 22).unwrap();
         assert!(excluded.annotations.is_empty());
+    }
+
+    #[test]
+    fn maximum_reference_position_does_not_overflow() {
+        let mut ranges = Ranges {
+            annotations: vec![FiberAnnotation {
+                pos: 5,
+                qual: 100,
+                ref_pos: Some(u32::MAX),
+            }],
+            seq_len: 10,
+            reverse: false,
+        };
+
+        ranges
+            .filter_mods_by_ref_pos(u32::MAX - 1, u32::MAX)
+            .unwrap();
+        assert!(ranges.annotations.is_empty());
     }
 
     #[test]
@@ -516,6 +438,68 @@ mod tests {
     }
 
     #[test]
+    fn ignores_wrong_order_outside_retained_span() {
+        let mut ranges = Ranges {
+            annotations: vec![
+                FiberAnnotation {
+                    pos: 10,
+                    qual: 100,
+                    ref_pos: Some(40),
+                },
+                FiberAnnotation {
+                    pos: 20,
+                    qual: 120,
+                    ref_pos: Some(20),
+                },
+            ],
+            seq_len: 50,
+            reverse: false,
+        };
+
+        ranges.filter_mods_by_ref_pos(15, 25).unwrap();
+
+        assert_eq!(ranges.ref_pos().collect::<Vec<_>>(), vec![Some(20)]);
+    }
+
+    #[test]
+    fn wrong_order_error_leaves_retained_span() {
+        let mut ranges = Ranges {
+            annotations: vec![
+                FiberAnnotation {
+                    pos: 10,
+                    qual: 100,
+                    ref_pos: Some(10),
+                },
+                FiberAnnotation {
+                    pos: 20,
+                    qual: 120,
+                    ref_pos: Some(40),
+                },
+                FiberAnnotation {
+                    pos: 30,
+                    qual: 140,
+                    ref_pos: Some(20),
+                },
+                FiberAnnotation {
+                    pos: 40,
+                    qual: 160,
+                    ref_pos: Some(50),
+                },
+            ],
+            seq_len: 60,
+            reverse: false,
+        };
+
+        let error = ranges.filter_mods_by_ref_pos(15, 45).unwrap_err();
+
+        assert!(matches!(error, Error::WrongOrder(_)));
+        assert_eq!(
+            ranges.ref_pos().collect::<Vec<_>>(),
+            vec![Some(40), Some(20)]
+        );
+    }
+
+    #[test]
     fn ranges_filter_mods_by_ref_pos_first_few_entries_none() {
         let mut ranges = Ranges {
             annotations: vec![
@@ -550,274 +534,5 @@ mod tests {
         // Verify that no point comes through
         assert!(ranges.annotations.is_empty());
         assert!(ranges.qual().next().is_none());
-    }
-}
-
-#[cfg(test)]
-#[cfg_attr(coverage_nightly, coverage(off))]
-mod window_state_tests {
-    use super::*;
-
-    /// Tests `WindowState::new` with both start and end as None
-    #[test]
-    fn window_state_new_both_none() {
-        let ws = WindowState::new(None, None).expect("should succeed");
-        assert_eq!(ws, WindowState(None));
-    }
-
-    /// Tests `WindowState::new` with valid start and end values
-    #[test]
-    fn window_state_new_valid_start_end() {
-        let ws = WindowState::new(Some(10), Some(20)).expect("should succeed");
-        assert_eq!(ws, WindowState(Some(OrdPair::new(10, 20).unwrap())));
-    }
-
-    /// Tests `WindowState::new` with equal start and end values
-    #[test]
-    fn window_state_new_equal_start_end() {
-        let ws = WindowState::new(Some(15), Some(15)).expect("should succeed");
-        assert_eq!(ws, WindowState(Some(OrdPair::new(15, 15).unwrap())));
-    }
-
-    /// Tests `WindowState::new` fails when only start is Some
-    #[test]
-    #[should_panic(expected = "NotImplemented")]
-    fn window_state_new_only_start_panics() {
-        let _: WindowState = WindowState::new(Some(10), None).unwrap();
-    }
-
-    /// Tests `WindowState::new` fails when only end is Some
-    #[test]
-    #[should_panic(expected = "NotImplemented")]
-    fn window_state_new_only_end_panics() {
-        let _: WindowState = WindowState::new(None, Some(20)).unwrap();
-    }
-
-    /// Tests `WindowState::new` fails when start > end
-    #[test]
-    #[should_panic(expected = "WrongOrder")]
-    fn window_state_new_start_greater_than_end_panics() {
-        let _: WindowState = WindowState::new(Some(30), Some(20)).unwrap();
-    }
-
-    /// Tests `WindowState::intersects` returns false for undefined window
-    #[test]
-    fn window_state_intersects_none_returns_false() {
-        let ws = WindowState(None);
-        let interval = OrdPair::new(10, 20).unwrap();
-        assert!(!ws.intersects(interval));
-    }
-
-    /// Tests `WindowState::intersects` with overlapping intervals
-    #[test]
-    fn window_state_intersects_fully_overlapping() {
-        let ws = WindowState::new(Some(10), Some(20)).unwrap();
-        let interval = OrdPair::new(15, 25).unwrap();
-        assert!(ws.intersects(interval));
-    }
-
-    /// Tests `WindowState::intersects` with interval contained in window
-    #[test]
-    fn window_state_intersects_interval_contained() {
-        let ws = WindowState::new(Some(10), Some(30)).unwrap();
-        let interval = OrdPair::new(15, 20).unwrap();
-        assert!(ws.intersects(interval));
-    }
-
-    /// Tests `WindowState::intersects` with window contained in interval
-    #[test]
-    fn window_state_intersects_window_contained() {
-        let ws = WindowState::new(Some(15), Some(20)).unwrap();
-        let interval = OrdPair::new(10, 30).unwrap();
-        assert!(ws.intersects(interval));
-    }
-
-    /// Tests `WindowState::intersects` with non-overlapping intervals (window before)
-    #[test]
-    fn window_state_intersects_non_overlapping_before() {
-        let ws = WindowState::new(Some(10), Some(20)).unwrap();
-        let interval = OrdPair::new(25, 30).unwrap();
-        assert!(!ws.intersects(interval));
-    }
-
-    /// Tests `WindowState::intersects` with non-overlapping intervals (window after)
-    #[test]
-    fn window_state_intersects_non_overlapping_after() {
-        let ws = WindowState::new(Some(25), Some(30)).unwrap();
-        let interval = OrdPair::new(10, 20).unwrap();
-        assert!(!ws.intersects(interval));
-    }
-
-    /// Tests `WindowState::intersects` with adjacent intervals (no overlap)
-    #[test]
-    fn window_state_intersects_adjacent_no_overlap() {
-        let ws = WindowState::new(Some(10), Some(20)).unwrap();
-        let interval = OrdPair::new(20, 30).unwrap();
-        assert!(!ws.intersects(interval));
-    }
-
-    /// Tests `WindowState::intersects` with a 0-bp window.
-    ///
-    /// We treat `start == end` windows as empty (half-open range semantics),
-    /// so they do not intersect any interval.
-    #[test]
-    fn window_state_intersects_zero_bp_window() {
-        let ws = WindowState::new(Some(15), Some(15)).unwrap();
-        let interval = OrdPair::new(14, 16).unwrap();
-        assert!(!ws.intersects(interval));
-    }
-
-    /// Tests `WindowState::intersects` with 0-bp window not overlapping.
-    ///
-    /// We treat `start == end` windows as empty (half-open range semantics),
-    /// so they do not intersect any interval.
-    #[test]
-    fn window_state_intersects_zero_bp_window_no_overlap() {
-        let ws = WindowState::new(Some(15), Some(15)).unwrap();
-        let interval = OrdPair::new(20, 30).unwrap();
-        assert!(!ws.intersects(interval));
-    }
-
-    /// Tests `WindowState::intersects` does not panic at `u32::MAX`
-    #[test]
-    fn window_state_intersects_u32_max_zero_bp_window() {
-        let ws = WindowState(Some(OrdPair::new(u32::MAX, u32::MAX).unwrap()));
-        let interval = OrdPair::new(u32::MAX - 1, u32::MAX).unwrap();
-        assert!(!ws.intersects(interval));
-    }
-
-    /// Tests `WindowState::Display` for undefined window
-    #[test]
-    fn window_state_display_none() {
-        let ws = WindowState(None);
-        assert_eq!(format!("{ws}"), "undefined");
-    }
-
-    /// Tests `WindowState::Display` for defined window
-    #[test]
-    fn window_state_display_some() {
-        let ws = WindowState::new(Some(10), Some(20)).unwrap();
-        assert_eq!(format!("{ws}"), "10, 20");
-    }
-
-    /// Tests `WindowState::PartialEq` for two None values
-    #[test]
-    fn window_state_eq_both_none() {
-        let ws1 = WindowState(None);
-        let ws2 = WindowState(None);
-        assert_eq!(ws1, ws2);
-    }
-
-    /// Tests `WindowState::PartialEq` for equal Some values
-    #[test]
-    fn window_state_eq_equal_some() {
-        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
-        let ws2 = WindowState::new(Some(10), Some(20)).unwrap();
-        assert_eq!(ws1, ws2);
-    }
-
-    /// Tests `WindowState::PartialEq` for different Some values
-    #[test]
-    fn window_state_eq_different_some() {
-        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
-        let ws2 = WindowState::new(Some(15), Some(25)).unwrap();
-        assert_ne!(ws1, ws2);
-    }
-
-    /// Tests `WindowState::PartialEq` for None and Some
-    #[test]
-    fn window_state_eq_none_and_some() {
-        let ws1 = WindowState(None);
-        let ws2 = WindowState::new(Some(10), Some(20)).unwrap();
-        assert_ne!(ws1, ws2);
-    }
-
-    /// Tests `WindowState::PartialOrd` for two None values
-    #[test]
-    fn window_state_ord_both_none() {
-        let ws1 = WindowState(None);
-        let ws2 = WindowState(None);
-        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Equal));
-    }
-
-    /// Tests `WindowState::PartialOrd` for None < Some
-    #[test]
-    fn window_state_ord_none_less_than_some() {
-        let ws1 = WindowState(None);
-        let ws2 = WindowState::new(Some(10), Some(20)).unwrap();
-        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Less));
-    }
-
-    /// Tests `WindowState::PartialOrd` for Some > None
-    #[test]
-    fn window_state_ord_some_greater_than_none() {
-        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
-        let ws2 = WindowState(None);
-        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Greater));
-    }
-
-    /// Tests `WindowState::PartialOrd` for equal Some values
-    #[test]
-    fn window_state_ord_equal_some() {
-        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
-        let ws2 = WindowState::new(Some(10), Some(20)).unwrap();
-        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Equal));
-    }
-
-    /// Tests `WindowState::PartialOrd` for non-overlapping windows (first before second)
-    #[test]
-    fn window_state_ord_non_overlapping_less() {
-        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
-        let ws2 = WindowState::new(Some(25), Some(30)).unwrap();
-        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Less));
-    }
-
-    /// Tests `WindowState::PartialOrd` for non-overlapping windows (first after second)
-    #[test]
-    fn window_state_ord_non_overlapping_greater() {
-        let ws1 = WindowState::new(Some(25), Some(30)).unwrap();
-        let ws2 = WindowState::new(Some(10), Some(20)).unwrap();
-        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Greater));
-    }
-
-    /// Tests `WindowState::PartialOrd` for adjacent windows (first.high == second.low)
-    #[test]
-    fn window_state_ord_adjacent() {
-        let ws1 = WindowState::new(Some(10), Some(20)).unwrap();
-        let ws2 = WindowState::new(Some(20), Some(30)).unwrap();
-        assert_eq!(ws1.partial_cmp(&ws2), Some(Ordering::Less));
-    }
-
-    /// Tests `WindowState::PartialOrd` for overlapping windows returns None
-    #[test]
-    fn window_state_ord_overlapping() {
-        let ws1 = WindowState::new(Some(10), Some(25)).unwrap();
-        let ws2 = WindowState::new(Some(20), Some(30)).unwrap();
-        assert_eq!(ws1.partial_cmp(&ws2), None);
-    }
-
-    /// Tests `WindowState::PartialOrd` for contained windows returns None
-    #[test]
-    fn window_state_ord_contained() {
-        let ws1 = WindowState::new(Some(15), Some(20)).unwrap();
-        let ws2 = WindowState::new(Some(10), Some(30)).unwrap();
-        assert_eq!(ws1.partial_cmp(&ws2), None);
-    }
-
-    /// `WindowState` deserialization must enforce the `low <= high` invariant
-    /// (delegated to the validated `OrdPair<u32>` deserializer).
-    #[test]
-    fn window_state_deserialize_rejects_wrong_order() {
-        let bad: Result<WindowState, _> = serde_json::from_str(r#"{"low":200,"high":100}"#);
-        let _: serde_json::Error = bad.unwrap_err();
-    }
-
-    /// A valid `WindowState` round-trips through serde.
-    #[test]
-    fn window_state_deserialize_accepts_valid() {
-        let ws = WindowState::new(Some(10), Some(20)).expect("should construct");
-        let json = serde_json::to_string(&ws).expect("should serialize");
-        let back: WindowState = serde_json::from_str(&json).expect("should deserialize");
-        assert_eq!(ws, back);
     }
 }
