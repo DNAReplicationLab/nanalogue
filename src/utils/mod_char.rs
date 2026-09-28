@@ -32,6 +32,9 @@ impl Default for ModChar {
 }
 
 impl ModChar {
+    /// Maximum decimal length of a numeric code representable as a Rust `char`.
+    pub(crate) const MAX_NUMERIC_CODE_LENGTH: usize = 7;
+
     /// We initialize with a character
     #[must_use]
     pub fn new(val: char) -> Self {
@@ -115,6 +118,11 @@ impl FromStr for ModChar {
         match first_char {
             'A'..='Z' | 'a'..='z' if mod_type.len() == 1 => Ok(ModChar(first_char)),
             '0'..='9' => {
+                let has_leading_zero = first_char == '0' && mod_type.len() != 1;
+                let is_too_long = mod_type.len() > Self::MAX_NUMERIC_CODE_LENGTH;
+                if has_leading_zero || is_too_long {
+                    return Err(Error::InvalidModType(mod_type.to_owned()));
+                }
                 let val = char::from_u32(mod_type.parse()?)
                     .ok_or_else(|| Error::InvalidModType(mod_type.to_owned()))?;
                 Ok(ModChar(val))

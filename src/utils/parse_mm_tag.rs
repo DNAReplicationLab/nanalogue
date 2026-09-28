@@ -2,9 +2,12 @@
 
 use crate::{
     Error, ModChar,
-    constants::shared::{MAX_MM_TAG_LENGTH, MAX_MOD_TYPES},
+    constants::shared::{MAX_MM_GAP, MAX_MM_TAG_LENGTH, MAX_MOD_TYPES},
 };
-use std::{collections::HashSet, str, str::FromStr as _};
+use std::{collections::HashSet, str::FromStr as _};
+
+/// Base, strand, longest numeric modification code, and optional `?` or `.` suffix.
+const MAX_MM_HEADER_LENGTH: usize = ModChar::MAX_NUMERIC_CODE_LENGTH.saturating_add(3);
 
 /// Parsed representation of a single MM-tag group.
 #[derive(Debug)]
@@ -22,6 +25,70 @@ pub struct ParsedMmGroup {
     pub mod_dists: Vec<u32>,
 }
 
+/// Parses the comma-separated distances that follow an MM group's header.
+///
+/// Each field must be a non-empty sequence of ASCII decimal digits whose value does not
+/// exceed [`MAX_MM_GAP`].
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "the digit match bounds subtraction, and MAX_MM_GAP bounds decimal accumulation"
+)]
+fn parse_mm_distances(distances: &str) -> Result<Vec<u32>, Error> {
+    if distances.len()
+        >= usize::try_from(MAX_MM_TAG_LENGTH).expect("no error on 32-bit platforms and above")
+    {
+        return Err(Error::InvalidModCoords(
+            "MM distance list is too long to process".to_owned(),
+        ));
+    }
+    // Every field holds at least one byte, and fields are separated by one comma.
+    let mut mod_dists = Vec::with_capacity(distances.len().div_ceil(2).max(1));
+    let mut field_start = 0usize;
+    let mut value = 0u32;
+    // A synthetic trailing comma finalizes the last field through the same path as all others.
+    for (index, byte) in distances.bytes().chain(std::iter::once(b',')).enumerate() {
+        match byte {
+            b',' => {
+                if field_start == index {
+                    return Err(Error::InvalidModCoords(
+                        "invalid MM distance ``: expected ASCII decimal digits".to_owned(),
+                    ));
+                }
+                mod_dists.push(value);
+                field_start = index.saturating_add(1);
+                value = 0;
+            }
+            b'0'..=b'9' => {
+                let digit = u32::from(byte - b'0');
+                value = value * 10 + digit;
+                if value > MAX_MM_GAP {
+                    let field = distances
+                        .get(field_start..)
+                        .unwrap_or_default()
+                        .split(',')
+                        .next()
+                        .unwrap_or_default();
+                    return Err(Error::InvalidModCoords(format!(
+                        "invalid MM distance `{field}`: value exceeds maximum gap {MAX_MM_GAP}"
+                    )));
+                }
+            }
+            _ => {
+                let field = distances
+                    .get(field_start..)
+                    .unwrap_or_default()
+                    .split(',')
+                    .next()
+                    .unwrap_or_default();
+                return Err(Error::InvalidModCoords(format!(
+                    "invalid MM distance `{field}`: expected ASCII decimal digits"
+                )));
+            }
+        }
+    }
+    Ok(mod_dists)
+}
+
 /// Parse semicolon-delimited MM-tag text into groups.
 ///
 /// This parser intentionally requires every MM group, including the final
@@ -36,6 +103,10 @@ pub struct ParsedMmGroup {
     clippy::string_slice,
     clippy::missing_asserts_for_indexing,
     reason = "bounds are checked before slicing and index arithmetic is tightly controlled"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keeping validation in the single-pass MM group parser makes its state explicit"
 )]
 #[expect(
     clippy::missing_panics_doc,
@@ -62,14 +133,32 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
             continue;
         }
 
-        let raw_group = &group_bytes[group_start..index];
+        // `group` is valid UTF-8 and `;` is ASCII, so these are character boundaries.
+        let raw_group = &group[group_start..index];
+        if raw_group.len()
+            >= usize::try_from(MAX_MM_TAG_LENGTH).expect("no error on 32-bit platforms and above")
+        {
+            return Err(Error::InvalidModCoords(
+                "MM group is too long to process".to_owned(),
+            ));
+        }
+        let (header, distances) = match raw_group.split_once(',') {
+            Some((header, distances)) => (header, Some(distances)),
+            None => (raw_group, None),
+        };
+        if header.len() > MAX_MM_HEADER_LENGTH {
+            return Err(Error::InvalidModType(format!(
+                "MM group header exceeds {MAX_MM_HEADER_LENGTH} bytes"
+            )));
+        }
+        let header_bytes = header.as_bytes();
         // smallest valid length is 3 e.g. something like "C+m"
-        if raw_group.len() < 3 {
+        if header_bytes.len() < 3 {
             return Err(Error::InvalidModType(
                 "malformed MM group encountered while parsing MM tag".to_owned(),
             ));
         }
-        let mod_base = match raw_group[0] {
+        let mod_base = match header_bytes[0] {
             v @ (b'A' | b'C' | b'G' | b'T' | b'U' | b'N') => v,
             v => {
                 return Err(Error::InvalidBase(format!(
@@ -78,20 +167,14 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
                 )));
             }
         };
-        let mod_strand = match &raw_group[1] {
+        let mod_strand = match &header_bytes[1] {
             &b'+' => '+',
             &b'-' => '-',
             v => return Err(Error::InvalidModType(format!("invalid MM strand `{v}`"))),
         };
 
         let (mod_type, is_implicit) = {
-            let mod_type_and_implicit_flag_str =
-                str::from_utf8(&raw_group[2..raw_group.len().min(11)])?;
-            // 2..11 because max char is 1114111 (7) + an optional ?/. (1) + comma (1) = 9
-            let mod_type_and_implicit_flag = mod_type_and_implicit_flag_str
-                .split(',')
-                .next()
-                .expect("split always yields at least one element");
+            let mod_type_and_implicit_flag = &header[2..];
             let n = mod_type_and_implicit_flag.len();
             if mod_type_and_implicit_flag.ends_with('?') {
                 (
@@ -128,18 +211,10 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
             )));
         }
 
-        let mod_dists = str::from_utf8(raw_group)?
-            .split(',')
-            .skip(1)
-            .take(
-                usize::try_from(u32::MAX - 1).expect("no error on 32-bit platforms and higher") + 1,
-            )
-            .map(|entry| {
-                entry.parse::<u32>().map_err(|err| {
-                    Error::InvalidModCoords(format!("invalid MM distance `{entry}`: {err}"))
-                })
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
+        let mod_dists = match distances {
+            Some(distance_text) => parse_mm_distances(distance_text)?,
+            None => Vec::new(),
+        };
 
         assert!(
             mod_dists.len()
@@ -171,6 +246,90 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mm_group_headers_respect_the_derived_length_limit() {
+        assert_eq!(MAX_MM_HEADER_LENGTH, 10);
+        let maximum = mm_groups("C+1114111?,0;").expect("maximum header should parse");
+        assert_eq!(maximum.len(), 1);
+        let overlong = mm_groups("C+12345678?,0;").expect_err("overlong header should fail");
+        assert!(matches!(overlong, Error::InvalidModType(_)));
+    }
+
+    #[test]
+    fn mm_distance_list_must_be_shorter_than_the_tag_limit() {
+        let limit = usize::try_from(MAX_MM_TAG_LENGTH).expect("supported platform");
+        let distances = "0".repeat(limit);
+        let error = parse_mm_distances(&distances).expect_err("distance list at limit");
+        assert!(matches!(error, Error::InvalidModCoords(_)));
+    }
+
+    #[test]
+    fn mm_distances_accept_only_ascii_decimal_values_within_the_gap_limit() {
+        let maximum = MAX_MM_GAP.to_string();
+        let excessive_value = u64::from(MAX_MM_GAP)
+            .checked_add(1)
+            .expect("MM gap limit fits below u64::MAX");
+        let excessive = excessive_value.to_string();
+        for (entry, expected) in [
+            ("0".to_owned(), 0),
+            ("7".to_owned(), 7),
+            ("42".to_owned(), 42),
+            (maximum.clone(), MAX_MM_GAP),
+            ("0000000000012".to_owned(), 12),
+        ] {
+            assert_eq!(
+                parse_mm_distances(&entry).expect("decimal u32 value should parse"),
+                vec![expected],
+                "entry `{entry}`"
+            );
+        }
+
+        for entry in [
+            excessive,
+            "4294967295".to_owned(),
+            "4294967296".to_owned(),
+            "+5".to_owned(),
+            "+".to_owned(),
+            String::new(),
+            "-1".to_owned(),
+            "1a".to_owned(),
+            " 1".to_owned(),
+            "\u{661}".to_owned(),
+        ] {
+            let message = parse_mm_distances(&entry)
+                .expect_err("invalid or excessive decimal field should fail")
+                .to_string();
+            assert!(
+                message.contains(&format!("invalid MM distance `{entry}`")),
+                "entry `{entry}` gave `{message}`"
+            );
+        }
+
+        assert_eq!(
+            parse_mm_distances(&format!("{maximum},1,{maximum}"))
+                .expect("the gap cap applies to each field, not their sum"),
+            [MAX_MM_GAP, 1, MAX_MM_GAP]
+        );
+        for group in [
+            format!("{excessive_value},1"),
+            format!("1,{excessive_value},2"),
+        ] {
+            let _error = parse_mm_distances(&group).expect_err("every gap must respect the cap");
+        }
+    }
+
+    #[test]
+    fn mm_distances_preserve_order_and_reject_invalid_fields() {
+        assert_eq!(
+            parse_mm_distances("3,0,12,4").expect("distances should parse"),
+            vec![3, 0, 12, 4]
+        );
+        let _signed = parse_mm_distances("1,+4,2").expect_err("signed field");
+        let _empty_middle = parse_mm_distances("1,,2").expect_err("empty field");
+        let _empty_list = parse_mm_distances("").expect_err("empty distance list");
+        let _trailing_comma = parse_mm_distances("3,0,12,4,").expect_err("trailing comma");
+    }
 
     #[test]
     fn mm_groups_allows_empty_input() {

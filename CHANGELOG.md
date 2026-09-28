@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Sped up MM-tag distance parsing with a direct byte parser, reducing long-read
+  BAM viewer fetch time by 14-20% in parser-only benchmarks. MM parsing now
+  rejects non-canonical numeric modification codes, oversized headers, and
+  individual gaps above 128,000,000 bases.
 - Made Polars an optional, default-off dependency. Library consumers using
   `curr_reads_to_dataframe`, `reads_table::run_df`, `window_reads::run_df`, or
   Polars-specific error handling must explicitly enable the `polars` Cargo

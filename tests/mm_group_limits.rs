@@ -7,7 +7,11 @@
 mod tests {
     use std::fmt::Write as _;
 
-    use nanalogue_core::{Error, constants::shared::MAX_MM_TAG_LENGTH, mm_groups};
+    use nanalogue_core::{
+        Error,
+        constants::shared::{MAX_MM_GAP, MAX_MM_TAG_LENGTH},
+        mm_groups,
+    };
 
     #[test]
     fn text_limit_is_inclusive_and_checked_before_group_syntax() {
@@ -84,13 +88,23 @@ mod tests {
     }
 
     #[test]
-    fn distance_boundaries_are_not_confused_with_sequence_coordinates() {
-        // The text parser has no sequence. It accepts the full u32 distance
-        // range; the record parser separately checks that positions exist.
-        let groups = mm_groups("N+n?,0,4294967295;").expect("u32 distances fit");
+    fn distance_boundaries_enforce_the_configured_gap_limit() {
+        let groups = mm_groups(&format!("N+n?,0,{MAX_MM_GAP};")).expect("maximum MM gap fits");
         let group = groups.first().expect("one group");
-        assert_eq!(group.mod_dists, [0, u32::MAX]);
-        for distance in ["4294967296", "-1", "1.0", " 1", "1 ", ""] {
+        assert_eq!(group.mod_dists, [0, MAX_MM_GAP]);
+        let excessive = u64::from(MAX_MM_GAP)
+            .checked_add(1)
+            .expect("MM gap limit fits below u64::MAX")
+            .to_string();
+        for distance in [
+            excessive,
+            "4294967296".to_owned(),
+            "-1".to_owned(),
+            "1.0".to_owned(),
+            " 1".to_owned(),
+            "1 ".to_owned(),
+            String::new(),
+        ] {
             let text = format!("N+n?,{distance};");
             let error = mm_groups(&text).expect_err("invalid distance must fail");
             assert!(
