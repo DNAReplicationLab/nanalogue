@@ -48,7 +48,6 @@ mod tests {
             ("55295", '\u{d7ff}', "55295"),
             ("57344", '\u{e000}', "57344"),
             ("1114111", '\u{10ffff}', "1114111"),
-            ("00097", 'a', "a"),
         ] {
             let code = input.parse::<ModChar>().expect("valid scalar code");
             assert_eq!(code.val(), scalar, "wrong scalar for {input}");
@@ -61,7 +60,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_scalars_without_confusing_them_with_integer_overflow() {
+    fn rejects_noncanonical_or_overlong_numeric_codes() {
+        for input in [
+            "00",
+            "00097",
+            "0123",
+            "0000000",
+            "10000000",
+            "4294967296",
+            "18446744073709551616",
+            "0x61",
+        ] {
+            let error = input.parse::<ModChar>().unwrap_err();
+            assert!(
+                matches!(&error, Error::InvalidModType(value) if value == input),
+                "noncanonical numeric code {input:?} must be invalid: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_non_scalars_and_malformed_numeric_codes() {
         // Surrogates and values above Unicode's maximum fit in u32, but
         // cannot inhabit Rust's char type. Do not allocate or forge a char.
         for input in ["55296", "56319", "56320", "57343", "1114112", "4294967295"] {
@@ -71,14 +90,7 @@ mod tests {
                 "non-scalar {input} must retain its original code: {error}"
             );
         }
-        for input in [
-            "4294967296",
-            "18446744073709551616",
-            "1m",
-            "1.0",
-            "1 ",
-            "0x61",
-        ] {
+        for input in ["1m", "1.0", "1 "] {
             let error = input.parse::<ModChar>().unwrap_err();
             assert!(
                 matches!(error, Error::IntParseError(_)),

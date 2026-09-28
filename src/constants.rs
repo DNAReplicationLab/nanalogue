@@ -60,6 +60,17 @@ pub mod shared {
     /// effective limit because it shares that capacity with its encoding and the other fields.
     pub const MAX_MM_TAG_LENGTH: u32 = MAX_RECORD_CAPACITY_BYTES;
 
+    /// Hard cap on one gap between MM annotations.
+    ///
+    /// This is a deliberately generous ceiling for sequences that fit within the record
+    /// capacity limit and can be revised if that limit changes.
+    pub const MAX_MM_GAP: u32 = 128_000_000;
+
+    const _: () = assert!(
+        MAX_MM_GAP <= 429_496_728,
+        "MM gap limit must keep one decimal accumulation step within u32"
+    );
+
     /// Hard cap on the length of a genomic region string (e.g. chr1:1000-2000)
     pub const MAX_GENOMIC_REGION_STRING_LENGTH: u8 = 255;
 
