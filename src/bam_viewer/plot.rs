@@ -6,7 +6,7 @@ use super::{
     state::Viewer,
 };
 use nanalogue_core::region_sequences::ReadModProfile;
-use std::fmt::Write as _;
+use std::{fmt::Write as _, num::NonZeroU8};
 
 /// One raster cell in an individual-read plot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -15,7 +15,7 @@ enum PlotCell {
     #[default]
     Empty,
     /// One or more raw calls mapped to this cell.
-    Dots(u16),
+    Dots(NonZeroU8),
     /// Windowed profile line, which takes precedence over raw calls.
     Line(char),
 }
@@ -92,16 +92,19 @@ fn reference_column_for_bounds(
 /// Adds a raw call without replacing a profile line.
 fn add_dot(cell: &mut PlotCell) {
     match cell {
-        PlotCell::Empty => *cell = PlotCell::Dots(1),
-        PlotCell::Dots(count) => *count = count.saturating_add(1),
+        PlotCell::Empty => *cell = PlotCell::Dots(NonZeroU8::MIN),
+        PlotCell::Dots(count) => {
+            *count = NonZeroU8::new(count.get().saturating_add(1))
+                .expect("saturating a non-zero count cannot produce zero");
+        }
         PlotCell::Line(_) => {}
     }
 }
 
 /// Returns the density glyph for a raw-call count.
-fn dot_glyph(count: u16) -> char {
-    match count {
-        0 | 1 => '·',
+fn dot_glyph(count: NonZeroU8) -> char {
+    match count.get() {
+        1 => '·',
         2..=4 => '•',
         _ => '●',
     }
@@ -634,15 +637,19 @@ mod tests {
 
     #[test]
     fn plot_dot_density_and_line_precedence_are_unambiguous() {
-        assert_eq!(dot_glyph(1), '·');
-        assert_eq!(dot_glyph(2), '•');
-        assert_eq!(dot_glyph(4), '•');
-        assert_eq!(dot_glyph(5), '●');
+        assert_eq!(dot_glyph(NonZeroU8::MIN), '·');
+        assert_eq!(dot_glyph(NonZeroU8::new(2).expect("non-zero")), '•');
+        assert_eq!(dot_glyph(NonZeroU8::new(4).expect("non-zero")), '•');
+        assert_eq!(dot_glyph(NonZeroU8::new(5).expect("non-zero")), '●');
 
         let mut cell = PlotCell::Empty;
         add_dot(&mut cell);
         add_dot(&mut cell);
-        assert_eq!(cell, PlotCell::Dots(2));
+        assert_eq!(cell, PlotCell::Dots(NonZeroU8::new(2).expect("non-zero")));
+        for _ in 0..u8::MAX {
+            add_dot(&mut cell);
+        }
+        assert_eq!(cell, PlotCell::Dots(NonZeroU8::MAX));
         cell = PlotCell::Line('━');
         add_dot(&mut cell);
         assert_eq!(cell, PlotCell::Line('━'));
@@ -656,7 +663,7 @@ mod tests {
         for (row, column) in [(4, 24), (0, 25), (4, 26), (0, 27), (4, 28), (0, 29)] {
             assert_eq!(
                 grid.get(row).and_then(|cells| cells.get(column)),
-                Some(&PlotCell::Dots(1))
+                Some(&PlotCell::Dots(NonZeroU8::MIN))
             );
         }
     }
