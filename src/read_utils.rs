@@ -427,6 +427,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// Returns errors if alignment len is already set, instance is
     /// unmapped, has no CIGAR, or if alignment coordinates are malformed
     /// (e.g. end < start).
+    ///
+    /// # Panics
+    /// Panics if alignment-length subtraction overflows. This is unreachable:
+    /// the preceding checks establish `0 <= start < end <= u32::MAX`.
     pub fn set_align_len(mut self, record: &Record) -> Result<Self, Error> {
         self.align_len = match self.align_len {
             Some(_) => Err(Error::InvalidDuplicates(format!(
@@ -450,9 +454,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                     if en > st && st >= 0 && en <= u32::MAX.into() {
                         let align_len: u32 = en
                             .checked_sub(st)
-                            .ok_or(Error::InvalidState(String::from(
-                                "unreachable overflow in align len calculation",
-                            )))?
+                            .expect("0 <= st < en <= u32::MAX ensures subtraction fits in i64")
                             .try_into()?;
                         Ok(Some(align_len))
                     } else {
