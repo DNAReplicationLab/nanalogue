@@ -1,5 +1,7 @@
 //! Minimal compatibility subset adapted from `bedrs` 0.2.26.
 
+use crate::Error;
+
 /// A genomic strand.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[expect(
@@ -33,17 +35,18 @@ pub struct Bed3<C, T> {
 impl<C, T: PartialOrd> Bed3<C, T> {
     /// Constructs an interval.
     ///
-    /// # Panics
-    /// Panics if `start` is not less than or equal to `end`.
-    pub fn new(chr: C, start: T, end: T) -> Self {
-        assert!(start <= end, "interval start cannot exceed end");
-        Self { chr, start, end }
-    }
-}
-
-impl<C: Default, T: Default + PartialOrd> Default for Bed3<C, T> {
-    fn default() -> Self {
-        Self::new(C::default(), T::default(), T::default())
+    /// # Errors
+    ///
+    /// Returns [`Error::WrongOrder`] if `start` and `end` are not ordered as
+    /// `start <= end`, including when the coordinates are incomparable.
+    pub fn new(chr: C, start: T, end: T) -> Result<Self, Error> {
+        if start <= end {
+            Ok(Self { chr, start, end })
+        } else {
+            Err(Error::WrongOrder(
+                "interval start cannot exceed end".to_owned(),
+            ))
+        }
     }
 }
 
@@ -79,9 +82,17 @@ where
 
 impl<C: Default, T: Default + PartialOrd> Bed3<C, T> {
     /// Constructs an empty/default interval.
-    #[must_use]
-    pub fn empty() -> Self {
-        Self::default()
+    ///
+    /// The start and end are obtained from separate calls to `T::default()`.
+    /// Most coordinate types return the same value each time, but `Default`
+    /// does not require that behavior.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::WrongOrder`] if the coordinate type's default start
+    /// and end are not ordered as `start <= end`.
+    pub fn empty() -> Result<Self, Error> {
+        Self::new(C::default(), T::default(), T::default())
     }
 }
 
@@ -101,22 +112,23 @@ pub struct StrandedBed3<C, T> {
 impl<C, T: PartialOrd> StrandedBed3<C, T> {
     /// Constructs a stranded interval.
     ///
-    /// # Panics
-    /// Panics if `start` is not less than or equal to `end`.
-    pub fn new(chr: C, start: T, end: T, strand: Strand) -> Self {
-        assert!(start <= end, "interval start cannot exceed end");
-        Self {
-            chr,
-            start,
-            end,
-            strand,
+    /// # Errors
+    ///
+    /// Returns [`Error::WrongOrder`] if `start` and `end` are not ordered as
+    /// `start <= end`, including when the coordinates are incomparable.
+    pub fn new(chr: C, start: T, end: T, strand: Strand) -> Result<Self, Error> {
+        if start <= end {
+            Ok(Self {
+                chr,
+                start,
+                end,
+                strand,
+            })
+        } else {
+            Err(Error::WrongOrder(
+                "interval start cannot exceed end".to_owned(),
+            ))
         }
-    }
-}
-
-impl<C: Default, T: Default + PartialOrd> Default for StrandedBed3<C, T> {
-    fn default() -> Self {
-        Self::new(C::default(), T::default(), T::default(), Strand::default())
     }
 }
 
@@ -154,9 +166,17 @@ where
 
 impl<C: Default, T: Default + PartialOrd> StrandedBed3<C, T> {
     /// Constructs an empty/default interval.
-    #[must_use]
-    pub fn empty() -> Self {
-        Self::default()
+    ///
+    /// The start and end are obtained from separate calls to `T::default()`.
+    /// Most coordinate types return the same value each time, but `Default`
+    /// does not require that behavior.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::WrongOrder`] if the coordinate type's default start
+    /// and end are not ordered as `start <= end`.
+    pub fn empty() -> Result<Self, Error> {
+        Self::new(C::default(), T::default(), T::default(), Strand::default())
     }
 }
 
@@ -227,8 +247,14 @@ impl<C: Clone + PartialEq, T: Copy + Ord> Intersect<StrandedBed3<C, T>> for Bed3
     fn intersect(&self, other: &StrandedBed3<C, T>) -> Option<Self::Output> {
         let start = self.start.max(other.start);
         let end = self.end.min(other.end);
-        (self.chr == other.chr && self.start < other.end && self.end > other.start)
-            .then(|| StrandedBed3::new(self.chr.clone(), start, end, other.strand))
+        (self.chr == other.chr && self.start < other.end && self.end > other.start).then(|| {
+            StrandedBed3 {
+                chr: self.chr.clone(),
+                start,
+                end,
+                strand: other.strand,
+            }
+        })
     }
 }
 
@@ -241,6 +267,7 @@ pub mod prelude {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::{Bed3, Coordinates as _, Intersect as _, Strand, StrandedBed3};
+    use crate::Error;
     use std::sync::atomic::{AtomicI32, Ordering};
 
     // Supplies successive coordinate defaults of 1, then 0. This models a valid,
@@ -262,7 +289,7 @@ mod tests {
 
     #[test]
     fn bed3_serde_matches_upstream() {
-        let bed = Bed3::new(0, 0, 10);
+        let bed = Bed3::new(0, 0, 10).unwrap();
         assert_eq!(
             serde_json::to_string(&bed).unwrap(),
             r#"{"chr":0,"start":0,"end":10}"#
@@ -275,10 +302,10 @@ mod tests {
 
     #[test]
     fn intersection_is_half_open() {
-        let bed = Bed3::new(0, 5, 10);
-        let overlapping = StrandedBed3::new(0, 8, 12, Strand::Forward);
-        let touching = StrandedBed3::new(0, 10, 12, Strand::Reverse);
-        let other_chromosome = StrandedBed3::new(1, 8, 12, Strand::Unknown);
+        let bed = Bed3::new(0, 5, 10).unwrap();
+        let overlapping = StrandedBed3::new(0, 8, 12, Strand::Forward).unwrap();
+        let touching = StrandedBed3::new(0, 10, 12, Strand::Reverse).unwrap();
+        let other_chromosome = StrandedBed3::new(1, 8, 12, Strand::Unknown).unwrap();
 
         let overlap = bed.intersect(&overlapping).unwrap();
         assert_eq!((overlap.start(), overlap.end()), (8, 10));
@@ -289,17 +316,19 @@ mod tests {
 
     #[test]
     fn intersection_preserves_empty_interval() {
-        let interior_empty = StrandedBed3::new(0, 3, 3, Strand::Reverse);
-        let containing_region = Bed3::new(0, 0, 20);
+        let interior_empty = StrandedBed3::new(0, 3, 3, Strand::Reverse).unwrap();
+        let containing_region = Bed3::new(0, 0, 20).unwrap();
 
         let empty_overlap = containing_region.intersect(&interior_empty).unwrap();
         assert_eq!((empty_overlap.start(), empty_overlap.end()), (3, 3));
     }
 
     #[test]
-    #[should_panic(expected = "interval start cannot exceed end")]
     fn bed3_rejects_reversed_coordinates() {
-        let _: Bed3<i32, u32> = Bed3::new(0, 10, 5);
+        assert!(matches!(
+            Bed3::new(0, 10, 5),
+            Err(Error::WrongOrder(message)) if message == "interval start cannot exceed end"
+        ));
     }
 
     #[test]
@@ -309,9 +338,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "interval start cannot exceed end")]
     fn stranded_bed3_rejects_reversed_coordinates() {
-        let _: StrandedBed3<i32, u32> = StrandedBed3::new(0, 10, 5, Strand::Forward);
+        assert!(matches!(
+            StrandedBed3::new(0, 10, 5, Strand::Forward),
+            Err(Error::WrongOrder(message)) if message == "interval start cannot exceed end"
+        ));
+    }
+
+    #[test]
+    fn constructors_reject_incomparable_coordinates() {
+        drop(Bed3::<(), f64>::new((), f64::NAN, 1.0).unwrap_err());
+        drop(StrandedBed3::<(), f64>::new((), f64::NAN, 1.0, Strand::Forward).unwrap_err());
     }
 
     #[test]
@@ -321,19 +358,14 @@ mod tests {
     }
 
     #[test]
-    fn defaults_validate_coordinates() {
+    fn empty_validates_coordinates() {
         // Reset the counter so the start defaults to 1 and the end defaults to 0.
-        // The resulting panic proves that `Bed3::default()` routes through `new`
-        // rather than bypassing its start <= end invariant.
         NEXT_DEFAULT_COORD.store(1, Ordering::Relaxed);
-        let _bed_panic =
-            std::panic::catch_unwind(Bed3::<(), ChangingDefaultCoord>::default).unwrap_err();
+        drop(Bed3::<(), ChangingDefaultCoord>::empty().unwrap_err());
 
         // Verify the same invariant for the stranded interval type.
         NEXT_DEFAULT_COORD.store(1, Ordering::Relaxed);
-        let _stranded_bed_panic =
-            std::panic::catch_unwind(StrandedBed3::<(), ChangingDefaultCoord>::default)
-                .unwrap_err();
+        drop(StrandedBed3::<(), ChangingDefaultCoord>::empty().unwrap_err());
     }
 
     #[test]

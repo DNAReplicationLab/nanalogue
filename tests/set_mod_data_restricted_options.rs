@@ -149,15 +149,13 @@ mod tests {
         MockModOptions::new()
             .with_trim_read_ends(5)
             .with_mod_prob_filter(ThresholdState::GtEq(200))
-            .with_region_filter(GenomicBed3::new(2, 50, 71))
+            .with_region_filter(GenomicBed3::new(2, 50, 71).unwrap())
     }
 
     fn partial_overlap_options() -> MockModOptions {
-        MockModOptions::new().with_region_filter(GenomicBed3::new(
-            2,
-            PARTIAL_OVERLAP_START,
-            PARTIAL_OVERLAP_END,
-        ))
+        MockModOptions::new().with_region_filter(
+            GenomicBed3::new(2, PARTIAL_OVERLAP_START, PARTIAL_OVERLAP_END).unwrap(),
+        )
     }
 
     fn probability_filter_options(threshold: u8) -> MockModOptions {
@@ -275,7 +273,7 @@ mod tests {
 
         // Create a region that fully contains the read
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = GenomicBed3::new(2, 0, 100); // Fully contains the read
+        let region = GenomicBed3::new(2, 0, 100).unwrap(); // Fully contains the read
         let options = MockModOptions::new().with_region_filter(region);
 
         let result = curr_read.set_mod_data_restricted_options(&record, &options)?;
@@ -366,7 +364,7 @@ mod tests {
         // Second record in example_1.bam is on contig 2, positions 23-71
         // Create a region on a different contig (no overlap)
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = GenomicBed3::new(0, 0, 100); // Different contig, no overlap
+        let region = GenomicBed3::new(0, 0, 100).unwrap(); // Different contig, no overlap
         let options = MockModOptions::new().with_region_filter(region);
 
         let result = curr_read.set_mod_data_restricted_options(&record, &options)?;
@@ -401,7 +399,7 @@ mod tests {
             .unwrap_or(0);
 
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = GenomicBed3::new(2, 23, 71); // Exact match
+        let region = GenomicBed3::new(2, 23, 71).unwrap(); // Exact match
         let options = MockModOptions::new().with_region_filter(region);
 
         let result = curr_read.set_mod_data_restricted_options(&record, &options)?;
@@ -716,7 +714,7 @@ mod tests {
 
         // Create a scenario with no overlap (different contig) which creates 0..0 interval
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
-        let region = GenomicBed3::new(1, 0, 10); // Different contig than record's contig 2
+        let region = GenomicBed3::new(1, 0, 10).unwrap(); // Different contig than record's contig 2
         let options = MockModOptions::new().with_region_filter(region);
 
         let result = curr_read.set_mod_data_restricted_options(&record, &options)?;

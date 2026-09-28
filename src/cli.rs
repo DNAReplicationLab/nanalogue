@@ -113,7 +113,7 @@ use std::str::FromStr;
 ///     .bam_path(PathOrURLOrStdin::Path("/some/path/to/bam.bam".into()))
 ///     .read_id("some-id")
 ///     .region("chr4:1000-2000".into())
-///     .region_bed3(GenomicBed3::new(3, 1000, 2000))
+///     .region_bed3(GenomicBed3::new(3, 1000, 2000).unwrap())
 ///     .build()?;
 /// # Ok::<(), Error>(())
 /// ```
@@ -465,7 +465,7 @@ impl TagState for RequiredTag {
 ///     .mod_prob_filter(ThresholdState::GtEq(0))
 ///     .trim_read_ends_mod(10)
 ///     .base_qual_filter_mod(10)
-///     .region_bed3(GenomicBed3::new(4, 4000, 5000))
+///     .region_bed3(GenomicBed3::new(4, 4000, 5000).unwrap())
 ///     .build()?;
 ///
 /// # Ok::<(), Error>(())
@@ -481,7 +481,7 @@ impl TagState for RequiredTag {
 ///
 /// let input_options = InputModsBuilder::<RequiredTag>::default()
 ///     .mod_prob_filter(ThresholdState::GtEq(0))
-///     .region_bed3(GenomicBed3::new(4, 4000, 5000))
+///     .region_bed3(GenomicBed3::new(4, 4000, 5000).unwrap())
 ///     .mod_region("chr3:4000-5000".into())
 ///     .build()?;
 ///
@@ -906,7 +906,7 @@ mod input_mods_required_tag_tests {
             .mod_prob_filter(ThresholdState::GtEq(0))
             .trim_read_ends_mod(10)
             .base_qual_filter_mod(10)
-            .region_bed3(GenomicBed3::new(4, 4000, 5000))
+            .region_bed3(GenomicBed3::new(4, 4000, 5000).unwrap())
             .build()
             .unwrap();
     }
@@ -1074,7 +1074,7 @@ mod input_bam_tests {
         // When region_bed3 is already set and region is None, should not convert
         let mut input_bam = InputBam {
             region: None,
-            region_bed3: Some(GenomicBed3::new(1, 1000, 2000)),
+            region_bed3: Some(GenomicBed3::new(1, 1000, 2000).unwrap()),
             ..Default::default()
         };
 
@@ -1103,7 +1103,7 @@ mod input_bam_tests {
         // When both region and region_bed3 are set, should error
         let mut input_bam = InputBam {
             region: Some(GenomicRegion::from_str("chr2:1500-2500").unwrap()),
-            region_bed3: Some(GenomicBed3::new(1, 1000, 2000)),
+            region_bed3: Some(GenomicBed3::new(1, 1000, 2000).unwrap()),
             ..Default::default()
         };
 
@@ -1175,7 +1175,7 @@ mod validate_builder_functions {
         let _: InputBam = InputBamBuilder::default()
             .bam_path(PathOrURLOrStdin::Path("/some/path.bam".into()))
             .region("chr1:1000-2000".into())
-            .region_bed3(GenomicBed3::new(0, 1000, 2000))
+            .region_bed3(GenomicBed3::new(0, 1000, 2000).unwrap())
             .build()
             .unwrap();
     }
@@ -1239,7 +1239,7 @@ mod validate_builder_functions {
         let _: InputMods<OptionalTag> = InputModsBuilder::<OptionalTag>::default()
             .mod_prob_filter(ThresholdState::GtEq(0))
             .mod_region("chr1:1000-2000".into())
-            .region_bed3(GenomicBed3::new(0, 1000, 2000))
+            .region_bed3(GenomicBed3::new(0, 1000, 2000).unwrap())
             .build()
             .unwrap();
     }
@@ -1251,7 +1251,7 @@ mod validate_builder_functions {
             .tag(RequiredTag::from_str("m").unwrap())
             .mod_prob_filter(ThresholdState::GtEq(0))
             .mod_region("chr1:1000-2000".into())
-            .region_bed3(GenomicBed3::new(0, 1000, 2000))
+            .region_bed3(GenomicBed3::new(0, 1000, 2000).unwrap())
             .build()
             .unwrap();
     }

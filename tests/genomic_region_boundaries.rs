@@ -71,7 +71,7 @@ mod tests {
                 .unwrap()
                 .try_to_bed3(&header)
                 .expect("u32::MAX is a supported contig length");
-            assert_eq!(bed, GenomicBed3::new(0, start, u32::MAX));
+            assert_eq!(bed, GenomicBed3::new(0, start, u32::MAX).unwrap());
         }
         for (input, start, end) in [
             ("too_long", 0, u32::MAX),
@@ -83,7 +83,7 @@ mod tests {
                 .unwrap()
                 .try_to_bed3(&header)
                 .expect("conversion uses the length HTSlib exposes");
-            assert_eq!(bed, GenomicBed3::new(1, start, end));
+            assert_eq!(bed, GenomicBed3::new(1, start, end).unwrap());
         }
     }
 
@@ -102,7 +102,7 @@ mod tests {
                 .unwrap()
                 .try_to_bed3(&header)
                 .expect("end is inside the contig or an open-end sentinel");
-            assert_eq!(bed, GenomicBed3::new(1, 11, end), "input: {input}");
+            assert_eq!(bed, GenomicBed3::new(1, 11, end).unwrap(), "input: {input}");
         }
         for (input, invalid_pos) in [
             ("target:11-38", 38),

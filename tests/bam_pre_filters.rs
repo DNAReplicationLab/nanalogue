@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn region_filter_rejects_reference_end_overflow_without_wrapping() {
         let mut record = mapped_record();
-        let region = GenomicBed3::new(2, u32::MAX - 5, u32::MAX);
+        let region = GenomicBed3::new(2, u32::MAX - 5, u32::MAX).unwrap();
         // Ten matched bases end exactly at u32::MAX, which is representable.
         record.set_pos(i64::from(u32::MAX) - 10);
         for full_overlap in [false, true] {
