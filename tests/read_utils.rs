@@ -486,7 +486,7 @@ mod tests {
                 // Create a region that overlaps with the read but is short of one bp.
                 // Note that this BAM file has reads with all bases matching perfectly
                 // with the reference.
-                let region = Bed3::new(contig_id, start, start + align_len - 1);
+                let region = Bed3::new(contig_id, start, start + align_len - 1).unwrap();
                 let seq_subset = curr_read.seq_on_ref_coords(&r, &region)?;
 
                 // Check for sequence length match
@@ -494,7 +494,7 @@ mod tests {
 
                 // Create a region with no overlap at all and check we get no data
                 let region_no_overlap =
-                    Bed3::new(contig_id, start + align_len, start + align_len + 2);
+                    Bed3::new(contig_id, start + align_len, start + align_len + 2).unwrap();
                 match curr_read.seq_on_ref_coords(&r, &region_no_overlap) {
                     Err(Error::UnavailableData(_)) => (),
                     _ => unreachable!(),
@@ -536,7 +536,7 @@ mod tests {
             // over and over, we expect the following result.
             let expected_seq = "AGCTGAAGCTA";
             if curr_read.read_state().to_string() != "unmapped" {
-                let region = Bed3::new(0, 225, 236);
+                let region = Bed3::new(0, 225, 236).unwrap();
                 match curr_read.seq_on_ref_coords(&r, &region) {
                     Err(Error::UnavailableData(_)) => {}
                     Ok(v) => {
@@ -600,7 +600,7 @@ mod tests {
 
             // Skip unmapped reads, for others, check sequence match.
             if curr_read.read_state().to_string() != "unmapped" {
-                let region = Bed3::new(0, 225, 229);
+                let region = Bed3::new(0, 225, 229).unwrap();
                 match curr_read.seq_on_ref_coords(&r, &region) {
                     Err(Error::UnavailableData(_)) => {}
                     Ok(v) => {
@@ -634,7 +634,7 @@ mod tests {
             let r = record?;
             let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
 
-            let region = Bed3::new(0, 9, 13);
+            let region = Bed3::new(0, 9, 13).unwrap();
             let seq_subset = curr_read.seq_coords_from_ref_coords(&r, &region)?;
             // there are deletions on the read above
             assert_eq!(
@@ -649,7 +649,7 @@ mod tests {
             );
 
             // Create a region with no overlap at all and check we get no data
-            let region_no_overlap = Bed3::new(0, 20, 22);
+            let region_no_overlap = Bed3::new(0, 20, 22).unwrap();
             match curr_read.seq_coords_from_ref_coords(&r, &region_no_overlap) {
                 Err(Error::UnavailableData(_)) => (),
                 _ => unreachable!(),
@@ -665,7 +665,7 @@ mod tests {
             let r = record?;
             let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
 
-            let region = Bed3::new(0, 0, 20);
+            let region = Bed3::new(0, 0, 20).unwrap();
             let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
             assert_eq!(
                 seq_subset,
@@ -682,7 +682,7 @@ mod tests {
             );
 
             // Create a region with no overlap at all and check we get no data
-            let region_no_overlap = Bed3::new(0, 20, 22);
+            let region_no_overlap = Bed3::new(0, 20, 22).unwrap();
             match curr_read.seq_and_qual_on_ref_coords(&r, &region_no_overlap) {
                 Err(Error::UnavailableData(_)) => (),
                 _ => unreachable!(),
@@ -698,7 +698,7 @@ mod tests {
             let r = record?;
             let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
 
-            let region = Bed3::new(0, 0, 20);
+            let region = Bed3::new(0, 0, 20).unwrap();
             let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
             assert_eq!(
                 seq_subset,
@@ -783,10 +783,10 @@ mod tests {
             let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
             let bed3_stranded = GenomicStrandedBed3::try_from(&curr_read).unwrap();
             let exp_bed3_stranded = match count {
-                0 => GenomicStrandedBed3::new(0, 9, 17, Strand::Forward),
-                1 => GenomicStrandedBed3::new(2, 23, 71, Strand::Forward),
-                2 => GenomicStrandedBed3::new(1, 3, 36, Strand::Reverse),
-                3 => GenomicStrandedBed3::empty(),
+                0 => GenomicStrandedBed3::new(0, 9, 17, Strand::Forward).unwrap(),
+                1 => GenomicStrandedBed3::new(2, 23, 71, Strand::Forward).unwrap(),
+                2 => GenomicStrandedBed3::new(1, 3, 36, Strand::Reverse).unwrap(),
+                3 => GenomicStrandedBed3::empty().unwrap(),
                 _ => unreachable!(),
             };
             assert_eq!(*bed3_stranded.chr(), *exp_bed3_stranded.chr());

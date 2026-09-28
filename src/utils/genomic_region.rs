@@ -167,7 +167,7 @@ impl GenomicRegion {
                 (0u32, contig_length)
             };
 
-            GenomicBed3::new(numeric_contig, start, end)
+            GenomicBed3::new(numeric_contig, start, end)?
         };
         Ok(region_bed)
     }

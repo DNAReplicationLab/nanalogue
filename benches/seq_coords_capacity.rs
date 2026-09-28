@@ -107,7 +107,7 @@ fn main() {
     let curr_read = CurrRead::default()
         .try_from_only_alignment(&record)
         .expect("fixture alignment should parse");
-    let region = Bed3::new(0, 9, 13);
+    let region = Bed3::new(0, 9, 13).unwrap();
     let expected = [
         Some((true, 0)),
         None,
