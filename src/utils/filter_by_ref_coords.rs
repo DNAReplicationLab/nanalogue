@@ -114,9 +114,11 @@ impl FilterModsByRefCoords for Ranges {
                     ann.ref_pos,
                     match ann.ref_pos {
                         None => None,
-                        Some(v) => Some(v.checked_add(1).ok_or(Error::Arithmetic(
-                            "overflow error in coordinates while filtering by ref".to_owned(),
-                        ))?),
+                        Some(v) => Some(v.checked_add(1).ok_or_else(|| {
+                            Error::Arithmetic(
+                                "overflow error in coordinates while filtering by ref".to_owned(),
+                            )
+                        })?),
                     },
                 )?;
                 match window_state {
