@@ -35,6 +35,7 @@ tag variants; other mixed-case or lowercase variants are not recognized.
     - [Cargo locked](#using-cargo-locked)
     - [Building from a Git checkout](#building-from-a-git-checkout)
       - [Performance note](#performance-note)
+      - [Building the optional BAM viewer](#building-the-optional-bam-viewer)
     - [Building and testing notes](#building-and-testing-notes)
   - [Using Docker](#using-docker)
 - [Commands](#commands)
@@ -205,6 +206,43 @@ and are built with `cargo zigbuild`. Performance depends on the build toolchain,
 system, and workload; differences are most likely for BAM/CRAM
 compression-intensive workloads.
 
+#### Building the optional BAM viewer
+
+`nanalogue_bam_viewer` is not built by default or included in the pre-built
+binary archives. To install it from a Git checkout, first install Zig (the
+viewer dependency is tested with Zig 0.15.2), then run:
+
+```bash
+cargo install --path . --features bam-viewer --bin nanalogue_bam_viewer
+```
+
+On Linux x86-64, the repository also includes a script for a baseline
+CPU-configured release build. It uses a fresh Cargo target directory, sets
+Rust's CPU target to `x86-64`, and forces the vendored Ghostty Zig build to use
+`-Dcpu=baseline`.
+
+A normal native release build can unintentionally depend on instructions
+supported by the build machine. In particular, `libghostty-vt-sys` invokes Zig
+without selecting a CPU for native builds, so Zig may optimize Ghostty for a
+modern host and emit AVX-512 instructions. Such an executable can fail with an
+illegal-instruction error on older x86-64 systems. This script explicitly
+targets baseline x86-64 for both Rust and Ghostty and uses a fresh target
+directory to prevent reuse of host-optimized native archives.
+
+Install Zig 0.15.2, then run:
+
+```bash
+export PATH="$HOME/.local/zig-0.15.2:$PATH"
+./github_workflow_scripts/build-baseline-bam-viewer.sh
+```
+
+The executable is written under `target/portable-dist/`, which is ignored by
+Git. The script prints its size and SHA-256 checksum. This is a baseline
+CPU-configured build, not a static executable: compatibility still depends on
+the build system's glibc and other runtime libraries. SIMD variants from
+libraries that select implementations at runtime may remain in the final
+executable.
+
 #### The optional `polars` feature
 
 Polars integration is disabled by default. All CLI commands remain available
@@ -279,13 +317,7 @@ footprint in most commands when the user specifies a region on the command line.
 ## `nanalogue_bam_viewer`
 
 `nanalogue_bam_viewer` is an optional interactive terminal viewer for a local,
-indexed BAM file. It is not built by default or included in the pre-built
-binary archives. To install it from a Git checkout, first install Zig (the
-viewer dependency is tested with Zig 0.15.2), then run:
-
-```bash
-cargo install --path . --features bam-viewer --bin nanalogue_bam_viewer
-```
+indexed BAM file.
 
 The viewer uses this positional syntax:
 
