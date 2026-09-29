@@ -47,14 +47,26 @@
 //! Finally, the test checks that the simulated population contains the expected number of
 //! complete non-boundary lifecycles, including leading whitespace on entry, several full
 //! frames, trailing whitespace on exit, and absence afterwards.
+//!
+//! A complementary display test observes complete terminal frames rather than calling the
+//! row projection directly. At each genomic viewport it enables full read IDs, renders the
+//! frame through Ghostty, reads the resulting terminal cells, and uses `PageDown` until
+//! every cached read has appeared onscreen. It then uses `l` to fetch the next genomic
+//! viewport. The same lifecycle checks therefore validate the spaces, bases, and deletion
+//! dots that a user actually sees across both horizontal and vertical navigation.
 
 use super::{
     handle_viewer_key,
-    render::sequence_columns,
+    render::{FrameFooter, build_frame, sequence_columns, table_sequence_geometry},
+    snapshot::project_text_snapshot,
     state::{Viewer, ViewerRecords, fetch_viewer_records},
 };
 use crate::cli::InitialPosition;
 use crossterm::event::KeyCode;
+use libghostty_vt::{
+    RenderState, Terminal, TerminalOptions,
+    render::{CellIterator, RowIterator},
+};
 use nanalogue_core::{
     region_sequences::RegionSequence,
     simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation},
@@ -67,6 +79,8 @@ use std::{
 };
 
 const WINDOW_LEN: u32 = 10;
+const DISPLAY_ROWS: u16 = 100;
+const DISPLAYED_READS: usize = DISPLAY_ROWS as usize - 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum VisibleState {
@@ -102,12 +116,10 @@ struct AlignmentSpan {
     end: u32,
 }
 
-fn classify_visible(record: &RegionSequence) -> Result<VisibleObservation, Box<dyn Error>> {
-    let rendered = sequence_columns(
-        record,
-        u16::try_from(WINDOW_LEN).expect("test window length fits u16"),
-        false,
-    );
+fn classify_rendered_sequence(
+    read_id: &str,
+    rendered: &str,
+) -> Result<VisibleObservation, Box<dyn Error>> {
     assert_eq!(
         rendered.len(),
         usize::try_from(WINDOW_LEN).expect("test window length fits usize")
@@ -121,8 +133,7 @@ fn classify_visible(record: &RegionSequence) -> Result<VisibleObservation, Box<d
         (true, false) => VisibleState::LeftBoundaryHasSequence,
         (false, false) => {
             return Err(format!(
-                "read {} is contained within one viewport; the fixture promises longer reads",
-                record.read_id()
+                "read {read_id} is contained within one viewport; the fixture promises longer reads"
             )
             .into());
         }
@@ -131,6 +142,15 @@ fn classify_visible(record: &RegionSequence) -> Result<VisibleObservation, Box<d
         state,
         deletion_columns: rendered.bytes().filter(|&base| base == b'.').count(),
     })
+}
+
+fn classify_visible(record: &RegionSequence) -> Result<VisibleObservation, Box<dyn Error>> {
+    let rendered = sequence_columns(
+        record,
+        u16::try_from(WINDOW_LEN).expect("test window length fits u16"),
+        false,
+    );
+    classify_rendered_sequence(record.read_id(), &rendered)
 }
 
 fn capture_frame(viewer: &Viewer, cached_records: &ViewerRecords) -> Result<Frame, Box<dyn Error>> {
@@ -239,6 +259,132 @@ fn capture_scroll_frames(viewer: &mut Viewer) -> Result<Vec<Frame>, Box<dyn Erro
             handle_viewer_key(viewer, &mut records, KeyCode::Char('l'), usize::MAX)?,
             "right navigation must advance before the final viewport"
         );
+    }
+    Ok(frames)
+}
+
+fn rendered_table_text(
+    viewer: &Viewer,
+    records: &[RegionSequence],
+    cols: u16,
+) -> Result<String, Box<dyn Error>> {
+    let frame = build_frame(viewer, records, cols, DISPLAY_ROWS, FrameFooter::Controls);
+    let mut terminal = Terminal::new(TerminalOptions {
+        cols,
+        rows: DISPLAY_ROWS,
+        max_scrollback: 0,
+    })?;
+    terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
+    terminal.vt_write(frame.as_bytes());
+    let mut render_state = RenderState::new()?;
+    let snapshot = render_state.update(&terminal)?;
+    let mut row_iterator = RowIterator::new()?;
+    let mut cell_iterator = CellIterator::new()?;
+    Ok(project_text_snapshot(
+        &snapshot,
+        &mut row_iterator,
+        &mut cell_iterator,
+        table_sequence_geometry(viewer, records.len(), cols, DISPLAY_ROWS),
+    )?
+    .text)
+}
+
+fn capture_displayed_viewport(
+    viewer: &mut Viewer,
+    cached_records: &mut ViewerRecords,
+) -> Result<Frame, Box<dyn Error>> {
+    assert!(!handle_viewer_key(
+        viewer,
+        cached_records,
+        KeyCode::Char('r'),
+        DISPLAYED_READS
+    )?);
+    assert!(viewer.full_read_ids);
+    let mut reads = BTreeMap::new();
+    let mut rendered_offsets = BTreeSet::new();
+
+    loop {
+        assert!(
+            rendered_offsets.insert(viewer.viewport.read_offset),
+            "vertical pagination must not revisit a page"
+        );
+        let ViewerRecords::Table(table_records) = cached_records else {
+            return Err("display lifecycle test must remain in table mode".into());
+        };
+        let cols = viewer
+            .read_label_width
+            .saturating_add(u16::try_from(WINDOW_LEN).expect("test window length fits u16"));
+        let geometry = table_sequence_geometry(viewer, table_records.len(), cols, DISPLAY_ROWS);
+        let rendered = rendered_table_text(viewer, table_records, cols)?;
+        let rendered_lines = rendered.lines().collect::<Vec<_>>();
+
+        for row_index in geometry.first_row..geometry.row_end {
+            let line = rendered_lines
+                .get(usize::from(row_index))
+                .ok_or("rendered terminal omitted a visible read row")?;
+            let label_end = usize::from(geometry.first_column);
+            let sequence_end = usize::from(geometry.column_end);
+            let read_id = line
+                .get(..label_end)
+                .ok_or("rendered read label is narrower than its geometry")?
+                .trim();
+            let sequence = line
+                .get(label_end..sequence_end)
+                .ok_or("rendered sequence is narrower than its geometry")?;
+            let observation = classify_rendered_sequence(read_id, sequence)?;
+            if let Some(previous) = reads.insert(String::from(read_id), observation) {
+                assert_eq!(
+                    previous, observation,
+                    "overlapping terminal pages must render a read consistently"
+                );
+            }
+        }
+
+        if viewer.viewport.read_offset.saturating_add(DISPLAYED_READS) >= table_records.len() {
+            break;
+        }
+        let previous_offset = viewer.viewport.read_offset;
+        assert!(!handle_viewer_key(
+            viewer,
+            cached_records,
+            KeyCode::PageDown,
+            DISPLAYED_READS
+        )?);
+        assert!(viewer.viewport.read_offset > previous_offset);
+    }
+
+    let ViewerRecords::Table(table_records) = cached_records else {
+        return Err("display lifecycle test must remain in table mode".into());
+    };
+    assert_eq!(
+        reads.keys().cloned().collect::<BTreeSet<_>>(),
+        table_records
+            .iter()
+            .map(|record| String::from(record.read_id()))
+            .collect(),
+        "vertical pagination must render every cached read and no others"
+    );
+    Ok(Frame {
+        start: viewer.viewport.start,
+        reads,
+    })
+}
+
+fn capture_display_scroll_frames(viewer: &mut Viewer) -> Result<Vec<Frame>, Box<dyn Error>> {
+    let mut records = fetch_viewer_records(viewer)?;
+    let mut frames = Vec::new();
+
+    loop {
+        frames.push(capture_displayed_viewport(viewer, &mut records)?);
+        if viewer.viewport.start.saturating_add(WINDOW_LEN) >= viewer.target_len() {
+            break;
+        }
+        assert!(handle_viewer_key(
+            viewer,
+            &mut records,
+            KeyCode::Char('l'),
+            DISPLAYED_READS
+        )?);
     }
     Ok(frames)
 }
@@ -352,6 +498,52 @@ fn simulated_reads_follow_the_full_scroll_lifecycle() -> Result<(), Box<dyn Erro
     assert!(
         (4_488..=4_588).contains(&complete_non_boundary_lifecycles),
         "expected 4,488 to 4,588 complete non-boundary lifecycles, observed {complete_non_boundary_lifecycles}"
+    );
+    Ok(())
+}
+
+#[test]
+fn rendered_reads_follow_the_full_scroll_lifecycle() -> Result<(), Box<dyn Error>> {
+    let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/bam_viewer_full_lifecycle_demo.json"
+    )))?;
+    let simulation = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
+    let alignment_spans = mapped_alignment_spans(Path::new(simulation.bam_path()))?;
+    let mut viewer = Viewer::open(
+        PathBuf::from(simulation.bam_path()),
+        &InitialPosition {
+            contig: String::from("contig_00000"),
+            start: 0,
+        },
+        None,
+        WINDOW_LEN,
+    )?;
+    let frames = capture_display_scroll_frames(&mut viewer)?;
+    assert_eq!(
+        frames.iter().map(|frame| frame.start).collect::<Vec<_>>(),
+        (0..viewer.target_len())
+            .step_by(WINDOW_LEN as usize)
+            .collect::<Vec<_>>()
+    );
+    let read_ids = frames
+        .iter()
+        .flat_map(|frame| frame.reads.keys().cloned())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(read_ids, alignment_spans.keys().cloned().collect());
+
+    let mut complete_non_boundary_lifecycles = 0usize;
+    for read_id in read_ids {
+        let span = *alignment_spans
+            .get(&read_id)
+            .expect("rendered read ID came from the mapped BAM records");
+        if lifecycle_is_complete(&read_id, span, &frames)? {
+            complete_non_boundary_lifecycles = complete_non_boundary_lifecycles.saturating_add(1);
+        }
+    }
+    assert!(
+        (4_488..=4_588).contains(&complete_non_boundary_lifecycles),
+        "expected 4,488 to 4,588 rendered complete non-boundary lifecycles, observed {complete_non_boundary_lifecycles}"
     );
     Ok(())
 }
