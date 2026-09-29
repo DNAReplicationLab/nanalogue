@@ -22,6 +22,7 @@ pub mod read_state;
 pub mod read_states;
 pub mod resource_protector;
 pub mod restrict_mod_called_strand;
+pub(crate) mod seq_to_ref_map;
 pub mod threshold_state;
 pub mod uuid;
 
