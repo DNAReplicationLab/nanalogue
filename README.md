@@ -233,7 +233,7 @@ Install Zig 0.15.2, then run:
 
 ```bash
 export PATH="$HOME/.local/zig-0.15.2:$PATH"
-./github_workflow_scripts/build-baseline-bam-viewer.sh
+./github_workflow_scripts/build-baseline-bam-viewer-x86_64.sh
 ```
 
 The executable is written under `target/portable-dist/`, which is ignored by
