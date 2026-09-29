@@ -604,10 +604,10 @@ mod tests {
     const DEMO_GOLDEN_ROWS: u16 = 20;
     const DEMO_VISIBLE_READS: usize = 16;
     /// Default 19-column label plus ten reference columns.
-    const PARTIAL_GOLDEN_COLS: u16 = 29;
+    const FOCUSED_GOLDEN_COLS: u16 = 29;
     /// Three header rows, twenty reads, and one footer row.
-    const PARTIAL_GOLDEN_ROWS: u16 = 24;
-    const PARTIAL_VISIBLE_READS: usize = 20;
+    const FOCUSED_GOLDEN_ROWS: u16 = 24;
+    const FOCUSED_VISIBLE_READS: usize = 20;
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum WriterFailure {
@@ -2570,14 +2570,14 @@ mod tests {
                 start: 0,
             },
             None,
-            window_len_for_columns(PARTIAL_GOLDEN_COLS),
+            window_len_for_columns(FOCUSED_GOLDEN_COLS),
         )?;
         viewer.path = PathBuf::from("partial-reads.bam");
         assert_eq!(viewer.current_window_len(), 10);
 
         let start_records = viewer.visible_records()?;
         let displayed_start_records = start_records
-            .get(..PARTIAL_VISIBLE_READS)
+            .get(..FOCUSED_VISIBLE_READS)
             .expect("simulation provides twenty visible mapped reads");
         assert!(
             displayed_start_records
@@ -2599,8 +2599,8 @@ mod tests {
         let start_viewport = render_ansi_viewport(
             &viewer,
             &start_records,
-            PARTIAL_GOLDEN_COLS,
-            PARTIAL_GOLDEN_ROWS,
+            FOCUSED_GOLDEN_COLS,
+            FOCUSED_GOLDEN_ROWS,
             FrameFooter::Controls,
         )?;
         assert_ansi_golden("bam_viewer_partial_reads.ansi", &start_viewport)?;
@@ -2612,7 +2612,7 @@ mod tests {
         assert_eq!(viewer.current_window_len(), 10);
         let end_records = viewer.visible_records()?;
         let displayed_end_records = end_records
-            .get(..PARTIAL_VISIBLE_READS)
+            .get(..FOCUSED_VISIBLE_READS)
             .expect("simulation provides twenty visible mapped reads");
         assert!(
             displayed_end_records
@@ -2638,11 +2638,55 @@ mod tests {
         let end_viewport = render_ansi_viewport(
             &viewer,
             &end_records,
-            PARTIAL_GOLDEN_COLS,
-            PARTIAL_GOLDEN_ROWS,
+            FOCUSED_GOLDEN_COLS,
+            FOCUSED_GOLDEN_ROWS,
             FrameFooter::Controls,
         )?;
         assert_ansi_golden("bam_viewer_partial_read_ends.ansi", &end_viewport)
+    }
+
+    #[test]
+    fn deletion_viewport_matches_ansi_golden() -> Result<(), Box<dyn Error>> {
+        let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/bam_viewer_deletion_demo.json"
+        )))?;
+        let simulation = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
+        let mut viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &InitialPosition {
+                contig: String::from("contig_00000"),
+                start: 495,
+            },
+            None,
+            window_len_for_columns(FOCUSED_GOLDEN_COLS),
+        )?;
+        viewer.path = PathBuf::from("deletion-reads.bam");
+        assert_eq!(viewer.current_window_len(), 10);
+
+        let records = viewer.visible_records()?;
+        let displayed_records = records
+            .get(..FOCUSED_VISIBLE_READS)
+            .expect("simulation provides twenty visible mapped reads");
+        assert!(
+            displayed_records
+                .iter()
+                .all(|record| record.region_offset() == 0)
+        );
+        assert!(
+            displayed_records
+                .iter()
+                .all(|record| record.sequence() == "..........")
+        );
+
+        let viewport = render_ansi_viewport(
+            &viewer,
+            &records,
+            FOCUSED_GOLDEN_COLS,
+            FOCUSED_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        )?;
+        assert_ansi_golden("bam_viewer_deletions.ansi", &viewport)
     }
 
     #[test]
