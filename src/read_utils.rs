@@ -8,8 +8,8 @@ use crate::{
     FilterModsByRefCoords, GenomicBed3, GenomicStrandedBed3, InputModOptions, InputRegionOptions,
     InputWindowing, ModChar, Ranges, ReadState, ThresholdState,
     constants::shared::{
-        MAX_CONTIG_NAME_LENGTH, MAX_CONTIGS, MAX_MOD_TYPES, MAX_READ_ID_LEN,
-        MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
+        MAX_CONTIG_LEN, MAX_CONTIG_NAME_LENGTH, MAX_CONTIGS, MAX_MOD_TYPES, MAX_READ_ID_LEN,
+        MAX_SEQ_LEN, MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
     },
     ensure_valid_contig, ensure_valid_read_id, nanalogue_mm_ml_parser,
 };
@@ -406,7 +406,16 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                         self.read_id()
                     )));
                 }
-                l => Some(u32::try_from(l)?),
+                l => {
+                    let seq_len = u32::try_from(l)?;
+                    if seq_len > MAX_SEQ_LEN {
+                        return Err(Error::InvalidSeqLength(format!(
+                            "sequence length exceeds {MAX_SEQ_LEN}, read_id: {}",
+                            self.read_id()
+                        )));
+                    }
+                    Some(seq_len)
+                }
             },
         };
         Ok(self)
@@ -433,7 +442,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     ///
     /// # Panics
     /// Panics if alignment-length subtraction overflows. This is unreachable:
-    /// the preceding checks establish `0 <= start < end <= u32::MAX`.
+    /// the preceding checks establish `0 <= start < end <= MAX_CONTIG_LEN`.
     pub fn set_align_len(mut self, record: &Record) -> Result<Self, Error> {
         self.align_len = match self.align_len {
             Some(_) => Err(Error::InvalidDuplicates(format!(
@@ -454,16 +463,18 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                 } else {
                     let st = record.pos();
                     let en = record.reference_end();
-                    if en > st && st >= 0 && en <= u32::MAX.into() {
+                    if en > st && st >= 0 && en <= i64::from(MAX_CONTIG_LEN) {
                         let align_len: u32 = en
                             .checked_sub(st)
-                            .expect("0 <= st < en <= u32::MAX ensures subtraction fits in i64")
+                            .expect(
+                                "0 <= st < en <= MAX_CONTIG_LEN ensures subtraction fits in i64",
+                            )
                             .try_into()?;
                         Ok(Some(align_len))
                     } else {
                         Err(Error::InvalidAlignLength(format!(
                             "in `set_align_len`, start: {st}, end: {en} invalid! \
-i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
+i.e. en <= st or st < 0 or en > {MAX_CONTIG_LEN}, read_id: {}",
                             self.read_id()
                         )))
                     }
@@ -564,7 +575,13 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                 } else {
                     let tid = record.tid();
                     ensure_valid_contig_id(tid)?;
-                    Ok(Some((tid, record.pos().try_into()?)))
+                    let position: u32 = record.pos().try_into()?;
+                    if position >= MAX_CONTIG_LEN {
+                        return Err(Error::InvalidContigAndStart(format!(
+                            "reference start {position} must be in [0, {MAX_CONTIG_LEN})"
+                        )));
+                    }
+                    Ok(Some((tid, position)))
                 }
             }
         }?;
@@ -857,13 +874,9 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                 "seq and qual lengths are different".to_owned(),
             ));
         }
-        if seq.len()
-            > usize::try_from(u32::MAX)
-                .expect("no error in u32->usize conversion in 32-bit platforms and higher")
-        {
+        if seq.len() > usize::try_from(MAX_SEQ_LEN).expect("u32 fits in supported usize") {
             return Err(Error::InvalidState(format!(
-                "seq and/or qual are too long i.e. > {}",
-                u32::MAX
+                "seq and/or qual length exceeds {MAX_SEQ_LEN}"
             )));
         }
 
@@ -919,7 +932,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     /// * region does not intersect with read
     /// * sequence is too long, has zero length
     /// * upstream libraries return coordinates that don't fit in `u32`s
-    ///   (this shouldn't happen as we check if sequences are within `u32::MAX`)
+    ///   (this shouldn't happen as we check if sequences are within `MAX_SEQ_LEN`)
     /// * upstream libraries return weird coordinates like bases
     ///   that are neither on the sequence nor on the reference
     /// * incorrect number/missing/wrong coordinates
@@ -1014,12 +1027,11 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
         }?;
 
         let seq_len: i64 = i64::try_from(record.seq_len())?;
-        // following block ensures `seq_len` is in `(1..=u32::MAX)`
+        // following block ensures `seq_len` is in `(1..=MAX_SEQ_LEN)`
         match seq_len {
-            v if v > i64::from(u32::MAX) => {
+            v if v > i64::from(MAX_SEQ_LEN) => {
                 return Err(Error::InvalidState(format!(
-                    "sequence is too long i.e. > {}",
-                    u32::MAX
+                    "sequence length exceeds {MAX_SEQ_LEN}"
                 )));
             }
             0 => {
@@ -1038,7 +1050,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
         // the i64 of intervals is built up from u32 produced by `GenomicStrandedBed3`.
         let mut s: Vec<Option<(bool, u32)>> =
             Vec::with_capacity(usize::try_from(interval.end - interval.start).expect(
-                "no error; interval is below u32::MAX and u32->usize will not fail in >= 32-bit platforms",
+                "no error; interval is bounded and u32->usize will not fail in >= 32-bit platforms",
             ));
 
         // we may have to trim the sequence if we hit a bunch of unaligned base
@@ -1073,6 +1085,11 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
             match w {
                 [Some(x), Some(y)] => {
                     // Match or mismatch
+                    if !(0..seq_len).contains(&x) {
+                        return Err(Error::InvalidState(format!(
+                            "sequence coordinate {x} exceeds sequence length {seq_len}"
+                        )));
+                    }
                     s.push(Some((true, u32::try_from(x)?)));
                     trim_end_bp = 0;
                     match_or_mismatch_count += 1;
@@ -1081,6 +1098,11 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                 }
                 [Some(x), None] => {
                     // Insertion or equivalent
+                    if !(0..seq_len).contains(&x) {
+                        return Err(Error::InvalidState(format!(
+                            "sequence coordinate {x} exceeds sequence length {seq_len}"
+                        )));
+                    }
                     s.push(Some((false, u32::try_from(x)?)));
                     trim_end_bp += 1;
                     insertion_count += 1;
@@ -1161,8 +1183,8 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
             "seq coord should be uninitialized (-1) or positive due to `update_coords`"
         );
         assert!(
-            seq_coord_prev <= i64::from(u32::MAX),
-            "indirect protection from `u32::try_from` as we populated `s`"
+            seq_coord_prev < seq_len,
+            "last sequence coordinate must be below sequence length"
         );
         assert!(
             seq_coord_first >= -1,
@@ -2067,6 +2089,10 @@ impl AlignmentInfoBuilder {
             Err(Error::InvalidAlignCoords(format!(
                 "alignment end {end} must be greater than alignment start {start}"
             )))
+        } else if end > MAX_CONTIG_LEN {
+            Err(Error::InvalidAlignCoords(format!(
+                "alignment end {end} exceeds maximum contig length {MAX_CONTIG_LEN}"
+            )))
         } else {
             Ok(())
         }
@@ -2233,6 +2259,11 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
 
     fn try_from(serialized: CurrReadBuilder) -> Result<Self, Self::Error> {
         ensure_valid_read_id(serialized.read_id.as_bytes(), MAX_READ_ID_LEN)?;
+        if serialized.seq_len > MAX_SEQ_LEN {
+            return Err(Error::InvalidSeqLength(format!(
+                "sequence length exceeds {MAX_SEQ_LEN}"
+            )));
+        }
 
         // Extract alignment information
         let (align_len, contig_id_and_start, contig_name, ref_range) = match (
@@ -2396,12 +2427,12 @@ ascending needed even if reversed read)!",
 
                 let mapped_ref_pos = match (ref_pos, ref_range.contains(&ref_pos)) {
                     (-1, _) => None,
-                    (v, true) if v > -1 && v <= u32::MAX.into() => {
+                    (v, true) if v > -1 && v < i64::from(MAX_CONTIG_LEN) => {
                         Some(u32::try_from(v).expect("no error as we have checked limits"))
                     }
                     (v, _) => {
                         return Err(Error::InvalidAlignCoords(format!(
-                            "coordinate {v} invalid in mod table (exceeds alignment coords or is < -1 or > u32::MAX)"
+                            "coordinate {v} invalid in mod table (exceeds alignment coords or is < -1 or >= {MAX_CONTIG_LEN})"
                         )));
                     }
                 };
@@ -2748,6 +2779,22 @@ mod test_error_handling {
 
         // This should succeed since all combinations are unique
         let _: BaseMods = reconstruct_base_mods(&mod_entries, false, 0..i64::MAX, 10).unwrap();
+    }
+
+    #[test]
+    fn reconstruct_base_mods_rejects_reference_coordinate_at_contig_limit() {
+        let mod_entries = [ModTableEntry {
+            base: AllowedAGCTN::A,
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            data: vec![(0, i64::from(MAX_CONTIG_LEN), 30)],
+        }];
+
+        let error = reconstruct_base_mods(&mod_entries, false, 0..i64::MAX, 1).unwrap_err();
+        assert!(matches!(error, Error::InvalidAlignCoords(message)
+        if message == format!(
+            "coordinate {MAX_CONTIG_LEN} invalid in mod table (exceeds alignment coords or is < -1 or >= {MAX_CONTIG_LEN})"
+        )));
     }
 
     #[test]

@@ -5,7 +5,9 @@
 
 use nanalogue_core::{
     AlignmentInfo, AlignmentInfoBuilder, CurrRead, CurrReadBuilder, Error, ModChar,
-    ModTableEntryBuilder, ReadState, constants::shared::MAX_CONTIGS, read_utils::AlignAndModData,
+    ModTableEntryBuilder, ReadState,
+    constants::shared::{MAX_CONTIG_LEN, MAX_CONTIGS, MAX_SEQ_LEN},
+    read_utils::AlignAndModData,
 };
 use std::collections::HashMap;
 
@@ -460,6 +462,44 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, Error::InvalidAlignCoords(_)));
+    }
+
+    #[test]
+    fn alignment_end_cannot_exceed_contig_limit() {
+        let _valid = AlignmentInfoBuilder::default()
+            .start(MAX_CONTIG_LEN - 1)
+            .end(MAX_CONTIG_LEN)
+            .build()
+            .expect("a half-open alignment end may equal the contig limit");
+
+        let error = AlignmentInfoBuilder::default()
+            .start(MAX_CONTIG_LEN - 1)
+            .end(MAX_CONTIG_LEN + 1)
+            .build()
+            .unwrap_err();
+        assert!(matches!(error, Error::InvalidAlignCoords(message)
+        if message == format!(
+            "alignment end {} exceeds maximum contig length {MAX_CONTIG_LEN}",
+            MAX_CONTIG_LEN + 1
+        )));
+    }
+
+    #[test]
+    fn sequence_length_cannot_exceed_limit() {
+        let valid: CurrRead<AlignAndModData> = CurrReadBuilder::default()
+            .read_id("maximum-length-read".to_owned())
+            .seq_len(MAX_SEQ_LEN)
+            .build()
+            .expect("the maximum supported sequence length is valid");
+        assert_eq!(valid.seq_len().unwrap(), MAX_SEQ_LEN);
+
+        let error = CurrReadBuilder::default()
+            .read_id("oversized-read".to_owned())
+            .seq_len(MAX_SEQ_LEN + 1)
+            .build()
+            .unwrap_err();
+        assert!(matches!(error, Error::InvalidSeqLength(message)
+            if message == format!("sequence length exceeds {MAX_SEQ_LEN}")));
     }
 
     #[test]
