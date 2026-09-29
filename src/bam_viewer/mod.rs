@@ -44,6 +44,9 @@ use std::{
 };
 
 mod cli;
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod full_lifecycle;
 mod plot;
 mod render;
 mod snapshot;
