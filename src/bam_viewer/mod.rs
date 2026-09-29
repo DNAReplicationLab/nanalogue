@@ -603,6 +603,11 @@ mod tests {
     const DEMO_GOLDEN_COLS: u16 = 90;
     const DEMO_GOLDEN_ROWS: u16 = 20;
     const DEMO_VISIBLE_READS: usize = 16;
+    /// Default 19-column label plus ten reference columns.
+    const PARTIAL_GOLDEN_COLS: u16 = 29;
+    /// Three header rows, twenty reads, and one footer row.
+    const PARTIAL_GOLDEN_ROWS: u16 = 24;
+    const PARTIAL_VISIBLE_READS: usize = 20;
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum WriterFailure {
@@ -2549,6 +2554,56 @@ mod tests {
         )?;
         assert_ansi_golden("bam_viewer_short_terminal.ansi", &short_terminal)?;
         Ok(())
+    }
+
+    #[test]
+    fn partial_read_viewport_matches_ansi_golden() -> Result<(), Box<dyn Error>> {
+        let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/bam_viewer_partial_demo.json"
+        )))?;
+        let simulation = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
+        let mut viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &InitialPosition {
+                contig: String::from("contig_00000"),
+                start: 0,
+            },
+            None,
+            window_len_for_columns(PARTIAL_GOLDEN_COLS),
+        )?;
+        viewer.path = PathBuf::from("partial-reads.bam");
+        assert_eq!(viewer.current_window_len(), 10);
+
+        let records = viewer.visible_records()?;
+        let displayed_records = records
+            .get(..PARTIAL_VISIBLE_READS)
+            .expect("simulation provides twenty visible mapped reads");
+        assert!(
+            displayed_records
+                .iter()
+                .any(|record| record.region_offset() == 0)
+        );
+        assert!(
+            displayed_records
+                .iter()
+                .any(|record| record.region_offset() == 1)
+        );
+        assert!(displayed_records.iter().all(|record| {
+            matches!(
+                (record.region_offset(), record.sequence().len()),
+                (0, 10) | (1, 9)
+            )
+        }));
+
+        let viewport = render_ansi_viewport(
+            &viewer,
+            &records,
+            PARTIAL_GOLDEN_COLS,
+            PARTIAL_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        )?;
+        assert_ansi_golden("bam_viewer_partial_reads.ansi", &viewport)
     }
 
     #[test]

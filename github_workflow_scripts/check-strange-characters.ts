@@ -38,6 +38,7 @@ const ANSI_GOLDENS = new Set([
     "tests/goldens/bam_viewer_narrow_error.ansi",
     "tests/goldens/bam_viewer_narrow_prompt.ansi",
     "tests/goldens/bam_viewer_no_reads.ansi",
+    "tests/goldens/bam_viewer_partial_reads.ansi",
     "tests/goldens/bam_viewer_short_terminal.ansi",
     "tests/goldens/bam_viewer_zero_sequence.ansi",
     "tests/goldens/bam_viewer_individual_default.ansi",
