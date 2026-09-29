@@ -54,7 +54,32 @@ mod tests {
             .seq_coords_from_ref_coords(&short, &region)
             .unwrap_err();
         assert!(matches!(error, Error::InvalidState(message)
-            if message == "incorrect number of coordinates received!"));
+            if message == "sequence coordinate 2 exceeds sequence length 2"));
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_coordinates_after_skipping_earlier_bases() {
+        let cases = [
+            (
+                record(vec![Cigar::Match(3)], b"AC"),
+                GenomicBed3::new(0, 12, 13).unwrap(),
+            ),
+            (
+                record(vec![Cigar::Match(2), Cigar::Ins(1)], b"AC"),
+                GenomicBed3::new(0, 11, 12).unwrap(),
+            ),
+        ];
+
+        for (record, region) in cases {
+            let read = CurrRead::default()
+                .try_from_only_alignment(&record)
+                .unwrap();
+            let error = read
+                .seq_coords_from_ref_coords(&record, &region)
+                .unwrap_err();
+            assert!(matches!(error, Error::InvalidState(message)
+                if message == "sequence coordinate 2 exceeds sequence length 2"));
+        }
     }
 
     #[test]

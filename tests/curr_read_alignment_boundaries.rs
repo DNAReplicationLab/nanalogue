@@ -5,7 +5,10 @@
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use nanalogue_core::{CurrRead, Error, ReadState, constants::shared::MAX_CONTIGS};
+    use nanalogue_core::{
+        CurrRead, Error, ReadState,
+        constants::shared::{MAX_CONTIG_LEN, MAX_CONTIGS},
+    };
     use rust_htslib::bam::{
         Record,
         ext::BamRecordExtensions as _,
@@ -37,7 +40,7 @@ mod tests {
     #[test]
     fn alignment_end_limit_is_inclusive_and_uses_reference_span() {
         let mut record = mapped_record();
-        for start in [0, 17, i64::from(u32::MAX) - 15] {
+        for start in [0, 17, i64::from(MAX_CONTIG_LEN) - 15] {
             record.set_pos(start);
             let read = CurrRead::default()
                 .set_read_state_and_id(&record)
@@ -50,10 +53,11 @@ mod tests {
             assert_eq!(read.seq_len().unwrap(), 10);
         }
 
-        // The start still fits u32, but the reference end exceeds it by one.
+        // The start still fits the supported coordinate type, but the reference end
+        // exceeds the supported contig length by one.
         // Using query length instead of reference span would wrongly pass.
-        record.set_pos(i64::from(u32::MAX) - 14);
-        assert_eq!(record.reference_end(), i64::from(u32::MAX) + 1);
+        record.set_pos(i64::from(MAX_CONTIG_LEN) - 14);
+        assert_eq!(record.reference_end(), i64::from(MAX_CONTIG_LEN) + 1);
         let error = CurrRead::default()
             .set_read_state_and_id(&record)
             .unwrap()
@@ -126,6 +130,31 @@ mod tests {
                 "invalid contig ID {tid} must fail before it is stored"
             );
         }
+    }
+
+    #[test]
+    fn reference_start_must_be_below_contig_limit() {
+        let mut record = mapped_record();
+        // This test isolates start-coordinate validation. The record's 15-base reference span
+        // would make `set_align_len()` reject this placement, so that setter is not called here.
+        record.set_pos(i64::from(MAX_CONTIG_LEN - 1));
+        let read = CurrRead::default()
+            .set_read_state_and_id(&record)
+            .unwrap()
+            .set_contig_id_and_start(&record)
+            .unwrap();
+        assert_eq!(read.contig_id_and_start().unwrap(), (2, MAX_CONTIG_LEN - 1));
+
+        record.set_pos(i64::from(MAX_CONTIG_LEN));
+        let error = CurrRead::default()
+            .set_read_state_and_id(&record)
+            .unwrap()
+            .set_contig_id_and_start(&record)
+            .unwrap_err();
+        assert!(matches!(error, Error::InvalidContigAndStart(message)
+        if message == format!(
+            "reference start {MAX_CONTIG_LEN} must be in [0, {MAX_CONTIG_LEN})"
+        )));
     }
 
     #[test]
