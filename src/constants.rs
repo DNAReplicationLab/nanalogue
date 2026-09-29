@@ -27,6 +27,34 @@ pub mod shared {
     /// Hard cap on the maximum number of records that commands will accept
     pub const MAX_RECORDS: u32 = 500_000_000;
 
+    /// Fail-safe cap on the number of CIGAR operations processed per record.
+    ///
+    /// A CIGAR cannot occupy the entire record buffer because it shares that buffer with
+    /// other record data and each operation occupies multiple bytes. Matching the record
+    /// capacity provides a deliberately loose final guard rather than an exact format bound.
+    pub const MAX_CIGAR_OPERATIONS: u32 = MAX_RECORD_CAPACITY_BYTES;
+
+    /// Hard cap on sequence length: the largest value representable in 28 bits.
+    ///
+    /// BAM permits longer sequences, but a single sequenced molecule longer than roughly
+    /// 200 megabases is currently practically inconceivable, so this is a safe limit.
+    pub const MAX_SEQ_LEN: u32 = (1 << 28) - 1;
+
+    /// Hard cap on reference contig length.
+    ///
+    /// Some organisms have contigs longer than roughly 4.3 gigabases, but they are uncommon
+    /// and are not supported.
+    pub const MAX_CONTIG_LEN: u32 = u32::MAX - 1;
+
+    const _: () = assert!(
+        MAX_SEQ_LEN < u32::MAX,
+        "sequence limit must fit below u32::MAX"
+    );
+    const _: () = assert!(
+        MAX_CONTIG_LEN < u32::MAX,
+        "contig limit must fit below u32::MAX"
+    );
+
     /// Hard cap on the number of types of mods per BAM record
     pub const MAX_MOD_TYPES: u8 = 100;
 

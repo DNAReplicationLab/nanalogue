@@ -8,7 +8,8 @@ mod tests {
     use std::sync::Arc;
 
     use nanalogue_core::{
-        BaseMods, CurrRead, Error, FiberAnnotation, ModChar, ThresholdState, nanalogue_mm_ml_parser,
+        BaseMods, CurrRead, Error, FiberAnnotation, ModChar, ThresholdState,
+        constants::shared::MAX_CONTIG_LEN, nanalogue_mm_ml_parser,
     };
     use rust_htslib::bam::{
         Header, HeaderView, Record,
@@ -233,9 +234,11 @@ mod tests {
         add_mod_tags(&mut overflowing, "N+n?,0;", &[200]);
         let overflow_error =
             nanalogue_mm_ml_parser(&overflowing, |_| true, |_| true, |_, _, _| true, 0)
-                .expect_err("the final reference coordinate cannot exceed u32");
+                .expect_err("the final reference coordinate cannot exceed the contig limit");
         assert!(matches!(overflow_error, Error::InvalidModCoords(message)
-                if message == "reference coordinate exceeds u32 capacity"));
+        if message == format!(
+            "reference coordinate exceeds maximum contig length {MAX_CONTIG_LEN}"
+        )));
     }
 
     #[test]
