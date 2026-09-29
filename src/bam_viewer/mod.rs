@@ -2557,7 +2557,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_read_viewport_matches_ansi_golden() -> Result<(), Box<dyn Error>> {
+    fn partial_read_viewports_match_ansi_goldens() -> Result<(), Box<dyn Error>> {
         let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/examples/bam_viewer_partial_demo.json"
@@ -2575,35 +2575,74 @@ mod tests {
         viewer.path = PathBuf::from("partial-reads.bam");
         assert_eq!(viewer.current_window_len(), 10);
 
-        let records = viewer.visible_records()?;
-        let displayed_records = records
+        let start_records = viewer.visible_records()?;
+        let displayed_start_records = start_records
             .get(..PARTIAL_VISIBLE_READS)
             .expect("simulation provides twenty visible mapped reads");
         assert!(
-            displayed_records
+            displayed_start_records
                 .iter()
                 .any(|record| record.region_offset() == 0)
         );
         assert!(
-            displayed_records
+            displayed_start_records
                 .iter()
                 .any(|record| record.region_offset() == 1)
         );
-        assert!(displayed_records.iter().all(|record| {
+        assert!(displayed_start_records.iter().all(|record| {
             matches!(
                 (record.region_offset(), record.sequence().len()),
                 (0, 10) | (1, 9)
             )
         }));
 
-        let viewport = render_ansi_viewport(
+        let start_viewport = render_ansi_viewport(
             &viewer,
-            &records,
+            &start_records,
             PARTIAL_GOLDEN_COLS,
             PARTIAL_GOLDEN_ROWS,
             FrameFooter::Controls,
         )?;
-        assert_ansi_golden("bam_viewer_partial_reads.ansi", &viewport)
+        assert_ansi_golden("bam_viewer_partial_reads.ansi", &start_viewport)?;
+
+        assert!(viewer.go_to(&InitialPosition {
+            contig: String::from("contig_00000"),
+            start: 990,
+        })?);
+        assert_eq!(viewer.current_window_len(), 10);
+        let end_records = viewer.visible_records()?;
+        let displayed_end_records = end_records
+            .get(..PARTIAL_VISIBLE_READS)
+            .expect("simulation provides twenty visible mapped reads");
+        assert!(
+            displayed_end_records
+                .iter()
+                .all(|record| record.region_offset() == 0)
+        );
+        assert!(
+            displayed_end_records
+                .iter()
+                .any(|record| record.sequence().len() == 9)
+        );
+        assert!(
+            displayed_end_records
+                .iter()
+                .any(|record| record.sequence().len() == 10)
+        );
+        assert!(
+            displayed_end_records
+                .iter()
+                .all(|record| matches!(record.sequence().len(), 9 | 10))
+        );
+
+        let end_viewport = render_ansi_viewport(
+            &viewer,
+            &end_records,
+            PARTIAL_GOLDEN_COLS,
+            PARTIAL_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        )?;
+        assert_ansi_golden("bam_viewer_partial_read_ends.ansi", &end_viewport)
     }
 
     #[test]
