@@ -16,10 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - BAM viewer table mode now shows every overlapping alignment, using spaces for
   positions before a read starts or after it ends
+- Sped up MM-tag distance parsing with a direct byte parser, reducing long-read
+  BAM viewer fetch time by 14-20% in parser-only benchmarks. MM parsing now
+  rejects non-canonical numeric modification codes, oversized headers, and
+  individual gaps above 128,000,000 bases.
 - Made Polars an optional, default-off dependency. Library consumers using
   `curr_reads_to_dataframe`, `reads_table::run_df`, `window_reads::run_df`, or
   Polars-specific error handling must explicitly enable the `polars` Cargo
   feature. CLI functionality is unchanged.
+- Replaced the MM/ML parser's per-base sequence-to-reference coordinate table
+  with a sparse CIGAR-segment map. The parser now handles padding (`P`) CIGAR
+  operations and returns errors instead of panicking on unknown or zero-length
+  operations; other alignment paths are unchanged.
+- Added `MAX_SEQ_LEN` (2^28 - 1) and `MAX_CONTIG_LEN` (`u32::MAX - 1`), lowering
+  the accepted sequence and contig limits from `u32::MAX`. Sequence-length
+  overflows now consistently return `InvalidSeqLength`.
 
 ### Fixed
 - (Project tooling, not code) Fixed `install.sh` to use the correct ARM release archive name, matching the output from the relevant GitHub Actions workflow

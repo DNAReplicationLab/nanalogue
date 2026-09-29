@@ -4,8 +4,10 @@
 //! These tests verify the builder pattern functionality for creating `CurrRead` instances
 
 use nanalogue_core::{
-    AlignmentInfoBuilder, CurrRead, CurrReadBuilder, Error, ModChar, ModTableEntryBuilder,
-    ReadState, constants::shared::MAX_CONTIGS, read_utils::AlignAndModData,
+    AlignmentInfo, AlignmentInfoBuilder, CurrRead, CurrReadBuilder, Error, ModChar,
+    ModTableEntryBuilder, ReadState,
+    constants::shared::{MAX_CONTIG_LEN, MAX_CONTIGS, MAX_SEQ_LEN},
+    read_utils::AlignAndModData,
 };
 use std::collections::HashMap;
 
@@ -434,46 +436,92 @@ mod tests {
             .unwrap();
     }
 
-    /// Alignment with end < start - should panic with `InvalidAlignCoords`
+    /// Alignment with end < start is rejected while building `AlignmentInfo`.
     #[test]
-    #[should_panic(expected = "InvalidAlignCoords")]
     fn alignment_end_before_start() {
-        let _: CurrRead<AlignAndModData> = CurrReadBuilder::default()
-            .read_id("invalid_align_read".into())
-            .seq_len(40)
-            .alignment_type(ReadState::PrimaryFwd)
-            .alignment(
-                AlignmentInfoBuilder::default()
-                    .start(60)
-                    .end(10)
-                    .contig("chr1".into())
-                    .contig_id(1)
-                    .build()
-                    .unwrap(),
-            )
+        let err = AlignmentInfoBuilder::default()
+            .start(60)
+            .end(10)
+            .contig("chr1".into())
+            .contig_id(1)
             .build()
-            .unwrap();
+            .unwrap_err();
+
+        assert!(matches!(err, Error::InvalidAlignCoords(_)));
     }
 
-    /// Alignment with end == start - should panic with `InvalidAlignCoords`
+    /// Alignment with end == start is rejected while building `AlignmentInfo`.
     #[test]
-    #[should_panic(expected = "InvalidAlignCoords")]
     fn alignment_end_equal_start() {
-        let _: CurrRead<AlignAndModData> = CurrReadBuilder::default()
-            .read_id("zero_length_align_read".into())
-            .seq_len(40)
-            .alignment_type(ReadState::PrimaryFwd)
-            .alignment(
-                AlignmentInfoBuilder::default()
-                    .start(10)
-                    .end(10)
-                    .contig("chr1".into())
-                    .contig_id(1)
-                    .build()
-                    .unwrap(),
-            )
+        let err = AlignmentInfoBuilder::default()
+            .start(10)
+            .end(10)
+            .contig("chr1".into())
+            .contig_id(1)
             .build()
-            .unwrap();
+            .unwrap_err();
+
+        assert!(matches!(err, Error::InvalidAlignCoords(_)));
+    }
+
+    #[test]
+    fn alignment_end_cannot_exceed_contig_limit() {
+        let _valid = AlignmentInfoBuilder::default()
+            .start(MAX_CONTIG_LEN - 1)
+            .end(MAX_CONTIG_LEN)
+            .build()
+            .expect("a half-open alignment end may equal the contig limit");
+
+        let error = AlignmentInfoBuilder::default()
+            .start(MAX_CONTIG_LEN - 1)
+            .end(MAX_CONTIG_LEN + 1)
+            .build()
+            .unwrap_err();
+        assert!(matches!(error, Error::InvalidAlignCoords(message)
+        if message == format!(
+            "alignment end {} exceeds maximum contig length {MAX_CONTIG_LEN}",
+            MAX_CONTIG_LEN + 1
+        )));
+    }
+
+    #[test]
+    fn sequence_length_cannot_exceed_limit() {
+        let valid: CurrRead<AlignAndModData> = CurrReadBuilder::default()
+            .read_id("maximum-length-read".to_owned())
+            .seq_len(MAX_SEQ_LEN)
+            .build()
+            .expect("the maximum supported sequence length is valid");
+        assert_eq!(valid.seq_len().unwrap(), MAX_SEQ_LEN);
+
+        let error = CurrReadBuilder::default()
+            .read_id("oversized-read".to_owned())
+            .seq_len(MAX_SEQ_LEN + 1)
+            .build()
+            .unwrap_err();
+        assert!(matches!(error, Error::InvalidSeqLength(message)
+            if message == format!("sequence length exceeds {MAX_SEQ_LEN}")));
+    }
+
+    #[test]
+    fn alignment_deserialization_validates_coordinates() {
+        for (start, end) in [(60, 10), (10, 10)] {
+            let err = serde_json::from_value::<AlignmentInfo>(serde_json::json!({
+                "start": start,
+                "end": end,
+                "contig": "chr1",
+                "contig_id": 1
+            }))
+            .unwrap_err();
+
+            assert!(err.to_string().contains("must be greater"));
+        }
+
+        let alignment =
+            serde_json::from_value::<AlignmentInfo>(serde_json::json!({ "end": 1 })).unwrap();
+        assert_eq!(
+            serde_json::to_value(alignment).unwrap(),
+            serde_json::json!({ "start": 0, "end": 1, "contig": "", "contig_id": 0 })
+        );
     }
 
     /// Negative contig IDs should panic with `InvalidState`

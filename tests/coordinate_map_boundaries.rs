@@ -41,7 +41,7 @@ mod tests {
         // the third CIGAR coordinate escape as a usable sequence index.
         let complete = record(vec![Cigar::Match(3)], b"ACG");
         let short = record(vec![Cigar::Match(3)], b"AC");
-        let region = GenomicBed3::new(0, 10, 13);
+        let region = GenomicBed3::new(0, 10, 13).unwrap();
         let read = CurrRead::default()
             .try_from_only_alignment(&complete)
             .unwrap();
@@ -54,7 +54,32 @@ mod tests {
             .seq_coords_from_ref_coords(&short, &region)
             .unwrap_err();
         assert!(matches!(error, Error::InvalidState(message)
-            if message == "incorrect number of coordinates received!"));
+            if message == "sequence coordinate 2 exceeds sequence length 2"));
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_coordinates_after_skipping_earlier_bases() {
+        let cases = [
+            (
+                record(vec![Cigar::Match(3)], b"AC"),
+                GenomicBed3::new(0, 12, 13).unwrap(),
+            ),
+            (
+                record(vec![Cigar::Match(2), Cigar::Ins(1)], b"AC"),
+                GenomicBed3::new(0, 11, 12).unwrap(),
+            ),
+        ];
+
+        for (record, region) in cases {
+            let read = CurrRead::default()
+                .try_from_only_alignment(&record)
+                .unwrap();
+            let error = read
+                .seq_coords_from_ref_coords(&record, &region)
+                .unwrap_err();
+            assert!(matches!(error, Error::InvalidState(message)
+                if message == "sequence coordinate 2 exceeds sequence length 2"));
+        }
     }
 
     #[test]
@@ -66,7 +91,7 @@ mod tests {
         let shorter = record(vec![Cigar::Match(3)], b"ACG");
         let read = CurrRead::default().try_from_only_alignment(&full).unwrap();
         let error = read
-            .seq_coords_from_ref_coords(&shorter, &GenomicBed3::new(0, 10, 15))
+            .seq_coords_from_ref_coords(&shorter, &GenomicBed3::new(0, 10, 15).unwrap())
             .unwrap_err();
         assert!(matches!(error, Error::InvalidState(message)
             if message == "failure from upstream libraries: missing sequence coordinates"));
@@ -77,7 +102,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             shorter_read
-                .seq_coords_from_ref_coords(&shorter, &GenomicBed3::new(0, 11, 13))
+                .seq_coords_from_ref_coords(&shorter, &GenomicBed3::new(0, 11, 13).unwrap())
                 .unwrap(),
             vec![Some((true, 1)), Some((true, 2))]
         );
@@ -100,7 +125,7 @@ mod tests {
             .try_from_only_alignment(&aligned)
             .unwrap();
         assert_eq!(
-            read.seq_coords_from_ref_coords(&aligned, &GenomicBed3::new(0, 10, 14))
+            read.seq_coords_from_ref_coords(&aligned, &GenomicBed3::new(0, 10, 14).unwrap())
                 .unwrap(),
             vec![
                 Some((true, 1)),
@@ -114,12 +139,12 @@ mod tests {
         // The insertion is now at the end of the requested interval; it is
         // excluded rather than attached to the preceding matched bases.
         assert_eq!(
-            read.seq_coords_from_ref_coords(&aligned, &GenomicBed3::new(0, 10, 12))
+            read.seq_coords_from_ref_coords(&aligned, &GenomicBed3::new(0, 10, 12).unwrap())
                 .unwrap(),
             vec![Some((true, 1)), Some((true, 2))]
         );
         assert_eq!(
-            read.seq_coords_from_ref_coords(&aligned, &GenomicBed3::new(0, 12, 13))
+            read.seq_coords_from_ref_coords(&aligned, &GenomicBed3::new(0, 12, 13).unwrap())
                 .unwrap(),
             vec![None]
         );

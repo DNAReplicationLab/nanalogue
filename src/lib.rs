@@ -97,9 +97,10 @@ compile_error!("This crate supports only 32-bit and 64-bit platforms.");
 use crate::bedrs::{Bed3, Coordinates as _, StrandedBed3};
 use crate::constants::shared::{
     MAX_ML_ARRAY_LENGTH, MAX_MM_TAG_LENGTH, MAX_READ_ID_LEN, MAX_READ_IDS_FOR_FILTERING,
-    MAX_RECORD_CAPACITY_BYTES, MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
+    MAX_RECORD_CAPACITY_BYTES, MAX_SEQ_LEN, MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
 };
 use crate::file_utils::read_line_capped;
+use crate::utils::seq_to_ref_map::SeqToRefMap;
 use rand::random;
 use rust_htslib::{bam, bam::ext::BamRecordExtensions as _, bam::record::Aux, tpool};
 use std::collections::HashSet;
@@ -466,10 +467,10 @@ where
         let packed_seq = record.seq();
         let seq_len = packed_seq.len();
 
-        if seq_len >= usize::try_from(u32::MAX).expect("no error on 32-bit platforms or higher") {
-            return Err(Error::InvalidState(
-                "sequence longer than u32::MAX".to_owned(),
-            ));
+        if seq_len > usize::try_from(MAX_SEQ_LEN).expect("u32 fits in supported usize") {
+            return Err(Error::InvalidSeqLength(format!(
+                "sequence length exceeds {MAX_SEQ_LEN}"
+            )));
         }
 
         if seq_len == 0 {
@@ -484,69 +485,15 @@ where
             ));
         }
 
-        #[expect(
-            clippy::arithmetic_side_effects,
-            reason = "seq_len bounds make +1 safe, and contiguous alignments have a positive span"
-        )]
-        let pos_map = {
-            let temp: Vec<Option<u32>> = {
-                if record.is_unmapped() {
-                    std::iter::repeat_n(None, seq_len).collect()
-                } else {
-                    let cigar = record.cigar();
-                    let mut cigar_ops = cigar.iter();
-                    let is_contiguous_alignment = matches!(
-                        (cigar_ops.next(), cigar_ops.next()),
-                        (
-                            Some(
-                                bam::record::Cigar::Match(len)
-                                    | bam::record::Cigar::Equal(len)
-                                    | bam::record::Cigar::Diff(len)
-                            ),
-                            None
-                        ) if usize::try_from(*len).expect("u32 fits in usize") == seq_len
-                    );
-                    if is_contiguous_alignment {
-                        let start = u32::try_from(record.pos()).map_err(|e| {
-                            Error::InvalidModCoords(format!(
-                                "reference start coordinate is invalid: {e}"
-                            ))
-                        })?;
-                        let span = u32::try_from(seq_len).expect("sequence length fits in u32");
-                        assert!(
-                            span > 0,
-                            "invalid state reached: a contiguous alignment has zero length"
-                        );
-                        let last = start.checked_add(span - 1).ok_or_else(|| {
-                            Error::InvalidModCoords(
-                                "reference coordinate exceeds u32 capacity".to_owned(),
-                            )
-                        })?;
-                        (start..=last).map(Some).collect()
-                    } else {
-                        record
-                            .aligned_pairs_full()
-                            .filter(|x| x[0].is_some())
-                            .take(seq_len + 1)
-                            .map(|x| match x[1] {
-                                None => Ok(None),
-                                Some(v) => u32::try_from(v).map(Some).map_err(|e| {
-                                    Error::InvalidModCoords(format!(
-                                        "reference coordinate from aligned_pairs_full is invalid: {e}"
-                                    ))
-                                }),
-                            })
-                            .collect::<Result<Vec<Option<u32>>, Error>>()?
-                    }
-                }
-            };
-            if temp.len() == seq_len {
-                temp
-            } else {
-                return Err(Error::InvalidState(
-                    "rust_htslib failure! seq coordinates malformed".to_owned(),
-                ));
-            }
+        let pos_map = if record.is_unmapped() {
+            // No sequence position has a reference coordinate.
+            SeqToRefMap::unmapped()
+        } else {
+            let seq_len_u32 = u32::try_from(seq_len).expect("sequence length checked above");
+            let reference_start = u32::try_from(record.pos()).map_err(|error| {
+                Error::InvalidModCoords(format!("reference start coordinate is invalid: {error}"))
+            })?;
+            SeqToRefMap::try_from_raw_cigar(record.raw_cigar(), reference_start, seq_len_u32)?
         };
 
         for ParsedMmGroup {
@@ -659,20 +606,17 @@ where
                 clippy::arithmetic_side_effects,
                 reason = "`seq_len - 1 - k` (protected as mod pos cannot exceed seq_len)"
             )]
-            #[expect(
-                clippy::indexing_slicing,
-                reason = "`pos_map[k.0]`; neither pos_map's len nor mod pos entry can exceed seq_len"
-            )]
             if filter_mod_base_strand_tag(&mod_base, &mod_strand, &modification_type) {
                 let annotations: Vec<FiberAnnotation> = modified_positions
                     .iter()
                     .map(|k| if is_reverse { seq_len - 1 - k } else { *k })
                     .zip(modified_probabilities.iter())
                     .map(|k| {
+                        let pos = u32::try_from(k.0)?;
                         Ok(FiberAnnotation {
-                            pos: u32::try_from(k.0)?,
+                            pos,
                             qual: *k.1,
-                            ref_pos: pos_map[k.0],
+                            ref_pos: pos_map.get(pos),
                         })
                     })
                     .collect::<Result<Vec<FiberAnnotation>, Error>>()?;
@@ -1060,6 +1004,7 @@ impl BamPreFilt for bam::Record {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod mod_parse_tests {
     use super::*;
+    use crate::constants::shared::MAX_CONTIG_LEN;
     use rust_htslib::bam::Read as _;
 
     /// Tests if Mod BAM modification parsing is alright with fallback tag support.
@@ -1350,13 +1295,13 @@ mod mod_parse_tests {
     }
 
     #[test]
-    fn contiguous_alignment_accepts_u32_max_reference_coordinate() -> Result<(), Error> {
+    fn contiguous_alignment_accepts_last_coordinate_below_contig_limit() -> Result<(), Error> {
         let mut record = bam::Record::new();
         let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(1)]);
         record.set(b"test_read", Some(&cigar), b"A", &[30]);
         record.unset_flags();
         record.set_tid(0);
-        record.set_pos(i64::from(u32::MAX));
+        record.set_pos(i64::from(MAX_CONTIG_LEN - 1));
         record.push_aux(b"MM", Aux::String("A+a,0;"))?;
         record.push_aux(b"ML", Aux::ArrayU8((&[200]).into()))?;
 
@@ -1366,7 +1311,7 @@ mod mod_parse_tests {
             .first()
             .and_then(|base_mod| base_mod.ranges.annotations.first())
             .expect("one modification annotation should be parsed");
-        assert_eq!(annotation.ref_pos, Some(u32::MAX));
+        assert_eq!(annotation.ref_pos, Some(MAX_CONTIG_LEN - 1));
         Ok(())
     }
 
@@ -1377,12 +1322,17 @@ mod mod_parse_tests {
         record.set(b"test_read", Some(&cigar), b"AA", &[30; 2]);
         record.unset_flags();
         record.set_tid(0);
-        record.set_pos(i64::from(u32::MAX));
+        record.set_pos(i64::from(MAX_CONTIG_LEN - 1));
         record.push_aux(b"MM", Aux::String("A+a,0;"))?;
         record.push_aux(b"ML", Aux::ArrayU8((&[200]).into()))?;
 
         let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
-        assert!(matches!(result, Err(Error::InvalidModCoords(_))));
+        // The start is valid, so this exact message comes from the per-M/=/X coordinate check;
+        // the final half-open end check uses a different message.
+        assert!(matches!(result, Err(Error::InvalidModCoords(message))
+        if message == format!(
+            "reference coordinate exceeds maximum contig length {MAX_CONTIG_LEN}"
+        )));
         Ok(())
     }
 

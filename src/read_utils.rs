@@ -8,8 +8,8 @@ use crate::{
     FilterModsByRefCoords, GenomicBed3, GenomicStrandedBed3, InputModOptions, InputRegionOptions,
     InputWindowing, ModChar, Ranges, ReadState, ThresholdState,
     constants::shared::{
-        MAX_CONTIG_NAME_LENGTH, MAX_CONTIGS, MAX_MOD_TYPES, MAX_READ_ID_LEN,
-        MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
+        MAX_CONTIG_LEN, MAX_CONTIG_NAME_LENGTH, MAX_CONTIGS, MAX_MOD_TYPES, MAX_READ_ID_LEN,
+        MAX_SEQ_LEN, MAX_TOTAL_MOD_ANNOTATIONS_PER_READ,
     },
     ensure_valid_contig, ensure_valid_read_id, nanalogue_mm_ml_parser,
 };
@@ -406,7 +406,16 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                         self.read_id()
                     )));
                 }
-                l => Some(u32::try_from(l)?),
+                l => {
+                    let seq_len = u32::try_from(l)?;
+                    if seq_len > MAX_SEQ_LEN {
+                        return Err(Error::InvalidSeqLength(format!(
+                            "sequence length exceeds {MAX_SEQ_LEN}, read_id: {}",
+                            self.read_id()
+                        )));
+                    }
+                    Some(seq_len)
+                }
             },
         };
         Ok(self)
@@ -416,10 +425,13 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// # Errors
     /// Error if sequence length is not set
     pub fn seq_len(&self) -> Result<u32, Error> {
-        self.seq_len.ok_or(Error::UnavailableData(format!(
-            "seq len not available, read_id: {}",
-            self.read_id()
-        )))
+        let Some(seq_len) = self.seq_len else {
+            return Err(Error::UnavailableData(format!(
+                "seq len not available, read_id: {}",
+                self.read_id()
+            )));
+        };
+        Ok(seq_len)
     }
     /// set alignment length from BAM record if available
     ///
@@ -427,6 +439,10 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
     /// Returns errors if alignment len is already set, instance is
     /// unmapped, has no CIGAR, or if alignment coordinates are malformed
     /// (e.g. end < start).
+    ///
+    /// # Panics
+    /// Panics if alignment-length subtraction overflows. This is unreachable:
+    /// the preceding checks establish `0 <= start < end <= MAX_CONTIG_LEN`.
     pub fn set_align_len(mut self, record: &Record) -> Result<Self, Error> {
         self.align_len = match self.align_len {
             Some(_) => Err(Error::InvalidDuplicates(format!(
@@ -447,18 +463,18 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
                 } else {
                     let st = record.pos();
                     let en = record.reference_end();
-                    if en > st && st >= 0 && en <= u32::MAX.into() {
+                    if en > st && st >= 0 && en <= i64::from(MAX_CONTIG_LEN) {
                         let align_len: u32 = en
                             .checked_sub(st)
-                            .ok_or(Error::InvalidState(String::from(
-                                "unreachable overflow in align len calculation",
-                            )))?
+                            .expect(
+                                "0 <= st < en <= MAX_CONTIG_LEN ensures subtraction fits in i64",
+                            )
                             .try_into()?;
                         Ok(Some(align_len))
                     } else {
                         Err(Error::InvalidAlignLength(format!(
                             "in `set_align_len`, start: {st}, end: {en} invalid! \
-i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
+i.e. en <= st or st < 0 or en > {MAX_CONTIG_LEN}, read_id: {}",
                             self.read_id()
                         )))
                     }
@@ -559,7 +575,13 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                 } else {
                     let tid = record.tid();
                     ensure_valid_contig_id(tid)?;
-                    Ok(Some((tid, record.pos().try_into()?)))
+                    let position: u32 = record.pos().try_into()?;
+                    if position >= MAX_CONTIG_LEN {
+                        return Err(Error::InvalidContigAndStart(format!(
+                            "reference start {position} must be in [0, {MAX_CONTIG_LEN})"
+                        )));
+                    }
+                    Ok(Some((tid, position)))
                 }
             }
         }?;
@@ -734,14 +756,14 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     ///         // Create a region that overlaps with the read but is short of one bp.
     ///         // Note that this BAM file has reads with all bases matching perfectly
     ///         // with the reference.
-    ///         let region = Bed3::new(contig_id, start, start + align_len - 1);
+    ///         let region = Bed3::new(contig_id, start, start + align_len - 1).unwrap();
     ///         let seq_subset = curr_read.seq_on_ref_coords(&r, &region)?;
     ///
     ///         // Check for sequence length match
     ///         assert_eq!(curr_read.seq_len()? - 1, u32::try_from(seq_subset.len())?);
     ///
     ///         // Create a region with no overlap at all and check we get no data
-    ///         let region = Bed3::new(contig_id, start + align_len, start + align_len + 2);
+    ///         let region = Bed3::new(contig_id, start + align_len, start + align_len + 2).unwrap();
     ///         match curr_read.seq_on_ref_coords(&r, &region){
     ///             Err(Error::UnavailableData(_)) => (),
     ///             _ => unreachable!(),
@@ -797,14 +819,14 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     ///     let r = record?;
     ///     let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
     ///
-    ///     let region = Bed3::new(0, 0, 20);
+    ///     let region = Bed3::new(0, 0, 20).unwrap();
     ///     let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
     ///     assert_eq!(seq_subset, [Some((true, b'T', 32)), Some((true, b'C', 0)),
     ///         Some((true, b'G', 69)), Some((true, b'T', 80)), Some((true, b'T', 79)),
     ///         Some((true, b'T', 81)), Some((true, b'C', 29)), Some((true, b'T', 30))]);
     ///
     ///     // Create a region with no overlap at all and check we get no data
-    ///     let region = Bed3::new(0, 20, 22);
+    ///     let region = Bed3::new(0, 20, 22).unwrap();
     ///     match curr_read.seq_and_qual_on_ref_coords(&r, &region){
     ///         Err(Error::UnavailableData(_)) => (),
     ///         _ => unreachable!(),
@@ -826,7 +848,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     ///     let r = record?;
     ///     let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
     ///
-    ///     let region = Bed3::new(0, 0, 20);
+    ///     let region = Bed3::new(0, 0, 20).unwrap();
     ///     let seq_subset = curr_read.seq_and_qual_on_ref_coords(&r, &region)?;
     ///     assert_eq!(seq_subset, [Some((true, b'T', 32)), None, None,
     ///         Some((false, b'A', 0)), Some((true, b'T', 0)), Some((true, b'T', 79)),
@@ -852,13 +874,9 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                 "seq and qual lengths are different".to_owned(),
             ));
         }
-        if seq.len()
-            > usize::try_from(u32::MAX)
-                .expect("no error in u32->usize conversion in 32-bit platforms and higher")
-        {
-            return Err(Error::InvalidState(format!(
-                "seq and/or qual are too long i.e. > {}",
-                u32::MAX
+        if seq.len() > usize::try_from(MAX_SEQ_LEN).expect("u32 fits in supported usize") {
+            return Err(Error::InvalidSeqLength(format!(
+                "seq and/or qual length exceeds {MAX_SEQ_LEN}"
             )));
         }
 
@@ -914,7 +932,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     /// * region does not intersect with read
     /// * sequence is too long, has zero length
     /// * upstream libraries return coordinates that don't fit in `u32`s
-    ///   (this shouldn't happen as we check if sequences are within `u32::MAX`)
+    ///   (this shouldn't happen as we check if sequences are within `MAX_SEQ_LEN`)
     /// * upstream libraries return weird coordinates like bases
     ///   that are neither on the sequence nor on the reference
     /// * incorrect number/missing/wrong coordinates
@@ -937,13 +955,13 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
     ///     let r = record?;
     ///     let curr_read = CurrRead::default().try_from_only_alignment(&r)?;
     ///
-    ///     let region = Bed3::new(0, 9, 13);
+    ///     let region = Bed3::new(0, 9, 13).unwrap();
     ///     let seq_subset = curr_read.seq_coords_from_ref_coords(&r, &region)?;
     ///     // there are deletions on the read above
     ///     assert_eq!(seq_subset, vec![Some((true, 0)), None, None, Some((false, 1)), Some((true, 2))]);
     ///
     ///     // Create a region with no overlap at all and check we get no data
-    ///     let region = Bed3::new(0, 20, 22);
+    ///     let region = Bed3::new(0, 20, 22).unwrap();
     ///     match curr_read.seq_coords_from_ref_coords(&r, &region){
     ///         Err(Error::UnavailableData(_)) => (),
     ///         _ => unreachable!(),
@@ -980,7 +998,16 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
         }
 
         let interval = {
-            let intersected_region = region.intersect(&GenomicStrandedBed3::try_from(self)?);
+            let read_region = GenomicStrandedBed3::try_from(self)?;
+            assert!(
+                read_region.start() <= read_region.end(),
+                "read region start cannot exceed end"
+            );
+            assert!(
+                region.start() <= region.end(),
+                "region start cannot exceed end"
+            );
+            let intersected_region = region.intersect(&read_region);
             let Some(v) = intersected_region else {
                 return Err(Error::UnavailableData(
                     "coord-retrieval: region does not intersect with read".to_owned(),
@@ -988,20 +1015,23 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
             };
             let start = i64::from(v.start());
             let end = i64::from(v.end());
-            (start < end && start >= 0)
-                .then_some(start..end)
-                .ok_or(Error::UnavailableData(String::from(
+            assert!(start >= 0, "intersection start cannot be negative");
+            assert!(start <= end, "intersection start cannot exceed end");
+            if start == end {
+                Err(Error::UnavailableData(String::from(
                     "coord-retrieval: region does not intersect with read",
                 )))
+            } else {
+                Ok(start..end)
+            }
         }?;
 
         let seq_len: i64 = i64::try_from(record.seq_len())?;
-        // following block ensures `seq_len` is in `(1..=u32::MAX)`
+        // following block ensures `seq_len` is in `(1..=MAX_SEQ_LEN)`
         match seq_len {
-            v if v > i64::from(u32::MAX) => {
-                return Err(Error::InvalidState(format!(
-                    "sequence is too long i.e. > {}",
-                    u32::MAX
+            v if v > i64::from(MAX_SEQ_LEN) => {
+                return Err(Error::InvalidSeqLength(format!(
+                    "sequence length exceeds {MAX_SEQ_LEN}"
                 )));
             }
             0 => {
@@ -1020,7 +1050,7 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
         // the i64 of intervals is built up from u32 produced by `GenomicStrandedBed3`.
         let mut s: Vec<Option<(bool, u32)>> =
             Vec::with_capacity(usize::try_from(interval.end - interval.start).expect(
-                "no error; interval is below u32::MAX and u32->usize will not fail in >= 32-bit platforms",
+                "no error; interval is bounded and u32->usize will not fail in >= 32-bit platforms",
             ));
 
         // we may have to trim the sequence if we hit a bunch of unaligned base
@@ -1055,6 +1085,11 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
             match w {
                 [Some(x), Some(y)] => {
                     // Match or mismatch
+                    if !(0..seq_len).contains(&x) {
+                        return Err(Error::InvalidState(format!(
+                            "sequence coordinate {x} exceeds sequence length {seq_len}"
+                        )));
+                    }
                     s.push(Some((true, u32::try_from(x)?)));
                     trim_end_bp = 0;
                     match_or_mismatch_count += 1;
@@ -1063,6 +1098,11 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
                 }
                 [Some(x), None] => {
                     // Insertion or equivalent
+                    if !(0..seq_len).contains(&x) {
+                        return Err(Error::InvalidState(format!(
+                            "sequence coordinate {x} exceeds sequence length {seq_len}"
+                        )));
+                    }
                     s.push(Some((false, u32::try_from(x)?)));
                     trim_end_bp += 1;
                     insertion_count += 1;
@@ -1143,8 +1183,8 @@ i.e. en <= st or st < 0 or en > u32::MAX, read_id: {}",
             "seq coord should be uninitialized (-1) or positive due to `update_coords`"
         );
         assert!(
-            seq_coord_prev <= i64::from(u32::MAX),
-            "indirect protection from `u32::try_from` as we populated `s`"
+            seq_coord_prev < seq_len,
+            "last sequence coordinate must be below sequence length"
         );
         assert!(
             seq_coord_first >= -1,
@@ -1576,10 +1616,10 @@ where
 ///     let mut curr_read = CurrRead::default().try_from_only_alignment(&r)?;
 ///     let Ok(bed3_stranded) = StrandedBed3::try_from(&curr_read) else {unreachable!()};
 ///     let exp_bed3_stranded = match count {
-///         0 => StrandedBed3::new(0, 9, 17, Strand::Forward),
-///         1 => StrandedBed3::new(2, 23, 71, Strand::Forward),
-///         2 => StrandedBed3::new(1, 3, 36, Strand::Reverse),
-///         3 => StrandedBed3::empty(),
+///         0 => StrandedBed3::new(0, 9, 17, Strand::Forward).unwrap(),
+///         1 => StrandedBed3::new(2, 23, 71, Strand::Forward).unwrap(),
+///         2 => StrandedBed3::new(1, 3, 36, Strand::Reverse).unwrap(),
+///         3 => StrandedBed3::empty().unwrap(),
 ///         _ => unreachable!(),
 ///     };
 ///     assert_eq!(*bed3_stranded.chr(), *exp_bed3_stranded.chr());
@@ -1599,7 +1639,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for Genomi
             value.align_len().ok(),
             value.contig_id_and_start().ok(),
         ) {
-            ('.', _, _) => Ok(GenomicStrandedBed3::empty()),
+            ('.', _, _) => Ok(GenomicStrandedBed3::empty()?),
             (_, None, _) => Err(Error::InvalidAlignLength(format!(
                 "align len not set while converting to bed3! read_id: {}",
                 value.read_id()
@@ -1609,13 +1649,13 @@ impl<S: CurrReadStateWithAlign + CurrReadState> TryFrom<&CurrRead<S>> for Genomi
                 value.read_id()
             ))),
             ('+', Some(al), Some((cg, st))) => match st.checked_add(al) {
-                Some(v) => Ok(GenomicStrandedBed3::new(cg, st, v, Strand::Forward)),
+                Some(v) => Ok(GenomicStrandedBed3::new(cg, st, v, Strand::Forward)?),
                 None => Err(Error::InvalidAlignCoords(String::from(
                     "alignment coords exceed u32::MAX",
                 ))),
             },
             ('-', Some(al), Some((cg, st))) => match st.checked_add(al) {
-                Some(v) => Ok(GenomicStrandedBed3::new(cg, st, v, Strand::Reverse)),
+                Some(v) => Ok(GenomicStrandedBed3::new(cg, st, v, Strand::Reverse)?),
                 None => Err(Error::InvalidAlignCoords(String::from(
                     "alignment coords exceed u32::MAX",
                 ))),
@@ -2020,18 +2060,68 @@ impl Default for CurrReadBuilder {
 ///
 /// See documentation of [`CurrReadBuilder`] on how to use
 /// this struct.
-#[derive(Builder, Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-#[builder(default, build_fn(error = "Error"), pattern = "owned")]
+#[derive(Builder, Debug, Clone, Serialize)]
+#[builder(
+    build_fn(error = "Error", validate = "Self::validate"),
+    pattern = "owned"
+)]
 pub struct AlignmentInfo {
     /// Start position on reference
+    #[builder(default)]
     start: u32,
     /// End position on reference
+    #[builder(default)]
     end: u32,
     /// Contig/chromosome name
+    #[builder(default)]
     contig: String,
     /// Contig/chromosome ID
+    #[builder(default)]
     contig_id: i32,
+}
+
+impl AlignmentInfoBuilder {
+    /// Validates that the alignment coordinates form a nonempty interval.
+    fn validate(&self) -> Result<(), Error> {
+        let start = self.start.unwrap_or_default();
+        let end = self.end.unwrap_or_default();
+        if start >= end {
+            Err(Error::InvalidAlignCoords(format!(
+                "alignment end {end} must be greater than alignment start {start}"
+            )))
+        } else if end > MAX_CONTIG_LEN {
+            Err(Error::InvalidAlignCoords(format!(
+                "alignment end {end} exceeds maximum contig length {MAX_CONTIG_LEN}"
+            )))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AlignmentInfo {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Default, Deserialize)]
+        #[serde(default, rename = "AlignmentInfo")]
+        struct SerializedAlignmentInfo {
+            start: u32,
+            end: u32,
+            contig: String,
+            contig_id: i32,
+        }
+
+        let serialized = SerializedAlignmentInfo::deserialize(deserializer)?;
+        AlignmentInfoBuilder::default()
+            .start(serialized.start)
+            .end(serialized.end)
+            .contig(serialized.contig)
+            .contig_id(serialized.contig_id)
+            .build()
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 /// Data per type of modification in [`CurrReadBuilder`].
@@ -2169,6 +2259,11 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
 
     fn try_from(serialized: CurrReadBuilder) -> Result<Self, Self::Error> {
         ensure_valid_read_id(serialized.read_id.as_bytes(), MAX_READ_ID_LEN)?;
+        if serialized.seq_len > MAX_SEQ_LEN {
+            return Err(Error::InvalidSeqLength(format!(
+                "sequence length exceeds {MAX_SEQ_LEN}"
+            )));
+        }
 
         // Extract alignment information
         let (align_len, contig_id_and_start, contig_name, ref_range) = match (
@@ -2180,12 +2275,7 @@ impl TryFrom<CurrReadBuilder> for CurrRead<AlignAndModData> {
                     .end
                     .checked_sub(alignment.start)
                     .filter(|len| *len > 0)
-                    .ok_or_else(|| {
-                        Error::InvalidAlignCoords(format!(
-                            "is align end {0} <= align start {1}? read {2} failed in `CurrRead` building!",
-                            alignment.end, alignment.start, serialized.read_id
-                        ))
-                    })?;
+                    .expect("AlignmentInfo guarantees start < end");
                 ensure_valid_contig_id(alignment.contig_id)?;
                 let contig_id_and_start = Some((alignment.contig_id, alignment.start));
                 let contig = alignment.contig.clone();
@@ -2337,12 +2427,12 @@ ascending needed even if reversed read)!",
 
                 let mapped_ref_pos = match (ref_pos, ref_range.contains(&ref_pos)) {
                     (-1, _) => None,
-                    (v, true) if v > -1 && v <= u32::MAX.into() => {
+                    (v, true) if v > -1 && v < i64::from(MAX_CONTIG_LEN) => {
                         Some(u32::try_from(v).expect("no error as we have checked limits"))
                     }
                     (v, _) => {
                         return Err(Error::InvalidAlignCoords(format!(
-                            "coordinate {v} invalid in mod table (exceeds alignment coords or is < -1 or > u32::MAX)"
+                            "coordinate {v} invalid in mod table (exceeds alignment coords or is < -1 or >= {MAX_CONTIG_LEN})"
                         )));
                     }
                 };
@@ -2692,6 +2782,22 @@ mod test_error_handling {
     }
 
     #[test]
+    fn reconstruct_base_mods_rejects_reference_coordinate_at_contig_limit() {
+        let mod_entries = [ModTableEntry {
+            base: AllowedAGCTN::A,
+            is_strand_plus: true,
+            mod_code: ModChar::new('m'),
+            data: vec![(0, i64::from(MAX_CONTIG_LEN), 30)],
+        }];
+
+        let error = reconstruct_base_mods(&mod_entries, false, 0..i64::MAX, 1).unwrap_err();
+        assert!(matches!(error, Error::InvalidAlignCoords(message)
+        if message == format!(
+            "coordinate {MAX_CONTIG_LEN} invalid in mod table (exceeds alignment coords or is < -1 or >= {MAX_CONTIG_LEN})"
+        )));
+    }
+
+    #[test]
     fn curr_read_builder_rejects_too_many_mod_table_entries() {
         let mod_table = (0..=u32::from(MAX_MOD_TYPES))
             .map(|idx| ModTableEntry {
@@ -2748,7 +2854,7 @@ mod test_error_handling {
         let record = reader.records().next().unwrap()?;
         let curr_read = CurrRead::default().try_from_only_alignment(&record)?;
         let (contig_id, start) = curr_read.contig_id_and_start()?;
-        let region = GenomicBed3::new(contig_id, start, start + 8);
+        let region = GenomicBed3::new(contig_id, start, start + 8).unwrap();
 
         let seq_subset = curr_read.seq_and_qual_on_ref_coords(&record, &region)?;
         assert_eq!(
@@ -2782,7 +2888,7 @@ mod test_error_handling {
             marker: PhantomData,
         };
         let record = Record::new();
-        let region = GenomicBed3::new(0, u32::MAX - 1, u32::MAX);
+        let region = GenomicBed3::new(0, u32::MAX - 1, u32::MAX).unwrap();
 
         let err = curr_read
             .seq_coords_from_ref_coords(&record, &region)

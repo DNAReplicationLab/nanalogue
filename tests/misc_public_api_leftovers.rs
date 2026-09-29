@@ -98,21 +98,15 @@ mod tests {
         Ok(ids)
     }
 
-    /// `Bed3::empty` is exactly the derived default and reports no strand,
+    /// `Bed3::empty` produces a default-coordinate interval and reports no strand,
     /// while its stranded twin reports the strand it was built with.
     #[test]
     fn empty_bed3_is_default_and_unstranded() {
-        let empty: Bed3<String, u32> = Bed3::empty();
-
-        assert_eq!(
-            empty,
-            Bed3::<String, u32>::default(),
-            "empty must be default"
-        );
+        let empty: Bed3<String, u32> = Bed3::empty().unwrap();
         // Derived independently from the component defaults.
         assert_eq!(
             empty,
-            Bed3::new(String::new(), 0u32, 0u32),
+            Bed3::new(String::new(), 0u32, 0u32).unwrap(),
             "empty components"
         );
         assert_eq!(empty.chr(), &String::new(), "empty chromosome is blank");
@@ -120,7 +114,7 @@ mod tests {
         assert_eq!(empty.end(), 0, "empty end is zero");
 
         let stranded: StrandedBed3<String, u32> =
-            StrandedBed3::new(String::from("chr1"), 10, 20, Strand::Reverse);
+            StrandedBed3::new(String::from("chr1"), 10, 20, Strand::Reverse).unwrap();
         assert_eq!(
             empty.strand(),
             None,
@@ -154,19 +148,19 @@ mod tests {
         let max_header = header_with_contig_length(u64::from(u32::MAX));
         assert_eq!(
             region_to_bed3(&max_header, "chr1"),
-            GenomicBed3::new(0, 0, u32::MAX),
+            GenomicBed3::new(0, 0, u32::MAX).unwrap(),
             "the whole contig is the exact BED interval"
         );
         assert_eq!(
             region_to_bed3(&max_header, "chr1:0-"),
-            GenomicBed3::new(0, 0, u32::MAX),
+            GenomicBed3::new(0, 0, u32::MAX).unwrap(),
             "an open end is the contig length"
         );
 
         let below_header = header_with_contig_length(u64::from(u32::MAX) - 1);
         assert_eq!(
             region_to_bed3(&below_header, "chr1"),
-            GenomicBed3::new(0, 0, u32::MAX - 1),
+            GenomicBed3::new(0, 0, u32::MAX - 1).unwrap(),
             "the end is the contig length, not a constant"
         );
 
@@ -178,7 +172,7 @@ mod tests {
         );
         assert_eq!(
             region_to_bed3(&over_max_header, "chr1"),
-            GenomicBed3::new(0, 0, u32::MAX),
+            GenomicBed3::new(0, 0, u32::MAX).unwrap(),
             "the conversion sees the clamped length"
         );
     }
@@ -246,7 +240,7 @@ mod tests {
 
         let read = CurrRead::default().try_from_only_alignment_zero_seq_len(&record)?;
         assert_eq!(read.seq_len()?, 0, "the lenient constructor records zero");
-        let region = GenomicBed3::new(0, 10, 20);
+        let region = GenomicBed3::new(0, 10, 20).unwrap();
         let error = read
             .seq_coords_from_ref_coords(&record, &region)
             .expect_err("coordinate retrieval must refuse an empty sequence");

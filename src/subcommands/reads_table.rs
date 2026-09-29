@@ -1106,7 +1106,7 @@ mod tests {
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
             SeqDisplayOptions::Region {
-                region: GenomicBed3::new(0, 10, 12),
+                region: GenomicBed3::new(0, 10, 12).unwrap(),
                 show_ins_lowercase: false,
                 show_base_qual: true,
                 show_mod_z: false,
@@ -1126,7 +1126,7 @@ mod tests {
             "./examples/example_5_valid_basequal.sam",
             Some(InputMods::<OptionalTag>::default()),
             SeqDisplayOptions::Region {
-                region: GenomicBed3::new(1, 0, 2000),
+                region: GenomicBed3::new(1, 0, 2000).unwrap(),
                 show_ins_lowercase: false,
                 show_base_qual: true,
                 show_mod_z: false,
@@ -1191,7 +1191,7 @@ mod tests {
             "./examples/example_7.sam",
             None,
             SeqDisplayOptions::Region {
-                region: GenomicBed3::new(0, 0, 1000),
+                region: GenomicBed3::new(0, 0, 1000).unwrap(),
                 show_ins_lowercase: true,
                 show_base_qual: false,
                 show_mod_z: false,
@@ -1205,7 +1205,7 @@ mod tests {
             "./examples/example_7.sam",
             None,
             SeqDisplayOptions::Region {
-                region: GenomicBed3::new(0, 0, 1000),
+                region: GenomicBed3::new(0, 0, 1000).unwrap(),
                 show_ins_lowercase: false,
                 show_base_qual: false,
                 show_mod_z: false,
@@ -2470,7 +2470,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: GenomicBed3::new(0, 0, 10),
+                region: GenomicBed3::new(0, 0, 10).unwrap(),
             },
             "ACGTACGTAC",
             10,
@@ -2487,7 +2487,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: GenomicBed3::new(0, 100, 110),
+                region: GenomicBed3::new(0, 100, 110).unwrap(),
             },
             "..........",
             10,
@@ -2504,7 +2504,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: GenomicBed3::new(0, 195, 205),
+                region: GenomicBed3::new(0, 195, 205).unwrap(),
             },
             ".....ACGTA",
             10,
@@ -2521,7 +2521,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: GenomicBed3::new(0, 495, 505),
+                region: GenomicBed3::new(0, 495, 505).unwrap(),
             },
             "TACGTggttggACGTA",
             16,
@@ -2541,7 +2541,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: false,
                 show_mod_z: false,
-                region: GenomicBed3::new(0, 495, 505),
+                region: GenomicBed3::new(0, 495, 505).unwrap(),
             },
             "TACGTGGTTGGACGTA",
             16,
@@ -2558,7 +2558,7 @@ mod stochastic_tests {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: GenomicBed3::new(0, 990, 1000),
+                region: GenomicBed3::new(0, 990, 1000).unwrap(),
             },
             "GTACGTACGT",
             10,
@@ -2744,7 +2744,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: GenomicBed3::new(0, 0, 10),
+                    region: GenomicBed3::new(0, 0, 10).unwrap(),
                 },
                 k.1,
                 k.2,
@@ -2767,7 +2767,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k,
-                    region: GenomicBed3::new(0, 100, 110),
+                    region: GenomicBed3::new(0, 100, 110).unwrap(),
                 },
                 "..........",
                 "..........",
@@ -2793,7 +2793,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: GenomicBed3::new(0, 195, 205),
+                    region: GenomicBed3::new(0, 195, 205).unwrap(),
                 },
                 k.1,
                 k.2,
@@ -2819,7 +2819,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: GenomicBed3::new(0, 495, 505),
+                    region: GenomicBed3::new(0, 495, 505).unwrap(),
                 },
                 k.1,
                 k.2,
@@ -2845,7 +2845,7 @@ mod stochastic_tests_with_mods {
                     show_base_qual: true,
                     show_ins_lowercase: true,
                     show_mod_z: k.0,
-                    region: GenomicBed3::new(0, 990, 1000),
+                    region: GenomicBed3::new(0, 990, 1000).unwrap(),
                 },
                 k.1,
                 k.2,
@@ -2867,7 +2867,7 @@ mod stochastic_tests_with_mods {
 
         // Test region 0-10
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
-            .region_bed3(GenomicBed3::new(0, 0, 10))
+            .region_bed3(GenomicBed3::new(0, 0, 10).unwrap())
             .build()?;
 
         let df = run_reads_table(
@@ -2877,7 +2877,7 @@ mod stochastic_tests_with_mods {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: false,
-                region: GenomicBed3::new(0, 0, 10),
+                region: GenomicBed3::new(0, 0, 10).unwrap(),
             },
             route,
         )?;
@@ -3071,7 +3071,7 @@ mod stochastic_tests_with_mods {
 
         // Test a small region
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
-            .region_bed3(GenomicBed3::new(0, 495, 505))
+            .region_bed3(GenomicBed3::new(0, 495, 505).unwrap())
             .build()?;
 
         let df = run_reads_table(
@@ -3081,7 +3081,7 @@ mod stochastic_tests_with_mods {
                 show_base_qual: true,
                 show_ins_lowercase: true,
                 show_mod_z: true,
-                region: GenomicBed3::new(0, 495, 505),
+                region: GenomicBed3::new(0, 495, 505).unwrap(),
             },
             route,
         )?;
@@ -3148,7 +3148,7 @@ mod stochastic_tests_with_mods {
 
         // Test a small region
         let mods_for_region = InputModsBuilder::<OptionalTag>::default()
-            .region_bed3(GenomicBed3::new(0, 495, 505))
+            .region_bed3(GenomicBed3::new(0, 495, 505).unwrap())
             .mod_prob_filter(ThresholdState::Both((250u8, (100u8, 150u8).try_into()?)))
             .build()?;
 
@@ -3159,7 +3159,7 @@ mod stochastic_tests_with_mods {
                 show_base_qual: false,
                 show_ins_lowercase: false,
                 show_mod_z: true,
-                region: GenomicBed3::new(0, 495, 505),
+                region: GenomicBed3::new(0, 495, 505).unwrap(),
             },
             route,
         )?;

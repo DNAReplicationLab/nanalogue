@@ -151,7 +151,7 @@ mod tests {
         );
         assert_argument_error(
             ["reads.bam", "chr1:7", "4294967296"],
-            "integer parsing error: `number too large to fit in target type`",
+            "invalid mod type: `4294967296`",
         );
     }
 

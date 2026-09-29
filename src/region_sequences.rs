@@ -375,7 +375,7 @@ impl RegionSequenceReader {
     ) -> Result<Vec<RegionSequence>, Error> {
         self.validate_region(tid, start, end)?;
         self.reader.fetch((tid, i64::from(start), i64::from(end)))?;
-        let region = crate::GenomicBed3::new(i32::try_from(tid)?, start, end);
+        let region = crate::GenomicBed3::new(i32::try_from(tid)?, start, end)?;
         let mut rows = Vec::new();
         let mut record_count = 0u32;
         for record_result in bam::Read::records(&mut self.reader) {
@@ -463,7 +463,7 @@ impl RegionSequenceReader {
     ) -> Result<Vec<ReadModProfile>, Error> {
         self.validate_region(tid, start, end)?;
         self.reader.fetch((tid, i64::from(start), i64::from(end)))?;
-        let region = crate::GenomicBed3::new(i32::try_from(tid)?, start, end);
+        let region = crate::GenomicBed3::new(i32::try_from(tid)?, start, end)?;
         let mut profiles = Vec::new();
         let mut alignment_occurrences = HashMap::new();
         let mut record_count = 0u32;

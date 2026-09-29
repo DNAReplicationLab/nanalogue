@@ -177,9 +177,10 @@ jobs:
 
       - name: Build binaries
         env:
-          # Zig 0.15's Clang rejects libdeflate's AVX-512 target attributes
-          # when cargo-zigbuild sets a versioned glibc target. Keep the
-          # portable SIMD variants used by the release compatibility targets.
+          # Zig 0.15's Clang cannot compile libdeflate's x86_64 AVX-512
+          # per-function target attributes. A baseline CPU flag cannot avoid
+          # them, so disable only those variants; libdeflate still selects
+          # portable and supported SIMD implementations at runtime.
           CFLAGS_x86_64_unknown_linux_gnu: >-
             -DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI
             -DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ
