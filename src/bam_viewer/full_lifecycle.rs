@@ -44,9 +44,9 @@
 //! interactive viewer until it reaches the final viewport. Every read is classified from
 //! its rendered boundary cells in every frame, then checked against the table above. It
 //! also checks that every read contributes exactly 20 deletion columns across the frames.
-//! Finally, the test requires at least one read to exhibit the complete non-boundary
-//! lifecycle, including leading whitespace on entry, several full frames, trailing
-//! whitespace on exit, and absence afterwards.
+//! Finally, the test checks that the simulated population contains the expected number of
+//! complete non-boundary lifecycles, including leading whitespace on entry, several full
+//! frames, trailing whitespace on exit, and absence afterwards.
 
 use super::{
     handle_viewer_key,
@@ -344,9 +344,14 @@ fn simulated_reads_follow_the_full_scroll_lifecycle() -> Result<(), Box<dyn Erro
         }
     }
 
+    // Six of the simulator's seven equally likely read states are mapped. A 50 bp read has
+    // 51 possible leftmost starts on a 100 bp contig: 0..=50. Of those, 24 cannot show all
+    // five lifecycle stages: 0..=10 lack an observed absent-before or partial-entry stage;
+    // 20 and 30 are boundary-aligned; and 40..=50 lack a partial-exit or observed
+    // absent-after stage. Thus 10_000 * (6 / 7) * (27 / 51) is about 4_538 reads.
     assert!(
-        complete_non_boundary_lifecycles > 0,
-        "at least one read must enter with leading whitespace, span full viewports, leave with trailing whitespace, and disappear"
+        (4_488..=4_588).contains(&complete_non_boundary_lifecycles),
+        "expected 4,488 to 4,588 complete non-boundary lifecycles, observed {complete_non_boundary_lifecycles}"
     );
     Ok(())
 }

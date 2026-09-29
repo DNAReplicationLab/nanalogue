@@ -5,7 +5,7 @@
     "repeated_seq": "ACGT"
   },
   "reads": [{
-    "number": 40,
+    "number": 10000,
     "mapq_range": [30, 60],
     "base_qual_range": [30, 40],
     "len_range": [0.5, 0.5],
