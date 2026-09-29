@@ -464,7 +464,7 @@ where
         let seq_len = packed_seq.len();
 
         if seq_len > usize::try_from(MAX_SEQ_LEN).expect("u32 fits in supported usize") {
-            return Err(Error::InvalidState(format!(
+            return Err(Error::InvalidSeqLength(format!(
                 "sequence length exceeds {MAX_SEQ_LEN}"
             )));
         }
@@ -1323,7 +1323,12 @@ mod mod_parse_tests {
         record.push_aux(b"ML", Aux::ArrayU8((&[200]).into()))?;
 
         let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
-        assert!(matches!(result, Err(Error::InvalidModCoords(_))));
+        // The start is valid, so this exact message comes from the per-M/=/X coordinate check;
+        // the final half-open end check uses a different message.
+        assert!(matches!(result, Err(Error::InvalidModCoords(message))
+        if message == format!(
+            "reference coordinate exceeds maximum contig length {MAX_CONTIG_LEN}"
+        )));
         Ok(())
     }
 

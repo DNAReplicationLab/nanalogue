@@ -61,7 +61,7 @@ impl SeqToRefMap {
         /// Bits the operation length is shifted by in a BAM CIGAR word.
         const LEN_SHIFT: u32 = 4;
         if seq_len > MAX_SEQ_LEN {
-            return Err(Error::InvalidState(format!(
+            return Err(Error::InvalidSeqLength(format!(
                 "sequence length exceeds {MAX_SEQ_LEN}"
             )));
         }
@@ -82,7 +82,6 @@ impl SeqToRefMap {
                 "max CIGAR operations exceeded {MAX_CIGAR_OPERATIONS}"
             )));
         }
-        let query_limit = seq_len.saturating_add(1);
         let mut segments = Vec::with_capacity(
             raw_cigar
                 .len()
@@ -107,25 +106,17 @@ impl SeqToRefMap {
                             "rust_htslib failure! seq coordinates malformed".to_owned(),
                         ));
                     }
-                    let ref_start = if query < query_limit {
-                        let checked_len = len.min(query_limit.saturating_sub(query));
-                        let last =
-                            reference_coordinate.saturating_add(checked_len.saturating_sub(1));
-                        if last >= MAX_CONTIG_LEN {
-                            return Err(Error::InvalidModCoords(format!(
-                                "reference coordinate exceeds maximum contig length {MAX_CONTIG_LEN}"
-                            )));
-                        }
-                        Some(reference_coordinate)
-                    } else {
-                        // Query consumption is already malformed, so this segment is never used.
-                        None
-                    };
+                    let last = reference_coordinate.saturating_add(len.saturating_sub(1));
+                    if last >= MAX_CONTIG_LEN {
+                        return Err(Error::InvalidModCoords(format!(
+                            "reference coordinate exceeds maximum contig length {MAX_CONTIG_LEN}"
+                        )));
+                    }
                     assert!(query_end > query, "non-zero CIGAR operation advances query");
                     segments.push(SeqToRefSegment {
                         query_start: query,
                         query_end,
-                        ref_start,
+                        ref_start: Some(reference_coordinate),
                     });
                     query = query_end;
                     reference_coordinate = reference_coordinate.saturating_add(len);
@@ -158,7 +149,7 @@ impl SeqToRefMap {
                 }
             }
         }
-        if query.min(query_limit) == seq_len {
+        if query == seq_len {
             if reference_coordinate > MAX_CONTIG_LEN {
                 return Err(Error::InvalidModCoords(format!(
                     "reference alignment exceeds maximum contig length {MAX_CONTIG_LEN}"
@@ -177,11 +168,6 @@ impl SeqToRefMap {
                 seq_len,
                 "segment query lengths must sum to the sequence length"
             );
-            if !segments.iter().any(|segment| segment.ref_start.is_some()) {
-                return Err(Error::InvalidState(
-                    "mapped CIGAR has no aligned query bases".to_owned(),
-                ));
-            }
             Ok(Self(segments))
         } else {
             Err(Error::InvalidState(
@@ -322,6 +308,29 @@ mod seq_to_ref_map_tests {
         }
     }
 
+    /// Encodes a raw BAM CIGAR word.
+    fn word(len: u32, operation: u32) -> u32 {
+        (len << 4) | operation
+    }
+
+    /// Deterministic xorshift generator for reproducible differential tests.
+    struct XorShift(u64);
+
+    impl XorShift {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+
+        fn below(&mut self, upper_bound: u64) -> u64 {
+            self.next()
+                .checked_rem(upper_bound)
+                .expect("upper bound is non-zero")
+        }
+    }
+
     #[test]
     fn segments_match_aligned_pairs_for_every_operation() {
         let cigar = vec![
@@ -364,14 +373,47 @@ mod seq_to_ref_map_tests {
     }
 
     #[test]
-    fn mapped_cigar_requires_an_aligned_query_segment() {
-        for operation in [Cigar::SoftClip(1), Cigar::Ins(1)] {
-            let record = record(17, vec![operation]);
-            let error = SeqToRefMap::try_from_raw_cigar(record.raw_cigar(), 17, 1)
-                .expect_err("a mapped CIGAR must align at least one query base");
-            assert!(matches!(error, Error::InvalidState(message)
-                if message == "mapped CIGAR has no aligned query bases"));
+    fn reference_start_at_or_above_contig_limit_is_rejected() {
+        for start in [MAX_CONTIG_LEN, u32::MAX] {
+            let mut invalid = record(i64::from(start), vec![Cigar::Match(1)]);
+            let error = parse_all_positions(&mut invalid)
+                .expect_err("the reference start must be below the contig limit");
+            assert!(matches!(error, Error::InvalidModCoords(message)
+            if message == format!(
+                "reference coordinate exceeds maximum contig length {MAX_CONTIG_LEN}"
+            )));
         }
+    }
+
+    #[test]
+    fn mapped_cigar_without_aligned_query_bases_has_no_reference_positions() {
+        for operation in [Cigar::SoftClip(1), Cigar::Ins(1)] {
+            let mut record = record(17, vec![operation]);
+            let parsed = parse_all_positions(&mut record)
+                .expect("the parser retains the previous permissive behavior");
+            let annotation = parsed
+                .base_mods
+                .first()
+                .expect("one modification group")
+                .ranges
+                .annotations
+                .first()
+                .expect("one annotation");
+            assert_eq!(annotation.ref_pos, None);
+        }
+    }
+
+    #[test]
+    fn unaligned_cigar_still_requires_start_below_contig_limit() {
+        // Only the start check catches this: with no M/=/X/D/N operation, the final
+        // half-open end stays equal to the start, which is not above `MAX_CONTIG_LEN`.
+        let mut invalid = record(i64::from(MAX_CONTIG_LEN), vec![Cigar::SoftClip(1)]);
+        let error = parse_all_positions(&mut invalid)
+            .expect_err("an unaligned record cannot start at the contig limit");
+        assert!(matches!(error, Error::InvalidModCoords(message)
+        if message == format!(
+            "reference coordinate exceeds maximum contig length {MAX_CONTIG_LEN}"
+        )));
     }
 
     #[test]
@@ -379,7 +421,7 @@ mod seq_to_ref_map_tests {
         let record = record(17, vec![Cigar::Match(1)]);
         let error = SeqToRefMap::try_from_raw_cigar(record.raw_cigar(), 17, MAX_SEQ_LEN + 1)
             .expect_err("the sequence length limit must be enforced");
-        assert!(matches!(error, Error::InvalidState(message)
+        assert!(matches!(error, Error::InvalidSeqLength(message)
             if message == format!("sequence length exceeds {MAX_SEQ_LEN}")));
     }
 
@@ -425,6 +467,179 @@ mod seq_to_ref_map_tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn maximum_sequence_length_maps_first_and_last_base() {
+        let map = SeqToRefMap::try_from_raw_cigar(&[word(MAX_SEQ_LEN, 0)], 0, MAX_SEQ_LEN)
+            .expect("the maximum supported sequence length is valid");
+        assert_eq!(map.get(0), Some(0));
+        assert_eq!(map.get(MAX_SEQ_LEN - 1), Some(MAX_SEQ_LEN - 1));
+        assert_eq!(map.get(MAX_SEQ_LEN), None);
+    }
+
+    #[test]
+    fn lookups_are_exact_at_segment_boundaries() {
+        // 2S 3M 2I 3M => query 0..2 clip, 2..5 aligned, 5..7 insertion, 7..10 aligned.
+        let raw = [word(2, 4), word(3, 0), word(2, 1), word(3, 0)];
+        let map = SeqToRefMap::try_from_raw_cigar(&raw, 100, 10).expect("valid CIGAR");
+        let positions: Vec<_> = (0..12).map(|index| map.get(index)).collect();
+        assert_eq!(
+            positions,
+            [
+                None,
+                None,
+                Some(100),
+                Some(101),
+                Some(102),
+                None,
+                None,
+                Some(103),
+                Some(104),
+                Some(105),
+                None,
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn padding_and_hard_clips_do_not_shift_positions() {
+        let raw = [word(2, 0), word(3, 6), word(1, 5), word(2, 0)];
+        let map = SeqToRefMap::try_from_raw_cigar(&raw, 7, 4).expect("valid CIGAR");
+        let positions: Vec<_> = (0..4).map(|index| map.get(index)).collect();
+        assert_eq!(positions, [Some(7), Some(8), Some(9), Some(10)]);
+    }
+
+    #[test]
+    fn reference_coordinate_saturation_does_not_wrap() {
+        let mut valid: Vec<u32> = std::iter::repeat_n(word(MAX_SEQ_LEN, 2), 16).collect();
+        valid.push(word(1, 0));
+        let map = SeqToRefMap::try_from_raw_cigar(&valid, 0, 1)
+            .expect("the aligned base remains below the contig limit");
+        assert_eq!(map.get(0), Some(16 * MAX_SEQ_LEN));
+
+        let mut overflowing: Vec<u32> = std::iter::repeat_n(word(MAX_SEQ_LEN, 2), 17).collect();
+        overflowing.push(word(1, 0));
+        let error = SeqToRefMap::try_from_raw_cigar(&overflowing, 0, 1)
+            .expect_err("a saturated reference coordinate must be rejected");
+        assert!(matches!(error, Error::InvalidModCoords(_)));
+    }
+
+    #[test]
+    fn trailing_reference_consumption_obeys_contig_limit() {
+        let start = MAX_CONTIG_LEN - 3;
+        for (deleted, expected_ok) in [(2, true), (3, false)] {
+            let raw = [word(1, 0), word(deleted, 2)];
+            let result = SeqToRefMap::try_from_raw_cigar(&raw, start, 1);
+            assert_eq!(result.is_ok(), expected_ok, "trailing deletion {deleted}");
+        }
+    }
+
+    #[test]
+    fn reverse_reads_leave_clipped_and_inserted_bases_unmapped() {
+        let mut read = record(
+            17,
+            vec![
+                Cigar::SoftClip(2),
+                Cigar::Match(3),
+                Cigar::Ins(1),
+                Cigar::Match(1),
+            ],
+        );
+        read.set_flags(16);
+        let parsed = parse_all_positions(&mut read).expect("valid record");
+        let mut positions: Vec<(u32, Option<u32>)> = parsed
+            .base_mods
+            .first()
+            .expect("one modification group")
+            .ranges
+            .annotations
+            .iter()
+            .map(|annotation| (annotation.pos, annotation.ref_pos))
+            .collect();
+        positions.sort_unstable();
+        assert_eq!(
+            positions,
+            [
+                (0, None),
+                (1, None),
+                (2, Some(17)),
+                (3, Some(18)),
+                (4, Some(19)),
+                (5, None),
+                (6, Some(20)),
+            ]
+        );
+    }
+
+    #[test]
+    fn random_cigars_match_htslib_aligned_pairs() {
+        let mut rng = XorShift(0x9E37_79B9_7F4A_7C15);
+        for _ in 0..5_000 {
+            let operation_count = usize::try_from(1 + rng.below(8)).expect("small value");
+            let mut operations: Vec<Cigar> = std::iter::repeat_with(|| {
+                let len = u32::try_from(1 + rng.below(6)).expect("small value");
+                match rng.below(9) {
+                    0 => Cigar::Match(len),
+                    1 => Cigar::Ins(len),
+                    2 => Cigar::Del(len),
+                    3 => Cigar::RefSkip(len),
+                    4 => Cigar::SoftClip(len),
+                    5 => Cigar::HardClip(len),
+                    6 => Cigar::Pad(len),
+                    7 => Cigar::Equal(len),
+                    _ => Cigar::Diff(len),
+                }
+            })
+            .take(operation_count)
+            .collect();
+            operations.push(Cigar::Match(1));
+
+            let start = if rng.below(2) == 0 {
+                i64::try_from(rng.below(1_000)).expect("small value")
+            } else {
+                i64::from(MAX_CONTIG_LEN) - i64::try_from(rng.below(12)).expect("small value")
+            };
+            let record_with_padding = record(start, operations.clone());
+            // rust-htslib's iterator panics on padding, whose correct effect is no coordinate
+            // consumption, so compare against an otherwise identical pad-free record.
+            let oracle_record = record(
+                start,
+                operations
+                    .iter()
+                    .filter(|operation| !matches!(operation, Cigar::Pad(_)))
+                    .copied()
+                    .collect(),
+            );
+            let seq_len_usize = record_with_padding.seq_len();
+            let expected = dense(&oracle_record, seq_len_usize);
+            let within_limit = expected.as_ref().is_ok_and(|coordinates| {
+                coordinates
+                    .iter()
+                    .flatten()
+                    .all(|coordinate| *coordinate < MAX_CONTIG_LEN)
+            }) && oracle_record.reference_end() <= i64::from(MAX_CONTIG_LEN);
+            let seq_len_u32 = u32::try_from(seq_len_usize).expect("small value");
+            let actual = SeqToRefMap::try_from_raw_cigar(
+                record_with_padding.raw_cigar(),
+                u32::try_from(start).expect("start fits u32"),
+                seq_len_u32,
+            );
+
+            match (within_limit, actual) {
+                (true, Ok(map)) => {
+                    let positions: Vec<_> = (0..seq_len_u32).map(|index| map.get(index)).collect();
+                    assert_eq!(Ok(positions), expected, "{operations:?} at {start}");
+                }
+                (false, Err(_)) => {}
+                (expected_ok, result) => assert_eq!(
+                    expected_ok,
+                    result.is_ok(),
+                    "{operations:?} at {start}: expected ok={expected_ok}, got {result:?}"
+                ),
+            }
+        }
     }
 
     #[test]
@@ -474,12 +689,14 @@ mod seq_to_ref_map_tests {
     }
 
     #[test]
-    fn unknown_raw_operation_returns_a_controlled_error() {
-        let mut malformed = record(17, vec![Cigar::Match(3)]);
-        replace_first_operation_code(&mut malformed, 9);
-        let error = parse_all_positions(&mut malformed)
-            .expect_err("unknown raw CIGAR operations must be rejected");
-        assert!(matches!(error, Error::InvalidState(message)
-            if message == "unsupported CIGAR operation code 9"));
+    fn every_unknown_raw_operation_returns_a_controlled_error() {
+        for operation in 9..=15 {
+            let mut malformed = record(17, vec![Cigar::Match(3)]);
+            replace_first_operation_code(&mut malformed, operation);
+            let error = parse_all_positions(&mut malformed)
+                .expect_err("unknown raw CIGAR operations must be rejected");
+            assert!(matches!(error, Error::InvalidState(message)
+                if message == format!("unsupported CIGAR operation code {operation}")));
+        }
     }
 }

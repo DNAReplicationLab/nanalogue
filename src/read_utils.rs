@@ -875,7 +875,7 @@ i.e. en <= st or st < 0 or en > {MAX_CONTIG_LEN}, read_id: {}",
             ));
         }
         if seq.len() > usize::try_from(MAX_SEQ_LEN).expect("u32 fits in supported usize") {
-            return Err(Error::InvalidState(format!(
+            return Err(Error::InvalidSeqLength(format!(
                 "seq and/or qual length exceeds {MAX_SEQ_LEN}"
             )));
         }
@@ -1030,7 +1030,7 @@ i.e. en <= st or st < 0 or en > {MAX_CONTIG_LEN}, read_id: {}",
         // following block ensures `seq_len` is in `(1..=MAX_SEQ_LEN)`
         match seq_len {
             v if v > i64::from(MAX_SEQ_LEN) => {
-                return Err(Error::InvalidState(format!(
+                return Err(Error::InvalidSeqLength(format!(
                     "sequence length exceeds {MAX_SEQ_LEN}"
                 )));
             }
