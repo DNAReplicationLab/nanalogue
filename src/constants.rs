@@ -42,7 +42,11 @@ pub mod shared {
     /// a single `u32` (see [`crate::FiberAnnotation`]).
     pub const MAX_SEQ_LEN: u32 = (1 << 24) - 1;
 
-    /// Hard cap on reference contig length.
+    /// Hard cap on reference contig length and exclusive upper bound for 0-based reference
+    /// positions.
+    ///
+    /// Valid positions are in `[0, MAX_CONTIG_LEN)`, while the end of a half-open reference
+    /// interval may equal `MAX_CONTIG_LEN`.
     ///
     /// Some organisms have contigs longer than roughly 4.3 gigabases, but they are uncommon
     /// and are not supported.
