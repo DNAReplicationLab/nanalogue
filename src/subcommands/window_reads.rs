@@ -106,7 +106,7 @@ where
     // annotation structs rather than being copied into two more parallel vectors.
     let mod_data: Vec<u8> = base_mod
         .ranges
-        .annotations
+        .annotations()
         .iter()
         .map(FiberAnnotation::qual)
         .collect();

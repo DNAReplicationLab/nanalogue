@@ -134,7 +134,7 @@ mod tests {
             .base_mods
             .iter()
             .flat_map(|base_mod| {
-                base_mod.ranges.annotations.iter().map(|annotation| {
+                base_mod.ranges.annotations().iter().map(|annotation| {
                     (
                         annotation.pos(),
                         annotation.ref_pos().map_or(-1, i64::from),

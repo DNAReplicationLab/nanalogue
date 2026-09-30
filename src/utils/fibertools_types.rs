@@ -192,36 +192,71 @@ impl PartialOrd for FiberAnnotation {
 
 /// A collection of [`FiberAnnotation`] items along a single read.
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
-#[expect(
-    clippy::exhaustive_structs,
-    reason = "vendored type constructed directly in user code and doctests"
-)]
 pub struct FiberAnnotations {
     /// Sorted annotations along the read
-    pub annotations: Vec<FiberAnnotation>,
+    annotations: Vec<FiberAnnotation>,
     /// Length of the query sequence
-    pub seq_len: u32,
+    seq_len: u32,
     /// Whether the read is on the reverse strand
-    pub reverse: bool,
+    reverse: bool,
 }
 
 /// Backward-compatible alias used throughout the codebase.
 pub type Ranges = FiberAnnotations;
 
 impl FiberAnnotations {
-    /// Creates `FiberAnnotations` from a vector of annotations, sorting by start position.
-    #[must_use]
+    /// Creates `FiberAnnotations`, sorting by query position and validating
+    /// that mapped reference positions are strictly increasing.
+    ///
+    /// Unmapped annotations do not participate in reference ordering.
+    ///
+    /// # Errors
+    /// Returns [`Error::WrongOrder`] if mapped reference positions are not
+    /// strictly increasing after sorting by query position.
     pub fn from_annotations(
         mut annotations: Vec<FiberAnnotation>,
         seq_len: u32,
         reverse: bool,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         annotations.sort_by_key(FiberAnnotation::pos);
-        Self {
+        if !annotations
+            .iter()
+            .filter_map(FiberAnnotation::ref_pos)
+            .is_sorted_by(|previous, next| previous < next)
+        {
+            return Err(Error::WrongOrder(
+                "reference positions are not strictly increasing".to_owned(),
+            ));
+        }
+        Ok(Self {
             annotations,
             seq_len,
             reverse,
-        }
+        })
+    }
+
+    /// Annotations sorted by query position.
+    #[must_use]
+    pub fn annotations(&self) -> &[FiberAnnotation] {
+        &self.annotations
+    }
+
+    /// Length of the query sequence.
+    #[must_use]
+    pub const fn seq_len(&self) -> u32 {
+        self.seq_len
+    }
+
+    /// Whether the read is on the reverse strand.
+    #[must_use]
+    pub const fn is_reverse(&self) -> bool {
+        self.reverse
+    }
+
+    /// Retains a contiguous range of annotations without changing their order.
+    pub(crate) fn retain_annotation_range(&mut self, range: core::ops::Range<usize>) {
+        self.annotations.truncate(range.end);
+        self.annotations.drain(..range.start).for_each(drop);
     }
 
     /// Query positions.
@@ -336,14 +371,15 @@ mod tests {
 
     #[test]
     fn fiber_annotations_accessors() {
-        let annotations = FiberAnnotations {
-            annotations: vec![
+        let annotations = FiberAnnotations::from_annotations(
+            vec![
                 FiberAnnotation::try_new(5, 100, Some(50)).unwrap(),
                 FiberAnnotation::try_new(20, 150, None).unwrap(),
             ],
-            seq_len: 50,
-            reverse: false,
-        };
+            50,
+            false,
+        )
+        .unwrap();
         assert_eq!(annotations.pos().collect::<Vec<_>>(), vec![5, 20]);
         assert_eq!(annotations.qual().collect::<Vec<_>>(), vec![100, 150]);
         assert_eq!(
@@ -445,13 +481,83 @@ mod tests {
 
     #[test]
     fn fiber_annotations_empty() {
-        let annotations = FiberAnnotations {
-            annotations: vec![],
-            seq_len: 0,
-            reverse: false,
-        };
+        let annotations = FiberAnnotations::from_annotations(vec![], 0, false).unwrap();
         assert!(annotations.pos().next().is_none());
         assert!(annotations.qual().next().is_none());
         assert!(annotations.ref_pos().next().is_none());
+    }
+
+    #[test]
+    fn fiber_annotations_sorts_before_validating_reference_order() {
+        let annotations = vec![
+            FiberAnnotation::try_new(1, 10, Some(101)).unwrap(),
+            FiberAnnotation::try_new(0, 20, Some(100)).unwrap(),
+        ];
+
+        let ranges = FiberAnnotations::from_annotations(annotations, 2, false).unwrap();
+
+        assert_eq!(ranges.pos().collect::<Vec<_>>(), vec![0, 1]);
+        assert_eq!(
+            ranges.ref_pos().collect::<Vec<_>>(),
+            vec![Some(100), Some(101)]
+        );
+    }
+
+    #[test]
+    fn fiber_annotations_rejects_descending_reference_positions() {
+        let annotations = vec![
+            FiberAnnotation::try_new(0, 10, Some(100)).unwrap(),
+            FiberAnnotation::try_new(1, 20, Some(50)).unwrap(),
+        ];
+
+        let error = FiberAnnotations::from_annotations(annotations, 2, false).unwrap_err();
+
+        assert!(matches!(error, Error::WrongOrder(_)));
+    }
+
+    #[test]
+    fn fiber_annotations_rejects_duplicate_reference_positions() {
+        let annotations = vec![
+            FiberAnnotation::try_new(0, 10, Some(100)).unwrap(),
+            FiberAnnotation::try_new(1, 20, Some(100)).unwrap(),
+        ];
+
+        let error = FiberAnnotations::from_annotations(annotations, 2, false).unwrap_err();
+
+        assert!(matches!(error, Error::WrongOrder(_)));
+    }
+
+    #[test]
+    fn fiber_annotations_ignores_unmapped_positions_when_validating_order() {
+        let annotations = vec![
+            FiberAnnotation::try_new(0, 10, Some(100)).unwrap(),
+            FiberAnnotation::try_new(1, 20, None).unwrap(),
+            FiberAnnotation::try_new(2, 30, Some(101)).unwrap(),
+        ];
+
+        let ranges = FiberAnnotations::from_annotations(annotations, 3, false).unwrap();
+
+        assert_eq!(
+            ranges.ref_pos().collect::<Vec<_>>(),
+            vec![Some(100), None, Some(101)]
+        );
+    }
+
+    #[test]
+    fn fiber_annotations_rejects_non_monotonic_positions_across_unmapped_positions() {
+        for reverse in [false, true] {
+            for final_ref_pos in [50, 100] {
+                let annotations = vec![
+                    FiberAnnotation::try_new(0, 10, Some(100)).unwrap(),
+                    FiberAnnotation::try_new(1, 20, None).unwrap(),
+                    FiberAnnotation::try_new(2, 30, Some(final_ref_pos)).unwrap(),
+                ];
+
+                let error = FiberAnnotations::from_annotations(annotations, 3, reverse)
+                    .expect_err("None must not reset reference ordering");
+
+                assert!(matches!(error, Error::WrongOrder(_)));
+            }
+        }
     }
 }

@@ -117,10 +117,10 @@ mod tests {
         assert_eq!(group.strand, '+');
         assert_eq!(group.modification_type, 'n');
         assert!(group.record_is_reverse);
-        assert!(group.ranges.reverse);
-        assert_eq!(group.ranges.seq_len, 6);
+        assert!(group.ranges.is_reverse());
+        assert_eq!(group.ranges.seq_len(), 6);
         assert_eq!(
-            group.ranges.annotations,
+            group.ranges.annotations(),
             [
                 // Forward index 2 becomes stored reverse-read coordinate 3.
                 // The insertion is third in MM's original forward orientation.
@@ -149,18 +149,22 @@ mod tests {
             0,
         )?;
         assert_eq!(
-            base_mods.first().expect("one N+n group").ranges.annotations,
+            base_mods
+                .first()
+                .expect("one N+n group")
+                .ranges
+                .annotations(),
             [FiberAnnotation::try_new(3, 200, None).unwrap()],
             "zero-valued implicit calls and the low-probability explicit call are filtered"
         );
 
         let with_zeros = nanalogue_mm_ml_parser(&record, |_| true, |_| true, |_, _, _| true, 0)?;
-        let annotations = &with_zeros
+        let annotations = with_zeros
             .base_mods
             .first()
             .expect("one N+n group")
             .ranges
-            .annotations;
+            .annotations();
         assert_eq!(
             annotations
                 .iter()
