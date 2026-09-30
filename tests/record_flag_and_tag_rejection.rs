@@ -209,11 +209,7 @@ mod tests {
             assert_eq!(group.modified_base, b'C', "{mm_tag}/{ml_tag}");
             assert_eq!(
                 group.ranges.annotations,
-                vec![FiberAnnotation {
-                    pos: 1,
-                    qual: 203,
-                    ref_pos: Some(18)
-                }],
+                vec![FiberAnnotation::try_new(1, 203, Some(18)).unwrap()],
                 "{mm_tag}/{ml_tag}"
             );
         }
@@ -251,16 +247,8 @@ mod tests {
         assert_eq!(
             n_group.ranges.annotations,
             vec![
-                FiberAnnotation {
-                    pos: 0,
-                    qual: 101,
-                    ref_pos: Some(17)
-                },
-                FiberAnnotation {
-                    pos: 1,
-                    qual: 202,
-                    ref_pos: Some(18)
-                },
+                FiberAnnotation::try_new(0, 101, Some(17)).unwrap(),
+                FiberAnnotation::try_new(1, 202, Some(18)).unwrap(),
             ],
             "N must annotate positions 0 and 1 regardless of the underlying bases"
         );
@@ -274,11 +262,7 @@ mod tests {
         );
         assert_eq!(
             c_group.ranges.annotations,
-            vec![FiberAnnotation {
-                pos: 1,
-                qual: 203,
-                ref_pos: Some(18)
-            }],
+            vec![FiberAnnotation::try_new(1, 203, Some(18)).unwrap()],
             "C must skip the A at position 0 and annotate only the cytosine"
         );
     }

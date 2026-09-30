@@ -3297,7 +3297,7 @@ mod read_generation_with_mods_tests {
                         .ranges
                         .annotations
                         .iter()
-                        .all(|annotation| annotation.qual == ALL_DROPPED_QUALITY)
+                        .all(|annotation| annotation.qual() == ALL_DROPPED_QUALITY)
                 );
             }
         }
@@ -5129,9 +5129,9 @@ mod read_generation_with_mods_tests {
                     .flat_map(|base_mod| &base_mod.ranges.annotations)
                     .map(move |annotation| MismatchObservation {
                         read_id: read.read_id().to_owned(),
-                        quality: u32::from(annotation.qual),
+                        quality: u32::from(annotation.qual()),
                         alignment,
-                        ref_position: annotation.ref_pos.map(i64::from),
+                        ref_position: annotation.ref_pos().map(i64::from),
                     })
             })
             .collect::<Vec<_>>();

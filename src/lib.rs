@@ -311,10 +311,10 @@ fn approximate_mod_data_len(
 ///             modification_type: 'T',
 ///             ranges: Ranges {
 ///                 annotations: vec![
-///                     FiberAnnotation { pos: 0, qual: 4, ref_pos: Some(9) },
-///                     FiberAnnotation { pos: 3, qual: 7, ref_pos: Some(12) },
-///                     FiberAnnotation { pos: 4, qual: 9, ref_pos: Some(13) },
-///                     FiberAnnotation { pos: 7, qual: 6, ref_pos: Some(16) },
+///                     FiberAnnotation::try_new(0, 4, Some(9))?,
+///                     FiberAnnotation::try_new(3, 7, Some(12))?,
+///                     FiberAnnotation::try_new(4, 9, Some(13))?,
+///                     FiberAnnotation::try_new(7, 6, Some(16))?,
 ///                 ],
 ///                 seq_len: 8,
 ///                 reverse: false,
@@ -327,11 +327,11 @@ fn approximate_mod_data_len(
 ///             modification_type: 'T',
 ///             ranges: Ranges {
 ///                 annotations: vec![
-///                     FiberAnnotation { pos: 12, qual: 3, ref_pos: Some(15) },
-///                     FiberAnnotation { pos: 13, qual: 3, ref_pos: Some(16) },
-///                     FiberAnnotation { pos: 16, qual: 4, ref_pos: Some(19) },
-///                     FiberAnnotation { pos: 19, qual: 3, ref_pos: Some(22) },
-///                     FiberAnnotation { pos: 20, qual: 182, ref_pos: Some(23) },
+///                     FiberAnnotation::try_new(12, 3, Some(15))?,
+///                     FiberAnnotation::try_new(13, 3, Some(16))?,
+///                     FiberAnnotation::try_new(16, 4, Some(19))?,
+///                     FiberAnnotation::try_new(19, 3, Some(22))?,
+///                     FiberAnnotation::try_new(20, 182, Some(23))?,
 ///                 ],
 ///                 seq_len: 33,
 ///                 reverse: true,
@@ -609,11 +609,7 @@ where
                     .zip(modified_probabilities.iter())
                     .map(|k| {
                         let pos = u32::try_from(k.0)?;
-                        Ok(FiberAnnotation {
-                            pos,
-                            qual: *k.1,
-                            ref_pos: pos_map.get(pos),
-                        })
+                        FiberAnnotation::try_new(pos, *k.1, pos_map.get(pos))
                     })
                     .collect::<Result<Vec<FiberAnnotation>, Error>>()?;
                 assert!(
@@ -1029,26 +1025,10 @@ mod mod_parse_tests {
                             modification_type: 'T',
                             ranges: Ranges {
                                 annotations: vec![
-                                    FiberAnnotation {
-                                        pos: 0,
-                                        qual: 4,
-                                        ref_pos: Some(9)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 3,
-                                        qual: 7,
-                                        ref_pos: Some(12)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 4,
-                                        qual: 9,
-                                        ref_pos: Some(13)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 7,
-                                        qual: 6,
-                                        ref_pos: Some(16)
-                                    },
+                                    FiberAnnotation::try_new(0, 4, Some(9)).unwrap(),
+                                    FiberAnnotation::try_new(3, 7, Some(12)).unwrap(),
+                                    FiberAnnotation::try_new(4, 9, Some(13)).unwrap(),
+                                    FiberAnnotation::try_new(7, 6, Some(16)).unwrap(),
                                 ],
                                 seq_len: 8,
                                 reverse: false,
@@ -1064,31 +1044,11 @@ mod mod_parse_tests {
                             modification_type: 'T',
                             ranges: Ranges {
                                 annotations: vec![
-                                    FiberAnnotation {
-                                        pos: 3,
-                                        qual: 221,
-                                        ref_pos: Some(26)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 8,
-                                        qual: 242,
-                                        ref_pos: Some(31)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 27,
-                                        qual: 3,
-                                        ref_pos: Some(50)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 39,
-                                        qual: 47,
-                                        ref_pos: Some(62)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 47,
-                                        qual: 239,
-                                        ref_pos: Some(70)
-                                    },
+                                    FiberAnnotation::try_new(3, 221, Some(26)).unwrap(),
+                                    FiberAnnotation::try_new(8, 242, Some(31)).unwrap(),
+                                    FiberAnnotation::try_new(27, 3, Some(50)).unwrap(),
+                                    FiberAnnotation::try_new(39, 47, Some(62)).unwrap(),
+                                    FiberAnnotation::try_new(47, 239, Some(70)).unwrap(),
                                 ],
                                 seq_len: 48,
                                 reverse: false,
@@ -1104,31 +1064,11 @@ mod mod_parse_tests {
                             modification_type: 'T',
                             ranges: Ranges {
                                 annotations: vec![
-                                    FiberAnnotation {
-                                        pos: 12,
-                                        qual: 3,
-                                        ref_pos: Some(15)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 13,
-                                        qual: 3,
-                                        ref_pos: Some(16)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 16,
-                                        qual: 4,
-                                        ref_pos: Some(19)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 19,
-                                        qual: 3,
-                                        ref_pos: Some(22)
-                                    },
-                                    FiberAnnotation {
-                                        pos: 20,
-                                        qual: 182,
-                                        ref_pos: Some(23)
-                                    },
+                                    FiberAnnotation::try_new(12, 3, Some(15)).unwrap(),
+                                    FiberAnnotation::try_new(13, 3, Some(16)).unwrap(),
+                                    FiberAnnotation::try_new(16, 4, Some(19)).unwrap(),
+                                    FiberAnnotation::try_new(19, 3, Some(22)).unwrap(),
+                                    FiberAnnotation::try_new(20, 182, Some(23)).unwrap(),
                                 ],
                                 seq_len: 33,
                                 reverse: true,
@@ -1145,36 +1085,12 @@ mod mod_parse_tests {
                                 modification_type: '\u{1C20}',
                                 ranges: Ranges {
                                     annotations: vec![
-                                        FiberAnnotation {
-                                            pos: 28,
-                                            qual: 0,
-                                            ref_pos: None
-                                        },
-                                        FiberAnnotation {
-                                            pos: 29,
-                                            qual: 0,
-                                            ref_pos: None
-                                        },
-                                        FiberAnnotation {
-                                            pos: 30,
-                                            qual: 0,
-                                            ref_pos: None
-                                        },
-                                        FiberAnnotation {
-                                            pos: 32,
-                                            qual: 0,
-                                            ref_pos: None
-                                        },
-                                        FiberAnnotation {
-                                            pos: 43,
-                                            qual: 77,
-                                            ref_pos: None
-                                        },
-                                        FiberAnnotation {
-                                            pos: 44,
-                                            qual: 0,
-                                            ref_pos: None
-                                        },
+                                        FiberAnnotation::try_new(28, 0, None).unwrap(),
+                                        FiberAnnotation::try_new(29, 0, None).unwrap(),
+                                        FiberAnnotation::try_new(30, 0, None).unwrap(),
+                                        FiberAnnotation::try_new(32, 0, None).unwrap(),
+                                        FiberAnnotation::try_new(43, 77, None).unwrap(),
+                                        FiberAnnotation::try_new(44, 0, None).unwrap(),
                                     ],
                                     seq_len: 48,
                                     reverse: false,
@@ -1187,31 +1103,11 @@ mod mod_parse_tests {
                                 modification_type: 'T',
                                 ranges: Ranges {
                                     annotations: vec![
-                                        FiberAnnotation {
-                                            pos: 3,
-                                            qual: 221,
-                                            ref_pos: None
-                                        },
-                                        FiberAnnotation {
-                                            pos: 8,
-                                            qual: 242,
-                                            ref_pos: None
-                                        },
-                                        FiberAnnotation {
-                                            pos: 27,
-                                            qual: 0,
-                                            ref_pos: None
-                                        },
-                                        FiberAnnotation {
-                                            pos: 39,
-                                            qual: 47,
-                                            ref_pos: None
-                                        },
-                                        FiberAnnotation {
-                                            pos: 47,
-                                            qual: 239,
-                                            ref_pos: None
-                                        },
+                                        FiberAnnotation::try_new(3, 221, None).unwrap(),
+                                        FiberAnnotation::try_new(8, 242, None).unwrap(),
+                                        FiberAnnotation::try_new(27, 0, None).unwrap(),
+                                        FiberAnnotation::try_new(39, 47, None).unwrap(),
+                                        FiberAnnotation::try_new(47, 239, None).unwrap(),
                                     ],
                                     seq_len: 48,
                                     reverse: false,
@@ -1307,7 +1203,7 @@ mod mod_parse_tests {
             .first()
             .and_then(|base_mod| base_mod.ranges.annotations.first())
             .expect("one modification annotation should be parsed");
-        assert_eq!(annotation.ref_pos, Some(MAX_CONTIG_LEN - 1));
+        assert_eq!(annotation.ref_pos(), Some(MAX_CONTIG_LEN - 1));
         Ok(())
     }
 
@@ -1358,7 +1254,7 @@ mod mod_parse_tests {
             assert_eq!(
                 annotations
                     .iter()
-                    .map(|annotation| annotation.ref_pos)
+                    .map(FiberAnnotation::ref_pos)
                     .collect::<Vec<_>>(),
                 vec![Some(17), Some(18), Some(19)]
             );
@@ -1391,7 +1287,7 @@ mod mod_parse_tests {
                 .annotations;
             assert_eq!(annotations.len(), 1);
             assert_eq!(
-                annotations.first().expect("one annotation").pos,
+                annotations.first().expect("one annotation").pos(),
                 expected_pos
             );
         }
@@ -1406,7 +1302,7 @@ mod mod_parse_tests {
         assert_eq!(
             n_annotations
                 .iter()
-                .map(|annotation| annotation.pos)
+                .map(FiberAnnotation::pos)
                 .collect::<Vec<_>>(),
             vec![0, 1, 2, 3, 4, 5]
         );
@@ -1439,7 +1335,7 @@ mod mod_parse_tests {
                 .annotations;
             assert_eq!(annotations.len(), 1);
             assert_eq!(
-                annotations.first().expect("one annotation").pos,
+                annotations.first().expect("one annotation").pos(),
                 expected_pos
             );
         }
@@ -1454,7 +1350,7 @@ mod mod_parse_tests {
         assert_eq!(
             n_annotations
                 .iter()
-                .map(|annotation| annotation.pos)
+                .map(FiberAnnotation::pos)
                 .collect::<Vec<_>>(),
             vec![0, 1, 2, 3, 4, 5]
         );
@@ -1486,7 +1382,7 @@ mod mod_parse_tests {
         assert_eq!(
             annotations
                 .iter()
-                .map(|annotation| annotation.ref_pos)
+                .map(FiberAnnotation::ref_pos)
                 .collect::<Vec<_>>(),
             vec![Some(10), Some(11), None, Some(12), Some(13)]
         );
@@ -1514,16 +1410,8 @@ mod mod_parse_tests {
         assert_eq!(
             annotations,
             &[
-                FiberAnnotation {
-                    pos: 0,
-                    qual: 101,
-                    ref_pos: Some(10),
-                },
-                FiberAnnotation {
-                    pos: 2,
-                    qual: 202,
-                    ref_pos: Some(12),
-                },
+                FiberAnnotation::try_new(0, 101, Some(10)).unwrap(),
+                FiberAnnotation::try_new(2, 202, Some(12)).unwrap(),
             ]
         );
         Ok(())
@@ -1551,11 +1439,7 @@ mod mod_parse_tests {
             .annotations;
         assert_eq!(
             annotations,
-            &[FiberAnnotation {
-                pos: 2,
-                qual: 203,
-                ref_pos: Some(12),
-            }]
+            &[FiberAnnotation::try_new(2, 203, Some(12)).unwrap()]
         );
         Ok(())
     }

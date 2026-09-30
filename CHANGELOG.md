@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `MAX_SEQ_LEN` (2^28 - 1) and `MAX_CONTIG_LEN` (`u32::MAX - 1`), lowering
   the accepted sequence and contig limits from `u32::MAX`. Sequence-length
   overflows now consistently return `InvalidSeqLength`.
+- Packed `FiberAnnotation` into 8 bytes instead of 16: query position (upper
+  24 bits) and quality (lower 8 bits) share one `u32`, and the reference
+  position is stored as `ref_pos + 1` in an `Option<NonZeroU32>`. This halves
+  the memory held by parsed modification calls and lowers `MAX_SEQ_LEN` to
+  2^24 - 1 (about 16.7 megabases). Breaking for library users: the fields are
+  now private; construct with `FiberAnnotation::try_new(pos, qual, ref_pos)`
+  and read with the `pos()`, `qual()` and `ref_pos()` methods. Ordering and
+  `Debug` output are unchanged.
 
 ### Fixed
 - (Project tooling, not code) Fixed `install.sh` to use the correct ARM release archive name, matching the output from the relevant GitHub Actions workflow

@@ -122,18 +122,10 @@ mod tests {
         assert_eq!(
             group.ranges.annotations,
             [
-                FiberAnnotation {
-                    // Forward index 2 becomes stored reverse-read coordinate 3.
-                    pos: 3,
-                    qual: 103,
-                    // The insertion is third in MM's original forward orientation.
-                    ref_pos: None,
-                },
-                FiberAnnotation {
-                    pos: 4,
-                    qual: 104,
-                    ref_pos: Some(102),
-                },
+                // Forward index 2 becomes stored reverse-read coordinate 3.
+                // The insertion is third in MM's original forward orientation.
+                FiberAnnotation::try_new(3, 103, None).unwrap(),
+                FiberAnnotation::try_new(4, 104, Some(102)).unwrap(),
             ]
         );
 
@@ -158,11 +150,7 @@ mod tests {
         )?;
         assert_eq!(
             base_mods.first().expect("one N+n group").ranges.annotations,
-            [FiberAnnotation {
-                pos: 3,
-                qual: 200,
-                ref_pos: None,
-            }],
+            [FiberAnnotation::try_new(3, 200, None).unwrap()],
             "zero-valued implicit calls and the low-probability explicit call are filtered"
         );
 
@@ -176,7 +164,7 @@ mod tests {
         assert_eq!(
             annotations
                 .iter()
-                .map(|annotation| (annotation.pos, annotation.qual, annotation.ref_pos))
+                .map(|annotation| (annotation.pos(), annotation.qual(), annotation.ref_pos()))
                 .collect::<Vec<_>>(),
             [
                 (0, 0, None),

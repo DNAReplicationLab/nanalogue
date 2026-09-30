@@ -133,7 +133,7 @@ mod tests {
             let expected: Vec<_> = [(0, 51), (1, 102), (2, 204)]
                 .into_iter()
                 .zip(expected_refs)
-                .map(|((pos, qual), ref_pos)| FiberAnnotation { pos, qual, ref_pos })
+                .map(|((pos, qual), ref_pos)| FiberAnnotation::try_new(pos, qual, ref_pos).unwrap())
                 .collect();
             assert_eq!(group.ranges.seq_len, 3);
             assert_eq!(
