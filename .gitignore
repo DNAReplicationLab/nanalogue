@@ -1,5 +1,6 @@
 /target
 .agents/
+.amp/portal/
 .amp/portals/
 .pi*
 cargo.def
