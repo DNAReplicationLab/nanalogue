@@ -794,8 +794,8 @@ mod tests {
     /// Captures full frames after the reset that [`GhosttyRenderer::draw`] applies.
     ///
     /// This models renderer input state only; it does not exercise its incremental terminal output.
-    fn render_frames_as_ansi<'frame>(
-        frames: impl IntoIterator<Item = &'frame str>,
+    fn render_frames_as_ansi<S: AsRef<str>>(
+        frames: impl IntoIterator<Item = S>,
         cols: u16,
         rows: u16,
     ) -> Result<String, Box<dyn Error>> {
@@ -806,7 +806,7 @@ mod tests {
         })?;
         for frame in frames {
             terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
-            terminal.vt_write(frame.as_bytes());
+            terminal.vt_write(frame.as_ref().as_bytes());
         }
         let mut render_state = RenderState::new()?;
         let snapshot = render_state.update(&terminal)?;

@@ -1,7 +1,8 @@
 //! Sequence retrieval for the interactive BAM viewer.
 
 use crate::{
-    BamPreFilt as _, CurrRead, Error, F32Bw0and1, ModChar, SeqCoordCalls, ThresholdState,
+    BamPreFilt as _, CurrRead, Error, F32Bw0and1, FiberAnnotation, ModChar, SeqCoordCalls,
+    ThresholdState,
     analysis::threshold_and_mean,
     constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS},
     ensure_bounded_counter, ensure_record_data_capacity, nanalogue_indexed_bam_reader,
@@ -508,11 +509,14 @@ impl RegionSequenceReader {
                 )?;
                 for base_mod in &read_with_mods.mod_data().0.base_mods {
                     calls.extend(base_mod.ranges.annotations.iter().filter_map(|annotation| {
-                        annotation.ref_pos.map(|ref_pos| (ref_pos, annotation.qual))
+                        annotation
+                            .ref_pos()
+                            .map(|ref_pos| (ref_pos, annotation.qual()))
                     }));
                     let series_start = windows.len();
                     for chunk in base_mod.ranges.annotations.chunks_exact(win_size) {
-                        let mut reference_positions = chunk.iter().filter_map(|item| item.ref_pos);
+                        let mut reference_positions =
+                            chunk.iter().filter_map(FiberAnnotation::ref_pos);
                         let Some(first_reference_position) = reference_positions.next() else {
                             continue;
                         };
@@ -527,7 +531,8 @@ impl RegionSequenceReader {
                                 "reference modification window ends at u32::MAX",
                             ))
                         })?;
-                        let probabilities = chunk.iter().map(|item| item.qual).collect::<Vec<_>>();
+                        let probabilities =
+                            chunk.iter().map(FiberAnnotation::qual).collect::<Vec<_>>();
                         windows.push((
                             ref_win_start,
                             ref_win_end,

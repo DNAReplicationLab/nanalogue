@@ -182,10 +182,14 @@ impl SeqToRefMap {
 mod seq_to_ref_map_tests {
     use super::*;
     use crate::constants::shared::MAX_RECORD_CAPACITY_BYTES;
-    use crate::{BaseMods, nanalogue_mm_ml_parser};
+    use crate::{BaseMods, FiberAnnotation, nanalogue_mm_ml_parser};
     use rust_htslib::bam;
     use rust_htslib::bam::ext::BamRecordExtensions as _;
     use rust_htslib::bam::record::{Aux, Cigar, CigarString};
+
+    /// Largest length a single BAM CIGAR operation can encode (28 bits); used where
+    /// tests need operations longer than `MAX_SEQ_LEN`.
+    const MAX_CIGAR_OP_LEN: u32 = (1 << 28) - 1;
 
     /// Builds a mapped record with the given start and CIGAR.
     fn record(pos: i64, operations: Vec<Cigar>) -> bam::Record {
@@ -399,7 +403,7 @@ mod seq_to_ref_map_tests {
                 .annotations
                 .first()
                 .expect("one annotation");
-            assert_eq!(annotation.ref_pos, None);
+            assert_eq!(annotation.ref_pos(), None);
         }
     }
 
@@ -428,7 +432,7 @@ mod seq_to_ref_map_tests {
     #[test]
     fn excessive_query_consumption_returns_a_controlled_error() {
         let mut operations = vec![Cigar::Match(1)];
-        operations.extend(std::iter::repeat_n(Cigar::Ins(MAX_SEQ_LEN), 18));
+        operations.extend(std::iter::repeat_n(Cigar::Ins(MAX_CIGAR_OP_LEN), 18));
         let mut malformed = bam::Record::new();
         malformed.set(b"read", Some(&CigarString::from(operations)), b"A", &[30]);
         malformed.set_tid(0);
@@ -461,7 +465,7 @@ mod seq_to_ref_map_tests {
             assert_eq!(
                 annotations
                     .iter()
-                    .map(|annotation| annotation.ref_pos)
+                    .map(FiberAnnotation::ref_pos)
                     .collect::<Vec<_>>(),
                 [Some(17), Some(18), Some(19)]
             );
@@ -513,13 +517,14 @@ mod seq_to_ref_map_tests {
 
     #[test]
     fn reference_coordinate_saturation_does_not_wrap() {
-        let mut valid: Vec<u32> = std::iter::repeat_n(word(MAX_SEQ_LEN, 2), 16).collect();
+        let mut valid: Vec<u32> = std::iter::repeat_n(word(MAX_CIGAR_OP_LEN, 2), 16).collect();
         valid.push(word(1, 0));
         let map = SeqToRefMap::try_from_raw_cigar(&valid, 0, 1)
             .expect("the aligned base remains below the contig limit");
-        assert_eq!(map.get(0), Some(16 * MAX_SEQ_LEN));
+        assert_eq!(map.get(0), Some(16 * MAX_CIGAR_OP_LEN));
 
-        let mut overflowing: Vec<u32> = std::iter::repeat_n(word(MAX_SEQ_LEN, 2), 17).collect();
+        let mut overflowing: Vec<u32> =
+            std::iter::repeat_n(word(MAX_CIGAR_OP_LEN, 2), 17).collect();
         overflowing.push(word(1, 0));
         let error = SeqToRefMap::try_from_raw_cigar(&overflowing, 0, 1)
             .expect_err("a saturated reference coordinate must be rejected");
@@ -556,7 +561,7 @@ mod seq_to_ref_map_tests {
             .ranges
             .annotations
             .iter()
-            .map(|annotation| (annotation.pos, annotation.ref_pos))
+            .map(|annotation| (annotation.pos(), annotation.ref_pos()))
             .collect();
         positions.sort_unstable();
         assert_eq!(

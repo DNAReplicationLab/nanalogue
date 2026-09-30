@@ -2360,12 +2360,12 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
             .iter()
             .map(|k| {
                 (
-                    k.pos,
-                    match k.ref_pos {
+                    k.pos(),
+                    match k.ref_pos() {
                         None => -1,
                         Some(v) => i64::from(v),
                     },
-                    k.qual,
+                    k.qual(),
                 )
             })
             .collect();
@@ -2436,11 +2436,7 @@ ascending needed even if reversed read)!",
                         )));
                     }
                 };
-                annotations.push(FiberAnnotation {
-                    pos,
-                    qual,
-                    ref_pos: mapped_ref_pos,
-                });
+                annotations.push(FiberAnnotation::try_new(pos, qual, mapped_ref_pos)?);
             }
             annotations
         };

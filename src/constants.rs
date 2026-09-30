@@ -34,11 +34,13 @@ pub mod shared {
     /// capacity provides a deliberately loose final guard rather than an exact format bound.
     pub const MAX_CIGAR_OPERATIONS: u32 = MAX_RECORD_CAPACITY_BYTES;
 
-    /// Hard cap on sequence length: the largest value representable in 28 bits.
+    /// Hard cap on sequence length: the largest value representable in 24 bits.
     ///
-    /// BAM permits longer sequences, but a single sequenced molecule longer than roughly
-    /// 200 megabases is currently practically inconceivable, so this is a safe limit.
-    pub const MAX_SEQ_LEN: u32 = (1 << 28) - 1;
+    /// BAM permits longer sequences, but the longest sequenced molecules reported so far
+    /// are a few megabases, well below this limit of roughly 16.7 megabases. The limit
+    /// lets a modification call pack its query position and its 8-bit probability into
+    /// a single `u32` (see [`crate::FiberAnnotation`]).
+    pub const MAX_SEQ_LEN: u32 = (1 << 24) - 1;
 
     /// Hard cap on reference contig length.
     ///
