@@ -47,7 +47,7 @@ impl SeqCoordCalls {
     ///             strand: '+',
     ///             modification_type: 'T',
     ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation { pos: 0, qual: 100, ref_pos: Some(0) }],
+    ///                 annotations: vec![FiberAnnotation::try_new(0, 100, Some(0))?],
     ///                 seq_len: 5, reverse: false,
     ///             },
     ///             record_is_reverse: false,
@@ -57,7 +57,7 @@ impl SeqCoordCalls {
     ///             strand: '+',
     ///             modification_type: 'm',
     ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation { pos: 2, qual: 200, ref_pos: None }],
+    ///                 annotations: vec![FiberAnnotation::try_new(2, 200, None)?],
     ///                 seq_len: 5, reverse: false,
     ///             },
     ///             record_is_reverse: false,
@@ -74,6 +74,7 @@ impl SeqCoordCalls {
     /// // Position 2: true (C+m modified)
     /// // Positions 3-4: false (no modifications)
     /// assert_eq!(collapsed, vec![true, false, true, false, false]);
+    /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     #[must_use]
     pub fn collapse_mod_calls(&self) -> Vec<bool> {
@@ -104,7 +105,7 @@ impl SeqCoordCalls {
     ///         BaseMod {
     ///             modified_base: b'T', strand: '+', modification_type: 'T',
     ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation { pos: 0, qual: 100, ref_pos: Some(0) }],
+    ///                 annotations: vec![FiberAnnotation::try_new(0, 100, Some(0))?],
     ///                 seq_len: 5, reverse: false,
     ///             },
     ///             record_is_reverse: false,
@@ -112,7 +113,7 @@ impl SeqCoordCalls {
     ///         BaseMod {
     ///             modified_base: b'C', strand: '+', modification_type: 'm',
     ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation { pos: 2, qual: 200, ref_pos: None }],
+    ///                 annotations: vec![FiberAnnotation::try_new(2, 200, None)?],
     ///                 seq_len: 5, reverse: false,
     ///             },
     ///             record_is_reverse: false,
@@ -129,6 +130,7 @@ impl SeqCoordCalls {
     /// assert_eq!(mod_types[0].1, true);  // '+' strand
     /// assert_eq!(mod_types[1].0, ModChar::new('m'));
     /// assert_eq!(mod_types[1].1, true);  // '+' strand
+    /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     #[must_use]
     pub fn mod_types(&self) -> &Vec<(ModChar, bool)> {
@@ -156,7 +158,7 @@ impl SeqCoordCalls {
     ///         BaseMod {
     ///             modified_base: b'T', strand: '+', modification_type: 'T',
     ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation { pos: 0, qual: 100, ref_pos: Some(0) }],
+    ///                 annotations: vec![FiberAnnotation::try_new(0, 100, Some(0))?],
     ///                 seq_len: 5, reverse: false,
     ///             },
     ///             record_is_reverse: false,
@@ -164,7 +166,7 @@ impl SeqCoordCalls {
     ///         BaseMod {
     ///             modified_base: b'C', strand: '+', modification_type: 'm',
     ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation { pos: 2, qual: 200, ref_pos: None }],
+    ///                 annotations: vec![FiberAnnotation::try_new(2, 200, None)?],
     ///                 seq_len: 5, reverse: false,
     ///             },
     ///             record_is_reverse: false,
@@ -182,6 +184,7 @@ impl SeqCoordCalls {
     ///
     /// // Position 2: T+ not modified (0), C+m modified (200)
     /// assert_eq!(seq_coord_calls.mod_calls(2), &[0u8, 200u8]);
+    /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     ///
     /// # Panics
@@ -236,7 +239,7 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
     ///             strand: '+',
     ///             modification_type: 'T',
     ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation { pos: 0, qual: 100, ref_pos: Some(0) }],
+    ///                 annotations: vec![FiberAnnotation::try_new(0, 100, Some(0))?],
     ///                 seq_len: 5, reverse: false,
     ///             },
     ///             record_is_reverse: false,
@@ -246,7 +249,7 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
     ///             strand: '+',
     ///             modification_type: 'm',
     ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation { pos: 2, qual: 200, ref_pos: None }],
+    ///                 annotations: vec![FiberAnnotation::try_new(2, 200, None)?],
     ///                 seq_len: 5, reverse: false,
     ///             },
     ///             record_is_reverse: false,
@@ -263,6 +266,7 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
     /// // - Other positions: both have qual=0
     /// assert_eq!(seq_coord_calls.mod_calls(0), &[100u8, 0u8]);
     /// assert_eq!(seq_coord_calls.mod_calls(2), &[0u8, 200u8]);
+    /// # Ok::<(), nanalogue_core::Error>(())
     /// ```
     fn try_from(value: &BaseMods) -> Result<Self, Error> {
         let (seq_lengths, mod_type_collection, pos_qual) = value
@@ -288,8 +292,8 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
                         .annotations
                         .iter()
                         .map(|y| {
-                            if (0..seq_len).contains(&y.pos) {
-                                Ok((usize::try_from(y.pos)?, y.qual))
+                            if (0..seq_len).contains(&y.pos()) {
+                                Ok((usize::try_from(y.pos())?, y.qual()))
                             } else {
                                 Err(Error::NotImplemented(
                                     "annotation position out of range in `BaseMods`".to_owned(),
@@ -357,26 +361,10 @@ mod tests {
                 modification_type: 'T',
                 ranges: Ranges {
                     annotations: vec![
-                        FiberAnnotation {
-                            pos: 0,
-                            qual: 4,
-                            ref_pos: Some(9),
-                        },
-                        FiberAnnotation {
-                            pos: 3,
-                            qual: 7,
-                            ref_pos: Some(12),
-                        },
-                        FiberAnnotation {
-                            pos: 4,
-                            qual: 9,
-                            ref_pos: Some(13),
-                        },
-                        FiberAnnotation {
-                            pos: 7,
-                            qual: 6,
-                            ref_pos: Some(16),
-                        },
+                        FiberAnnotation::try_new(0, 4, Some(9)).unwrap(),
+                        FiberAnnotation::try_new(3, 7, Some(12)).unwrap(),
+                        FiberAnnotation::try_new(4, 9, Some(13)).unwrap(),
+                        FiberAnnotation::try_new(7, 6, Some(16)).unwrap(),
                     ],
                     seq_len: 8,
                     reverse: false,
@@ -426,31 +414,11 @@ mod tests {
                 modification_type: 'T',
                 ranges: Ranges {
                     annotations: vec![
-                        FiberAnnotation {
-                            pos: 12,
-                            qual: 3,
-                            ref_pos: Some(15),
-                        },
-                        FiberAnnotation {
-                            pos: 13,
-                            qual: 3,
-                            ref_pos: Some(16),
-                        },
-                        FiberAnnotation {
-                            pos: 16,
-                            qual: 4,
-                            ref_pos: Some(19),
-                        },
-                        FiberAnnotation {
-                            pos: 19,
-                            qual: 3,
-                            ref_pos: Some(22),
-                        },
-                        FiberAnnotation {
-                            pos: 20,
-                            qual: 182,
-                            ref_pos: Some(23),
-                        },
+                        FiberAnnotation::try_new(12, 3, Some(15)).unwrap(),
+                        FiberAnnotation::try_new(13, 3, Some(16)).unwrap(),
+                        FiberAnnotation::try_new(16, 4, Some(19)).unwrap(),
+                        FiberAnnotation::try_new(19, 3, Some(22)).unwrap(),
+                        FiberAnnotation::try_new(20, 182, Some(23)).unwrap(),
                     ],
                     seq_len: 33,
                     reverse: true,
@@ -514,11 +482,7 @@ mod tests {
                     strand: '+',
                     modification_type: 'T',
                     ranges: Ranges {
-                        annotations: vec![FiberAnnotation {
-                            pos: 0,
-                            qual: 100,
-                            ref_pos: Some(0),
-                        }],
+                        annotations: vec![FiberAnnotation::try_new(0, 100, Some(0)).unwrap()],
                         seq_len: 5,
                         reverse: false,
                     },
@@ -529,11 +493,7 @@ mod tests {
                     strand: '+',
                     modification_type: 'm',
                     ranges: Ranges {
-                        annotations: vec![FiberAnnotation {
-                            pos: 2,
-                            qual: 200,
-                            ref_pos: None,
-                        }],
+                        annotations: vec![FiberAnnotation::try_new(2, 200, None).unwrap()],
                         seq_len: 5,
                         reverse: false,
                     },
@@ -590,16 +550,8 @@ mod tests {
                     modification_type: 'a',
                     ranges: Ranges {
                         annotations: vec![
-                            FiberAnnotation {
-                                pos: 0,
-                                qual: 11,
-                                ref_pos: None,
-                            },
-                            FiberAnnotation {
-                                pos: 2,
-                                qual: 12,
-                                ref_pos: None,
-                            },
+                            FiberAnnotation::try_new(0, 11, None).unwrap(),
+                            FiberAnnotation::try_new(2, 12, None).unwrap(),
                         ],
                         seq_len: 6,
                         reverse: false,
@@ -612,21 +564,9 @@ mod tests {
                     modification_type: 'b',
                     ranges: Ranges {
                         annotations: vec![
-                            FiberAnnotation {
-                                pos: 1,
-                                qual: 21,
-                                ref_pos: None,
-                            },
-                            FiberAnnotation {
-                                pos: 3,
-                                qual: 22,
-                                ref_pos: None,
-                            },
-                            FiberAnnotation {
-                                pos: 5,
-                                qual: 23,
-                                ref_pos: None,
-                            },
+                            FiberAnnotation::try_new(1, 21, None).unwrap(),
+                            FiberAnnotation::try_new(3, 22, None).unwrap(),
+                            FiberAnnotation::try_new(5, 23, None).unwrap(),
                         ],
                         seq_len: 6,
                         reverse: false,
@@ -639,16 +579,8 @@ mod tests {
                     modification_type: 'c',
                     ranges: Ranges {
                         annotations: vec![
-                            FiberAnnotation {
-                                pos: 0,
-                                qual: 31,
-                                ref_pos: None,
-                            },
-                            FiberAnnotation {
-                                pos: 2,
-                                qual: 32,
-                                ref_pos: None,
-                            },
+                            FiberAnnotation::try_new(0, 31, None).unwrap(),
+                            FiberAnnotation::try_new(2, 32, None).unwrap(),
                         ],
                         seq_len: 6,
                         reverse: false,
@@ -681,11 +613,7 @@ mod tests {
                 strand: '-',
                 modification_type: 'h',
                 ranges: Ranges {
-                    annotations: vec![FiberAnnotation {
-                        pos: 1,
-                        qual: 50,
-                        ref_pos: Some(1),
-                    }],
+                    annotations: vec![FiberAnnotation::try_new(1, 50, Some(1)).unwrap()],
                     seq_len: 3,
                     reverse: false,
                 },
@@ -813,11 +741,7 @@ mod tests {
                 strand: '+',
                 modification_type: 'T',
                 ranges: Ranges {
-                    annotations: vec![FiberAnnotation {
-                        pos: 4,
-                        qual: 100,
-                        ref_pos: Some(4),
-                    }],
+                    annotations: vec![FiberAnnotation::try_new(4, 100, Some(4)).unwrap()],
                     seq_len: 5,
                     reverse: false,
                 },
@@ -835,11 +759,7 @@ mod tests {
                 strand: '+',
                 modification_type: 'T',
                 ranges: Ranges {
-                    annotations: vec![FiberAnnotation {
-                        pos: 5,
-                        qual: 100,
-                        ref_pos: Some(5),
-                    }],
+                    annotations: vec![FiberAnnotation::try_new(5, 100, Some(5)).unwrap()],
                     seq_len: 5,
                     reverse: false,
                 },

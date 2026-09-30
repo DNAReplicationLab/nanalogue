@@ -1,7 +1,7 @@
 //! `FilterModsByRefCoords` trait for filtering by coordinates on the reference genome
 //! Provides interface for coordinate-based filtering operations
 
-use crate::{Error, OrdPair, Ranges};
+use crate::{Error, FiberAnnotation, OrdPair, Ranges};
 
 /// Implements filter by coordinates on the reference genome.
 pub trait FilterModsByRefCoords {
@@ -27,7 +27,7 @@ impl FilterModsByRefCoords for Ranges {
             .iter()
             .enumerate()
             .filter_map(|(idx, ann)| {
-                ann.ref_pos
+                ann.ref_pos()
                     .filter(|pos| (interval.low()..interval.high()).contains(pos))
                     .map(|_| idx)
             });
@@ -49,7 +49,7 @@ impl FilterModsByRefCoords for Ranges {
         if !self
             .annotations
             .iter()
-            .filter_map(|annotation| annotation.ref_pos)
+            .filter_map(FiberAnnotation::ref_pos)
             .is_sorted_by(|previous, next| previous < next)
         {
             return Err(Error::WrongOrder(
@@ -64,7 +64,7 @@ impl FilterModsByRefCoords for Ranges {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use crate::FiberAnnotation;
+    use crate::constants::shared::MAX_CONTIG_LEN;
 
     #[test]
     fn direct_ranges_filter_mods_by_ref_pos() {
@@ -73,26 +73,10 @@ mod tests {
         let mut ranges = Ranges {
             // Each entry represents a single base position with different properties.
             annotations: vec![
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 100,
-                    ref_pos: Some(10),
-                },
-                FiberAnnotation {
-                    pos: 20,
-                    qual: 120,
-                    ref_pos: Some(20),
-                },
-                FiberAnnotation {
-                    pos: 30,
-                    qual: 140,
-                    ref_pos: Some(30),
-                },
-                FiberAnnotation {
-                    pos: 40,
-                    qual: 160,
-                    ref_pos: Some(40),
-                },
+                FiberAnnotation::try_new(10, 100, Some(10)).unwrap(),
+                FiberAnnotation::try_new(20, 120, Some(20)).unwrap(),
+                FiberAnnotation::try_new(30, 140, Some(30)).unwrap(),
+                FiberAnnotation::try_new(40, 160, Some(40)).unwrap(),
             ],
             seq_len: 50,
             reverse: false,
@@ -123,26 +107,10 @@ mod tests {
         // Create a Ranges object with annotations that don't overlap the target region.
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 100,
-                    ref_pos: Some(10),
-                },
-                FiberAnnotation {
-                    pos: 20,
-                    qual: 120,
-                    ref_pos: Some(20),
-                },
-                FiberAnnotation {
-                    pos: 60,
-                    qual: 140,
-                    ref_pos: Some(60),
-                },
-                FiberAnnotation {
-                    pos: 70,
-                    qual: 160,
-                    ref_pos: Some(70),
-                },
+                FiberAnnotation::try_new(10, 100, Some(10)).unwrap(),
+                FiberAnnotation::try_new(20, 120, Some(20)).unwrap(),
+                FiberAnnotation::try_new(60, 140, Some(60)).unwrap(),
+                FiberAnnotation::try_new(70, 160, Some(70)).unwrap(),
             ],
             seq_len: 80,
             reverse: true,
@@ -164,11 +132,7 @@ mod tests {
         // A point at ref_pos 20 occupies [20, 21). Filtering [20, 21) must keep it;
         // filtering [21, 22) must not.
         let base = Ranges {
-            annotations: vec![FiberAnnotation {
-                pos: 5,
-                qual: 100,
-                ref_pos: Some(20),
-            }],
+            annotations: vec![FiberAnnotation::try_new(5, 100, Some(20)).unwrap()],
             seq_len: 50,
             reverse: false,
         };
@@ -184,20 +148,25 @@ mod tests {
 
     #[test]
     fn maximum_reference_position_does_not_overflow() {
-        let mut ranges = Ranges {
-            annotations: vec![FiberAnnotation {
-                pos: 5,
-                qual: 100,
-                ref_pos: Some(u32::MAX),
-            }],
+        // The largest storable reference position is `MAX_CONTIG_LEN - 1`.
+        let max_ref_pos = MAX_CONTIG_LEN - 1;
+        let base = Ranges {
+            annotations: vec![FiberAnnotation::try_new(5, 100, Some(max_ref_pos)).unwrap()],
             seq_len: 10,
             reverse: false,
         };
 
-        ranges
-            .filter_mods_by_ref_pos(u32::MAX - 1, u32::MAX)
+        let mut excluded = base.clone();
+        excluded
+            .filter_mods_by_ref_pos(MAX_CONTIG_LEN, u32::MAX)
             .unwrap();
-        assert!(ranges.annotations.is_empty());
+        assert!(excluded.annotations.is_empty());
+
+        let mut included = base;
+        included
+            .filter_mods_by_ref_pos(max_ref_pos, u32::MAX)
+            .unwrap();
+        assert_eq!(included.annotations.len(), 1);
     }
 
     #[test]
@@ -205,26 +174,10 @@ mod tests {
         // Create a Ranges object with some None reference positions.
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 100,
-                    ref_pos: Some(10),
-                },
-                FiberAnnotation {
-                    pos: 20,
-                    qual: 120,
-                    ref_pos: Some(20),
-                },
-                FiberAnnotation {
-                    pos: 30,
-                    qual: 140,
-                    ref_pos: None,
-                },
-                FiberAnnotation {
-                    pos: 40,
-                    qual: 160,
-                    ref_pos: Some(40),
-                },
+                FiberAnnotation::try_new(10, 100, Some(10)).unwrap(),
+                FiberAnnotation::try_new(20, 120, Some(20)).unwrap(),
+                FiberAnnotation::try_new(30, 140, None).unwrap(),
+                FiberAnnotation::try_new(40, 160, Some(40)).unwrap(),
             ],
             seq_len: 50,
             reverse: false,
@@ -249,31 +202,11 @@ mod tests {
         // Create a Ranges object with some None reference positions.
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 100,
-                    ref_pos: Some(10),
-                },
-                FiberAnnotation {
-                    pos: 19,
-                    qual: 120,
-                    ref_pos: Some(20),
-                },
-                FiberAnnotation {
-                    pos: 20,
-                    qual: 140,
-                    ref_pos: None,
-                },
-                FiberAnnotation {
-                    pos: 21,
-                    qual: 150,
-                    ref_pos: Some(21),
-                },
-                FiberAnnotation {
-                    pos: 40,
-                    qual: 160,
-                    ref_pos: Some(40),
-                },
+                FiberAnnotation::try_new(10, 100, Some(10)).unwrap(),
+                FiberAnnotation::try_new(19, 120, Some(20)).unwrap(),
+                FiberAnnotation::try_new(20, 140, None).unwrap(),
+                FiberAnnotation::try_new(21, 150, Some(21)).unwrap(),
+                FiberAnnotation::try_new(40, 160, Some(40)).unwrap(),
             ],
             seq_len: 50,
             reverse: true,
@@ -301,26 +234,10 @@ mod tests {
         // As this is a 0-bp interval, there must be no data remaining after filtering.
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 100,
-                    ref_pos: Some(10),
-                },
-                FiberAnnotation {
-                    pos: 20,
-                    qual: 120,
-                    ref_pos: Some(20),
-                },
-                FiberAnnotation {
-                    pos: 30,
-                    qual: 140,
-                    ref_pos: Some(30),
-                },
-                FiberAnnotation {
-                    pos: 40,
-                    qual: 160,
-                    ref_pos: Some(40),
-                },
+                FiberAnnotation::try_new(10, 100, Some(10)).unwrap(),
+                FiberAnnotation::try_new(20, 120, Some(20)).unwrap(),
+                FiberAnnotation::try_new(30, 140, Some(30)).unwrap(),
+                FiberAnnotation::try_new(40, 160, Some(40)).unwrap(),
             ],
             seq_len: 50,
             reverse: false,
@@ -339,17 +256,9 @@ mod tests {
         // Create a Ranges object with decreasing reference positions (wrong order).
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 100,
-                    ref_pos: Some(10),
-                },
+                FiberAnnotation::try_new(10, 100, Some(10)).unwrap(),
                 // Decreasing reference positions should panic.
-                FiberAnnotation {
-                    pos: 30,
-                    qual: 120,
-                    ref_pos: Some(9),
-                },
+                FiberAnnotation::try_new(30, 120, Some(9)).unwrap(),
             ],
             seq_len: 50,
             reverse: false,
@@ -365,17 +274,9 @@ mod tests {
         // Create a Ranges object where reference positions are not strictly increasing.
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 100,
-                    ref_pos: Some(10),
-                },
+                FiberAnnotation::try_new(10, 100, Some(10)).unwrap(),
                 // Same reference position should panic.
-                FiberAnnotation {
-                    pos: 11,
-                    qual: 120,
-                    ref_pos: Some(10),
-                },
+                FiberAnnotation::try_new(11, 120, Some(10)).unwrap(),
             ],
             seq_len: 50,
             reverse: false,
@@ -391,17 +292,9 @@ mod tests {
         // Create a Ranges object where reference positions are decreasing.
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 20,
-                    qual: 100,
-                    ref_pos: Some(20),
-                },
+                FiberAnnotation::try_new(20, 100, Some(20)).unwrap(),
                 // Decreasing reference positions should panic.
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 120,
-                    ref_pos: Some(10),
-                },
+                FiberAnnotation::try_new(10, 120, Some(10)).unwrap(),
             ],
             seq_len: 50,
             reverse: false,
@@ -417,17 +310,9 @@ mod tests {
         // Create a Ranges object where reference windows overlap (duplicate ref_pos).
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 100,
-                    ref_pos: Some(10),
-                },
+                FiberAnnotation::try_new(10, 100, Some(10)).unwrap(),
                 // Overlapping reference windows (duplicate position) should panic.
-                FiberAnnotation {
-                    pos: 11,
-                    qual: 120,
-                    ref_pos: Some(10),
-                },
+                FiberAnnotation::try_new(11, 120, Some(10)).unwrap(),
             ],
             seq_len: 50,
             reverse: false,
@@ -441,16 +326,8 @@ mod tests {
     fn ignores_wrong_order_outside_retained_span() {
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 100,
-                    ref_pos: Some(40),
-                },
-                FiberAnnotation {
-                    pos: 20,
-                    qual: 120,
-                    ref_pos: Some(20),
-                },
+                FiberAnnotation::try_new(10, 100, Some(40)).unwrap(),
+                FiberAnnotation::try_new(20, 120, Some(20)).unwrap(),
             ],
             seq_len: 50,
             reverse: false,
@@ -465,26 +342,10 @@ mod tests {
     fn wrong_order_error_leaves_retained_span() {
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 10,
-                    qual: 100,
-                    ref_pos: Some(10),
-                },
-                FiberAnnotation {
-                    pos: 20,
-                    qual: 120,
-                    ref_pos: Some(40),
-                },
-                FiberAnnotation {
-                    pos: 30,
-                    qual: 140,
-                    ref_pos: Some(20),
-                },
-                FiberAnnotation {
-                    pos: 40,
-                    qual: 160,
-                    ref_pos: Some(50),
-                },
+                FiberAnnotation::try_new(10, 100, Some(10)).unwrap(),
+                FiberAnnotation::try_new(20, 120, Some(40)).unwrap(),
+                FiberAnnotation::try_new(30, 140, Some(20)).unwrap(),
+                FiberAnnotation::try_new(40, 160, Some(50)).unwrap(),
             ],
             seq_len: 60,
             reverse: false,
@@ -503,21 +364,9 @@ mod tests {
     fn ranges_filter_mods_by_ref_pos_first_few_entries_none() {
         let mut ranges = Ranges {
             annotations: vec![
-                FiberAnnotation {
-                    pos: 1,
-                    qual: 100,
-                    ref_pos: None,
-                },
-                FiberAnnotation {
-                    pos: 2,
-                    qual: 120,
-                    ref_pos: None,
-                },
-                FiberAnnotation {
-                    pos: 41,
-                    qual: 140,
-                    ref_pos: Some(50),
-                },
+                FiberAnnotation::try_new(1, 100, None).unwrap(),
+                FiberAnnotation::try_new(2, 120, None).unwrap(),
+                FiberAnnotation::try_new(41, 140, Some(50)).unwrap(),
             ],
             seq_len: 96,
             reverse: false,

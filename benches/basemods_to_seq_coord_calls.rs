@@ -73,10 +73,13 @@ fn fixture() -> BaseMods {
             ranges: Ranges {
                 annotations: (usize::from(mod_type)..usize::try_from(SEQ_LEN).expect("fits usize"))
                     .step_by(usize::from(ANNOTATION_STEP))
-                    .map(|pos| FiberAnnotation {
-                        pos: u32::try_from(pos).expect("fixture positions fit u32"),
-                        ref_pos: None,
-                        qual: mod_type.checked_add(1).expect("four quality values fit u8"),
+                    .map(|pos| {
+                        FiberAnnotation::try_new(
+                            u32::try_from(pos).expect("fixture positions fit u32"),
+                            mod_type.checked_add(1).expect("four quality values fit u8"),
+                            None,
+                        )
+                        .unwrap()
                     })
                     .collect(),
                 seq_len: SEQ_LEN,

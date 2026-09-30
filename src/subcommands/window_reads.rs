@@ -90,7 +90,7 @@ where
         .ranges
         .annotations
         .iter()
-        .map(|k| (k.qual, k.pos, k.ref_pos))
+        .map(|k| (k.qual(), k.pos(), k.ref_pos()))
         .collect();
     let base = base_mod.modified_base as char;
     let mod_strand = base_mod.strand;
