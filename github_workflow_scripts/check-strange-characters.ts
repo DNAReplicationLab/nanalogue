@@ -18,7 +18,9 @@ const MAX_GIT_BLOB_BYTES = 64 * 1024 * 1024;
 const ANSI_GOLDENS = new Set([
     "tests/goldens/bam_viewer_visible.ansi",
     "tests/goldens/bam_viewer_contig_end.ansi",
-    "tests/goldens/bam_viewer_deletions.ansi",
+    "tests/goldens/bam_viewer_deletion_left_boundary.ansi",
+    "tests/goldens/bam_viewer_deletion_middle.ansi",
+    "tests/goldens/bam_viewer_deletion_right_boundary.ansi",
     "tests/goldens/bam_viewer_end_key_mods.ansi",
     "tests/goldens/bam_viewer_end_key_no_mods.ansi",
     "tests/goldens/bam_viewer_goto_mods.ansi",

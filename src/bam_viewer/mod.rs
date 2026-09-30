@@ -2648,23 +2648,16 @@ mod tests {
         assert_ansi_golden("bam_viewer_partial_read_ends.ansi", &end_viewport)
     }
 
-    #[test]
-    fn deletion_viewport_matches_ansi_golden() -> Result<(), Box<dyn Error>> {
-        let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/examples/bam_viewer_deletion_demo.json"
-        )))?;
-        let simulation = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
-        let mut viewer = Viewer::open(
-            PathBuf::from(simulation.bam_path()),
-            &InitialPosition {
-                contig: String::from("contig_00000"),
-                start: 495,
-            },
-            None,
-            window_len_for_columns(FOCUSED_GOLDEN_COLS),
-        )?;
-        viewer.path = PathBuf::from("deletion-reads.bam");
+    fn assert_deletion_viewport(
+        viewer: &mut Viewer,
+        start: u32,
+        expected_sequence: &str,
+        golden_name: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        assert!(viewer.go_to(&InitialPosition {
+            contig: String::from("contig_00000"),
+            start,
+        })?);
         assert_eq!(viewer.current_window_len(), 10);
 
         let records = viewer.visible_records()?;
@@ -2679,17 +2672,56 @@ mod tests {
         assert!(
             displayed_records
                 .iter()
-                .all(|record| record.sequence() == "..........")
+                .all(|record| record.sequence() == expected_sequence)
         );
 
         let viewport = render_ansi_viewport(
-            &viewer,
+            viewer,
             &records,
             FOCUSED_GOLDEN_COLS,
             FOCUSED_GOLDEN_ROWS,
             FrameFooter::Controls,
         )?;
-        assert_ansi_golden("bam_viewer_deletions.ansi", &viewport)
+        assert_ansi_golden(golden_name, &viewport)
+    }
+
+    #[test]
+    fn deletion_viewports_match_ansi_goldens() -> Result<(), Box<dyn Error>> {
+        let config: SimulationConfig = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/bam_viewer_deletion_demo.json"
+        )))?;
+        let simulation = TempBamSimulation::new(config, AlignmentFormat::Bam)?;
+        let mut viewer = Viewer::open(
+            PathBuf::from(simulation.bam_path()),
+            &InitialPosition {
+                contig: String::from("contig_00000"),
+                start: 0,
+            },
+            None,
+            window_len_for_columns(FOCUSED_GOLDEN_COLS),
+        )?;
+        viewer.path = PathBuf::from("deletion-reads.bam");
+
+        assert_deletion_viewport(
+            &mut viewer,
+            395,
+            "TACGT.....",
+            "bam_viewer_deletion_left_boundary.ansi",
+        )?;
+        assert_deletion_viewport(
+            &mut viewer,
+            495,
+            "..........",
+            "bam_viewer_deletion_middle.ansi",
+        )?;
+        assert_deletion_viewport(
+            &mut viewer,
+            595,
+            ".....ACGTA",
+            "bam_viewer_deletion_right_boundary.ansi",
+        )?;
+        Ok(())
     }
 
     #[test]
