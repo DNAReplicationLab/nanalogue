@@ -1494,7 +1494,7 @@ populated should forbid this"
         )]
         for k in &self.mod_data().0.base_mods {
             let base_count =
-                u32::try_from(k.ranges.annotations.len()).expect("number conversion error");
+                u32::try_from(k.ranges.annotations().len()).expect("number conversion error");
             let _: &mut u32 = output
                 .entry(ModChar::new(k.modification_type))
                 .and_modify(|e| *e += base_count)
@@ -1541,7 +1541,7 @@ impl DisplayCondensedModData for CurrRead<AlignAndModData> {
                 k.modified_base as char,
                 k.strand,
                 ModChar::new(k.modification_type),
-                k.ranges.annotations.len()
+                k.ranges.annotations().len()
             )?;
         }
         if mod_count_str.is_empty() {
@@ -2356,7 +2356,7 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
     for base_mod in &base_mods.base_mods {
         let entries: Vec<_> = base_mod
             .ranges
-            .annotations
+            .annotations()
             .iter()
             .map(|k| {
                 (

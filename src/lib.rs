@@ -992,6 +992,11 @@ mod mod_parse_tests {
     use crate::constants::shared::MAX_CONTIG_LEN;
     use rust_htslib::bam::Read as _;
 
+    /// Builds valid ranges for parser expectations.
+    fn ranges(annotations: Vec<FiberAnnotation>, seq_len: u32, reverse: bool) -> Ranges {
+        Ranges::from_annotations(annotations, seq_len, reverse).unwrap()
+    }
+
     /// Tests if Mod BAM modification parsing is alright with fallback tag support.
     /// Tests standard `MM`/`ML` tags plus legacy `Mm` and `Ml` spellings on a per-tag basis.
     /// Note: records that carry both variants of the same tag are rejected, and fully lowercase
@@ -1016,16 +1021,16 @@ mod mod_parse_tests {
                             modified_base: b'T',
                             strand: '+',
                             modification_type: 'T',
-                            ranges: Ranges {
-                                annotations: vec![
+                            ranges: ranges(
+                                vec![
                                     FiberAnnotation::try_new(0, 4, Some(9)).unwrap(),
                                     FiberAnnotation::try_new(3, 7, Some(12)).unwrap(),
                                     FiberAnnotation::try_new(4, 9, Some(13)).unwrap(),
                                     FiberAnnotation::try_new(7, 6, Some(16)).unwrap(),
                                 ],
-                                seq_len: 8,
-                                reverse: false,
-                            },
+                                8,
+                                false,
+                            ),
                             record_is_reverse: false,
                         }]
                     ),
@@ -1035,17 +1040,17 @@ mod mod_parse_tests {
                             modified_base: b'T',
                             strand: '+',
                             modification_type: 'T',
-                            ranges: Ranges {
-                                annotations: vec![
+                            ranges: ranges(
+                                vec![
                                     FiberAnnotation::try_new(3, 221, Some(26)).unwrap(),
                                     FiberAnnotation::try_new(8, 242, Some(31)).unwrap(),
                                     FiberAnnotation::try_new(27, 3, Some(50)).unwrap(),
                                     FiberAnnotation::try_new(39, 47, Some(62)).unwrap(),
                                     FiberAnnotation::try_new(47, 239, Some(70)).unwrap(),
                                 ],
-                                seq_len: 48,
-                                reverse: false,
-                            },
+                                48,
+                                false,
+                            ),
                             record_is_reverse: false,
                         }]
                     ),
@@ -1055,17 +1060,17 @@ mod mod_parse_tests {
                             modified_base: b'T',
                             strand: '+',
                             modification_type: 'T',
-                            ranges: Ranges {
-                                annotations: vec![
+                            ranges: ranges(
+                                vec![
                                     FiberAnnotation::try_new(12, 3, Some(15)).unwrap(),
                                     FiberAnnotation::try_new(13, 3, Some(16)).unwrap(),
                                     FiberAnnotation::try_new(16, 4, Some(19)).unwrap(),
                                     FiberAnnotation::try_new(19, 3, Some(22)).unwrap(),
                                     FiberAnnotation::try_new(20, 182, Some(23)).unwrap(),
                                 ],
-                                seq_len: 33,
-                                reverse: true,
-                            },
+                                33,
+                                true,
+                            ),
                             record_is_reverse: true,
                         }]
                     ),
@@ -1076,8 +1081,8 @@ mod mod_parse_tests {
                                 modified_base: b'G',
                                 strand: '-',
                                 modification_type: '\u{1C20}',
-                                ranges: Ranges {
-                                    annotations: vec![
+                                ranges: ranges(
+                                    vec![
                                         FiberAnnotation::try_new(28, 0, None).unwrap(),
                                         FiberAnnotation::try_new(29, 0, None).unwrap(),
                                         FiberAnnotation::try_new(30, 0, None).unwrap(),
@@ -1085,26 +1090,26 @@ mod mod_parse_tests {
                                         FiberAnnotation::try_new(43, 77, None).unwrap(),
                                         FiberAnnotation::try_new(44, 0, None).unwrap(),
                                     ],
-                                    seq_len: 48,
-                                    reverse: false,
-                                },
+                                    48,
+                                    false,
+                                ),
                                 record_is_reverse: false,
                             },
                             BaseMod {
                                 modified_base: b'T',
                                 strand: '+',
                                 modification_type: 'T',
-                                ranges: Ranges {
-                                    annotations: vec![
+                                ranges: ranges(
+                                    vec![
                                         FiberAnnotation::try_new(3, 221, None).unwrap(),
                                         FiberAnnotation::try_new(8, 242, None).unwrap(),
                                         FiberAnnotation::try_new(27, 0, None).unwrap(),
                                         FiberAnnotation::try_new(39, 47, None).unwrap(),
                                         FiberAnnotation::try_new(47, 239, None).unwrap(),
                                     ],
-                                    seq_len: 48,
-                                    reverse: false,
-                                },
+                                    48,
+                                    false,
+                                ),
                                 record_is_reverse: false,
                             }
                         ]
@@ -1194,7 +1199,7 @@ mod mod_parse_tests {
         let annotation = mods
             .base_mods
             .first()
-            .and_then(|base_mod| base_mod.ranges.annotations.first())
+            .and_then(|base_mod| base_mod.ranges.annotations().first())
             .expect("one modification annotation should be parsed");
         assert_eq!(annotation.ref_pos(), Some(MAX_CONTIG_LEN - 1));
         Ok(())
@@ -1238,12 +1243,12 @@ mod mod_parse_tests {
             record.push_aux(b"ML", Aux::ArrayU8((&[101, 102, 103]).into()))?;
 
             let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
-            let annotations = &mods
+            let annotations = mods
                 .base_mods
                 .first()
                 .expect("one A group")
                 .ranges
-                .annotations;
+                .annotations();
             assert_eq!(
                 annotations
                     .iter()
@@ -1271,13 +1276,13 @@ mod mod_parse_tests {
 
         let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
         for (base, expected_pos) in [(b'A', 1), (b'C', 4), (b'G', 3), (b'T', 2)] {
-            let annotations = &mods
+            let annotations = mods
                 .base_mods
                 .iter()
                 .find(|base_mod| base_mod.modified_base == base)
                 .expect("canonical base group should be present")
                 .ranges
-                .annotations;
+                .annotations();
             assert_eq!(annotations.len(), 1);
             assert_eq!(
                 annotations.first().expect("one annotation").pos(),
@@ -1285,13 +1290,13 @@ mod mod_parse_tests {
             );
         }
 
-        let n_annotations = &mods
+        let n_annotations = mods
             .base_mods
             .iter()
             .find(|base_mod| base_mod.modified_base == b'N')
             .expect("N group should be present")
             .ranges
-            .annotations;
+            .annotations();
         assert_eq!(
             n_annotations
                 .iter()
@@ -1319,13 +1324,13 @@ mod mod_parse_tests {
 
         let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
         for (base, expected_pos) in [(b'A', 2), (b'C', 3), (b'G', 4), (b'T', 1)] {
-            let annotations = &mods
+            let annotations = mods
                 .base_mods
                 .iter()
                 .find(|base_mod| base_mod.modified_base == base)
                 .expect("canonical base group should be present")
                 .ranges
-                .annotations;
+                .annotations();
             assert_eq!(annotations.len(), 1);
             assert_eq!(
                 annotations.first().expect("one annotation").pos(),
@@ -1333,13 +1338,13 @@ mod mod_parse_tests {
             );
         }
 
-        let n_annotations = &mods
+        let n_annotations = mods
             .base_mods
             .iter()
             .find(|base_mod| base_mod.modified_base == b'N')
             .expect("N group should be present")
             .ranges
-            .annotations;
+            .annotations();
         assert_eq!(
             n_annotations
                 .iter()
@@ -1366,12 +1371,12 @@ mod mod_parse_tests {
         record.push_aux(b"ML", Aux::ArrayU8((&[101, 102, 103, 104, 105]).into()))?;
 
         let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
-        let annotations = &mods
+        let annotations = mods
             .base_mods
             .first()
             .expect("one N group")
             .ranges
-            .annotations;
+            .annotations();
         assert_eq!(
             annotations
                 .iter()
@@ -1394,12 +1399,12 @@ mod mod_parse_tests {
         record.push_aux(b"ML", Aux::ArrayU8((&[101, 202]).into()))?;
 
         let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
-        let annotations = &mods
+        let annotations = mods
             .base_mods
             .first()
             .expect("one U group")
             .ranges
-            .annotations;
+            .annotations();
         assert_eq!(
             annotations,
             &[
@@ -1424,12 +1429,12 @@ mod mod_parse_tests {
         record.push_aux(b"ML", Aux::ArrayU8((&[203]).into()))?;
 
         let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
-        let annotations = &mods
+        let annotations = mods
             .base_mods
             .first()
             .expect("one U group")
             .ranges
-            .annotations;
+            .annotations();
         assert_eq!(
             annotations,
             &[FiberAnnotation::try_new(2, 203, Some(12)).unwrap()]

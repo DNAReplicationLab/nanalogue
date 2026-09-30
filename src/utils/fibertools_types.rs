@@ -194,15 +194,11 @@ impl PartialOrd for FiberAnnotation {
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 #[expect(
     clippy::partial_pub_fields,
-    reason = "annotations must be crate-only to enforce ordering while seq_len and reverse remain backward compatible"
-)]
-#[expect(
-    clippy::field_scoped_visibility_modifiers,
-    reason = "crate implementations filter annotations in place without exposing mutation publicly"
+    reason = "annotations must be private to enforce ordering while seq_len and reverse remain backward compatible"
 )]
 pub struct FiberAnnotations {
     /// Sorted annotations along the read
-    pub(crate) annotations: Vec<FiberAnnotation>,
+    annotations: Vec<FiberAnnotation>,
     /// Length of the query sequence
     pub seq_len: u32,
     /// Whether the read is on the reverse strand
@@ -247,6 +243,12 @@ impl FiberAnnotations {
     #[must_use]
     pub fn annotations(&self) -> &[FiberAnnotation] {
         &self.annotations
+    }
+
+    /// Retains a contiguous range of annotations without changing their order.
+    pub(crate) fn retain_annotation_range(&mut self, range: core::ops::Range<usize>) {
+        self.annotations.truncate(range.end);
+        self.annotations.drain(..range.start).for_each(drop);
     }
 
     /// Query positions.
@@ -361,14 +363,15 @@ mod tests {
 
     #[test]
     fn fiber_annotations_accessors() {
-        let annotations = FiberAnnotations {
-            annotations: vec![
+        let annotations = FiberAnnotations::from_annotations(
+            vec![
                 FiberAnnotation::try_new(5, 100, Some(50)).unwrap(),
                 FiberAnnotation::try_new(20, 150, None).unwrap(),
             ],
-            seq_len: 50,
-            reverse: false,
-        };
+            50,
+            false,
+        )
+        .unwrap();
         assert_eq!(annotations.pos().collect::<Vec<_>>(), vec![5, 20]);
         assert_eq!(annotations.qual().collect::<Vec<_>>(), vec![100, 150]);
         assert_eq!(
@@ -470,11 +473,7 @@ mod tests {
 
     #[test]
     fn fiber_annotations_empty() {
-        let annotations = FiberAnnotations {
-            annotations: vec![],
-            seq_len: 0,
-            reverse: false,
-        };
+        let annotations = FiberAnnotations::from_annotations(vec![], 0, false).unwrap();
         assert!(annotations.pos().next().is_none());
         assert!(annotations.qual().next().is_none());
         assert!(annotations.ref_pos().next().is_none());

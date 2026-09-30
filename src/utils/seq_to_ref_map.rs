@@ -400,7 +400,7 @@ mod seq_to_ref_map_tests {
                 .first()
                 .expect("one modification group")
                 .ranges
-                .annotations
+                .annotations()
                 .first()
                 .expect("one annotation");
             assert_eq!(annotation.ref_pos(), None);
@@ -461,7 +461,7 @@ mod seq_to_ref_map_tests {
                 .first()
                 .expect("one N+n group")
                 .ranges
-                .annotations;
+                .annotations();
             assert_eq!(
                 annotations
                     .iter()
@@ -559,7 +559,7 @@ mod seq_to_ref_map_tests {
             .first()
             .expect("one modification group")
             .ranges
-            .annotations
+            .annotations()
             .iter()
             .map(|annotation| (annotation.pos(), annotation.ref_pos()))
             .collect();

@@ -3295,7 +3295,7 @@ mod read_generation_with_mods_tests {
                 assert!(
                     base_mod
                         .ranges
-                        .annotations
+                        .annotations()
                         .iter()
                         .all(|annotation| annotation.qual() == ALL_DROPPED_QUALITY)
                 );
@@ -3309,7 +3309,7 @@ mod read_generation_with_mods_tests {
                         .0
                         .base_mods
                         .iter()
-                        .any(|base_mod| !base_mod.ranges.annotations.is_empty())
+                        .any(|base_mod| !base_mod.ranges.annotations().is_empty())
                 })
                 .map(CurrRead::read_id)
                 .collect::<std::collections::HashSet<_>>()
@@ -3389,7 +3389,7 @@ mod read_generation_with_mods_tests {
                 .0
                 .base_mods
                 .iter()
-                .all(|base_mod| base_mod.ranges.annotations.is_empty())
+                .all(|base_mod| base_mod.ranges.annotations().is_empty())
         }));
     }
 
@@ -5126,7 +5126,7 @@ mod read_generation_with_mods_tests {
                     .0
                     .base_mods
                     .iter()
-                    .flat_map(|base_mod| &base_mod.ranges.annotations)
+                    .flat_map(|base_mod| base_mod.ranges.annotations())
                     .map(move |annotation| MismatchObservation {
                         read_id: read.read_id().to_owned(),
                         quality: u32::from(annotation.qual()),

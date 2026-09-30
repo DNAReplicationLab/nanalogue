@@ -88,7 +88,7 @@ where
     // so better to start using window-like terminology
     let (mod_data, starts, ref_starts): (Vec<u8>, Vec<u32>, Vec<Option<u32>>) = base_mod
         .ranges
-        .annotations
+        .annotations()
         .iter()
         .map(|k| (k.qual(), k.pos(), k.ref_pos()))
         .collect();
