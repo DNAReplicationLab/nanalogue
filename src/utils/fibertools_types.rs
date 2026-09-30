@@ -192,17 +192,13 @@ impl PartialOrd for FiberAnnotation {
 
 /// A collection of [`FiberAnnotation`] items along a single read.
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
-#[expect(
-    clippy::partial_pub_fields,
-    reason = "annotations must be private to enforce ordering while seq_len and reverse remain backward compatible"
-)]
 pub struct FiberAnnotations {
     /// Sorted annotations along the read
     annotations: Vec<FiberAnnotation>,
     /// Length of the query sequence
-    pub seq_len: u32,
+    seq_len: u32,
     /// Whether the read is on the reverse strand
-    pub reverse: bool,
+    reverse: bool,
 }
 
 /// Backward-compatible alias used throughout the codebase.
@@ -243,6 +239,18 @@ impl FiberAnnotations {
     #[must_use]
     pub fn annotations(&self) -> &[FiberAnnotation] {
         &self.annotations
+    }
+
+    /// Length of the query sequence.
+    #[must_use]
+    pub const fn seq_len(&self) -> u32 {
+        self.seq_len
+    }
+
+    /// Whether the read is on the reverse strand.
+    #[must_use]
+    pub const fn is_reverse(&self) -> bool {
+        self.reverse
     }
 
     /// Retains a contiguous range of annotations without changing their order.

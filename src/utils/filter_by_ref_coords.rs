@@ -92,8 +92,8 @@ mod tests {
         assert_eq!(ranges.qual().collect::<Vec<_>>(), vec![120, 140]);
 
         // Verify seq_len and reverse flag are preserved
-        assert_eq!(ranges.seq_len, 50);
-        assert!(!ranges.reverse);
+        assert_eq!(ranges.seq_len(), 50);
+        assert!(!ranges.is_reverse());
     }
 
     #[test]
@@ -117,8 +117,8 @@ mod tests {
         assert!(ranges.annotations().is_empty());
 
         // Verify metadata is preserved
-        assert_eq!(ranges.seq_len, 80);
-        assert!(ranges.reverse);
+        assert_eq!(ranges.seq_len(), 80);
+        assert!(ranges.is_reverse());
     }
 
     #[test]
@@ -187,8 +187,8 @@ mod tests {
         assert_eq!(ranges.qual().collect::<Vec<_>>(), vec![120]);
 
         // Verify metadata is preserved
-        assert_eq!(ranges.seq_len, 50);
-        assert!(!ranges.reverse);
+        assert_eq!(ranges.seq_len(), 50);
+        assert!(!ranges.is_reverse());
     }
 
     #[test]
@@ -218,8 +218,8 @@ mod tests {
         assert_eq!(ranges.qual().collect::<Vec<_>>(), vec![120, 140, 150]);
 
         // Verify metadata is preserved
-        assert_eq!(ranges.seq_len, 50);
-        assert!(ranges.reverse);
+        assert_eq!(ranges.seq_len(), 50);
+        assert!(ranges.is_reverse());
     }
 
     #[test]

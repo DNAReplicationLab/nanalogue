@@ -257,7 +257,7 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
             .base_mods
             .iter()
             .map(|x| {
-                let seq_len = x.ranges.seq_len;
+                let seq_len = x.ranges.seq_len();
                 Ok((
                     usize::try_from(seq_len)?,
                     (

@@ -135,7 +135,7 @@ mod tests {
                 .zip(expected_refs)
                 .map(|((pos, qual), ref_pos)| FiberAnnotation::try_new(pos, qual, ref_pos).unwrap())
                 .collect();
-            assert_eq!(group.ranges.seq_len, 3);
+            assert_eq!(group.ranges.seq_len(), 3);
             assert_eq!(
                 group.ranges.annotations(),
                 expected,

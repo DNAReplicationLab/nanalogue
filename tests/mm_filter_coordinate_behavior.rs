@@ -117,8 +117,8 @@ mod tests {
         assert_eq!(group.strand, '+');
         assert_eq!(group.modification_type, 'n');
         assert!(group.record_is_reverse);
-        assert!(group.ranges.reverse);
-        assert_eq!(group.ranges.seq_len, 6);
+        assert!(group.ranges.is_reverse());
+        assert_eq!(group.ranges.seq_len(), 6);
         assert_eq!(
             group.ranges.annotations(),
             [
