@@ -91,6 +91,15 @@ pub struct ReadModProfile {
 /// BAM fields used to identify one alignment across viewer window refetches.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct AlignmentIdentity {
+    /// Fields shared by alignments that require a duplicate index.
+    base: AlignmentIdentityBase,
+    /// Occurrence among records with the same base identity.
+    duplicate_index: u32,
+}
+
+/// BAM fields shared by alignments that require a duplicate index.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct AlignmentIdentityBase {
     /// Read identifier.
     read_id: String,
     /// Supported alignment and strand state.
@@ -103,12 +112,7 @@ struct AlignmentIdentity {
     mapq: u8,
     /// Zero-based exclusive alignment end on the reference.
     reference_end: u32,
-    /// Occurrence among records with the same preceding identity fields.
-    duplicate_index: u32,
 }
-
-/// BAM fields shared by alignments that require a duplicate index.
-type AlignmentIdentityBase = (String, crate::ReadState, i32, u32, u8, u32);
 
 /// Returns one read's alignment identity with an index among equal base identities.
 fn alignment_identity<S>(
@@ -125,9 +129,15 @@ where
     let reference_end = pos.checked_add(read.align_len()?).ok_or_else(|| {
         Error::InvalidState(String::from("alignment reference end exceeds u32::MAX"))
     })?;
-    let next_duplicate_index = occurrences
-        .entry((read_id.clone(), read_state, tid, pos, mapq, reference_end))
-        .or_insert(0u32);
+    let base = AlignmentIdentityBase {
+        read_id,
+        read_state,
+        tid,
+        pos,
+        mapq,
+        reference_end,
+    };
+    let next_duplicate_index = occurrences.entry(base.clone()).or_insert(0u32);
     let duplicate_index = *next_duplicate_index;
     *next_duplicate_index = next_duplicate_index.checked_add(1).ok_or_else(|| {
         Error::InvalidState(String::from(
@@ -135,12 +145,7 @@ where
         ))
     })?;
     Ok(AlignmentIdentity {
-        read_id,
-        read_state,
-        tid,
-        pos,
-        mapq,
-        reference_end,
+        base,
         duplicate_index,
     })
 }
@@ -149,7 +154,7 @@ impl ReadModProfile {
     /// Returns the read identifier.
     #[must_use]
     pub fn read_id(&self) -> &str {
-        &self.identity.read_id
+        &self.identity.base.read_id
     }
 
     /// Returns whether two profiles represent the same BAM alignment.
@@ -164,19 +169,19 @@ impl ReadModProfile {
     /// Returns whether the alignment is on the reverse strand.
     #[must_use]
     pub fn is_reverse(&self) -> bool {
-        self.identity.read_state.strand() == '-'
+        self.identity.base.read_state.strand() == '-'
     }
 
     /// Returns the zero-based inclusive alignment start.
     #[must_use]
     pub fn align_start(&self) -> u32 {
-        self.identity.pos
+        self.identity.base.pos
     }
 
     /// Returns the zero-based exclusive alignment end.
     #[must_use]
     pub fn align_end(&self) -> u32 {
-        self.identity.reference_end
+        self.identity.base.reference_end
     }
 
     /// Returns mapped raw calls as `(reference position, ML probability)`.
@@ -955,7 +960,7 @@ mod tests {
 
         let longer = read(26, crate::ReadState::PrimaryFwd)?;
         let longer_identity = alignment_identity(&longer, &mut occurrences)?;
-        assert_eq!(longer_identity.reference_end, 26);
+        assert_eq!(longer_identity.base.reference_end, 26);
         assert_eq!(longer_identity.duplicate_index, 0);
 
         let reverse = read(25, crate::ReadState::PrimaryRev)?;
