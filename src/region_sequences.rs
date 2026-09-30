@@ -1,8 +1,7 @@
 //! Sequence retrieval for the interactive BAM viewer.
 
 use crate::{
-    BamPreFilt as _, CurrRead, Error, F32Bw0and1, FiberAnnotation, ModChar, SeqCoordCalls,
-    ThresholdState,
+    BamPreFilt as _, CurrRead, Error, F32Bw0and1, FiberAnnotation, ModChar, ThresholdState,
     analysis::threshold_and_mean,
     constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS},
     ensure_bounded_counter, ensure_record_data_capacity, nanalogue_indexed_bam_reader,
@@ -90,7 +89,7 @@ pub struct ReadModProfile {
 }
 
 /// BAM fields used to identify one alignment across viewer window refetches.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct AlignmentIdentity {
     /// Read identifier.
     read_id: String,
@@ -132,7 +131,7 @@ where
     let duplicate_index = *next_duplicate_index;
     *next_duplicate_index = next_duplicate_index.checked_add(1).ok_or_else(|| {
         Error::InvalidState(String::from(
-            "too many identical alignments in modification profiles",
+            "too many identical alignments in viewer fetch",
         ))
     })?;
     Ok(AlignmentIdentity {
@@ -208,11 +207,44 @@ pub struct RegionSequenceReader {
     target_names: Vec<String>,
     /// Reference lengths copied from the alignment header.
     target_lengths: Vec<u32>,
+    /// Whole-read modification work from the previous fetch, reused by the next one.
+    cache: ReadCache,
+}
+
+/// Modification data for one read that does not depend on the displayed window.
+#[derive(Debug, Clone)]
+struct CachedProfile {
+    /// Mapped raw calls, as in [`ReadModProfile::calls`].
+    calls: Vec<(u32, u8)>,
+    /// Call windows, as in [`ReadModProfile::windows`].
+    windows: Vec<(u32, u32, F32Bw0and1)>,
+    /// Series starts, as in [`ReadModProfile::window_series_starts`].
+    window_series_starts: Vec<usize>,
+}
+
+/// Per-reader cache holding whole-read results for the reads of the previous fetch.
+///
+/// Each fetch keeps only the entries for the records it returned, so memory stays
+/// proportional to one window's reads. Entries are only stored after successful parsing.
+#[derive(Debug, Default)]
+struct ReadCache {
+    /// Modification type the table entries were computed for.
+    table_mod_type: Option<ModChar>,
+    /// Sorted record-orientation positions of calls with probability at least 128.
+    table: HashMap<AlignmentIdentity, Vec<u32>>,
+    /// Modification type and window size the profile entries were computed for.
+    profile_settings: Option<(ModChar, NonZeroU32)>,
+    /// Whole-read profiles without their per-fetch alignment identity.
+    profiles: HashMap<AlignmentIdentity, CachedProfile>,
 }
 
 /// Formats nanalogue's reference-coordinate calls with and without insertion entries.
+///
+/// `read_sequence` and `read_modifications` hold the read's bases and calls starting at
+/// read position `window_start`, so callers only decode the part of a read on screen.
 fn format_region_sequences<I>(
     coordinates: I,
+    window_start: usize,
     read_sequence: &[u8],
     read_modifications: &[bool],
 ) -> Result<(String, String, Vec<bool>, Vec<bool>), Error>
@@ -226,7 +258,7 @@ where
     for base in coordinates {
         match base {
             Some((true, sequence_position)) => {
-                let index = usize::try_from(sequence_position)?;
+                let index = usize::try_from(sequence_position)?.wrapping_sub(window_start);
                 let uppercase_nucleotide = read_sequence
                     .get(index)
                     .ok_or_else(|| {
@@ -252,7 +284,7 @@ where
                 modifications_with_insertions.push(false);
             }
             Some((false, sequence_position)) => {
-                let index = usize::try_from(sequence_position)?;
+                let index = usize::try_from(sequence_position)?.wrapping_sub(window_start);
                 let insertion = read_sequence
                     .get(index)
                     .ok_or_else(|| {
@@ -277,6 +309,132 @@ where
         modifications,
         modifications_with_insertions,
     ))
+}
+
+/// Returns the half-open read-coordinate window covered by projected coordinates.
+///
+/// The window is clamped to the read length, so any coordinate beyond the read still
+/// reaches [`format_region_sequences`] and is reported there as out of range.
+fn read_window(
+    coordinates: &[Option<(bool, u32)>],
+    sequence_len: usize,
+) -> Result<(usize, usize), Error> {
+    let mut positions = coordinates.iter().flatten().map(|&(_, position)| position);
+    let Some(first) = positions.next() else {
+        return Ok((0, 0));
+    };
+    let last = positions.next_back().unwrap_or(first);
+    let window_start = usize::try_from(first)?.min(sequence_len);
+    let window_end = usize::try_from(last)?
+        .saturating_add(1)
+        .clamp(window_start, sequence_len);
+    Ok((window_start, window_end))
+}
+
+/// Returns sorted record-orientation positions of one modification type's calls with
+/// probability at least 128.
+///
+/// Collapsing the whole read's [`crate::SeqCoordCalls`] marks exactly these positions.
+fn high_probability_positions(
+    curr_read: CurrRead<crate::read_utils::OnlyAlignDataComplete>,
+    record: &bam::Record,
+    mod_type: ModChar,
+) -> Result<Vec<u32>, Error> {
+    let curr_read_with_mods = curr_read.set_mod_data_restricted(
+        record,
+        ThresholdState::GtEq(128),
+        |_| true,
+        |_, _, observed_mod_type| *observed_mod_type == mod_type,
+        0,
+    )?;
+    let mut positions = curr_read_with_mods
+        .mod_data()
+        .0
+        .base_mods
+        .iter()
+        .flat_map(|base_mod| base_mod.ranges.annotations.iter())
+        .filter(|annotation| annotation.qual() > 0)
+        .map(FiberAnnotation::pos)
+        .collect::<Vec<u32>>();
+    positions.sort_unstable();
+    positions.dedup();
+    Ok(positions)
+}
+
+/// Marks which read positions in `window_start..window_end` appear in sorted `positions`.
+fn window_modifications(positions: &[u32], window_start: usize, window_end: usize) -> Vec<bool> {
+    let mut modifications = vec![false; window_end.saturating_sub(window_start)];
+    let first = positions.partition_point(|&position| {
+        usize::try_from(position).is_ok_and(|index| index < window_start)
+    });
+    for &position in positions.get(first..).unwrap_or_default() {
+        let Some(slot) = usize::try_from(position)
+            .ok()
+            .and_then(|index| index.checked_sub(window_start))
+            .and_then(|offset| modifications.get_mut(offset))
+        else {
+            break;
+        };
+        *slot = true;
+    }
+    modifications
+}
+
+/// Computes one read's raw calls and non-overlapping windows for a modification type.
+fn whole_read_profile(
+    curr_read: CurrRead<crate::read_utils::OnlyAlignDataComplete>,
+    record: &bam::Record,
+    mod_type: ModChar,
+    win_size: usize,
+) -> Result<CachedProfile, Error> {
+    let mut calls = Vec::new();
+    let mut windows = Vec::new();
+    let mut window_series_starts = Vec::new();
+    let read_with_mods = curr_read.set_mod_data_restricted(
+        record,
+        ThresholdState::GtEq(0),
+        |_| true,
+        |_, _, observed_mod_type| *observed_mod_type == mod_type,
+        0,
+    )?;
+    for base_mod in &read_with_mods.mod_data().0.base_mods {
+        calls.extend(base_mod.ranges.annotations.iter().filter_map(|annotation| {
+            annotation
+                .ref_pos()
+                .map(|ref_pos| (ref_pos, annotation.qual()))
+        }));
+        let series_start = windows.len();
+        for chunk in base_mod.ranges.annotations.chunks_exact(win_size) {
+            let mut reference_positions = chunk.iter().filter_map(FiberAnnotation::ref_pos);
+            let Some(first_reference_position) = reference_positions.next() else {
+                continue;
+            };
+            let (ref_win_start, ref_win_max) = reference_positions.fold(
+                (first_reference_position, first_reference_position),
+                |(minimum, maximum), position| (minimum.min(position), maximum.max(position)),
+            );
+            let ref_win_end = ref_win_max.checked_add(1).ok_or_else(|| {
+                Error::InvalidState(String::from(
+                    "reference modification window ends at u32::MAX",
+                ))
+            })?;
+            let probabilities = chunk.iter().map(FiberAnnotation::qual).collect::<Vec<_>>();
+            windows.push((
+                ref_win_start,
+                ref_win_end,
+                threshold_and_mean(&probabilities)?,
+            ));
+        }
+        if windows.len() > series_start {
+            window_series_starts.push(series_start);
+        }
+    }
+    calls.sort_unstable_by_key(|&(ref_pos, _probability)| ref_pos);
+    Ok(CachedProfile {
+        calls,
+        windows,
+        window_series_starts,
+    })
 }
 
 impl RegionSequenceReader {
@@ -315,6 +473,7 @@ impl RegionSequenceReader {
             reader,
             target_names,
             target_lengths,
+            cache: ReadCache::default(),
         })
     }
 
@@ -378,7 +537,14 @@ impl RegionSequenceReader {
         self.reader.fetch((tid, i64::from(start), i64::from(end)))?;
         let region = crate::GenomicBed3::new(i32::try_from(tid)?, start, end)?;
         let mut rows = Vec::new();
+        let mut alignment_occurrences = HashMap::new();
         let mut record_count = 0u32;
+        let mut previous_cache = if self.cache.table_mod_type == mod_type {
+            std::mem::take(&mut self.cache.table)
+        } else {
+            HashMap::new()
+        };
+        let mut next_cache = HashMap::new();
         for record_result in bam::Read::records(&mut self.reader) {
             let record = record_result?;
             if !record.filt_by_region(&region, false) {
@@ -405,25 +571,34 @@ impl RegionSequenceReader {
             let region_offset = alignment_start.saturating_sub(start);
             let (sequence, sequence_with_insertions, modifications, modifications_with_insertions) =
                 if has_sequence {
-                    let read_sequence = record.seq().as_bytes();
                     let coordinates = curr_read.seq_coords_from_ref_coords(&record, &region)?;
+                    let packed_sequence = record.seq();
+                    let (window_start, window_end) =
+                        read_window(&coordinates, packed_sequence.len())?;
+                    let read_sequence = (window_start..window_end)
+                        .map(|index| packed_sequence[index])
+                        .collect::<Vec<u8>>();
                     let read_modifications = if let Some(requested_mod_type) = mod_type {
-                        let curr_read_with_mods = curr_read.set_mod_data_restricted(
-                            &record,
-                            ThresholdState::GtEq(128),
-                            |_| true,
-                            |_, _, observed_mod_type| *observed_mod_type == requested_mod_type,
-                            0,
-                        )?;
-                        match SeqCoordCalls::try_from(&curr_read_with_mods.mod_data().0) {
-                            Ok(calls) => calls.collapse_mod_calls(),
-                            Err(Error::UnavailableData(_)) => vec![false; read_sequence.len()],
-                            Err(error) => return Err(error),
-                        }
+                        let identity = alignment_identity(&curr_read, &mut alignment_occurrences)?;
+                        let positions = match previous_cache.remove(&identity) {
+                            Some(positions) => positions,
+                            None => {
+                                high_probability_positions(curr_read, &record, requested_mod_type)?
+                            }
+                        };
+                        let modifications =
+                            window_modifications(&positions, window_start, window_end);
+                        let _replaced = next_cache.insert(identity, positions);
+                        modifications
                     } else {
                         vec![false; read_sequence.len()]
                     };
-                    format_region_sequences(coordinates, &read_sequence, &read_modifications)?
+                    format_region_sequences(
+                        coordinates,
+                        window_start,
+                        &read_sequence,
+                        &read_modifications,
+                    )?
                 } else {
                     (
                         String::from("*"),
@@ -443,6 +618,8 @@ impl RegionSequenceReader {
             });
         }
         rows.sort_by(|left, right| left.read_id.cmp(&right.read_id));
+        self.cache.table_mod_type = mod_type;
+        self.cache.table = next_cache;
         Ok(rows)
     }
 
@@ -469,6 +646,13 @@ impl RegionSequenceReader {
         let mut alignment_occurrences = HashMap::new();
         let mut record_count = 0u32;
         let win_size = usize::try_from(win.get())?;
+        let settings = Some((mod_type, win));
+        let mut previous_cache = if self.cache.profile_settings == settings {
+            std::mem::take(&mut self.cache.profiles)
+        } else {
+            HashMap::new()
+        };
+        let mut next_cache = HashMap::new();
 
         for record_result in bam::Read::records(&mut self.reader) {
             let record = record_result?;
@@ -495,65 +679,30 @@ impl RegionSequenceReader {
                     Err(error) => return Err(error),
                 };
             let identity = alignment_identity(&curr_read, &mut alignment_occurrences)?;
-            let mut calls = Vec::new();
-            let mut windows = Vec::new();
-            let mut window_series_starts = Vec::new();
-
-            if has_sequence {
-                let read_with_mods = curr_read.set_mod_data_restricted(
-                    &record,
-                    ThresholdState::GtEq(0),
-                    |_| true,
-                    |_, _, observed_mod_type| *observed_mod_type == mod_type,
-                    0,
-                )?;
-                for base_mod in &read_with_mods.mod_data().0.base_mods {
-                    calls.extend(base_mod.ranges.annotations.iter().filter_map(|annotation| {
-                        annotation
-                            .ref_pos()
-                            .map(|ref_pos| (ref_pos, annotation.qual()))
-                    }));
-                    let series_start = windows.len();
-                    for chunk in base_mod.ranges.annotations.chunks_exact(win_size) {
-                        let mut reference_positions =
-                            chunk.iter().filter_map(FiberAnnotation::ref_pos);
-                        let Some(first_reference_position) = reference_positions.next() else {
-                            continue;
-                        };
-                        let (ref_win_start, ref_win_max) = reference_positions.fold(
-                            (first_reference_position, first_reference_position),
-                            |(minimum, maximum), position| {
-                                (minimum.min(position), maximum.max(position))
-                            },
-                        );
-                        let ref_win_end = ref_win_max.checked_add(1).ok_or_else(|| {
-                            Error::InvalidState(String::from(
-                                "reference modification window ends at u32::MAX",
-                            ))
-                        })?;
-                        let probabilities =
-                            chunk.iter().map(FiberAnnotation::qual).collect::<Vec<_>>();
-                        windows.push((
-                            ref_win_start,
-                            ref_win_end,
-                            threshold_and_mean(&probabilities)?,
-                        ));
-                    }
-                    if windows.len() > series_start {
-                        window_series_starts.push(series_start);
-                    }
+            let profile = if has_sequence {
+                let profile = match previous_cache.remove(&identity) {
+                    Some(profile) => profile,
+                    None => whole_read_profile(curr_read, &record, mod_type, win_size)?,
+                };
+                let _replaced = next_cache.insert(identity.clone(), profile.clone());
+                profile
+            } else {
+                CachedProfile {
+                    calls: Vec::new(),
+                    windows: Vec::new(),
+                    window_series_starts: Vec::new(),
                 }
-                calls.sort_unstable_by_key(|&(ref_pos, _probability)| ref_pos);
-            }
-
+            };
             profiles.push(ReadModProfile {
                 identity,
-                calls,
-                windows,
-                window_series_starts,
+                calls: profile.calls,
+                windows: profile.windows,
+                window_series_starts: profile.window_series_starts,
             });
         }
         profiles.sort_by(|left, right| left.read_id().cmp(right.read_id()));
+        self.cache.profile_settings = settings;
+        self.cache.profiles = next_cache;
         Ok(profiles)
     }
 }
@@ -632,6 +781,150 @@ mod tests {
     fn remove_test_bam(path: &std::path::Path) {
         std::fs::remove_file(path).expect("remove test BAM");
         std::fs::remove_file(format!("{}.bai", path.display())).expect("remove test BAM index");
+    }
+
+    /// Simulates long, gapped reads carrying two modification types on both strands.
+    fn cache_test_simulation() -> Result<crate::simulate_mod_bam::TempBamSimulation, Error> {
+        let config = serde_json::from_str(
+            r#"{
+                "contigs": { "number": 1, "len_range": [3000, 3000] },
+                "reads": [{
+                    "number": 60,
+                    "mapq_range": [30, 60],
+                    "base_qual_range": [20, 40],
+                    "len_range": [0.2, 0.9],
+                    "delete": [0.4, 0.45],
+                    "insert_middle": "ACGTTG",
+                    "mismatch": 0.05,
+                    "mods": [
+                        { "base": "C", "is_strand_plus": true, "mod_code": "m",
+                          "win": [20, 20], "mod_range": [[0.05, 0.3], [0.6, 0.95]] },
+                        { "base": "T", "is_strand_plus": true, "mod_code": "T",
+                          "win": [30, 30], "mod_range": [[0.05, 0.25], [0.7, 0.95]] }
+                    ]
+                }],
+                "seed": 7
+            }"#,
+        )?;
+        crate::simulate_mod_bam::TempBamSimulation::new(
+            config,
+            crate::simulate_mod_bam::AlignmentFormat::Bam,
+        )
+    }
+
+    #[test]
+    fn cached_fetches_match_fresh_readers() -> Result<(), Error> {
+        let simulation = cache_test_simulation()?;
+        let path = simulation.bam_path();
+        let mut reused = RegionSequenceReader::from_path(path)?;
+        let m = ModChar::new('m');
+        let t = ModChar::new('T');
+        let visits = [
+            (1000, Some(m)),
+            (1080, Some(m)),
+            (1000, Some(m)),
+            (1080, Some(t)),
+            (1160, None),
+            (1160, Some(m)),
+            (2900, Some(m)),
+        ];
+        let mut saw_modification = false;
+        for (start, mod_type) in visits {
+            let cached = reused.sequences(0, start, start + 80, mod_type)?;
+            let fresh =
+                RegionSequenceReader::from_path(path)?.sequences(0, start, start + 80, mod_type)?;
+            assert_eq!(cached, fresh, "table fetch at {start} with {mod_type:?}");
+            saw_modification |= cached.iter().any(|row| row.modifications().contains(&true));
+        }
+        assert!(
+            saw_modification,
+            "the simulation should produce visible calls"
+        );
+
+        let win = |size| NonZeroU32::new(size).expect("positive window");
+        for (start, mod_type, size) in [
+            (1000, m, 5),
+            (1080, m, 5),
+            (1080, m, 7),
+            (1000, t, 7),
+            (1080, t, 7),
+        ] {
+            let cached = reused.profiles(0, start, start + 80, mod_type, win(size))?;
+            let fresh = RegionSequenceReader::from_path(path)?.profiles(
+                0,
+                start,
+                start + 80,
+                mod_type,
+                win(size),
+            )?;
+            assert!(
+                !cached.is_empty(),
+                "profiles at {start} should not be empty"
+            );
+            assert_eq!(
+                cached, fresh,
+                "profiles at {start} with {mod_type} and {size}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn duplicate_alignment_identities_keep_separate_cached_calls() -> Result<(), Error> {
+        let record = |probabilities: &[u8]| -> Result<bam::Record, Error> {
+            let mut record = bam::Record::new();
+            record.set_tid(0);
+            record.set_pos(0);
+            record.set_mapq(60);
+            record.unset_unmapped();
+            record.set(
+                b"duplicate",
+                Some(&CigarString::from(vec![Cigar::Match(5)])),
+                b"ACGTA",
+                &[30; 5],
+            );
+            record.push_aux(b"MM", Aux::String("A+a?,0,0;"))?;
+            record.push_aux(b"ML", Aux::ArrayU8(probabilities.into()))?;
+            Ok(record)
+        };
+        let path = std::env::temp_dir().join(format!("{}.bam", uuid::v4_random()));
+        write_bam_denovo(
+            [record(&[200, 100])?, record(&[100, 200])?],
+            [(String::from("chr1"), 5)],
+            [String::from("rg1")],
+            Vec::<String>::new(),
+            &path,
+        )?;
+
+        let mod_type = ModChar::new('a');
+        let mut reused = RegionSequenceReader::from_path(&path)?;
+        let _first_table = reused.sequences(0, 0, 4, Some(mod_type))?;
+        let cached_table = reused.sequences(0, 1, 5, Some(mod_type))?;
+        let fresh_table =
+            RegionSequenceReader::from_path(&path)?.sequences(0, 1, 5, Some(mod_type))?;
+        assert_eq!(cached_table, fresh_table);
+        let (first_table, remaining_table) = cached_table
+            .split_first()
+            .expect("two duplicate table rows");
+        let second_table = remaining_table.first().expect("second duplicate table row");
+        assert_ne!(first_table.modifications(), second_table.modifications());
+
+        let win = NonZeroU32::new(1).expect("one is nonzero");
+        let _first_profiles = reused.profiles(0, 0, 4, mod_type, win)?;
+        let cached_profiles = reused.profiles(0, 1, 5, mod_type, win)?;
+        let fresh_profiles =
+            RegionSequenceReader::from_path(&path)?.profiles(0, 1, 5, mod_type, win)?;
+        assert_eq!(cached_profiles, fresh_profiles);
+        let (first_profile, remaining_profiles) = cached_profiles
+            .split_first()
+            .expect("two duplicate profiles");
+        let second_profile = remaining_profiles
+            .first()
+            .expect("second duplicate profile");
+        assert_ne!(first_profile.calls(), second_profile.calls());
+
+        remove_test_bam(&path);
+        Ok(())
     }
 
     #[test]
@@ -802,6 +1095,7 @@ mod tests {
         let (sequence, sequence_with_insertions, modifications, modifications_with_insertions) =
             format_region_sequences(
                 [Some((true, 0)), None, Some((false, 1)), Some((true, 2))],
+                0,
                 b"aGt",
                 &[true, true, false],
             )

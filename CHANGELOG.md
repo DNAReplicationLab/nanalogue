@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now private; construct with `FiberAnnotation::try_new(pos, qual, ref_pos)`
   and read with the `pos()`, `qual()` and `ref_pos()` methods. Ordering and
   `Debug` output are unchanged.
+- BAM viewer horizontal navigation reuses whole-read modification data for
+  alignments that stay on screen, and the table view decodes only the visible
+  part of each read. Added the `bam_viewer_fetch` benchmark that replays these
+  fetches.
 
 ### Fixed
 - (Project tooling, not code) Fixed `install.sh` to use the correct ARM release archive name, matching the output from the relevant GitHub Actions workflow

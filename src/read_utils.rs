@@ -494,10 +494,12 @@ i.e. en <= st or st < 0 or en > {MAX_CONTIG_LEN}, read_id: {}",
                 self.read_id()
             )))
         } else {
-            self.align_len.ok_or(Error::UnavailableData(format!(
-                "alignment data not available, read_id: {}",
-                self.read_id()
-            )))
+            self.align_len.ok_or_else(|| {
+                Error::UnavailableData(format!(
+                    "alignment data not available, read_id: {}",
+                    self.read_id()
+                ))
+            })
         }
     }
     /// sets contig ID and start from BAM record if available
@@ -598,11 +600,12 @@ i.e. en <= st or st < 0 or en > {MAX_CONTIG_LEN}, read_id: {}",
                 self.read_id()
             )))
         } else {
-            self.contig_id_and_start
-                .ok_or(Error::UnavailableData(format!(
+            self.contig_id_and_start.ok_or_else(|| {
+                Error::UnavailableData(format!(
                     "contig id, start not available, read_id: {}",
                     self.read_id()
-                )))
+                ))
+            })
         }
     }
     /// sets contig name

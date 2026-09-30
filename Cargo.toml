@@ -68,6 +68,11 @@ harness = false
 name = "basemods_to_seq_coord_calls"
 harness = false
 
+[[bench]]
+name = "bam_viewer_fetch"
+harness = false
+required-features = ["bam-viewer"]
+
 [lints.clippy]
 alloc_instead_of_core = "deny"
 allow_attributes = "deny"
