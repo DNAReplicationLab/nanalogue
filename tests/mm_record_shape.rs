@@ -137,7 +137,8 @@ mod tests {
                 .collect();
             assert_eq!(group.ranges.seq_len, 3);
             assert_eq!(
-                group.ranges.annotations, expected,
+                group.ranges.annotations(),
+                expected,
                 "incorrect map for {cigar:?}"
             );
         }

@@ -309,33 +309,25 @@ fn approximate_mod_data_len(
 ///             modified_base: b'T',
 ///             strand: '+',
 ///             modification_type: 'T',
-///             ranges: Ranges {
-///                 annotations: vec![
+///             ranges: Ranges::from_annotations(vec![
 ///                     FiberAnnotation::try_new(0, 4, Some(9))?,
 ///                     FiberAnnotation::try_new(3, 7, Some(12))?,
 ///                     FiberAnnotation::try_new(4, 9, Some(13))?,
 ///                     FiberAnnotation::try_new(7, 6, Some(16))?,
-///                 ],
-///                 seq_len: 8,
-///                 reverse: false,
-///             },
+///                 ], 8, false)?,
 ///             record_is_reverse: false,
 ///     }]),
 ///     2 => assert_eq!(v, vec![BaseMod{
 ///             modified_base: b'T',
 ///             strand: '+',
 ///             modification_type: 'T',
-///             ranges: Ranges {
-///                 annotations: vec![
+///             ranges: Ranges::from_annotations(vec![
 ///                     FiberAnnotation::try_new(12, 3, Some(15))?,
 ///                     FiberAnnotation::try_new(13, 3, Some(16))?,
 ///                     FiberAnnotation::try_new(16, 4, Some(19))?,
 ///                     FiberAnnotation::try_new(19, 3, Some(22))?,
 ///                     FiberAnnotation::try_new(20, 182, Some(23))?,
-///                 ],
-///                 seq_len: 33,
-///                 reverse: true,
-///             },
+///                 ], 33, true)?,
 ///             record_is_reverse: true,
 ///     }]),
 ///     _ => {},
@@ -625,19 +617,20 @@ where
                     )));
                 }
 
+                let ranges = Ranges::from_annotations(
+                    if is_reverse {
+                        annotations.into_iter().rev().collect()
+                    } else {
+                        annotations
+                    },
+                    u32::try_from(seq_len)?,
+                    is_reverse,
+                )?;
                 let mods = BaseMod {
                     modified_base: mod_base,
                     strand: mod_strand,
                     modification_type: modification_type.val(),
-                    ranges: Ranges {
-                        annotations: if is_reverse {
-                            annotations.into_iter().rev().collect()
-                        } else {
-                            annotations
-                        },
-                        seq_len: u32::try_from(seq_len)?,
-                        reverse: is_reverse,
-                    },
+                    ranges,
                     record_is_reverse: is_reverse,
                 };
                 rtn.push(mods);

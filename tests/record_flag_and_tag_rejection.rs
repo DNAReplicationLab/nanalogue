@@ -208,7 +208,7 @@ mod tests {
             let group = mods.base_mods.first().expect("one C+m group");
             assert_eq!(group.modified_base, b'C', "{mm_tag}/{ml_tag}");
             assert_eq!(
-                group.ranges.annotations,
+                group.ranges.annotations(),
                 vec![FiberAnnotation::try_new(1, 203, Some(18)).unwrap()],
                 "{mm_tag}/{ml_tag}"
             );
@@ -245,7 +245,7 @@ mod tests {
             "the group must record the N base"
         );
         assert_eq!(
-            n_group.ranges.annotations,
+            n_group.ranges.annotations(),
             vec![
                 FiberAnnotation::try_new(0, 101, Some(17)).unwrap(),
                 FiberAnnotation::try_new(1, 202, Some(18)).unwrap(),
@@ -261,7 +261,7 @@ mod tests {
             "the group must record the C base"
         );
         assert_eq!(
-            c_group.ranges.annotations,
+            c_group.ranges.annotations(),
             vec![FiberAnnotation::try_new(1, 203, Some(18)).unwrap()],
             "C must skip the A at position 0 and annotate only the cytosine"
         );
