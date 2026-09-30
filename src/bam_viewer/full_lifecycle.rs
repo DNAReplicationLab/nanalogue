@@ -317,6 +317,7 @@ fn capture_displayed_viewport(
         let geometry = table_sequence_geometry(viewer, table_records.len(), cols, DISPLAY_ROWS);
         let rendered = rendered_table_text(viewer, table_records, cols)?;
         let rendered_lines = rendered.lines().collect::<Vec<_>>();
+        let mut rendered_read_ids = Vec::new();
 
         for row_index in geometry.first_row..geometry.row_end {
             let line = rendered_lines
@@ -332,6 +333,7 @@ fn capture_displayed_viewport(
                 .get(label_end..sequence_end)
                 .ok_or("rendered sequence is narrower than its geometry")?;
             let observation = classify_rendered_sequence(read_id, sequence)?;
+            rendered_read_ids.push(String::from(read_id));
             if let Some(previous) = reads.insert(String::from(read_id), observation) {
                 assert_eq!(
                     previous, observation,
@@ -339,6 +341,17 @@ fn capture_displayed_viewport(
                 );
             }
         }
+        let expected_read_ids = table_records
+            .iter()
+            .skip(viewer.viewport.read_offset)
+            .take(DISPLAYED_READS)
+            .map(|record| String::from(record.read_id()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rendered_read_ids, expected_read_ids,
+            "vertical page at read offset {} must render the exact cached records in order",
+            viewer.viewport.read_offset
+        );
 
         if viewer.viewport.read_offset.saturating_add(DISPLAYED_READS) >= table_records.len() {
             break;
