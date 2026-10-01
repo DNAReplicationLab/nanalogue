@@ -187,7 +187,7 @@ pub(super) enum FrameFooter<'a> {
     Message(&'a str),
 }
 
-/// Builds the ANSI frame that Ghostty parses into a terminal screen.
+/// Builds the ANSI frame written to the host terminal and retained for snapshot parsing.
 pub(super) fn build_frame(
     viewer: &Viewer,
     records: &[RegionSequence],

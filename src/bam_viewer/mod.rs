@@ -2,8 +2,8 @@
 
 //! Interactive terminal viewer for indexed BAM files.
 //!
-//! `libghostty-vt` owns the virtual screen and interprets each ANSI frame.
-//! Crossterm only handles the host terminal's raw mode, events, and drawing.
+//! Crossterm writes ANSI frames directly so the host terminal controls palette and styling.
+//! `libghostty-vt` interprets a retained frame only when a text snapshot is requested.
 
 #![expect(
     clippy::print_stderr,
@@ -20,19 +20,18 @@
 
 use crossterm::{
     SynchronizedUpdate as _,
-    cursor::{Hide, MoveTo, Show},
+    cursor::{Hide, Show},
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute, queue,
     style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{
-        EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-        enable_raw_mode,
+        Clear, ClearType, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
+        disable_raw_mode, enable_raw_mode,
     },
 };
 use libghostty_vt::{
     RenderState, Terminal, TerminalOptions,
     render::{CellIterator, RowIterator},
-    style::Underline,
 };
 use std::{
     env,
@@ -159,111 +158,63 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Bridges ANSI frames through Ghostty's VT model onto the host terminal.
+/// Writes complete ANSI frames to the host terminal and retains the latest for snapshots.
 #[derive(Debug)]
-struct GhosttyRenderer {
-    /// Ghostty virtual terminal.
-    terminal: Terminal<'static, 'static>,
-    /// Snapshot state reused between frames.
-    render_state: RenderState<'static>,
-    /// Reusable row iterator.
-    rows: RowIterator<'static>,
-    /// Reusable cell iterator.
-    cells: CellIterator<'static>,
+struct FrameRenderer {
+    /// Last frame successfully written to the host terminal.
+    displayed_frame: Option<String>,
+    /// Width used to display the retained frame.
+    cols: u16,
+    /// Height used to display the retained frame.
+    rows: u16,
 }
 
-impl GhosttyRenderer {
-    /// Creates the VT model at the requested size.
-    fn new(cols: u16, rows: u16) -> Result<Self, Box<dyn Error>> {
-        Ok(Self {
-            terminal: Terminal::new(TerminalOptions {
-                cols: cols.max(1),
-                rows: rows.max(1),
-                max_scrollback: 0,
-            })?,
-            render_state: RenderState::new()?,
-            rows: RowIterator::new()?,
-            cells: CellIterator::new()?,
-        })
+impl FrameRenderer {
+    /// Creates an empty renderer at the requested size.
+    fn new(cols: u16, rows: u16) -> Self {
+        Self {
+            displayed_frame: None,
+            cols: cols.max(1),
+            rows: rows.max(1),
+        }
     }
 
-    /// Parses a complete ANSI frame with Ghostty and paints its resulting cells.
-    fn draw(
+    /// Forces the next draw after the host terminal may have changed independently.
+    fn invalidate(&mut self) {
+        self.displayed_frame = None;
+    }
+
+    /// Writes a changed ANSI frame directly so the host terminal interprets its palette and SGR.
+    fn draw<W: io::Write>(
         &mut self,
-        stdout: &mut Stdout,
+        output: &mut W,
         frame: &str,
         cols: u16,
         rows: u16,
     ) -> Result<(), Box<dyn Error>> {
         let effective_cols = cols.max(1);
         let effective_rows = rows.max(1);
-        self.terminal.resize(effective_cols, effective_rows, 1, 1)?;
-        self.terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
-        self.terminal.vt_write(frame.as_bytes());
-
-        let snapshot = self.render_state.update(&self.terminal)?;
-        let mut row_iter = self.rows.update(&snapshot)?;
-        stdout.sync_update(|output| -> Result<(), Box<dyn Error>> {
-            let mut y = 0u16;
-            queue!(output, MoveTo(0, 0))?;
-            while let Some(row) = row_iter.next() {
-                let mut cell_iter = self.cells.update(row)?;
-                let mut x = 0u16;
-                while let Some(cell) = cell_iter.next() {
-                    let style = cell.style()?;
-                    let fg = cell.fg_color()?.map_or(Color::Reset, |color| Color::Rgb {
-                        r: color.r,
-                        g: color.g,
-                        b: color.b,
-                    });
-                    let bg = cell.bg_color()?.map_or(Color::Reset, |color| Color::Rgb {
-                        r: color.r,
-                        g: color.g,
-                        b: color.b,
-                    });
-                    queue!(
-                        output,
-                        MoveTo(x, y),
-                        SetAttribute(Attribute::Reset),
-                        SetForegroundColor(fg),
-                        SetBackgroundColor(bg)
-                    )?;
-                    if style.bold {
-                        queue!(output, SetAttribute(Attribute::Bold))?;
-                    }
-                    if style.italic {
-                        queue!(output, SetAttribute(Attribute::Italic))?;
-                    }
-                    if style.underline != Underline::None {
-                        queue!(output, SetAttribute(Attribute::Underlined))?;
-                    }
-                    if style.inverse {
-                        queue!(output, SetAttribute(Attribute::Reverse))?;
-                    }
-                    let graphemes = cell.graphemes()?;
-                    if graphemes.is_empty() {
-                        queue!(output, Print(' '))?;
-                    } else {
-                        for grapheme in graphemes {
-                            queue!(output, Print(grapheme))?;
-                        }
-                    }
-                    x = x.saturating_add(1);
-                }
-                y = y.saturating_add(1);
-            }
+        if self.cols == effective_cols
+            && self.rows == effective_rows
+            && self.displayed_frame.as_deref() == Some(frame)
+        {
+            return Ok(());
+        }
+        output.sync_update(|synchronized_output| {
             queue!(
-                output,
+                synchronized_output,
                 SetAttribute(Attribute::Reset),
-                SetForegroundColor(Color::Reset),
-                SetBackgroundColor(Color::Reset)
-            )?;
-            Ok(())
+                Clear(ClearType::All),
+                Print(frame)
+            )
         })??;
+        self.displayed_frame = Some(String::from(frame));
+        self.cols = effective_cols;
+        self.rows = effective_rows;
         Ok(())
     }
 
-    /// Saves the already-parsed table viewport in the files appropriate for its mod state.
+    /// Parses the retained table viewport and saves files appropriate for its mod state.
     fn save_table_snapshot(
         &mut self,
         viewer: &Viewer,
@@ -272,13 +223,29 @@ impl GhosttyRenderer {
         rows: u16,
         directory: &Path,
     ) -> Result<String, String> {
-        let snapshot = self
-            .render_state
-            .update(&self.terminal)
+        let mut terminal = Terminal::new(TerminalOptions {
+            cols: self.cols,
+            rows: self.rows,
+            max_scrollback: 0,
+        })
+        .map_err(|error| error.to_string())?;
+        terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
+        terminal.vt_write(
+            self.displayed_frame
+                .as_deref()
+                .ok_or_else(|| String::from("no frame has been displayed"))?
+                .as_bytes(),
+        );
+        let mut render_state = RenderState::new().map_err(|error| error.to_string())?;
+        let snapshot = render_state
+            .update(&terminal)
             .map_err(|error| error.to_string())?;
+        let mut row_iterator = RowIterator::new().map_err(|error| error.to_string())?;
+        let mut cell_iterator = CellIterator::new().map_err(|error| error.to_string())?;
         let geometry = table_sequence_geometry(viewer, record_count, cols, rows);
-        let projected = project_text_snapshot(&snapshot, &mut self.rows, &mut self.cells, geometry)
-            .map_err(|error| error.to_string())?;
+        let projected =
+            project_text_snapshot(&snapshot, &mut row_iterator, &mut cell_iterator, geometry)
+                .map_err(|error| error.to_string())?;
         let prefix = snapshot_prefix(viewer);
         if viewer.mod_type.is_some() {
             let _paths = write_snapshot_pair(directory, &prefix, &projected)?;
@@ -292,7 +259,7 @@ impl GhosttyRenderer {
 
 /// Saves the active view in its mode-specific session format.
 fn save_current_view(
-    renderer: &mut GhosttyRenderer,
+    renderer: &mut FrameRenderer,
     viewer: &Viewer,
     records: &ViewerRecords,
     cols: u16,
@@ -428,7 +395,7 @@ fn handle_position_prompt_key(
 
 /// Reads a genomic position while using only the existing footer row as a prompt.
 fn prompt_for_position(
-    renderer: &mut GhosttyRenderer,
+    renderer: &mut FrameRenderer,
     stdout: &mut Stdout,
     viewer: &mut Viewer,
     records: &ViewerRecords,
@@ -449,7 +416,12 @@ fn prompt_for_position(
         );
         renderer.draw(stdout, &frame, cols, rows)?;
 
-        let Event::Key(key) = event::read()? else {
+        let next_event = event::read()?;
+        if matches!(next_event, Event::Resize(_, _)) {
+            renderer.invalidate();
+            continue;
+        }
+        let Event::Key(key) = next_event else {
             continue;
         };
         if key.kind != KeyEventKind::Press {
@@ -502,7 +474,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         args.mode,
         window_len_for_columns(initial_cols),
     )?;
-    let mut renderer = GhosttyRenderer::new(initial_cols, initial_rows)?;
+    let mut renderer = FrameRenderer::new(initial_cols, initial_rows);
     let mut stdout = io::stdout();
     let _guard = TerminalGuard::enter(&mut stdout)?;
     let mut records = fetch_viewer_records(&mut viewer)?;
@@ -548,6 +520,10 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         } else {
             event::read()?
         };
+        if matches!(next_event, Event::Resize(_, _)) {
+            renderer.invalidate();
+            continue;
+        }
         let Event::Key(key) = next_event else {
             continue;
         };
@@ -701,7 +677,10 @@ mod tests {
                     (self.style.bold, "1"),
                     (self.style.faint, "2"),
                     (self.style.italic, "3"),
-                    (self.style.underline != Underline::None, "4"),
+                    (
+                        self.style.underline != libghostty_vt::style::Underline::None,
+                        "4",
+                    ),
                     (self.style.blink, "5"),
                     (self.style.inverse, "7"),
                     (self.style.invisible, "8"),
@@ -841,7 +820,7 @@ mod tests {
         Ok(())
     }
 
-    /// Captures full frames after the reset that [`GhosttyRenderer::draw`] applies.
+    /// Captures full frames after the reset used for saved snapshot parsing.
     ///
     /// This models renderer input state only; it does not exercise its incremental terminal output.
     fn render_frames_as_ansi<S: AsRef<str>>(
@@ -1376,15 +1355,24 @@ mod tests {
         cells.select(21)?;
         assert_eq!(cells.graphemes()?, ['A']);
         assert!(!cells.style()?.bold);
-        assert_eq!(cells.style()?.underline, Underline::None);
+        assert_eq!(
+            cells.style()?.underline,
+            libghostty_vt::style::Underline::None
+        );
         cells.select(22)?;
         assert_eq!(cells.graphemes()?, ['T']);
         assert!(cells.style()?.bold);
-        assert_eq!(cells.style()?.underline, Underline::Single);
+        assert_eq!(
+            cells.style()?.underline,
+            libghostty_vt::style::Underline::Single
+        );
         cells.select(23)?;
         assert_eq!(cells.graphemes()?, ['C']);
         assert!(!cells.style()?.bold);
-        assert_eq!(cells.style()?.underline, Underline::None);
+        assert_eq!(
+            cells.style()?.underline,
+            libghostty_vt::style::Underline::None
+        );
         Ok(())
     }
 
@@ -1576,17 +1564,8 @@ mod tests {
         );
         let geometry = table_sequence_geometry(&viewer, records.len(), cols, rows);
         let expected = render_frame_as_text_snapshot(&frame, cols, rows, geometry)?;
-        let mut renderer = GhosttyRenderer::new(cols, rows)?;
-        renderer.terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
-        renderer.terminal.vt_write(frame.as_bytes());
-        {
-            let screen_snapshot = renderer.render_state.update(&renderer.terminal)?;
-            let mut consumed_rows = renderer.rows.update(&screen_snapshot)?;
-            if let Some(first_row) = consumed_rows.next() {
-                let mut consumed_cells = renderer.cells.update(first_row)?;
-                let _first_cell = consumed_cells.next();
-            }
-        }
+        let mut renderer = FrameRenderer::new(cols, rows);
+        renderer.draw(&mut Vec::new(), &frame, cols, rows)?;
 
         let success =
             renderer.save_table_snapshot(&viewer, records.len(), cols, rows, &directory)?;
@@ -1607,8 +1586,7 @@ mod tests {
         viewer.mod_type = None;
         let plain_records = viewer.visible_records()?;
         let plain_frame = build_frame(&viewer, &plain_records, cols, rows, FrameFooter::Controls);
-        renderer.terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
-        renderer.terminal.vt_write(plain_frame.as_bytes());
+        renderer.draw(&mut Vec::new(), &plain_frame, cols, rows)?;
         let plain_success = renderer.save_table_snapshot(
             &viewer,
             plain_records.len(),
@@ -1635,7 +1613,7 @@ mod tests {
         std::fs::create_dir_all(&directory)?;
         let bed_path = directory.join("nanalogue-89abcdef.bed");
         assert!(!bed_path.exists());
-        let mut renderer = GhosttyRenderer::new(80, 24)?;
+        let mut renderer = FrameRenderer::new(80, 24);
         let no_profiles = ViewerRecords::Individual(Vec::new());
         let no_selection_error =
             save_current_view(&mut renderer, &viewer, &no_profiles, 80, 24, &directory)
@@ -4146,6 +4124,38 @@ mod tests {
             Some(Duration::from_millis(1))
         );
         assert_eq!(feedback.remaining(feedback.expires_at), None);
+    }
+
+    #[test]
+    fn frame_renderer_preserves_ansi_and_skips_identical_frames() -> Result<(), Box<dyn Error>> {
+        let frame = "\x1b[H\x1b[2;5;8;9;53;4:3;58:5:2;97;44mstyled\x1b[0m";
+        let mut renderer = FrameRenderer::new(200, 60);
+        let mut output = Vec::new();
+
+        renderer.draw(&mut output, frame, 200, 60)?;
+        assert_eq!(
+            output,
+            [
+                b"\x1b[?2026h\x1b[0m\x1b[2J".as_slice(),
+                frame.as_bytes(),
+                b"\x1b[?2026l"
+            ]
+            .concat(),
+            "the host terminal must receive a reset, then palette indexes and complete SGR styles unchanged"
+        );
+        assert!(
+            output.len() <= frame.len().saturating_add(32),
+            "renderer overhead should be constant rather than per-cell"
+        );
+
+        let first_draw_length = output.len();
+        renderer.draw(&mut output, frame, 200, 60)?;
+        assert_eq!(output.len(), first_draw_length);
+
+        renderer.invalidate();
+        renderer.draw(&mut output, frame, 200, 60)?;
+        assert!(output.len() > first_draw_length);
+        Ok(())
     }
 
     #[test]

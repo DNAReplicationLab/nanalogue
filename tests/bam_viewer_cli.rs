@@ -629,7 +629,7 @@ mod tests {
                 .output
                 .windows(8)
                 .any(|bytes| bytes == b"\x1b[?2026h"),
-            "GhosttyRenderer should use synchronized terminal updates"
+            "FrameRenderer should use synchronized terminal updates"
         );
         assert!(
             session
@@ -660,7 +660,7 @@ mod tests {
         assert!(text.contains("g goto r full IDs i show ins s save q quit"));
     }
 
-    /// Drives display toggles, arrow navigation, and goto cancellation before quitting.
+    /// Drives display toggles, arrow navigation, and goto cancellation without redundant redraws.
     #[cfg(target_os = "linux")]
     #[test]
     fn pty_interactive_flow_dispatches_keys_and_quits() {
@@ -690,9 +690,11 @@ mod tests {
             text.contains("Go to CONTIG:START: "),
             "g should render the goto prompt before Escape cancels it"
         );
+        let redraw_count = text.matches("nanalogue BAM viewer").count();
+        assert!(redraw_count >= 4, "changed frames should redraw the viewer");
         assert!(
-            text.matches("nanalogue BAM viewer").count() >= 6,
-            "each dispatched key should redraw the viewer"
+            redraw_count < 7,
+            "a key that leaves the frame unchanged should not redraw it"
         );
     }
 }
