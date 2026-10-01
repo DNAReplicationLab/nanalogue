@@ -1,10 +1,11 @@
-//! Plain-text projection and paired-file persistence for table snapshots.
+//! Persistence for table snapshots and individual-read BED selections.
 
 use super::{render::TableSequenceGeometry, state::Viewer};
 use libghostty_vt::{
     render::{CellIterator, RowIterator, Snapshot},
     style::Underline,
 };
+use nanalogue_core::region_sequences::ReadModProfile;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write as _},
@@ -107,11 +108,42 @@ pub(super) fn snapshot_prefix(viewer: &Viewer) -> String {
         .saturating_add(viewer.current_window_len())
         .min(viewer.target_len());
     format!(
-        "nanalogue-{}-{}-{displayed_start}-{displayed_end}-row-{}",
+        "nanalogue-{}-{}-{}-{displayed_start}-{displayed_end}-row-{}",
+        viewer.session_id,
         safe_component(&bam_name),
         safe_component(viewer.target_name()),
         viewer.viewport.read_offset.saturating_add(1)
     )
+}
+
+/// Appends one selected alignment to this session's BED6 file.
+pub(super) fn append_individual_bed(
+    directory: &Path,
+    session_id: &str,
+    target_name: &str,
+    profile: &ReadModProfile,
+) -> Result<PathBuf, String> {
+    let path = directory.join(format!("nanalogue-{session_id}.bed"));
+    let filename = path
+        .file_name()
+        .unwrap_or(path.as_os_str())
+        .to_string_lossy();
+    let line = format!(
+        "{target_name}\t{}\t{}\t{}\t0\t{}\n",
+        profile.align_start(),
+        profile.align_end(),
+        profile.read_id(),
+        if profile.is_reverse() { '-' } else { '+' }
+    );
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|error| format!("{} opening BED file ({filename})", io_failure(&error)))?;
+    file.write_all(line.as_bytes())
+        .and_then(|()| file.flush())
+        .map_err(|error| format!("{} writing BED file ({filename})", io_failure(&error)))?;
+    Ok(path)
 }
 
 /// Paths successfully written for one snapshot pair.

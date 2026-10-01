@@ -578,7 +578,7 @@ pub(super) fn build_individual_frame(
         write!(frame, "\x1b[{rows};1H\x1b[7m").expect("writing to String cannot fail");
         let footer = match footer_state {
             FrameFooter::Controls => format!(
-                "j/k read  pgup/dn  home/end  h/l {} bp  g goto  q quit",
+                "j/k read pgup/dn home/end h/l {} bp g goto s save q quit",
                 viewer.window_len
             ),
             FrameFooter::PositionPrompt { input, error } => error.map_or_else(

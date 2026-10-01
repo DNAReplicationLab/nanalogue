@@ -364,12 +364,20 @@ rendered terminal grid in the working directory as `<prefix>.txt`. When
 `MOD_TYPE` is supplied, the save also includes `<prefix>.mods.txt`; this mask
 uses `1` for underlined modification cells and `0` for every other displayed
 sequence cell. The text file preserves the fixed-width screen without ANSI
-escapes. Existing snapshot files are never replaced. Save feedback disappears
-on the next keypress or automatically after three seconds. Horizontal movement
-and every successful goto select the first read; in table mode they also
-truncate read IDs and hide insertions. In individual mode, read movement selects
-the plotted read and `r`/`i`/`s` have no effect. Outside the goto prompt, press
-`q` or Escape to quit; Ctrl-C and Ctrl-D always quit.
+escapes. Snapshot names include the first eight hexadecimal characters of a
+UUID generated for the viewer session, and existing snapshot files are never
+replaced. In individual mode, `s` appends the selected alignment as BED6 to
+`nanalogue-<session-id>.bed` in the working directory. Its columns are reference
+name, zero-based alignment start, exclusive alignment end, read ID, score `0`,
+and strand. The BED file is created on the first save and reused as the user
+changes reads or regions; repeated saves append repeated records. Save feedback
+disappears on the next keypress or automatically after three seconds. The
+viewer does not check for a pre-existing session BED file at startup, so a
+short-ID collision appends to that file. Horizontal movement and every
+successful goto select the first read; in table mode they also truncate read
+IDs and hide insertions. In individual mode, read movement selects the plotted
+read and `r`/`i` have no effect. Outside the goto prompt, press `q` or Escape to
+quit; Ctrl-C and Ctrl-D always quit.
 
 ## `nanalogue read-info`
 Prints information about reads in JSON, including BAM mapping quality (`mapq`). A sample output snippet follows.

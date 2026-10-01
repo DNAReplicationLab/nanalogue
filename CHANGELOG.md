@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with region read tables and individual whole-read modification probability plots
 - Fixed-width text snapshots of the rendered BAM viewer table screen, with a
   paired modification mask when a modification type is requested
+- Session-labelled BAM viewer saves and an individual-view save action that
+  appends selected alignments to a session BED6 file
 
 ### Changed
 - BAM viewer table mode now shows every overlapping alignment, using spaces for

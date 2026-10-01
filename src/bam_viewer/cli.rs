@@ -36,7 +36,8 @@ pub(super) const USAGE: &str = concat!(
     "  In goto: type CONTIG:START; Backspace edits; Enter submits; Escape cancels.\n",
     "  In table view, r toggles full read IDs, i toggles insertions, and s saves ",
     "the rendered screen as text, plus a modification mask when MOD_TYPE is set.\n",
-    "  In individual view, j/k selects one read; r/i/s have no effect.\n",
+    "  In individual view, j/k selects one read and s appends its BED6 alignment ",
+    "to this session's BED file; r/i have no effect.\n",
     "  Outside goto, q or Escape quits; Ctrl-C or Ctrl-D always quits.",
 );
 

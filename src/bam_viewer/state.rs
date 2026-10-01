@@ -8,8 +8,18 @@ use crossterm::event::KeyCode;
 use nanalogue_core::{
     ModChar,
     region_sequences::{ReadModProfile, RegionSequence, RegionSequenceReader},
+    uuid,
 };
 use std::{error::Error, num::NonZeroU32, path::PathBuf};
+
+/// Generates the first canonical UUID group used to identify one viewer session.
+fn new_session_id() -> String {
+    let value = uuid::v4_random();
+    let (session_id, _remainder) = value
+        .split_once('-')
+        .expect("a generated UUID contains canonical separators");
+    String::from(session_id)
+}
 
 /// Position and scroll state of the viewer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -94,6 +104,8 @@ pub(super) fn full_read_label_width(records: &[RegionSequence]) -> u16 {
 /// BAM data and mutable viewport state.
 #[derive(Debug)]
 pub(super) struct Viewer {
+    /// Eight-hex-character identifier shared by files saved during this session.
+    pub session_id: String,
     /// Source BAM path.
     pub path: PathBuf,
     /// Nanalogue reader reused for region sequence tables.
@@ -157,6 +169,7 @@ impl Viewer {
         };
 
         Ok(Self {
+            session_id: new_session_id(),
             path,
             reader,
             viewport,

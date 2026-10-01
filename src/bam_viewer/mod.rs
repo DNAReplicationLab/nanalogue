@@ -55,7 +55,10 @@ mod state;
 use cli::{Args, InitialPosition, USAGE, ViewMode, window_len_for_columns};
 use plot::build_individual_frame;
 use render::{FrameFooter, build_frame, table_sequence_geometry};
-use snapshot::{project_text_snapshot, snapshot_prefix, write_snapshot_pair, write_text_snapshot};
+use snapshot::{
+    append_individual_bed, project_text_snapshot, snapshot_prefix, write_snapshot_pair,
+    write_text_snapshot,
+};
 use state::{
     Viewer, ViewerRecords, fetch_viewer_records, full_read_label_width,
     reselect_individual_alignment, reselect_read,
@@ -283,6 +286,40 @@ impl GhosttyRenderer {
         } else {
             let _path = write_text_snapshot(directory, &prefix, &projected)?;
             Ok(format!("Saved {prefix}.txt"))
+        }
+    }
+}
+
+/// Saves the active view in its mode-specific session format.
+fn save_current_view(
+    renderer: &mut GhosttyRenderer,
+    viewer: &Viewer,
+    records: &ViewerRecords,
+    cols: u16,
+    rows: u16,
+    directory: &Path,
+) -> Result<String, String> {
+    match records {
+        ViewerRecords::Table(table_records) => {
+            renderer.save_table_snapshot(viewer, table_records.len(), cols, rows, directory)
+        }
+        ViewerRecords::Individual(profiles) => {
+            let profile = profiles
+                .get(viewer.viewport.read_offset)
+                .ok_or_else(|| String::from("no read selected"))?;
+            let path = append_individual_bed(
+                directory,
+                &viewer.session_id,
+                viewer.target_name(),
+                profile,
+            )?;
+            Ok(format!(
+                "Appended {} to {}",
+                profile.read_id(),
+                path.file_name()
+                    .unwrap_or(path.as_os_str())
+                    .to_string_lossy()
+            ))
         }
     }
 }
@@ -521,20 +558,17 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
         if should_quit(key) {
             break;
         }
-        if key.code == KeyCode::Char('s')
-            && viewer.mode == ViewMode::Table
-            && let ViewerRecords::Table(table_records) = &records
-        {
+        if key.code == KeyCode::Char('s') {
             let message = match env::current_dir() {
-                Ok(current_directory) => renderer
-                    .save_table_snapshot(
-                        &viewer,
-                        table_records.len(),
-                        cols,
-                        rows,
-                        &current_directory,
-                    )
-                    .unwrap_or_else(|error| format!("Save failed: {error}")),
+                Ok(current_directory) => save_current_view(
+                    &mut renderer,
+                    &viewer,
+                    &records,
+                    cols,
+                    rows,
+                    &current_directory,
+                )
+                .unwrap_or_else(|error| format!("Save failed: {error}")),
                 Err(error) => format!("Save failed: cannot inspect current directory: {error}"),
             };
             save_feedback = Some(SaveFeedback::new(message, Instant::now()));
@@ -1519,10 +1553,14 @@ mod tests {
             7,
         )?;
         viewer.path = PathBuf::from("../../bad name?.bam");
+        viewer.session_id = String::from("01234567");
         let records = viewer.visible_records()?;
         let original_viewport = viewer.viewport;
         let prefix = snapshot_prefix(&viewer);
-        assert_eq!(prefix, "nanalogue-bad_name_.bam-dummyIII-24-30-row-1");
+        assert_eq!(
+            prefix,
+            "nanalogue-01234567-bad_name_.bam-dummyIII-24-30-row-1"
+        );
         assert!(!prefix.contains('/'));
 
         let directory = env::temp_dir().join(format!("nanalogue-snapshot-{}", uuid::v4_random()));
@@ -1552,7 +1590,7 @@ mod tests {
 
         let success =
             renderer.save_table_snapshot(&viewer, records.len(), cols, rows, &directory)?;
-        assert!(success.starts_with("Saved nanalogue-bad_name_.bam"));
+        assert!(success.starts_with("Saved nanalogue-01234567-bad_name_.bam"));
         let text_path = directory.join(format!("{prefix}.txt"));
         let modifications_path = directory.join(format!("{prefix}.mods.txt"));
         let saved_text = std::fs::read_to_string(&text_path)?;
@@ -1585,6 +1623,64 @@ mod tests {
 
         std::fs::remove_dir_all(directory)?;
         Ok(())
+    }
+
+    #[test]
+    fn individual_saves_append_bed6_records_to_the_session_file() -> Result<(), Box<dyn Error>> {
+        let bam_path = write_individual_semantics_bam()?;
+        let mut viewer = individual_semantics_viewer(&bam_path)?;
+        viewer.session_id = String::from("89abcdef");
+        let profiles = viewer.visible_profiles(NonZeroU32::new(3).expect("non-zero"))?;
+        let directory = env::temp_dir().join(format!("nanalogue-bed-{}", uuid::v4_random()));
+        std::fs::create_dir_all(&directory)?;
+        let bed_path = directory.join("nanalogue-89abcdef.bed");
+        assert!(!bed_path.exists());
+        let mut renderer = GhosttyRenderer::new(80, 24)?;
+        let no_profiles = ViewerRecords::Individual(Vec::new());
+        let no_selection_error =
+            save_current_view(&mut renderer, &viewer, &no_profiles, 80, 24, &directory)
+                .expect_err("an empty individual view has nothing to save");
+        assert_eq!(no_selection_error, "no read selected");
+        assert!(!bed_path.exists());
+
+        let sentinel = "older\t10\t20\tprevious-session\t0\t+\n";
+        std::fs::write(&bed_path, sentinel)?;
+        let mut records = ViewerRecords::Individual(profiles);
+        assert_eq!(
+            save_current_view(&mut renderer, &viewer, &records, 80, 24, &directory)?,
+            "Appended duplicate to nanalogue-89abcdef.bed"
+        );
+        let _repeated_message =
+            save_current_view(&mut renderer, &viewer, &records, 80, 24, &directory)?;
+        assert!(!handle_viewer_key(
+            &mut viewer,
+            &mut records,
+            KeyCode::Char('j'),
+            1
+        )?);
+        let _reverse_message =
+            save_current_view(&mut renderer, &viewer, &records, 80, 24, &directory)?;
+        assert!(viewer.go_to(&InitialPosition {
+            contig: String::from("second"),
+            start: 5,
+        })?);
+        records = fetch_viewer_records(&mut viewer)?;
+        let _second_target_message =
+            save_current_view(&mut renderer, &viewer, &records, 80, 24, &directory)?;
+
+        assert_eq!(
+            std::fs::read_to_string(&bed_path)?,
+            concat!(
+                "older\t10\t20\tprevious-session\t0\t+\n",
+                "first\t0\t30\tduplicate\t0\t+\n",
+                "first\t0\t30\tduplicate\t0\t+\n",
+                "first\t1\t31\tduplicate\t0\t-\n",
+                "second\t4\t24\tgoto-target\t0\t+\n"
+            )
+        );
+        assert_eq!(std::fs::read_dir(&directory)?.count(), 1);
+        std::fs::remove_dir_all(directory)?;
+        remove_viewer_test_bam(&bam_path)
     }
 
     fn assert_table_snapshot_goldens(simulation: &TempBamSimulation) -> Result<(), Box<dyn Error>> {
@@ -3746,7 +3842,8 @@ mod tests {
         assert!(USAGE.contains("r toggles full read IDs, i toggles insertions, and s saves"));
         assert!(USAGE.contains("grey raw ML calls"));
         assert!(USAGE.contains("WINDOW_SIZE is a positive number of modified bases"));
-        assert!(USAGE.contains("In individual view, j/k selects one read; r/i/s have no effect"));
+        assert!(USAGE.contains("s appends its BED6 alignment"));
+        assert!(USAGE.contains("r/i have no effect"));
         assert!(USAGE.contains("Ctrl-C or Ctrl-D always quits"));
     }
 
@@ -3908,6 +4005,13 @@ mod tests {
         };
         let mut viewer = Viewer::open(PathBuf::from("examples/example_1.bam"), &position, None, 40)
             .expect("position should open");
+        assert_eq!(viewer.session_id.len(), 8);
+        assert!(
+            viewer
+                .session_id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        );
         assert_eq!(viewer.viewport.start, 10);
         assert_eq!(viewer.current_window_len(), 40);
         let frame = build_frame(&viewer, &[], 80, 10, FrameFooter::Controls);
