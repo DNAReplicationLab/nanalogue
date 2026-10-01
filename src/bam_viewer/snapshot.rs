@@ -42,13 +42,15 @@ pub(super) fn project_text_snapshot<'alloc>(
                 text.extend(&graphemes);
             }
             if geometry.contains(row_index, column_index) {
-                modifications.push(if graphemes == ['.'] {
-                    ' '
-                } else if cell.style()?.underline == Underline::None {
-                    '0'
-                } else {
-                    '1'
-                });
+                modifications.push(
+                    if graphemes.is_empty() || matches!(&*graphemes, ['.' | ' ']) {
+                        ' '
+                    } else if cell.style()?.underline == Underline::None {
+                        '0'
+                    } else {
+                        '1'
+                    },
+                );
             } else if graphemes.is_empty() {
                 modifications.push(' ');
             } else {

@@ -791,6 +791,22 @@ mod tests {
         )
     }
 
+    fn assert_table_snapshot_grid(
+        viewer: &Viewer,
+        records: &[RegionSequence],
+        cols: u16,
+        rows: u16,
+    ) -> Result<(), Box<dyn Error>> {
+        let snapshot = render_table_text_snapshot(viewer, records, cols, rows)?;
+        assert_snapshot_grid(
+            &snapshot,
+            table_sequence_geometry(viewer, records.len(), cols, rows),
+            cols,
+            rows,
+        );
+        Ok(())
+    }
+
     /// Captures full frames after the reset that [`GhosttyRenderer::draw`] applies.
     ///
     /// This models renderer input state only; it does not exercise its incremental terminal output.
@@ -924,7 +940,7 @@ mod tests {
                 (0..cols).zip(text_line.as_bytes().iter().zip(mask_line.as_bytes().iter()))
             {
                 if geometry.contains(row, column) {
-                    if text == b'.' {
+                    if matches!(text, b'.' | b' ') {
                         assert_eq!(mask, b' ');
                     } else {
                         assert!(matches!(mask, b'0' | b'1'));
@@ -1378,7 +1394,7 @@ mod tests {
             .nth(3)
             .expect("mask row");
         assert_eq!(text_row.get(4..11), Some("ACNa.* "));
-        assert_eq!(mask_row.get(4..11), Some("0100 00"));
+        assert_eq!(mask_row.get(4..11), Some("0100 0 "));
         Ok(())
     }
 
@@ -2610,6 +2626,12 @@ mod tests {
             FrameFooter::Controls,
         )?;
         assert_ansi_golden("bam_viewer_partial_reads.ansi", &start_viewport)?;
+        assert_table_snapshot_grid(
+            &viewer,
+            &start_records,
+            FOCUSED_GOLDEN_COLS,
+            FOCUSED_GOLDEN_ROWS,
+        )?;
 
         assert!(viewer.go_to(&InitialPosition {
             contig: String::from("contig_00000"),
@@ -2648,7 +2670,14 @@ mod tests {
             FOCUSED_GOLDEN_ROWS,
             FrameFooter::Controls,
         )?;
-        assert_ansi_golden("bam_viewer_partial_read_ends.ansi", &end_viewport)
+        assert_ansi_golden("bam_viewer_partial_read_ends.ansi", &end_viewport)?;
+        assert_table_snapshot_grid(
+            &viewer,
+            &end_records,
+            FOCUSED_GOLDEN_COLS,
+            FOCUSED_GOLDEN_ROWS,
+        )?;
+        Ok(())
     }
 
     fn assert_deletion_viewport(
