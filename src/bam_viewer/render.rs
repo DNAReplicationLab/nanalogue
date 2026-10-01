@@ -4,6 +4,16 @@ use super::state::Viewer;
 use nanalogue_core::region_sequences::RegionSequence;
 use std::fmt::Write as _;
 
+/// Characters that may occur in an unstyled sequence returned by the viewer reader.
+const DISPLAY_SEQUENCE_ALPHABET: &[u8] = b"=ACMGRSVTWYHKDBNacmgrsvtwyhkdbn.*";
+
+/// Returns whether every byte belongs to the BAM alphabet or a viewer sequence marker.
+fn is_display_sequence(sequence: &str) -> bool {
+    sequence
+        .bytes()
+        .all(|base| DISPLAY_SEQUENCE_ALPHABET.contains(&base))
+}
+
 /// Zero-based terminal rectangle occupied by displayed table sequences.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct TableSequenceGeometry {
@@ -83,6 +93,10 @@ pub(super) fn sequence_columns(
     } else {
         (record.sequence(), record.modifications())
     };
+    assert!(
+        is_display_sequence(sequence),
+        "region sequence contains an unsupported display character"
+    );
     if sequence.contains('*') {
         assert_eq!(
             sequence, "*",
@@ -336,4 +350,18 @@ pub(super) fn position_error_footer(error: &str, cols: u16) -> String {
         detail.push_str("...");
     }
     format!("{PREFIX}{detail}{SUFFIX}")
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::is_display_sequence;
+
+    #[test]
+    fn display_sequence_alphabet_matches_bam_and_viewer_markers() {
+        assert!(is_display_sequence("=ACMGRSVTWYHKDBNacmgrsvtwyhkdbn.*"));
+        for unsupported in ['U', 'u', 'Z', 'z', ' '] {
+            assert!(!is_display_sequence(&unsupported.to_string()));
+        }
+    }
 }
