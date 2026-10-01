@@ -16,7 +16,7 @@ use std::{
 pub(super) struct TextSnapshot {
     /// Visible character grid with one newline after every terminal row.
     pub text: String,
-    /// Matching grid with binary calls and blank deletion cells in displayed sequences.
+    /// Matching grid with binary calls and blank unavailable cells in displayed sequences.
     pub modifications: String,
 }
 
@@ -43,7 +43,7 @@ pub(super) fn project_text_snapshot<'alloc>(
             }
             if geometry.contains(row_index, column_index) {
                 modifications.push(
-                    if graphemes.is_empty() || matches!(&*graphemes, ['.' | ' ']) {
+                    if graphemes.is_empty() || matches!(&*graphemes, ['.' | ' ' | '*']) {
                         ' '
                     } else if cell.style()?.underline == Underline::None {
                         '0'

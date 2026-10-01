@@ -940,7 +940,7 @@ mod tests {
                 (0..cols).zip(text_line.as_bytes().iter().zip(mask_line.as_bytes().iter()))
             {
                 if geometry.contains(row, column) {
-                    if matches!(text, b'.' | b' ') {
+                    if matches!(text, b'.' | b' ' | b'*') {
                         assert_eq!(mask, b' ');
                     } else {
                         assert!(matches!(mask, b'0' | b'1'));
@@ -1381,7 +1381,7 @@ mod tests {
             row_end: 4,
         };
         let snapshot =
-            render_frame_as_text_snapshot("\x1b[4;5HA\x1b[4mC\x1b[24mNa.* ", 20, 6, geometry)?;
+            render_frame_as_text_snapshot("\x1b[4;5HA\x1b[4mC\x1b[24mNa.N ", 20, 6, geometry)?;
         assert_snapshot_grid(&snapshot, geometry, 20, 6);
         let text_row = snapshot
             .text
@@ -1393,7 +1393,7 @@ mod tests {
             .split_terminator('\n')
             .nth(3)
             .expect("mask row");
-        assert_eq!(text_row.get(4..11), Some("ACNa.* "));
+        assert_eq!(text_row.get(4..11), Some("ACNa.N "));
         assert_eq!(mask_row.get(4..11), Some("0100 0 "));
         Ok(())
     }
@@ -2540,6 +2540,22 @@ mod tests {
         assert_eq!(sequence_columns(record, 5, false), "  *  ");
         let viewport = render_ansi_viewport(&viewer, &records, 50, 8, FrameFooter::Controls)?;
         assert_ansi_golden("bam_viewer_zero_sequence.ansi", &viewport)?;
+        let snapshot = render_table_text_snapshot(&viewer, &records, 50, 8)?;
+        let geometry = table_sequence_geometry(&viewer, records.len(), 50, 8);
+        assert_snapshot_grid(&snapshot, geometry, 50, 8);
+        let text_row = snapshot
+            .text
+            .split_terminator('\n')
+            .nth(usize::from(geometry.first_row))
+            .expect("missing-sequence row");
+        let mask_row = snapshot
+            .modifications
+            .split_terminator('\n')
+            .nth(usize::from(geometry.first_row))
+            .expect("missing-sequence mask row");
+        let sequence_columns = usize::from(geometry.first_column)..usize::from(geometry.column_end);
+        assert_eq!(text_row.get(sequence_columns.clone()), Some("  *  "));
+        assert_eq!(mask_row.get(sequence_columns), Some("     "));
         Ok(())
     }
 

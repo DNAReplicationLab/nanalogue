@@ -83,6 +83,17 @@ pub(super) fn sequence_columns(
     } else {
         (record.sequence(), record.modifications())
     };
+    if sequence.contains('*') {
+        assert_eq!(
+            sequence, "*",
+            "missing-sequence placeholder must be the only sequence character"
+        );
+        assert_eq!(
+            modifications,
+            [false],
+            "missing sequence cannot carry modification calls"
+        );
+    }
     assert_eq!(
         sequence.len(),
         modifications.len(),
