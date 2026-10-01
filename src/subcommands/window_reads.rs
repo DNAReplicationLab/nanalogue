@@ -83,7 +83,7 @@ where
     // constant to mark windows with basecalled coordinates but no reference coordinates.
     const INVALID_REF_POS: i64 = -1;
 
-    let seq_len = base_mod.ranges.seq_len;
+    let seq_len = base_mod.ranges.seq_len();
     assert_eq!(
         usize::try_from(seq_len).expect("u32 fits in supported usize"),
         base_qual.len(),
@@ -110,7 +110,7 @@ where
         .iter()
         .map(FiberAnnotation::qual)
         .collect();
-    let annotations = &base_mod.ranges.annotations;
+    let annotations = base_mod.ranges.annotations();
     let base = base_mod.modified_base as char;
     let mod_strand = base_mod.strand;
     let mod_type = ModChar::new(base_mod.modification_type);
@@ -768,11 +768,8 @@ mod tests {
             modified_base: b'T',
             strand: '+',
             modification_type: 'T',
-            ranges: Ranges {
-                annotations,
-                seq_len,
-                reverse: false,
-            },
+            ranges: Ranges::from_annotations(annotations, seq_len, false)
+                .expect("valid base modification ranges"),
             record_is_reverse: false,
         }
     }
@@ -814,25 +811,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "non-missing reference positions must be strictly ascending")]
     fn windowing_rejects_nonascending_reference_positions() {
-        let base_mod = BaseMod {
-            modified_base: b'T',
-            strand: '+',
-            modification_type: 'T',
-            ranges: Ranges {
-                annotations: vec![
-                    FiberAnnotation::try_new(0, 10, Some(2)).expect("valid annotation"),
-                    FiberAnnotation::try_new(1, 20, Some(1)).expect("valid annotation"),
-                ],
-                seq_len: 2,
-                reverse: false,
-            },
-            record_is_reverse: false,
-        };
-        let _result = compute_windowed_mod_data(&base_mod, &[30, 30], 2, 1, "read", &|_| {
-            F32AbsValAtMost1::new(0.0)
-        });
+        let ranges = Ranges::from_annotations(
+            vec![
+                FiberAnnotation::try_new(0, 10, Some(2)).expect("valid annotation"),
+                FiberAnnotation::try_new(1, 20, Some(1)).expect("valid annotation"),
+            ],
+            2,
+            false,
+        );
+        assert!(matches!(ranges, Err(Error::WrongOrder(_))));
     }
 
     #[test]
@@ -841,14 +829,14 @@ mod tests {
             modified_base: b'T',
             strand: '+',
             modification_type: 'T',
-            ranges: Ranges {
-                annotations: vec![
+            ranges: Ranges::from_annotations(
+                vec![
                     FiberAnnotation::try_new(1, 10, Some(101))?,
                     FiberAnnotation::try_new(4, 40, Some(104))?,
                 ],
-                seq_len: 6,
-                reverse: false,
-            },
+                6,
+                false,
+            )?,
             record_is_reverse: false,
         };
         let result = compute_windowed_mod_data(
@@ -881,14 +869,14 @@ mod tests {
             modified_base: b'T',
             strand: '+',
             modification_type: 'T',
-            ranges: Ranges {
-                annotations: vec![
+            ranges: Ranges::from_annotations(
+                vec![
                     FiberAnnotation::try_new(0, 10, None)?,
                     FiberAnnotation::try_new(seq_len_u32 - 1, 20, None)?,
                 ],
-                seq_len: seq_len_u32,
-                reverse: false,
-            },
+                seq_len_u32,
+                false,
+            )?,
             record_is_reverse: false,
         };
         let mut base_qual = vec![20; QUALITY_20_COUNT];
@@ -948,8 +936,8 @@ mod tests {
             modified_base: b'T',
             strand: '-',
             modification_type: 'T',
-            ranges: Ranges {
-                annotations: positions
+            ranges: Ranges::from_annotations(
+                positions
                     .into_iter()
                     .zip(reference_positions)
                     .enumerate()
@@ -961,9 +949,9 @@ mod tests {
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?,
-                seq_len: 22,
-                reverse: true,
-            },
+                22,
+                true,
+            )?,
             record_is_reverse: true,
         };
         let base_qual: Vec<u8> = (0..22)
@@ -983,13 +971,13 @@ mod tests {
                     )
                 },
             )?;
-            let expected_starts = (0..=base_mod.ranges.annotations.len() - width).step_by(step);
+            let expected_starts = (0..=base_mod.ranges.annotations().len() - width).step_by(step);
             assert_eq!(result.data.len(), expected_starts.clone().count());
 
             for (window_start, actual) in expected_starts.zip(&result.data) {
                 let annotations = base_mod
                     .ranges
-                    .annotations
+                    .annotations()
                     .get(window_start..window_start + width)
                     .expect("fixture window is valid");
                 let first = annotations.first().expect("window is non-empty");
