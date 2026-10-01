@@ -5,13 +5,14 @@ use nanalogue_core::region_sequences::RegionSequence;
 use std::fmt::Write as _;
 
 /// Characters that may occur in an unstyled sequence returned by the viewer reader.
-const DISPLAY_SEQUENCE_ALPHABET: &[u8] = b"=ACMGRSVTWYHKDBNacmgrsvtwyhkdbn.*";
+const DISPLAY_SEQUENCE_ALPHABET: &[u8] = b"=ACMGRSVTWYHKDBNacmgrsvtwyhkdbn.";
 
-/// Returns whether every byte belongs to the BAM alphabet or a viewer sequence marker.
+/// Returns whether the sequence is missing or every byte is displayable sequence data.
 fn is_display_sequence(sequence: &str) -> bool {
-    sequence
-        .bytes()
-        .all(|base| DISPLAY_SEQUENCE_ALPHABET.contains(&base))
+    sequence == "*"
+        || sequence
+            .bytes()
+            .all(|base| DISPLAY_SEQUENCE_ALPHABET.contains(&base))
 }
 
 /// Zero-based terminal rectangle occupied by displayed table sequences.
@@ -97,11 +98,7 @@ pub(super) fn sequence_columns(
         is_display_sequence(sequence),
         "region sequence contains an unsupported display character"
     );
-    if sequence.contains('*') {
-        assert_eq!(
-            sequence, "*",
-            "missing-sequence placeholder must be the only sequence character"
-        );
+    if sequence == "*" {
         assert_eq!(
             modifications,
             [false],
@@ -359,7 +356,11 @@ mod tests {
 
     #[test]
     fn display_sequence_alphabet_matches_bam_and_viewer_markers() {
-        assert!(is_display_sequence("=ACMGRSVTWYHKDBNacmgrsvtwyhkdbn.*"));
+        assert!(is_display_sequence("=ACMGRSVTWYHKDBNacmgrsvtwyhkdbn."));
+        assert!(is_display_sequence("*"));
+        for mixed_asterisk in ["A*", "*A", "**"] {
+            assert!(!is_display_sequence(mixed_asterisk));
+        }
         for unsupported in ['U', 'u', 'Z', 'z', ' '] {
             assert!(!is_display_sequence(&unsupported.to_string()));
         }
