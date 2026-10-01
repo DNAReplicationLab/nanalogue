@@ -811,7 +811,7 @@ mod tests {
     }
 
     #[test]
-    fn windowing_rejects_nonascending_reference_positions() {
+    fn invalid_reference_order_is_rejected_before_windowing() {
         let ranges = Ranges::from_annotations(
             vec![
                 FiberAnnotation::try_new(0, 10, Some(2)).expect("valid annotation"),
