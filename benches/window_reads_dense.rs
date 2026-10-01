@@ -176,7 +176,7 @@ fn main() {
         .first()
         .expect("fixture should contain one modification type")
         .ranges
-        .annotations
+        .annotations()
         .len();
     assert_eq!(
         parsed_candidates, CANDIDATES,
