@@ -263,7 +263,13 @@ where
     for base in coordinates {
         match base {
             Some((true, sequence_position)) => {
-                let index = usize::try_from(sequence_position)?.wrapping_sub(window_start);
+                let index = usize::try_from(sequence_position)?
+                    .checked_sub(window_start)
+                    .ok_or_else(|| {
+                        Error::UnavailableData(String::from(
+                            "sequence coordinate is outside the read sequence",
+                        ))
+                    })?;
                 let uppercase_nucleotide = read_sequence
                     .get(index)
                     .ok_or_else(|| {
@@ -289,7 +295,13 @@ where
                 modifications_with_insertions.push(false);
             }
             Some((false, sequence_position)) => {
-                let index = usize::try_from(sequence_position)?.wrapping_sub(window_start);
+                let index = usize::try_from(sequence_position)?
+                    .checked_sub(window_start)
+                    .ok_or_else(|| {
+                        Error::UnavailableData(String::from(
+                            "insertion coordinate is outside the read sequence",
+                        ))
+                    })?;
                 let insertion = read_sequence
                     .get(index)
                     .ok_or_else(|| {
