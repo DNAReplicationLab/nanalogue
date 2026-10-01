@@ -544,7 +544,9 @@ mod tests {
     }
 
     #[test]
-    fn fiber_annotations_rejects_non_monotonic_positions_across_unmapped_positions() {
+    fn fiber_annotations_rejects_non_monotonic_positions_regardless_of_orientation() {
+        // `reverse` is retained as read metadata; annotations are in query order for both
+        // orientations, so it must not change reference-order validation.
         for reverse in [false, true] {
             for final_ref_pos in [50, 100] {
                 let annotations = vec![
