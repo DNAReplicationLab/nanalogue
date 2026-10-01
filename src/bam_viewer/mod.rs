@@ -924,7 +924,11 @@ mod tests {
                 (0..cols).zip(text_line.as_bytes().iter().zip(mask_line.as_bytes().iter()))
             {
                 if geometry.contains(row, column) {
-                    assert!(matches!(mask, b'0' | b'1'));
+                    if text == b'.' {
+                        assert_eq!(mask, b' ');
+                    } else {
+                        assert!(matches!(mask, b'0' | b'1'));
+                    }
                 } else {
                     assert_eq!(mask, text);
                 }
@@ -1353,8 +1357,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_mask_uses_only_rendered_underlines_inside_sequence_cells()
-    -> Result<(), Box<dyn Error>> {
+    fn snapshot_mask_blanks_deletions_and_uses_rendered_underlines() -> Result<(), Box<dyn Error>> {
         let geometry = render::TableSequenceGeometry {
             first_column: 4,
             column_end: 11,
@@ -1375,7 +1378,7 @@ mod tests {
             .nth(3)
             .expect("mask row");
         assert_eq!(text_row.get(4..11), Some("ACNa.* "));
-        assert_eq!(mask_row.get(4..11), Some("0100000"));
+        assert_eq!(mask_row.get(4..11), Some("0100 00"));
         Ok(())
     }
 
@@ -2682,7 +2685,38 @@ mod tests {
             FOCUSED_GOLDEN_ROWS,
             FrameFooter::Controls,
         )?;
-        assert_ansi_golden(golden_name, &viewport)
+        assert_ansi_golden(golden_name, &viewport)?;
+
+        let snapshot =
+            render_table_text_snapshot(viewer, &records, FOCUSED_GOLDEN_COLS, FOCUSED_GOLDEN_ROWS)?;
+        let geometry = table_sequence_geometry(
+            viewer,
+            records.len(),
+            FOCUSED_GOLDEN_COLS,
+            FOCUSED_GOLDEN_ROWS,
+        );
+        assert_snapshot_grid(
+            &snapshot,
+            geometry,
+            FOCUSED_GOLDEN_COLS,
+            FOCUSED_GOLDEN_ROWS,
+        );
+        let expected_mask = expected_sequence
+            .bytes()
+            .map(|base| if base == b'.' { ' ' } else { '0' })
+            .collect::<String>();
+        assert!(
+            snapshot
+                .modifications
+                .split_terminator('\n')
+                .skip(usize::from(geometry.first_row))
+                .take(FOCUSED_VISIBLE_READS)
+                .all(|line| line
+                    .get(usize::from(geometry.first_column)..usize::from(geometry.column_end))
+                    == Some(expected_mask.as_str())),
+            "every displayed deletion must be blank in the modification mask"
+        );
+        Ok(())
     }
 
     #[test]
