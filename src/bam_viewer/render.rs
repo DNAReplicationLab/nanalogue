@@ -110,8 +110,12 @@ pub(super) fn sequence_columns(
         modifications.len(),
         "region sequence and modification calls must have equal lengths"
     );
-    let region_offset = usize::try_from(record.region_offset())
-        .expect("reference offsets fit usize on supported platforms");
+    let region_offset = if sequence == "*" {
+        0
+    } else {
+        usize::try_from(record.region_offset())
+            .expect("reference offsets fit usize on supported platforms")
+    };
     let mut output = String::new();
     let mut bold = false;
     for offset in 0..usize::from(width) {

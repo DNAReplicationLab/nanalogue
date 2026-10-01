@@ -2633,7 +2633,9 @@ mod tests {
         let record = records.first().expect("one record");
         assert_eq!(record.region_offset(), 2);
         assert_eq!(record.sequence(), "*");
-        assert_eq!(sequence_columns(record, 5, false), "  *  ");
+        assert_eq!(sequence_columns(record, 5, false), "*    ");
+        assert_eq!(sequence_columns(record, 1, false), "*");
+        assert_eq!(sequence_columns(record, 1, true), "*");
         let viewport = render_ansi_viewport(&viewer, &records, 50, 8, FrameFooter::Controls)?;
         assert_ansi_golden("bam_viewer_zero_sequence.ansi", &viewport)?;
         let snapshot = render_table_text_snapshot(&viewer, &records, 50, 8)?;
@@ -2650,7 +2652,7 @@ mod tests {
             .nth(usize::from(geometry.first_row))
             .expect("missing-sequence mask row");
         let sequence_columns = usize::from(geometry.first_column)..usize::from(geometry.column_end);
-        assert_eq!(text_row.get(sequence_columns.clone()), Some("  *  "));
+        assert_eq!(text_row.get(sequence_columns.clone()), Some("*    "));
         assert_eq!(mask_row.get(sequence_columns), Some("     "));
         Ok(())
     }
