@@ -146,6 +146,18 @@ pub(super) fn fixed_line(text: &str, width: u16) -> String {
     printable_label(text.as_bytes(), usize::from(width))
 }
 
+/// Overwrites rows that the next complete frame intentionally leaves blank.
+pub(super) fn clear_rows(frame: &mut String, first_row: u16, end_row: u16, cols: u16) {
+    if first_row >= end_row {
+        return;
+    }
+    frame.push_str("\x1b[0m");
+    for row in first_row..end_row {
+        write!(frame, "\x1b[{row};1H").expect("writing to String cannot fail");
+        frame.extend(std::iter::repeat_n(' ', usize::from(cols.max(1))));
+    }
+}
+
 /// Truncates or pads a label and appends its column separator.
 pub(super) fn label_column(label: &str, width: u16) -> String {
     let mut column = printable_label(label.as_bytes(), usize::from(width.saturating_sub(1)));
@@ -277,7 +289,18 @@ pub(super) fn build_frame(
             viewer.show_insertions,
         ));
         frame.push_str("\x1b[0m");
+        frame.extend(std::iter::repeat_n(
+            ' ',
+            usize::from(effective_cols.saturating_sub(sequence_geometry.column_end)),
+        ));
     }
+
+    clear_rows(
+        &mut frame,
+        sequence_geometry.row_end.saturating_add(1),
+        rows,
+        effective_cols,
+    );
 
     if rows > 3 {
         write!(&mut frame, "\x1b[{rows};1H\x1b[7m").expect("writing to String cannot fail");

@@ -25,8 +25,8 @@ use crossterm::{
     execute, queue,
     style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{
-        Clear, ClearType, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
-        disable_raw_mode, enable_raw_mode,
+        EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+        enable_raw_mode,
     },
 };
 use std::{
@@ -203,7 +203,6 @@ impl FrameRenderer {
             queue!(
                 synchronized_output,
                 SetAttribute(Attribute::Reset),
-                Clear(ClearType::All),
                 Print(frame)
             )
         })??;
@@ -699,19 +698,22 @@ mod tests {
         Ok(())
     }
 
-    /// Captures full frames after the reset used for saved snapshot parsing.
+    /// Captures complete frames on one persistent terminal screen.
     ///
-    /// This models renderer input state only; it does not exercise its incremental terminal output.
+    /// This models terminals that ignore synchronized updates, including stale-cell cleanup.
     fn render_frames_as_ansi<S: AsRef<str>>(
         frames: impl IntoIterator<Item = S>,
         cols: u16,
         rows: u16,
     ) -> Result<String, Box<dyn Error>> {
-        let mut parsed = None;
+        let mut combined = String::new();
         for frame in frames {
-            parsed = Some(AnsiScreen::parse(frame.as_ref(), cols, rows)?);
+            combined.push_str(frame.as_ref());
         }
-        let screen = parsed.ok_or("ANSI viewport capture requires at least one frame")?;
+        if combined.is_empty() {
+            return Err("ANSI viewport capture requires at least one non-empty frame".into());
+        }
+        let screen = AnsiScreen::parse(&combined, cols, rows)?;
         let actual = ansi_golden::screen_as_ansi(&screen);
         let replayed = ansi_golden::parse_ansi(&actual, cols, rows)?;
         assert_eq!(screen, replayed, "ANSI golden must reproduce its viewport");
@@ -2363,24 +2365,57 @@ mod tests {
     }
 
     #[test]
-    fn populated_frame_does_not_leave_cells_in_empty_view() -> Result<(), Box<dyn Error>> {
+    fn frames_clear_stale_cells_without_synchronized_updates() -> Result<(), Box<dyn Error>> {
         let mut populated_viewer = Viewer::open(
             PathBuf::from("examples/example_1.bam"),
             &InitialPosition {
                 contig: String::from("dummyIII"),
-                start: 23,
+                start: 20,
             },
             None,
             10,
         )?;
         let populated_records = populated_viewer.visible_records()?;
         assert!(!populated_records.is_empty());
+        assert_eq!(populated_viewer.current_window_len(), 10);
         let populated_frame = build_frame(
             &populated_viewer,
             &populated_records,
             DEMO_GOLDEN_COLS,
             DEMO_GOLDEN_ROWS,
             FrameFooter::Controls,
+        );
+
+        let mut shortened_viewer = Viewer::open(
+            PathBuf::from("examples/example_1.bam"),
+            &InitialPosition {
+                contig: String::from("dummyIII"),
+                start: 20,
+            },
+            None,
+            10,
+        )?;
+        shortened_viewer.window_len = 7;
+        let shortened_records = shortened_viewer.visible_records()?;
+        assert!(!shortened_records.is_empty());
+        assert_eq!(shortened_viewer.current_window_len(), 7);
+        let shortened_frame = build_frame(
+            &shortened_viewer,
+            &shortened_records,
+            DEMO_GOLDEN_COLS,
+            DEMO_GOLDEN_ROWS,
+            FrameFooter::Controls,
+        );
+        let shortened_viewport =
+            render_frame_as_ansi(&shortened_frame, DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS)?;
+        assert_eq!(
+            render_frames_as_ansi(
+                [populated_frame.as_str(), shortened_frame.as_str()],
+                DEMO_GOLDEN_COLS,
+                DEMO_GOLDEN_ROWS,
+            )?,
+            shortened_viewport,
+            "a surviving read's shortened row must overwrite its trailing cells without synchronized updates"
         );
 
         let mut empty_viewer = Viewer::open(
@@ -2405,7 +2440,7 @@ mod tests {
         let populated_viewport =
             render_frame_as_ansi(&populated_frame, DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS)?;
         let persistent_empty_viewport = render_frames_as_ansi(
-            [populated_frame.as_str(), empty_frame.as_str()],
+            [shortened_frame.as_str(), empty_frame.as_str()],
             DEMO_GOLDEN_COLS,
             DEMO_GOLDEN_ROWS,
         )?;
@@ -2786,10 +2821,8 @@ mod tests {
         let no_calls_frame =
             build_individual_frame(&viewer, &profiles, 60, 16, FrameFooter::Controls);
         assert!(no_calls_frame.contains("no a calls in read"));
-        assert_ansi_golden(
-            "bam_viewer_individual_no_calls.ansi",
-            &render_frame_as_ansi(&no_calls_frame, 60, 16)?,
-        )?;
+        let no_calls_viewport = render_frame_as_ansi(&no_calls_frame, 60, 16)?;
+        assert_ansi_golden("bam_viewer_individual_no_calls.ansi", &no_calls_viewport)?;
 
         assert!(viewer.go_to(&InitialPosition {
             contig: String::from("first"),
@@ -2802,10 +2835,13 @@ mod tests {
         let empty_frame =
             build_individual_frame(&viewer, &empty_profiles, 60, 16, FrameFooter::Controls);
         assert!(empty_frame.contains("no reads span this window"));
-        assert_ansi_golden(
-            "bam_viewer_individual_no_reads.ansi",
-            &render_frame_as_ansi(&empty_frame, 60, 16)?,
-        )?;
+        let empty_viewport = render_frame_as_ansi(&empty_frame, 60, 16)?;
+        assert_ansi_golden("bam_viewer_individual_no_reads.ansi", &empty_viewport)?;
+        assert_eq!(
+            render_frames_as_ansi([no_calls_frame, empty_frame], 60, 16)?,
+            empty_viewport,
+            "an empty individual frame must erase the previous plot without synchronized updates"
+        );
         remove_viewer_test_bam(&path)
     }
 
@@ -3959,12 +3995,16 @@ mod tests {
         assert_eq!(
             output,
             [
-                b"\x1b[?2026h\x1b[0m\x1b[2J".as_slice(),
+                b"\x1b[?2026h\x1b[0m".as_slice(),
                 frame.as_bytes(),
                 b"\x1b[?2026l"
             ]
             .concat(),
             "the host terminal must receive a reset, then palette indexes and complete SGR styles unchanged"
+        );
+        assert!(
+            !output.windows(4).any(|bytes| bytes == b"\x1b[2J"),
+            "terminals without synchronized updates must never see a full-screen clear"
         );
         assert!(
             output.len() <= frame.len().saturating_add(32),

@@ -2,7 +2,7 @@
 
 use super::{
     cli::ViewMode,
-    render::{FrameFooter, fixed_line, position_error_footer, position_prompt_footer},
+    render::{FrameFooter, clear_rows, fixed_line, position_error_footer, position_prompt_footer},
     state::Viewer,
 };
 use nanalogue_core::region_sequences::ReadModProfile;
@@ -503,11 +503,22 @@ pub(super) fn build_individual_frame(
 
     if rows < 8 {
         // Below eight rows, only title, status, and footer remain legible.
+        clear_rows(
+            &mut frame,
+            3,
+            if rows > 3 {
+                rows
+            } else {
+                rows.saturating_add(1)
+            },
+            effective_cols,
+        );
     } else if effective_cols < 15 {
         if rows > 2 {
             frame.push_str("\x1b[3;1H");
             frame.push_str(&fixed_line("terminal narrow", effective_cols));
         }
+        clear_rows(&mut frame, 4, rows, effective_cols);
     } else if let Some(profile) = selected {
         let plot_rows = usize::from(rows.saturating_sub(5));
         let plot_cols = usize::from(effective_cols.saturating_sub(5));
@@ -570,6 +581,7 @@ pub(super) fn build_individual_frame(
     } else if rows > 2 {
         frame.push_str("\x1b[3;1H");
         frame.push_str(&fixed_line(" no reads span this window", effective_cols));
+        clear_rows(&mut frame, 4, rows, effective_cols);
     } else {
         // The title and optional status are the complete degraded view at this height.
     }
