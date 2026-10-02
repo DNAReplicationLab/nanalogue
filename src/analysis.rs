@@ -189,6 +189,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-four unlikely to give floating point errors"
     )]
@@ -201,6 +205,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-four unlikely to give floating point errors"
     )]
@@ -213,6 +221,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-five unlikely to give floating point errors"
     )]
@@ -229,6 +241,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-five unlikely to give floating point errors"
     )]
@@ -309,6 +325,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-four unlikely to give floating point errors"
     )]
@@ -322,6 +342,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-four unlikely to give floating point errors"
     )]

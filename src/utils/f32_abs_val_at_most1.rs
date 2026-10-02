@@ -184,6 +184,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "exact compare ok as (1) very few significant digits, and (2) no arithmetic"
     )]
@@ -196,6 +200,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "exact comparison ok for boundary values and simple fractions"
     )]
