@@ -210,11 +210,12 @@ mod tests {
                 "windowed"
             ]
         );
+        let no_window_series_starts: [usize; 0] = [];
         for profile in profiles.iter().take(3) {
             assert_eq!((profile.align_start(), profile.align_end()), (10, 16));
-            assert!(profile.calls().is_empty());
-            assert!(profile.windows().is_empty());
-            assert!(profile.window_series_starts().is_empty());
+            assert_eq!(profile.calls(), []);
+            assert_eq!(profile.windows(), []);
+            assert_eq!(profile.window_series_starts(), no_window_series_starts);
         }
 
         let windowed = profiles.get(3).expect("windowed sorts last");

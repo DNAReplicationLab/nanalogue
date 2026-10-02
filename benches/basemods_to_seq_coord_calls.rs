@@ -64,28 +64,29 @@ static GLOBAL: CountingAllocator = CountingAllocator;
 /// Builds a long read whose four interleaved annotation sets cover every position.
 fn fixture() -> BaseMods {
     let base_mods = (0..MOD_TYPES)
-        .map(|mod_type| BaseMod {
-            modified_base: b'C',
-            strand: if mod_type & 1 == 0 { '+' } else { '-' },
-            modification_type: char::from(
-                b'a'.checked_add(mod_type).expect("four types fit in ASCII"),
-            ),
-            ranges: Ranges {
-                annotations: (usize::from(mod_type)..usize::try_from(SEQ_LEN).expect("fits usize"))
-                    .step_by(usize::from(ANNOTATION_STEP))
-                    .map(|pos| {
-                        FiberAnnotation::try_new(
-                            u32::try_from(pos).expect("fixture positions fit u32"),
-                            mod_type.checked_add(1).expect("four quality values fit u8"),
-                            None,
-                        )
-                        .unwrap()
-                    })
-                    .collect(),
-                seq_len: SEQ_LEN,
-                reverse: false,
-            },
-            record_is_reverse: false,
+        .map(|mod_type| {
+            let annotations = (usize::from(mod_type)
+                ..usize::try_from(SEQ_LEN).expect("fits usize"))
+                .step_by(usize::from(ANNOTATION_STEP))
+                .map(|pos| {
+                    FiberAnnotation::try_new(
+                        u32::try_from(pos).expect("fixture positions fit u32"),
+                        mod_type.checked_add(1).expect("four quality values fit u8"),
+                        None,
+                    )
+                    .unwrap()
+                })
+                .collect();
+            BaseMod {
+                modified_base: b'C',
+                strand: if mod_type & 1 == 0 { '+' } else { '-' },
+                modification_type: char::from(
+                    b'a'.checked_add(mod_type).expect("four types fit in ASCII"),
+                ),
+                ranges: Ranges::from_annotations(annotations, SEQ_LEN, false)
+                    .expect("unmapped annotations have no reference ordering"),
+                record_is_reverse: false,
+            }
         })
         .collect();
     BaseMods { base_mods }

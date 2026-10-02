@@ -4,17 +4,19 @@
 //! these windows
 
 use crate::{
-    AlignmentInfo, AlignmentInfoBuilder, BaseMod, CurrRead, Error, F32AbsValAtMost1, InputMods,
-    InputWindowing, ModChar, OptionalTag, ReadState,
-    constants::shared::{MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS, NO_RECORDS_FOUND_FOR_ANALYSIS},
+    AlignmentInfo, AlignmentInfoBuilder, BaseMod, CurrRead, Error, F32AbsValAtMost1,
+    FiberAnnotation, InputMods, InputWindowing, ModChar, OptionalTag, ReadState,
+    constants::shared::{
+        MAX_CONTIG_LEN, MAX_READ_ID_LEN, MAX_RECORD_CAPACITY_BYTES, MAX_RECORDS, MAX_SEQ_LEN,
+        NO_RECORDS_FOUND_FOR_ANALYSIS,
+    },
     ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
 };
 #[cfg(feature = "polars")]
 use polars::prelude::*;
 use rust_htslib::bam::Record;
 use serde::Serialize;
-use std::rc::Rc;
-use std::sync::LazyLock;
+use std::{collections::VecDeque, rc::Rc, sync::LazyLock};
 
 /// Lookup table of `10^(-0.1 * d)` for every possible `u8` quality difference `d`,
 /// used when averaging base qualities in probability space. Replaces a per-base
@@ -76,105 +78,172 @@ fn compute_windowed_mod_data<F>(
     window_function: &F,
 ) -> Result<WindowedModTableEntry, Error>
 where
-    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+    F: Fn(&[u8]) -> Result<Option<F32AbsValAtMost1>, Error>,
 {
     // constant to mark windows with basecalled coordinates but no reference coordinates.
     const INVALID_REF_POS: i64 = -1;
 
+    let seq_len = base_mod.ranges.seq_len();
+    assert_eq!(
+        usize::try_from(seq_len).expect("u32 fits in supported usize"),
+        base_qual.len(),
+        "base modification sequence length must match base-quality length"
+    );
+    assert!(
+        (1..=usize::try_from(MAX_SEQ_LEN).expect("u32 fits in supported usize"))
+            .contains(&base_qual.len()),
+        "base-quality length must be in 1..={MAX_SEQ_LEN}"
+    );
+    assert!(
+        (1..=usize::from(MAX_READ_ID_LEN)).contains(&qname.len()),
+        "read ID length must be in 1..={MAX_READ_ID_LEN}"
+    );
+
     let win_size = usize::try_from(win_size).expect("no error as platforms >= 32-bit");
     let slide_size = usize::try_from(slide_size).expect("no error as platforms >= 32-bit");
 
-    // We call positions as starts, ref_starts etc. as we are dealing with windows,
-    // so better to start using window-like terminology
-    let (mod_data, starts, ref_starts): (Vec<u8>, Vec<u32>, Vec<Option<u32>>) = base_mod
+    // The callback requires contiguous modification values, but coordinates can stay in the
+    // annotation structs rather than being copied into two more parallel vectors.
+    let mod_data: Vec<u8> = base_mod
         .ranges
-        .annotations
+        .annotations()
         .iter()
-        .map(|k| (k.qual(), k.pos(), k.ref_pos()))
+        .map(FiberAnnotation::qual)
         .collect();
+    let annotations = base_mod.ranges.annotations();
     let base = base_mod.modified_base as char;
     let mod_strand = base_mod.strand;
     let mod_type = ModChar::new(base_mod.modification_type);
 
     let mut windows: Vec<(u32, u32, F32AbsValAtMost1, u8, i64, i64)> = Vec::new();
+    let mut ref_positions = VecDeque::<(usize, u32)>::new();
+    let mut last_ref_pos = None;
+    let mut next_ref_index_to_load = 0usize;
+    let mut quality_counts = [0u32; 256];
+    let mut quality_span = 0..0;
 
     if let Some(v) = mod_data.len().checked_sub(win_size) {
         #[expect(
             clippy::arithmetic_side_effects,
             reason = "complex arithmetic in Q score avg. i64::from(u32) + 1 is fine, no overflow here"
         )]
-        for window_idx in (0..=v).step_by(slide_size) {
-            let win_val = match window_function(
+        for win_start_index in (0..=v).step_by(slide_size) {
+            let Some(win_val) = window_function(
                 mod_data
-                    .get(window_idx..)
-                    .expect("window_idx <= v where v = len - win_size")
+                    .get(win_start_index..)
+                    .expect("win_start_index <= v where v = len - win_size")
                     .get(0..win_size)
                     .expect("no error as we've checked data len >= win size"),
-            ) {
-                Ok(val) => val,
-                #[expect(
-                    clippy::print_stderr,
-                    reason = "warning output to stderr is intentional here"
-                )]
-                Err(e) => {
-                    eprintln!(
-                        "Warning: Skipping {win_size} window starting at {qname}:{window_idx} due to error: {e}"
-                    );
-                    continue;
-                }
+            )?
+            else {
+                continue;
             };
             // there is no way to trigger the errors below as we control how CurrRead is
             // populated quite strictly. Nevertheless, I am leaving these in for
             // future-proofing.
-            let win_start = *starts.get(window_idx).expect("window_idx is valid");
+            let win_start = annotations
+                .get(win_start_index)
+                .expect("win_start_index is valid")
+                .pos();
+            let win_end_index = win_start_index + win_size;
             let win_end = {
-                let temp_val = *starts
-                    .get(window_idx..)
-                    .expect("window_idx <= v where v = len - win_size")
-                    .get(0..win_size)
-                    .expect("no error as we've checked data len >= win size")
-                    .last()
-                    .expect("no error as we've checked data len >= win size");
-                if temp_val == u32::MAX {
-                    return Err(Error::InvalidState(String::from(
-                        "Window ends at u32::MAX. Read is too long (i.e. u32::MAX long)",
+                let temp_val = annotations
+                    .get(win_end_index - 1)
+                    .expect("window end is valid")
+                    .pos();
+                if temp_val >= MAX_SEQ_LEN {
+                    return Err(Error::InvalidState(format!(
+                        "Window end position {temp_val} must be below maximum sequence length {MAX_SEQ_LEN}"
                     )));
                 }
                 temp_val + 1
             };
+            assert!(
+                (0..win_end).contains(&win_start) && win_end <= seq_len,
+                "window bounds must satisfy 0 <= start < end <= sequence length"
+            );
 
-            let ref_win_start = ref_starts
-                .get(window_idx..)
-                .expect("window_idx <= v where v = len - win_size")
-                .get(0..win_size)
-                .expect("no error as we've checked data len >= win size")
-                .iter()
-                .flatten()
-                .min()
-                .copied()
-                .map_or(INVALID_REF_POS, i64::from);
-            // For per-base point annotations, `ref_pos` is a single coordinate (no separate ref-end).
-            // We therefore derive both ref window bounds from `ref_starts`.
-            let ref_win_end = ref_starts
-                .get(window_idx..)
-                .expect("window_idx <= v where v = len - win_size")
-                .get(0..win_size)
-                .expect("no error as we've checked data len >= win size")
-                .iter()
-                .flatten()
-                .max()
-                .copied()
-                .map_or(INVALID_REF_POS, |x| i64::from(x) + 1);
+            while next_ref_index_to_load < win_end_index {
+                if let Some(ref_pos) = annotations
+                    .get(next_ref_index_to_load)
+                    .expect("loaded reference index is in the window")
+                    .ref_pos()
+                {
+                    assert!(
+                        last_ref_pos.is_none_or(|previous| previous < ref_pos),
+                        "non-missing reference positions must be strictly ascending"
+                    );
+                    last_ref_pos = Some(ref_pos);
+                    ref_positions.push_back((next_ref_index_to_load, ref_pos));
+                }
+                next_ref_index_to_load += 1;
+            }
+            while ref_positions
+                .front()
+                .is_some_and(|&(index, _)| index < win_start_index)
+            {
+                let _removed: (usize, u32) = ref_positions.pop_front().expect("front exists");
+            }
+            // Reference positions are ascending, so the first and last mapped annotations
+            // provide the bounds even when missing positions occur between them.
+            let ref_win_start = ref_positions
+                .front()
+                .map_or(INVALID_REF_POS, |&(_, value)| i64::from(value));
+            let ref_win_end = ref_positions
+                .back()
+                .map_or(INVALID_REF_POS, |&(_, value)| i64::from(value) + 1);
+            assert!(
+                (ref_win_start == INVALID_REF_POS && ref_win_end == INVALID_REF_POS)
+                    || (0 <= ref_win_start
+                        && ref_win_start <= ref_win_end
+                        && ref_win_end <= i64::from(MAX_CONTIG_LEN)),
+                "reference bounds must both be -1 or satisfy 0 <= start <= end <= maximum contig length"
+            );
+
+            let next_quality_span = usize::try_from(win_start)?..usize::try_from(win_end)?;
+            // With no overlap, rebuild the histogram for the entire new span.
+            if next_quality_span.start >= quality_span.end {
+                quality_counts.fill(0);
+                for &quality in base_qual
+                    .get(next_quality_span.clone())
+                    .expect("window quality span is in range")
+                {
+                    let count = quality_counts
+                        .get_mut(usize::from(quality))
+                        .expect("u8 indexes a 256-element array");
+                    *count += 1;
+                }
+            } else {
+                // With overlap, remove departing bases and add entering bases.
+                for &quality in base_qual
+                    .get(quality_span.start..next_quality_span.start)
+                    .expect("departing quality span is in range")
+                {
+                    let count = quality_counts
+                        .get_mut(usize::from(quality))
+                        .expect("u8 indexes a 256-element array");
+                    *count -= 1;
+                }
+                for &quality in base_qual
+                    .get(quality_span.end..next_quality_span.end)
+                    .expect("entering quality span is in range")
+                {
+                    let count = quality_counts
+                        .get_mut(usize::from(quality))
+                        .expect("u8 indexes a 256-element array");
+                    *count += 1;
+                }
+            }
+            quality_span = next_quality_span;
+
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,
                 reason = "we are forced to do these due to the math itself, of taking a power, avg, and then log"
             )]
             let mean_base_qual = {
-                let quals = base_qual
-                    .get(usize::try_from(win_start)?..usize::try_from(win_end)?)
-                    .expect("no error as `win_start`, `win_end` in range");
-                if quals.is_empty() || quals.first() == Some(&255u8) {
+                let first_quality = base_qual.get(quality_span.start);
+                if quality_span.is_empty() || first_quality == Some(&255u8) {
                     // BAM format is such that all values are 255, or values are between
                     // 0 and 93. So if we see one 255, we can just return 255.
                     // Empty quals (win_start == win_end) also get 255 as a sentinel.
@@ -182,15 +251,34 @@ where
                 } else {
                     // we do an average using the probability of errors,
                     // and not the Q scores directly.
-                    let quals_min = quals.iter().min().expect("no error");
-                    let data_size = f64::from(i32::try_from(win_end)? - i32::try_from(win_start)?);
-                    let x = quals.iter().fold(0f64, |acc, x| {
-                        acc + QUAL_DIFF_TO_ERR_RATIO
-                            .get(usize::from(x - quals_min))
-                            .copied()
-                            .expect("a u8 always indexes a 256-entry table")
-                    });
-                    quals_min.saturating_add((-10f64 * f64::log10(x / data_size)).round() as u8)
+                    // A histogram index is its quality value, so the first nonzero index is the
+                    // minimum quality in the current span.
+                    let quals_min = quality_counts
+                        .iter()
+                        .position(|&count| count != 0)
+                        .expect("non-empty quality span has a minimum");
+                    let (x, counted_data_size) = quality_counts
+                        .iter()
+                        .enumerate()
+                        .skip(quals_min)
+                        .fold((0f64, 0u32), |(acc, counted), (quality, &count)| {
+                            (
+                                acc + f64::from(count)
+                                    * QUAL_DIFF_TO_ERR_RATIO
+                                        .get(quality - quals_min)
+                                        .copied()
+                                        .expect("quality difference indexes a 256-entry table"),
+                                counted + count,
+                            )
+                        });
+                    assert_eq!(
+                        usize::try_from(counted_data_size).expect("u32 fits in supported usize"),
+                        quality_span.len(),
+                        "quality histogram count must match quality span length"
+                    );
+                    let data_size = f64::from(counted_data_size);
+                    let quality_correction = -10f64 * f64::log10(x / data_size);
+                    u8::try_from(quals_min)?.saturating_add(quality_correction.round() as u8)
                 }
             };
             windows.push((
@@ -212,7 +300,10 @@ where
     })
 }
 
-/// Windowed modification data along molecules
+/// Windowed modification data along molecules.
+///
+/// The window function returns `Ok(Some(value))` to emit a window, `Ok(None)` to omit it, and
+/// `Err(error)` to stop processing and return the error.
 ///
 /// # Examples
 ///
@@ -241,7 +332,7 @@ where
 /// let mut output = Vec::new();
 ///
 /// window_reads::run(&mut output, selected, window_options, &mods, |x| {
-///     threshold_and_mean(x).map(Into::into)
+///     threshold_and_mean(x).map(|value| Some(value.into()))
 /// })
 /// .unwrap();
 ///
@@ -273,7 +364,7 @@ where
 /// ```
 ///
 /// # Errors
-/// Returns an error if BAM record reading, or output writing fails.
+/// Returns an error if BAM record reading, output writing, or the window function fails.
 /// This TSV command also errors on blank BAM files because otherwise empty output would be
 /// ambiguous between "no windows/modifications found" and "no reads were present".
 /// It also errors if records are present but no modification windows are ever emitted, because
@@ -288,7 +379,7 @@ pub fn run<W, F, D>(
 ) -> Result<(), Error>
 where
     W: std::io::Write,
-    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+    F: Fn(&[u8]) -> Result<Option<F32AbsValAtMost1>, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // Get windowing parameters
@@ -375,6 +466,7 @@ or some other possibility.",
 /// Creates a `DataFrame` from windowed modification data
 ///
 /// This function calls [`run`] with a buffer handle, then parses the output into a Polars `DataFrame`.
+/// The window function uses the same emit, omit, and error contract documented by [`run`].
 /// The first line of output (after removing the leading '#') contains tab-separated column names,
 /// and subsequent lines contain tab-separated data values.
 ///
@@ -384,6 +476,7 @@ or some other possibility.",
 /// empty input as ambiguous for TSV-style window output.
 /// Likewise, if records are present but no modification windows are emitted, this function errors
 /// via [`run`] because an empty table would be ambiguous.
+/// Errors from the window function are also propagated by [`run`].
 ///
 /// # Panics
 /// If the output of `run` is malformed.
@@ -398,7 +491,7 @@ pub fn run_df<F, D>(
     window_function: F,
 ) -> Result<DataFrame, Error>
 where
-    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+    F: Fn(&[u8]) -> Result<Option<F32AbsValAtMost1>, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // Create a buffer to capture output
@@ -460,6 +553,8 @@ where
 /// Produces the same windowed data as [`run`] but serializes each read as a
 /// JSON object with alignment info and a `mod_table` whose `data` entries
 /// contain `[win_start, win_end, win_val, mean_base_qual, ref_win_start, ref_win_end]`.
+/// The window function returns `Ok(Some(value))` to emit a window, `Ok(None)` to omit it, and
+/// `Err(error)` to stop processing and return the error.
 ///
 /// # Examples
 ///
@@ -488,7 +583,7 @@ where
 /// let mut output = Vec::new();
 ///
 /// window_reads::run_json(&mut output, selected, window_options, &mods, |x| {
-///     threshold_and_mean(x).map(Into::into)
+///     threshold_and_mean(x).map(|value| Some(value.into()))
 /// })
 /// .unwrap();
 ///
@@ -542,7 +637,7 @@ where
 /// ```
 ///
 /// # Errors
-/// Returns an error if BAM record reading, or output writing fails.
+/// Returns an error if BAM record reading, output writing, or the window function fails.
 /// This JSON command errors on blank BAM files so callers can distinguish that case from a
 /// non-blank BAM whose per-read `mod_table` entries may legitimately be empty.
 /// Unlike [`run`] and `run_df`, records with no modifications are acceptable here because the
@@ -562,7 +657,7 @@ pub fn run_json<W, F, D>(
 ) -> Result<(), Error>
 where
     W: std::io::Write,
-    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+    F: Fn(&[u8]) -> Result<Option<F32AbsValAtMost1>, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // Get windowing parameters
@@ -656,15 +751,267 @@ where
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
-    use crate::F32Bw0and1;
     use crate::analysis::{threshold_and_mean, threshold_and_mean_and_thres_win};
+    use crate::{F32Bw0and1, Ranges};
     use rust_htslib::bam::{self, Read as _};
 
-    /// Helper function to run `window_reads` tests with `threshold_and_mean_and_thres_win`
-    ///
-    /// This function encapsulates the common test setup and execution logic for `window_reads` tests
-    /// that use a threshold value for filtering.
-    fn run_window_reads_test_with_threshold(
+    /// Makes a minimal base modification with the requested sequence length.
+    fn base_mod_with_seq_len(seq_len: u32) -> BaseMod {
+        let annotations = if seq_len == 0 {
+            Vec::new()
+        } else {
+            vec![FiberAnnotation::try_new(0, 10, None).expect("valid annotation")]
+        };
+        BaseMod {
+            modified_base: b'T',
+            strand: '+',
+            modification_type: 'T',
+            ranges: Ranges::from_annotations(annotations, seq_len, false)
+                .expect("valid base modification ranges"),
+            record_is_reverse: false,
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "base modification sequence length must match base-quality length")]
+    fn windowing_rejects_mismatched_sequence_and_quality_lengths() {
+        let base_mod = base_mod_with_seq_len(2);
+        let _result = compute_windowed_mod_data(&base_mod, &[30], 1, 1, "read", &|_| {
+            F32AbsValAtMost1::new(0.0).map(Some)
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "base-quality length must be in")]
+    fn windowing_rejects_empty_base_qualities() {
+        let base_mod = base_mod_with_seq_len(0);
+        let _result = compute_windowed_mod_data(&base_mod, &[], 1, 1, "read", &|_| {
+            F32AbsValAtMost1::new(0.0).map(Some)
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "read ID length must be in")]
+    fn windowing_rejects_empty_read_id() {
+        let base_mod = base_mod_with_seq_len(1);
+        let _result = compute_windowed_mod_data(&base_mod, &[30], 1, 1, "", &|_| {
+            F32AbsValAtMost1::new(0.0).map(Some)
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "read ID length must be in")]
+    fn windowing_rejects_overlong_read_id() {
+        let base_mod = base_mod_with_seq_len(1);
+        let qname = "r".repeat(usize::from(MAX_READ_ID_LEN) + 1);
+        let _result = compute_windowed_mod_data(&base_mod, &[30], 1, 1, &qname, &|_| {
+            F32AbsValAtMost1::new(0.0).map(Some)
+        });
+    }
+
+    #[test]
+    fn invalid_reference_order_is_rejected_before_windowing() {
+        let ranges = Ranges::from_annotations(
+            vec![
+                FiberAnnotation::try_new(0, 10, Some(2)).expect("valid annotation"),
+                FiberAnnotation::try_new(1, 20, Some(1)).expect("valid annotation"),
+            ],
+            2,
+            false,
+        );
+        assert!(matches!(ranges, Err(Error::WrongOrder(_))));
+    }
+
+    #[test]
+    fn quality_span_includes_bases_between_candidates() -> Result<(), Error> {
+        let base_mod = BaseMod {
+            modified_base: b'T',
+            strand: '+',
+            modification_type: 'T',
+            ranges: Ranges::from_annotations(
+                vec![
+                    FiberAnnotation::try_new(1, 10, Some(101))?,
+                    FiberAnnotation::try_new(4, 40, Some(104))?,
+                ],
+                6,
+                false,
+            )?,
+            record_is_reverse: false,
+        };
+        let result = compute_windowed_mod_data(
+            &base_mod,
+            &[5, 10, 20, 30, 40, 50],
+            2,
+            1,
+            "quality-span",
+            &|_| F32AbsValAtMost1::new(0.0).map(Some),
+        )?;
+
+        let window = result.data.first().expect("one window");
+        assert_eq!(result.data.len(), 1);
+        assert_eq!(window.0, 1);
+        assert_eq!(window.1, 5);
+        assert_eq!(window.2, F32AbsValAtMost1::new(0.0)?);
+        assert_eq!(window.3, 16);
+        assert_eq!(window.4, 101);
+        assert_eq!(window.5, 105);
+        Ok(())
+    }
+
+    #[test]
+    fn histogram_rounding_uses_grouped_result() -> Result<(), Error> {
+        const QUALITY_20_COUNT: usize = 1_321_375;
+        const QUALITY_30_COUNT: usize = 181_609;
+        let seq_len = QUALITY_20_COUNT + QUALITY_30_COUNT;
+        let seq_len_u32 = u32::try_from(seq_len)?;
+        let base_mod = BaseMod {
+            modified_base: b'T',
+            strand: '+',
+            modification_type: 'T',
+            ranges: Ranges::from_annotations(
+                vec![
+                    FiberAnnotation::try_new(0, 10, None)?,
+                    FiberAnnotation::try_new(seq_len_u32 - 1, 20, None)?,
+                ],
+                seq_len_u32,
+                false,
+            )?,
+            record_is_reverse: false,
+        };
+        let mut base_qual = vec![20; QUALITY_20_COUNT];
+        base_qual.extend(std::iter::repeat_n(30, QUALITY_30_COUNT));
+
+        let result =
+            compute_windowed_mod_data(&base_mod, &base_qual, 2, 1, "rounding-boundary", &|_| {
+                F32AbsValAtMost1::new(0.0).map(Some)
+            })?;
+        let grouped = result.data.first().expect("one window").3;
+        let sequential = naive_mean_base_quality(&base_qual);
+
+        assert_eq!(sequential, 20);
+        assert_eq!(grouped, 21);
+        assert_eq!(grouped.abs_diff(sequential), 1);
+        Ok(())
+    }
+
+    /// Computes quality exactly as the original per-window scan did.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        clippy::arithmetic_side_effects,
+        reason = "matches the production Q-score calculation"
+    )]
+    fn naive_mean_base_quality(qualities: &[u8]) -> u8 {
+        if qualities.is_empty() || qualities.first() == Some(&255) {
+            return 255;
+        }
+        let minimum = qualities.iter().min().expect("non-empty slice");
+        let error_sum = qualities.iter().fold(0f64, |sum, quality| {
+            sum + (10f64).powf(-0.1 * f64::from(quality - minimum))
+        });
+        minimum
+            .saturating_add((-10f64 * f64::log10(error_sum / qualities.len() as f64)).round() as u8)
+    }
+
+    #[test]
+    #[expect(
+        clippy::integer_division_remainder_used,
+        clippy::modulo_arithmetic,
+        reason = "remainders generate deterministic fixture qualities"
+    )]
+    fn rolling_windows_match_naive_scans() -> Result<(), Error> {
+        let positions = [0, 2, 5, 6, 10, 20, 21];
+        let reference_positions = [
+            Some(90),
+            None,
+            Some(100),
+            Some(108),
+            Some(115),
+            None,
+            Some(120),
+        ];
+        let base_mod = BaseMod {
+            modified_base: b'T',
+            strand: '-',
+            modification_type: 'T',
+            ranges: Ranges::from_annotations(
+                positions
+                    .into_iter()
+                    .zip(reference_positions)
+                    .enumerate()
+                    .map(|(index, (pos, ref_pos))| {
+                        FiberAnnotation::try_new(
+                            pos,
+                            u8::try_from(index * 31).expect("fixture quality fits u8"),
+                            ref_pos,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+                22,
+                true,
+            )?,
+            record_is_reverse: true,
+        };
+        let base_qual: Vec<u8> = (0..22)
+            .map(|position| u8::try_from((position * 17 + 3) % 94).expect("quality fits u8"))
+            .collect();
+
+        for (width, step) in [(1usize, 1usize), (2, 1), (3, 2), (3, 4), (5, 2)] {
+            let result = compute_windowed_mod_data(
+                &base_mod,
+                &base_qual,
+                u32::try_from(width)?,
+                u32::try_from(step)?,
+                "equivalence",
+                &|values| {
+                    F32AbsValAtMost1::new(
+                        f32::from(*values.first().expect("non-empty window")) / 255.0,
+                    )
+                    .map(Some)
+                },
+            )?;
+            let expected_starts = (0..=base_mod.ranges.annotations().len() - width).step_by(step);
+            assert_eq!(result.data.len(), expected_starts.clone().count());
+
+            for (window_start, actual) in expected_starts.zip(&result.data) {
+                let annotations = base_mod
+                    .ranges
+                    .annotations()
+                    .get(window_start..window_start + width)
+                    .expect("fixture window is valid");
+                let first = annotations.first().expect("window is non-empty");
+                let last = annotations.last().expect("window is non-empty");
+                let ref_start = annotations
+                    .iter()
+                    .filter_map(FiberAnnotation::ref_pos)
+                    .min()
+                    .map_or(-1, i64::from);
+                let ref_end = annotations
+                    .iter()
+                    .filter_map(FiberAnnotation::ref_pos)
+                    .max()
+                    .map_or(-1, |position| i64::from(position) + 1);
+                let quality_span = base_qual
+                    .get(usize::try_from(first.pos())?..usize::try_from(last.pos() + 1)?)
+                    .expect("fixture quality span is valid");
+
+                assert_eq!(actual.0, first.pos());
+                assert_eq!(actual.1, last.pos() + 1);
+                assert_eq!(
+                    actual.2,
+                    F32AbsValAtMost1::new(f32::from(first.qual()) / 255.0)?
+                );
+                assert_eq!(actual.3, naive_mean_base_quality(quality_span));
+                assert_eq!(actual.4, ref_start);
+                assert_eq!(actual.5, ref_end);
+            }
+        }
+        Ok(())
+    }
+
+    /// Runs a `window_reads` fixture with optional density filtering.
+    fn run_window_reads_test(
         input_file: &str,
         threshold: Option<f32>,
         expected_output_file: &str,
@@ -677,21 +1024,14 @@ mod tests {
             serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
         let mods = InputMods::default();
 
-        // Run the window_reads function with appropriate function based on threshold
         match threshold {
-            None => {
-                // Use threshold_and_mean when no threshold is specified
-                run(&mut output, bam_records, window_options, &mods, |x| {
-                    threshold_and_mean(x).map(Into::into)
-                })?;
-            }
-            Some(thres_val) => {
-                // Use threshold_and_mean_and_thres_win with specified threshold
-                run(&mut output, bam_records, window_options, &mods, |x| {
-                    threshold_and_mean_and_thres_win(x, F32Bw0and1::new(thres_val).unwrap())
-                        .map(Into::into)
-                })?;
-            }
+            None => run(&mut output, bam_records, window_options, &mods, |x| {
+                threshold_and_mean(x).map(|value| Some(value.into()))
+            })?,
+            Some(threshold_value) => run(&mut output, bam_records, window_options, &mods, |x| {
+                threshold_and_mean_and_thres_win(x, F32Bw0and1::new(threshold_value).unwrap())
+                    .map(|value| value.map(Into::into))
+            })?,
         }
 
         // Perform comparison
@@ -704,7 +1044,7 @@ mod tests {
 
     #[test]
     fn window_reads_example_1() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
+        run_window_reads_test(
             "./examples/example_1.bam",
             None,
             "./examples/example_1_window_reads",
@@ -713,7 +1053,7 @@ mod tests {
 
     #[test]
     fn window_reads_example_1_gt_0pt4() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
+        run_window_reads_test(
             "./examples/example_1.bam",
             Some(0.4),
             "./examples/example_1_window_reads_gt_0pt4",
@@ -722,7 +1062,7 @@ mod tests {
 
     #[test]
     fn window_reads_example_1_gt_0pt8() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
+        run_window_reads_test(
             "./examples/example_1.bam",
             Some(0.8),
             "./examples/example_1_window_reads_gt_0pt8",
@@ -731,7 +1071,7 @@ mod tests {
 
     #[test]
     fn window_reads_example_7() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
+        run_window_reads_test(
             "./examples/example_7.sam",
             None,
             "./examples/example_7_window_reads",
@@ -748,7 +1088,7 @@ mod tests {
         let mods = InputMods::default();
 
         run_json(&mut output, bam_records, window_options, &mods, |x| {
-            threshold_and_mean(x).map(Into::into)
+            threshold_and_mean(x).map(|value| Some(value.into()))
         })?;
 
         let output_str = String::from_utf8(output)?;
@@ -774,7 +1114,7 @@ mod tests {
         let mods = InputMods::default();
 
         run_json(&mut output, bam_records, window_options, &mods, |x| {
-            threshold_and_mean(x).map(Into::into)
+            threshold_and_mean(x).map(|value| Some(value.into()))
         })?;
 
         let output_str = String::from_utf8(output)?;
@@ -799,13 +1139,9 @@ mod tests {
             serde_json::from_str(&format!("{{\"win\": {win}, \"step\": {step}}}"))?;
         let mods = InputMods::default();
 
-        run_json(
-            &mut output,
-            bam_records,
-            window_options,
-            &mods,
-            crate::analysis::threshold_and_gradient,
-        )?;
+        run_json(&mut output, bam_records, window_options, &mods, |x| {
+            crate::analysis::threshold_and_gradient(x).map(Some)
+        })?;
 
         Ok(String::from_utf8(output)?)
     }
@@ -890,7 +1226,7 @@ mod stochastic_tests {
         let mods = InputMods::default();
 
         run_df(bam_records, window_options, &mods, |x| {
-            analysis::threshold_and_mean(x).map(Into::into)
+            analysis::threshold_and_mean(x).map(|value| Some(value.into()))
         })
     }
 
@@ -1264,7 +1600,7 @@ mod stochastic_tests {
 
         let mut output = Vec::new();
         run_json(&mut output, bam_records, window_options, &mods, |x| {
-            analysis::threshold_and_mean(x).map(Into::into)
+            analysis::threshold_and_mean(x).map(|value| Some(value.into()))
         })?;
 
         let output_str = String::from_utf8(output)?;
@@ -1352,6 +1688,10 @@ mod stochastic_tests {
                     total_windows += 1;
                     let win_val = window[2].as_f64().unwrap();
                     #[expect(
+                        clippy::allow_attributes,
+                        reason = "float_cmp varies across supported Clippy versions"
+                    )]
+                    #[allow(
                         clippy::float_cmp,
                         reason = "exact 0.0 comparison is safe for thresholded-then-meaned low-probability mods"
                     )]
@@ -1535,6 +1875,10 @@ mod stochastic_tests {
                             "N mod should produce 200 bp windows"
                         );
                         #[expect(
+                            clippy::allow_attributes,
+                            reason = "float_cmp varies across supported Clippy versions"
+                        )]
+                        #[allow(
                             clippy::float_cmp,
                             reason = "exact 1.0 comparison is safe for thresholded high-probability mods"
                         )]
@@ -1564,6 +1908,10 @@ mod stochastic_tests {
                         assert!(!is_strand_plus);
                         assert_eq!(base, "C");
                         #[expect(
+                            clippy::allow_attributes,
+                            reason = "float_cmp varies across supported Clippy versions"
+                        )]
+                        #[allow(
                             clippy::float_cmp,
                             reason = "exact 0.0 comparison is safe for thresholded low-probability mods"
                         )]
@@ -1633,7 +1981,7 @@ mod stochastic_tests {
         let mods = InputMods::default();
 
         run(&mut output, bam_records, window_options, &mods, |x| {
-            analysis::threshold_and_mean(x).map(Into::into)
+            analysis::threshold_and_mean(x).map(|value| Some(value.into()))
         })
         .unwrap();
     }

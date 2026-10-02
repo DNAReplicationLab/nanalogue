@@ -134,7 +134,7 @@ mod tests {
             .base_mods
             .iter()
             .flat_map(|base_mod| {
-                base_mod.ranges.annotations.iter().map(|annotation| {
+                base_mod.ranges.annotations().iter().map(|annotation| {
                     (
                         annotation.pos(),
                         annotation.ref_pos().map_or(-1, i64::from),
@@ -249,7 +249,7 @@ mod tests {
         assert_eq!(positions, HIGH_PROBABILITY_POSITIONS);
 
         let high = filtered_second_record(&probability_filter_options(HIGH_PROBABILITY_THRESHOLD))?;
-        assert!(annotations(&high).is_empty());
+        assert_eq!(annotations(&high), Vec::<(u32, i64, u8)>::new());
         Ok(())
     }
 

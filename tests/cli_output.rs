@@ -8,6 +8,14 @@
 mod tests {
     use std::process::{Command, Output};
 
+    /// Runs the compiled main executable with the supplied arguments.
+    fn run_nanalogue(args: &[&str]) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_nanalogue"))
+            .args(args)
+            .output()
+            .expect("nanalogue executable should run")
+    }
+
     /// Runs the `nanalogue` executable with `args`, writes `stdin_bytes` to its
     /// standard input, and returns the captured output.
     fn run_nanalogue_with_stdin<const N: usize>(args: [&str; N], stdin_bytes: &[u8]) -> Output {
@@ -48,7 +56,7 @@ mod tests {
             .expect("nanalogue executable should run");
 
         assert_eq!(output.status.code(), Some(1));
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout, Vec::<u8>::new());
         assert!(String::from_utf8_lossy(&output.stderr).starts_with("Error during execution: "));
     }
 
@@ -72,7 +80,7 @@ mod tests {
             .expect("nanalogue executable should run");
 
         assert_eq!(output.status.code(), Some(141));
-        assert!(output.stderr.is_empty());
+        assert_eq!(output.stderr, Vec::<u8>::new());
     }
 
     /// Detailed read information remains valid JSON when region lookup falls back
@@ -111,6 +119,65 @@ mod tests {
             String::from_utf8_lossy(&output.stderr).contains(warning),
             "warning should be written to stderr"
         );
+    }
+
+    #[test]
+    fn full_sequence_rejects_region_only_display_options() {
+        let bam = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/example_1.bam");
+        for args in [
+            ["read-table-show-mods", "--seq-full", "--show-mod-z", bam],
+            [
+                "read-table-show-mods",
+                "--seq-full",
+                "--show-ins-lowercase",
+                bam,
+            ],
+            [
+                "read-table-hide-mods",
+                "--seq-full",
+                "--show-ins-lowercase",
+                bam,
+            ],
+        ] {
+            let output = run_nanalogue(&args);
+            assert_eq!(output.status.code(), Some(2), "failed args: {args:?}");
+            assert!(output.stdout.is_empty(), "failed args: {args:?}");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("cannot be used with"), "{stderr}");
+            assert!(!stderr.contains("panicked"), "{stderr}");
+        }
+    }
+
+    #[test]
+    fn gradient_commands_reject_single_position_windows_once() {
+        let bam = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/example_10.sam");
+        for args in [
+            vec!["window-grad", "--win", "1", "--step", "1", bam],
+            vec![
+                "find-modified-reads",
+                "any-abs-grad-above",
+                "--win",
+                "1",
+                "--step",
+                "1",
+                "--tag",
+                "N",
+                "--min-grad",
+                "0.1",
+                bam,
+            ],
+        ] {
+            let output = run_nanalogue(&args);
+            assert_eq!(output.status.code(), Some(1), "failed args: {args:?}");
+            assert!(output.stdout.is_empty(), "failed args: {args:?}");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("gradient calculations require --win to be at least 2"),
+                "{stderr}"
+            );
+            assert_eq!(stderr.lines().count(), 1, "{stderr}");
+            assert!(!stderr.contains("Warning: Skipping"), "{stderr}");
+        }
     }
 
     /// Piping raw BAM bytes through stdin exercises the unindexed stdin reader

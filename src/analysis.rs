@@ -100,14 +100,13 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error
 
 /// Threshold, calculate mean modification density per window, and check against threshold
 ///
-/// This function calculates the mean modification density and returns an error if the
+/// This function calculates the mean modification density and returns `None` if the
 /// mean is below the provided threshold value.
 ///
 /// # Errors
 ///
-/// Returns `Error::EmptyWindow` if the input slice is empty, or
-/// `Error::WindowDensBelowThres` if the calculated density is below the threshold, or
-/// error associated with `F32Bw0and1` creation.
+/// Returns `Error::EmptyWindow` if the input slice is empty, or an error associated with
+/// `F32Bw0and1` creation.
 ///
 /// # Examples
 ///
@@ -118,23 +117,23 @@ pub fn threshold_and_gradient(mod_list: &[u8]) -> Result<F32AbsValAtMost1, Error
 /// // Test with 75% modified bases (values >= 128)
 /// let mod_data = [0, 128, 200, 255];
 /// let result = threshold_and_mean_and_thres_win(&mod_data, 0.5f32.try_into().unwrap()).unwrap();
-/// assert_eq!(result.val(), 0.75);
+/// assert_eq!(result.unwrap().val(), 0.75);
 ///
-/// // Test with 25% modified bases (should return WindowDensBelowThres error)
+/// // Test with 25% modified bases (should omit the window)
 /// let mod_data = [0, 0, 0, 128];
-/// let result = threshold_and_mean_and_thres_win(&mod_data, 0.5f32.try_into().unwrap());
-/// assert!(result.is_err());
+/// let result = threshold_and_mean_and_thres_win(&mod_data, 0.5f32.try_into().unwrap()).unwrap();
+/// assert_eq!(result, None);
 /// ```
 pub fn threshold_and_mean_and_thres_win(
     mod_list: &[u8],
     threshold: F32Bw0and1,
-) -> Result<F32Bw0and1, Error> {
+) -> Result<Option<F32Bw0and1>, Error> {
     let density = threshold_and_mean(mod_list)?;
 
     if density.val() < threshold.val() {
-        Err(Error::WindowDensBelowThres { density, threshold })
+        Ok(None)
     } else {
-        Ok(density)
+        Ok(Some(density))
     }
 }
 
@@ -189,6 +188,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-four unlikely to give floating point errors"
     )]
@@ -201,6 +204,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-four unlikely to give floating point errors"
     )]
@@ -213,6 +220,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-five unlikely to give floating point errors"
     )]
@@ -229,6 +240,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-five unlikely to give floating point errors"
     )]
@@ -309,6 +324,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-four unlikely to give floating point errors"
     )]
@@ -317,11 +336,15 @@ mod tests {
         let mod_data = [0, 128, 200, 255];
         let threshold = F32Bw0and1::new(0.5).unwrap();
         let result = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
-        assert_eq!(result.val(), 0.75);
+        assert_eq!(result.expect("density passes threshold").val(), 0.75);
     }
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "divide-by-four unlikely to give floating point errors"
     )]
@@ -330,18 +353,17 @@ mod tests {
         let mod_data = [0, 0, 128, 128];
         let threshold = F32Bw0and1::new(0.5).unwrap();
         let result = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
-        assert_eq!(result.val(), 0.5);
+        assert_eq!(result.expect("density equals threshold").val(), 0.5);
     }
 
     #[test]
-    #[should_panic(expected = "WindowDensBelowThres")]
     fn threshold_and_mean_and_thres_win_below_threshold() {
         // Test with density below threshold
         let mod_data = [0, 0, 0, 128];
         let threshold = F32Bw0and1::new(0.5).unwrap();
 
-        // This should panic with a WindowDensBelowThres error
-        let _: F32Bw0and1 = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
+        let result = threshold_and_mean_and_thres_win(&mod_data, threshold).unwrap();
+        assert_eq!(result, None);
     }
 
     #[test]

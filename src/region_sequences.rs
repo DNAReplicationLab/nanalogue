@@ -369,7 +369,7 @@ fn high_probability_positions(
         .0
         .base_mods
         .iter()
-        .flat_map(|base_mod| base_mod.ranges.annotations.iter())
+        .flat_map(|base_mod| base_mod.ranges.annotations().iter())
         .filter(|annotation| annotation.qual() > 0)
         .map(FiberAnnotation::pos)
         .collect::<Vec<u32>>();
@@ -415,13 +415,19 @@ fn whole_read_profile(
         0,
     )?;
     for base_mod in &read_with_mods.mod_data().0.base_mods {
-        calls.extend(base_mod.ranges.annotations.iter().filter_map(|annotation| {
-            annotation
-                .ref_pos()
-                .map(|ref_pos| (ref_pos, annotation.qual()))
-        }));
+        calls.extend(
+            base_mod
+                .ranges
+                .annotations()
+                .iter()
+                .filter_map(|annotation| {
+                    annotation
+                        .ref_pos()
+                        .map(|ref_pos| (ref_pos, annotation.qual()))
+                }),
+        );
         let series_start = windows.len();
-        for chunk in base_mod.ranges.annotations.chunks_exact(win_size) {
+        for chunk in base_mod.ranges.annotations().chunks_exact(win_size) {
             let mut reference_positions = chunk.iter().filter_map(FiberAnnotation::ref_pos);
             let Some(first_reference_position) = reference_positions.next() else {
                 continue;
@@ -1063,8 +1069,8 @@ mod tests {
             NonZeroU32::new(3).expect("non-zero"),
         )?;
         let profile = profiles.first().expect("one spanning read");
-        assert!(profile.calls().is_empty());
-        assert!(profile.windows().is_empty());
+        assert_eq!(profile.calls(), []);
+        assert_eq!(profile.windows(), []);
 
         remove_test_bam(&path);
         Ok(())

@@ -46,20 +46,16 @@ impl SeqCoordCalls {
     ///             modified_base: b'T',
     ///             strand: '+',
     ///             modification_type: 'T',
-    ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation::try_new(0, 100, Some(0))?],
-    ///                 seq_len: 5, reverse: false,
-    ///             },
+    ///             ranges: Ranges::from_annotations(
+    ///                 vec![FiberAnnotation::try_new(0, 100, Some(0))?], 5, false)?,
     ///             record_is_reverse: false,
     ///         },
     ///         BaseMod {
     ///             modified_base: b'C',
     ///             strand: '+',
     ///             modification_type: 'm',
-    ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation::try_new(2, 200, None)?],
-    ///                 seq_len: 5, reverse: false,
-    ///             },
+    ///             ranges: Ranges::from_annotations(
+    ///                 vec![FiberAnnotation::try_new(2, 200, None)?], 5, false)?,
     ///             record_is_reverse: false,
     ///         },
     ///     ],
@@ -104,18 +100,14 @@ impl SeqCoordCalls {
     ///     base_mods: vec![
     ///         BaseMod {
     ///             modified_base: b'T', strand: '+', modification_type: 'T',
-    ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation::try_new(0, 100, Some(0))?],
-    ///                 seq_len: 5, reverse: false,
-    ///             },
+    ///             ranges: Ranges::from_annotations(
+    ///                 vec![FiberAnnotation::try_new(0, 100, Some(0))?], 5, false)?,
     ///             record_is_reverse: false,
     ///         },
     ///         BaseMod {
     ///             modified_base: b'C', strand: '+', modification_type: 'm',
-    ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation::try_new(2, 200, None)?],
-    ///                 seq_len: 5, reverse: false,
-    ///             },
+    ///             ranges: Ranges::from_annotations(
+    ///                 vec![FiberAnnotation::try_new(2, 200, None)?], 5, false)?,
     ///             record_is_reverse: false,
     ///         },
     ///     ],
@@ -157,18 +149,14 @@ impl SeqCoordCalls {
     ///     base_mods: vec![
     ///         BaseMod {
     ///             modified_base: b'T', strand: '+', modification_type: 'T',
-    ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation::try_new(0, 100, Some(0))?],
-    ///                 seq_len: 5, reverse: false,
-    ///             },
+    ///             ranges: Ranges::from_annotations(
+    ///                 vec![FiberAnnotation::try_new(0, 100, Some(0))?], 5, false)?,
     ///             record_is_reverse: false,
     ///         },
     ///         BaseMod {
     ///             modified_base: b'C', strand: '+', modification_type: 'm',
-    ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation::try_new(2, 200, None)?],
-    ///                 seq_len: 5, reverse: false,
-    ///             },
+    ///             ranges: Ranges::from_annotations(
+    ///                 vec![FiberAnnotation::try_new(2, 200, None)?], 5, false)?,
     ///             record_is_reverse: false,
     ///         },
     ///     ],
@@ -238,20 +226,16 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
     ///             modified_base: b'T',
     ///             strand: '+',
     ///             modification_type: 'T',
-    ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation::try_new(0, 100, Some(0))?],
-    ///                 seq_len: 5, reverse: false,
-    ///             },
+    ///             ranges: Ranges::from_annotations(
+    ///                 vec![FiberAnnotation::try_new(0, 100, Some(0))?], 5, false)?,
     ///             record_is_reverse: false,
     ///         },
     ///         BaseMod {
     ///             modified_base: b'C',
     ///             strand: '+',
     ///             modification_type: 'm',
-    ///             ranges: Ranges {
-    ///                 annotations: vec![FiberAnnotation::try_new(2, 200, None)?],
-    ///                 seq_len: 5, reverse: false,
-    ///             },
+    ///             ranges: Ranges::from_annotations(
+    ///                 vec![FiberAnnotation::try_new(2, 200, None)?], 5, false)?,
     ///             record_is_reverse: false,
     ///         },
     ///     ],
@@ -273,7 +257,7 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
             .base_mods
             .iter()
             .map(|x| {
-                let seq_len = x.ranges.seq_len;
+                let seq_len = x.ranges.seq_len();
                 Ok((
                     usize::try_from(seq_len)?,
                     (
@@ -289,7 +273,7 @@ impl TryFrom<&BaseMods> for SeqCoordCalls {
                         },
                     ),
                     x.ranges
-                        .annotations
+                        .annotations()
                         .iter()
                         .map(|y| {
                             if (0..seq_len).contains(&y.pos()) {
@@ -351,6 +335,11 @@ mod tests {
 
     use crate::{BaseMod, FiberAnnotation, Ranges};
 
+    /// Builds valid ranges for sequence-coordinate conversion tests.
+    fn ranges(annotations: Vec<FiberAnnotation>, seq_len: u32, reverse: bool) -> Ranges {
+        Ranges::from_annotations(annotations, seq_len, reverse).unwrap()
+    }
+
     #[test]
     fn seq_coord_calls_from_basemods_example_1() -> Result<(), Error> {
         // Example from src/lib.rs nanalogue_mm_ml_parser docstring (count 0)
@@ -359,16 +348,16 @@ mod tests {
                 modified_base: b'T',
                 strand: '+',
                 modification_type: 'T',
-                ranges: Ranges {
-                    annotations: vec![
+                ranges: ranges(
+                    vec![
                         FiberAnnotation::try_new(0, 4, Some(9)).unwrap(),
                         FiberAnnotation::try_new(3, 7, Some(12)).unwrap(),
                         FiberAnnotation::try_new(4, 9, Some(13)).unwrap(),
                         FiberAnnotation::try_new(7, 6, Some(16)).unwrap(),
                     ],
-                    seq_len: 8,
-                    reverse: false,
-                },
+                    8,
+                    false,
+                ),
                 record_is_reverse: false,
             }],
         };
@@ -412,17 +401,17 @@ mod tests {
                 modified_base: b'T',
                 strand: '+',
                 modification_type: 'T',
-                ranges: Ranges {
-                    annotations: vec![
+                ranges: ranges(
+                    vec![
                         FiberAnnotation::try_new(12, 3, Some(15)).unwrap(),
                         FiberAnnotation::try_new(13, 3, Some(16)).unwrap(),
                         FiberAnnotation::try_new(16, 4, Some(19)).unwrap(),
                         FiberAnnotation::try_new(19, 3, Some(22)).unwrap(),
                         FiberAnnotation::try_new(20, 182, Some(23)).unwrap(),
                     ],
-                    seq_len: 33,
-                    reverse: true,
-                },
+                    33,
+                    true,
+                ),
                 record_is_reverse: true,
             }],
         };
@@ -481,22 +470,22 @@ mod tests {
                     modified_base: b'T',
                     strand: '+',
                     modification_type: 'T',
-                    ranges: Ranges {
-                        annotations: vec![FiberAnnotation::try_new(0, 100, Some(0)).unwrap()],
-                        seq_len: 5,
-                        reverse: false,
-                    },
+                    ranges: ranges(
+                        vec![FiberAnnotation::try_new(0, 100, Some(0)).unwrap()],
+                        5,
+                        false,
+                    ),
                     record_is_reverse: false,
                 },
                 BaseMod {
                     modified_base: b'C',
                     strand: '+',
                     modification_type: 'm',
-                    ranges: Ranges {
-                        annotations: vec![FiberAnnotation::try_new(2, 200, None).unwrap()],
-                        seq_len: 5,
-                        reverse: false,
-                    },
+                    ranges: ranges(
+                        vec![FiberAnnotation::try_new(2, 200, None).unwrap()],
+                        5,
+                        false,
+                    ),
                     record_is_reverse: false,
                 },
             ],
@@ -548,43 +537,43 @@ mod tests {
                     modified_base: b'C',
                     strand: '+',
                     modification_type: 'a',
-                    ranges: Ranges {
-                        annotations: vec![
+                    ranges: ranges(
+                        vec![
                             FiberAnnotation::try_new(0, 11, None).unwrap(),
                             FiberAnnotation::try_new(2, 12, None).unwrap(),
                         ],
-                        seq_len: 6,
-                        reverse: false,
-                    },
+                        6,
+                        false,
+                    ),
                     record_is_reverse: false,
                 },
                 BaseMod {
                     modified_base: b'C',
                     strand: '-',
                     modification_type: 'b',
-                    ranges: Ranges {
-                        annotations: vec![
+                    ranges: ranges(
+                        vec![
                             FiberAnnotation::try_new(1, 21, None).unwrap(),
                             FiberAnnotation::try_new(3, 22, None).unwrap(),
                             FiberAnnotation::try_new(5, 23, None).unwrap(),
                         ],
-                        seq_len: 6,
-                        reverse: false,
-                    },
+                        6,
+                        false,
+                    ),
                     record_is_reverse: false,
                 },
                 BaseMod {
                     modified_base: b'C',
                     strand: '+',
                     modification_type: 'c',
-                    ranges: Ranges {
-                        annotations: vec![
+                    ranges: ranges(
+                        vec![
                             FiberAnnotation::try_new(0, 31, None).unwrap(),
                             FiberAnnotation::try_new(2, 32, None).unwrap(),
                         ],
-                        seq_len: 6,
-                        reverse: false,
-                    },
+                        6,
+                        false,
+                    ),
                     record_is_reverse: false,
                 },
             ],
@@ -612,11 +601,11 @@ mod tests {
                 modified_base: b'G',
                 strand: '-',
                 modification_type: 'h',
-                ranges: Ranges {
-                    annotations: vec![FiberAnnotation::try_new(1, 50, Some(1)).unwrap()],
-                    seq_len: 3,
-                    reverse: false,
-                },
+                ranges: ranges(
+                    vec![FiberAnnotation::try_new(1, 50, Some(1)).unwrap()],
+                    3,
+                    false,
+                ),
                 record_is_reverse: false,
             }],
         };
@@ -642,11 +631,7 @@ mod tests {
                 modified_base: b'C',
                 strand: '+',
                 modification_type: 'm',
-                ranges: Ranges {
-                    annotations: vec![],
-                    seq_len: 1,
-                    reverse: false,
-                },
+                ranges: ranges(vec![], 1, false),
                 record_is_reverse: false,
             }],
         }
@@ -687,22 +672,14 @@ mod tests {
                     modified_base: b'T',
                     strand: '+',
                     modification_type: 'T',
-                    ranges: Ranges {
-                        annotations: vec![],
-                        seq_len: 5,
-                        reverse: false,
-                    },
+                    ranges: ranges(vec![], 5, false),
                     record_is_reverse: false,
                 },
                 BaseMod {
                     modified_base: b'C',
                     strand: '+',
                     modification_type: 'm',
-                    ranges: Ranges {
-                        annotations: vec![],
-                        seq_len: 10, // Different seq_len!
-                        reverse: false,
-                    },
+                    ranges: ranges(vec![], 10, false), // Different seq_len!
                     record_is_reverse: false,
                 },
             ],
@@ -719,11 +696,7 @@ mod tests {
                 modified_base: b'T',
                 strand: 'x', // Invalid strand
                 modification_type: 'T',
-                ranges: Ranges {
-                    annotations: vec![],
-                    seq_len: 5,
-                    reverse: false,
-                },
+                ranges: ranges(vec![], 5, false),
                 record_is_reverse: false,
             }],
         };
@@ -740,11 +713,11 @@ mod tests {
                 modified_base: b'T',
                 strand: '+',
                 modification_type: 'T',
-                ranges: Ranges {
-                    annotations: vec![FiberAnnotation::try_new(4, 100, Some(4)).unwrap()],
-                    seq_len: 5,
-                    reverse: false,
-                },
+                ranges: ranges(
+                    vec![FiberAnnotation::try_new(4, 100, Some(4)).unwrap()],
+                    5,
+                    false,
+                ),
                 record_is_reverse: false,
             }],
         };
@@ -758,11 +731,11 @@ mod tests {
                 modified_base: b'T',
                 strand: '+',
                 modification_type: 'T',
-                ranges: Ranges {
-                    annotations: vec![FiberAnnotation::try_new(5, 100, Some(5)).unwrap()],
-                    seq_len: 5,
-                    reverse: false,
-                },
+                ranges: ranges(
+                    vec![FiberAnnotation::try_new(5, 100, Some(5)).unwrap()],
+                    5,
+                    false,
+                ),
                 record_is_reverse: false,
             }],
         };

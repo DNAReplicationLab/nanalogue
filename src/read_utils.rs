@@ -1490,22 +1490,19 @@ populated should forbid this"
     #[must_use]
     pub fn base_count_per_mod(&self) -> HashMap<ModChar, u32> {
         let mut output = HashMap::<ModChar, u32>::new();
-        let mut mod_type_count: u8 = 0;
         #[expect(
             clippy::arithmetic_side_effects,
             reason = "u32::MAX approx 4.2 Gb, v unlikely 1 molecule is this modified"
         )]
-        for k in &self.mod_data().0.base_mods {
+        for (mod_type_count, k) in self.mod_data().0.base_mods.iter().enumerate() {
             let base_count =
-                u32::try_from(k.ranges.annotations.len()).expect("number conversion error");
+                u32::try_from(k.ranges.annotations().len()).expect("number conversion error");
             let _: &mut u32 = output
                 .entry(ModChar::new(k.modification_type))
                 .and_modify(|e| *e += base_count)
                 .or_insert(base_count);
-            if mod_type_count >= MAX_MOD_TYPES {
+            if mod_type_count >= usize::from(MAX_MOD_TYPES) {
                 unreachable!("CurrRead data insertion should guard us against this possibility");
-            } else {
-                mod_type_count += 1;
             }
         }
         output
@@ -1544,7 +1541,7 @@ impl DisplayCondensedModData for CurrRead<AlignAndModData> {
                 k.modified_base as char,
                 k.strand,
                 ModChar::new(k.modification_type),
-                k.ranges.annotations.len()
+                k.ranges.annotations().len()
             )?;
         }
         if mod_count_str.is_empty() {
@@ -2359,7 +2356,7 @@ fn condense_base_mods(base_mods: &BaseMods) -> Result<Vec<ModTableEntry>, Error>
     for base_mod in &base_mods.base_mods {
         let entries: Vec<_> = base_mod
             .ranges
-            .annotations
+            .annotations()
             .iter()
             .map(|k| {
                 (
@@ -2444,7 +2441,7 @@ ascending needed even if reversed read)!",
             annotations
         };
 
-        let ranges = Ranges::from_annotations(annotations, seq_len, is_reverse);
+        let ranges = Ranges::from_annotations(annotations, seq_len, is_reverse)?;
 
         base_mods.push(BaseMod {
             modified_base: u8::try_from(char::from(entry.base))?,
@@ -3272,5 +3269,69 @@ mod test_serde {
 
         // Deserialize JSON to CurrRead - this should panic with InvalidSorting
         let _: CurrRead<AlignAndModData> = serde_json::from_str(invalid_json).unwrap();
+    }
+
+    #[test]
+    fn mapped_json_rejects_unsorted_query_with_sorted_reference_coordinates() {
+        for alignment_type in ["primary_forward", "primary_reverse"] {
+            let invalid_json = format!(
+                r#"{{
+                    "read_id": "xx",
+                    "alignment_type": "{alignment_type}",
+                    "alignment": {{
+                        "start": 0,
+                        "end": 200,
+                        "contig": "chr1",
+                        "contig_id": 1
+                    }},
+                    "mod_table": [{{
+                        "data": [[0, 100, 200], [2, 101, 190], [1, 102, 180]]
+                    }}],
+                    "seq_len": 3
+                }}"#
+            );
+
+            let error = serde_json::from_str::<CurrRead<AlignAndModData>>(&invalid_json)
+                .expect_err("unsorted query positions must be rejected");
+
+            assert!(
+                error.to_string().contains("read coords not sorted"),
+                "unexpected deserialization error: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn mapped_json_rejects_non_monotonic_reference_coordinates() {
+        for alignment_type in ["primary_forward", "primary_reverse"] {
+            for final_ref_pos in [50, 100] {
+                let invalid_json = format!(
+                    r#"{{
+                        "read_id": "xx",
+                        "alignment_type": "{alignment_type}",
+                        "alignment": {{
+                            "start": 0,
+                            "end": 200,
+                            "contig": "chr1",
+                            "contig_id": 1
+                        }},
+                        "mod_table": [{{
+                            "data": [[0, 100, 200], [1, -1, 190], [2, {final_ref_pos}, 180]]
+                        }}],
+                        "seq_len": 3
+                    }}"#
+                );
+
+                let error = serde_json::from_str::<CurrRead<AlignAndModData>>(&invalid_json)
+                    .expect_err("descending and duplicate reference positions must be rejected");
+
+                assert!(
+                    error
+                        .to_string()
+                        .contains("reference positions are not strictly increasing"),
+                    "unexpected deserialization error: {error}"
+                );
+            }
+        }
     }
 }

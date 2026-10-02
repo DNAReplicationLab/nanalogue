@@ -478,6 +478,7 @@ pub(super) fn individual_status(
 #[expect(
     clippy::integer_division,
     clippy::integer_division_remainder_used,
+    clippy::too_many_lines,
     reason = "frame assembly is cohesive and midpoint arithmetic intentionally uses terminal cells"
 )]
 pub(super) fn build_individual_frame(

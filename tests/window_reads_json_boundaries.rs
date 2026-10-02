@@ -223,14 +223,14 @@ mod tests {
             )
             .expect_err("paired input must fail read-info"),
         );
-        assert!(info_output.is_empty());
+        assert_eq!(info_output, Vec::<u8>::new());
         let mut table_output = Vec::new();
         assert_error(
             "read-table",
             reads_table::run(&mut table_output, one(), None, SeqDisplayOptions::No, "")
                 .expect_err("paired input must fail read-table"),
         );
-        assert!(table_output.is_empty());
+        assert_eq!(table_output, Vec::<u8>::new());
 
         let windowing = InputWindowingBuilder::default()
             .win(2)

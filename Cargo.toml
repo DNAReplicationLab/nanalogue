@@ -72,6 +72,10 @@ name = "bam_viewer_fetch"
 harness = false
 required-features = ["bam-viewer"]
 
+[[bench]]
+name = "window_reads_dense"
+harness = false
+
 [lints.clippy]
 alloc_instead_of_core = "deny"
 allow_attributes = "deny"

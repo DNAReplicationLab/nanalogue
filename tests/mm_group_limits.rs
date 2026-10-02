@@ -9,7 +9,7 @@ mod tests {
 
     use nanalogue_core::{
         Error,
-        constants::shared::{MAX_MM_GAP, MAX_MM_TAG_LENGTH},
+        constants::shared::{MAX_MM_GAP, MAX_MM_TAG_LENGTH, MAX_MOD_TYPES},
         mm_groups,
     };
 
@@ -40,25 +40,27 @@ mod tests {
     }
 
     #[test]
-    fn exactly_one_hundred_distinct_types_preserve_order_and_payload() {
+    fn configured_number_of_distinct_types_preserves_order_and_payload() {
+        let limit = u32::from(MAX_MOD_TYPES);
         let mut text = String::new();
-        for code in 0..100 {
+        for code in 0..limit {
             write!(text, "C+{code}?,2,0;").expect("writing to a String cannot fail");
         }
-        let groups = mm_groups(&text).expect("100 distinct types are accepted");
-        assert_eq!(groups.len(), 100);
-        for (expected_code, group) in (0u32..100).zip(&groups) {
+        let groups = mm_groups(&text).expect("the configured number of types is accepted");
+        assert_eq!(groups.len(), usize::from(MAX_MOD_TYPES));
+        for (expected_code, group) in (0..limit).zip(&groups) {
             assert_eq!(group.mod_base, b'C');
             assert_eq!(group.mod_strand, '+');
             assert_eq!(u32::from(group.modification_type.val()), expected_code);
             assert!(!group.is_implicit, "question mark means explicit calls");
             assert_eq!(group.mod_dists, [2, 0]);
         }
-        let over_limit = format!("{text}A+100,1;");
-        let error = mm_groups(&over_limit).expect_err("101 distinct types must fail");
+        let over_limit = format!("{text}A+{limit},1;");
+        let error = mm_groups(&over_limit).expect_err("the first excess type must fail");
+        let expected_message = format!("max types of mods exceeded {MAX_MOD_TYPES}");
         assert!(
             matches!(error, Error::InvalidState(message)
-                if message == "max types of mods exceeded 100"),
+                if message == expected_message),
             "the first excess type must reach the mod-count guard"
         );
     }

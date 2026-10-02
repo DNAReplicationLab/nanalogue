@@ -399,6 +399,10 @@ mod tests {
     /// Tests if our Ordered Pair struct (of f32s) can be correctly obtained from strings
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "we expect perfect float conversion for the two examples below"
     )]

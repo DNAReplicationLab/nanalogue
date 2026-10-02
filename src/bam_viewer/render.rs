@@ -200,6 +200,10 @@ pub(super) enum FrameFooter<'a> {
 }
 
 /// Builds the ANSI frame written to the host terminal and retained for snapshot parsing.
+#[expect(
+    clippy::too_many_lines,
+    reason = "frame assembly keeps terminal geometry and row rendering together"
+)]
 pub(super) fn build_frame(
     viewer: &Viewer,
     records: &[RegionSequence],

@@ -42,7 +42,11 @@ pub mod shared {
     /// a single `u32` (see [`crate::FiberAnnotation`]).
     pub const MAX_SEQ_LEN: u32 = (1 << 24) - 1;
 
-    /// Hard cap on reference contig length.
+    /// Hard cap on reference contig length and exclusive upper bound for 0-based reference
+    /// positions.
+    ///
+    /// Valid positions are in `[0, MAX_CONTIG_LEN)`, while the end of a half-open reference
+    /// interval may equal `MAX_CONTIG_LEN`.
     ///
     /// Some organisms have contigs longer than roughly 4.3 gigabases, but they are uncommon
     /// and are not supported.
@@ -58,7 +62,7 @@ pub mod shared {
     );
 
     /// Hard cap on the number of types of mods per BAM record
-    pub const MAX_MOD_TYPES: u8 = 100;
+    pub const MAX_MOD_TYPES: u8 = 20;
 
     /// Hard cap on the total number of serialized modification annotations per read.
     pub const MAX_TOTAL_MOD_ANNOTATIONS_PER_READ: u32 = u32::MAX;

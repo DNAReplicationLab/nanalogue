@@ -7,8 +7,10 @@
 mod tests {
     use std::rc::Rc;
 
-    use nanalogue_core::{Error, peek};
+    use nanalogue_core::{Error, constants::shared::MAX_MOD_TYPES, peek};
     use rust_htslib::bam;
+
+    const FIRST_NUMERIC_CODE: u32 = 1000;
 
     /// Supplies a real target array for rust-htslib's header accessors.
     fn header() -> bam::HeaderView {
@@ -37,25 +39,29 @@ mod tests {
         Rc::new(record)
     }
 
-    /// Exactly 100 distinct identities fit, and repeated calls do not consume slots.
+    /// Exactly the configured number of identities fit, and repeats do not consume slots.
     #[test]
     fn distinct_limit_accepts_duplicates_and_sorts_output() {
         let header = header();
+        let limit_end = FIRST_NUMERIC_CODE + u32::from(MAX_MOD_TYPES);
         // Codes above the ASCII range remain numeric when displayed. Each record
         // has only one type, so this targets peek's aggregate limit rather than
         // the separate per-record parser limit. Reverse order checks sorting.
-        let records = (1000..1100)
+        let records = (FIRST_NUMERIC_CODE..limit_end)
             .rev()
-            .chain([1099, 1000, 1057])
+            .chain([limit_end - 1, FIRST_NUMERIC_CODE, limit_end - 2])
             .map(|code| Ok(modified_record(code)));
         let mut output = Vec::new();
-        peek::run(&mut output, &header, records).expect("100 types plus duplicates fit");
+        peek::run(&mut output, &header, records)
+            .expect("the configured number of types plus duplicates fits");
         let text = String::from_utf8(output).expect("ASCII output");
         let (preamble, modifications) = text
             .split_once("modifications:\n")
             .expect("modifications heading");
         assert_eq!(preamble, "contigs_and_lengths:\ncontig\t1\n\n");
-        let expected: Vec<String> = (1000..1100).map(|code| format!("C+{code}")).collect();
+        let expected: Vec<String> = (FIRST_NUMERIC_CODE..limit_end)
+            .map(|code| format!("C+{code}"))
+            .collect();
         assert_eq!(
             modifications.lines().collect::<Vec<_>>(),
             expected,
@@ -67,25 +73,30 @@ mod tests {
     #[test]
     fn first_excess_type_stops_before_consuming_later_records() {
         let header = header();
+        let limit_end = FIRST_NUMERIC_CODE + u32::from(MAX_MOD_TYPES);
         let mut consumed = 0;
-        let records = (1000..1100).chain([1000, 1100, 1101]).map(|code| {
-            consumed += 1;
-            Ok(modified_record(code))
-        });
+        let records = (FIRST_NUMERIC_CODE..limit_end)
+            .chain([FIRST_NUMERIC_CODE, limit_end, limit_end + 1])
+            .map(|code| {
+                consumed += 1;
+                Ok(modified_record(code))
+            });
         let mut output = Vec::new();
         let error = peek::run(&mut output, &header, records)
-            .expect_err("the 101st distinct type must exceed the aggregate limit");
+            .expect_err("the first excess distinct type must exceed the aggregate limit");
+        let expected_message = format!("peek modification limit exceeded: > {MAX_MOD_TYPES}");
         assert!(
             matches!(error, Error::InvalidState(message)
-                if message == "peek modification limit exceeded: > 100"),
+                if message == expected_message),
             "peek, not per-record parsing, must reject the excess type"
         );
         assert_eq!(
-            consumed, 102,
+            consumed,
+            usize::from(MAX_MOD_TYPES) + 2,
             "the duplicate is allowed and the record after the excess is not consumed"
         );
         assert_eq!(output, b"contigs_and_lengths:\ncontig\t1\n\n");
-        // Once insertion rejects the 101st type, the later sorted_mods length
+        // Once insertion rejects the first excess type, the later sorted_mods length
         // assertion cannot fail through this API. Do not manufacture an invalid
         // HashSet or change production limits to reach that impossible state.
     }
@@ -94,21 +105,26 @@ mod tests {
     #[test]
     fn opposite_strand_counts_as_a_distinct_type() {
         let header = header();
-        let mut extra = modified_record(1000);
+        let limit_end = FIRST_NUMERIC_CODE + u32::from(MAX_MOD_TYPES);
+        let mut extra = modified_record(FIRST_NUMERIC_CODE);
         let record = Rc::get_mut(&mut extra).expect("new record has a single owner");
         record.remove_aux(b"MM").expect("fixture has an MM tag");
         record
-            .push_aux(b"MM", bam::record::Aux::String("C-1000?,0;"))
+            .push_aux(
+                b"MM",
+                bam::record::Aux::String(&format!("C-{FIRST_NUMERIC_CODE}?,0;")),
+            )
             .expect("opposite strand MM tag");
-        let records = (1000..1100)
+        let records = (FIRST_NUMERIC_CODE..limit_end)
             .map(|code| Ok(modified_record(code)))
             .chain([Ok(extra)]);
         let mut output = Vec::new();
         let error = peek::run(&mut output, &header, records)
             .expect_err("opposite strand must not be deduplicated with the same code");
+        let expected_message = format!("peek modification limit exceeded: > {MAX_MOD_TYPES}");
         assert!(
             matches!(error, Error::InvalidState(message)
-                if message == "peek modification limit exceeded: > 100"),
+                if message == expected_message),
             "strand is part of the modification identity"
         );
         assert_eq!(output, b"contigs_and_lengths:\ncontig\t1\n\n");

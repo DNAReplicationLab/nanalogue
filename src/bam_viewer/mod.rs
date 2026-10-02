@@ -2343,7 +2343,7 @@ mod tests {
             10,
         )?;
         let empty_records = empty_viewer.visible_records()?;
-        assert!(empty_records.is_empty());
+        assert_eq!(empty_records, Vec::<RegionSequence>::new());
         let empty_viewport =
             render_demo_viewport(&empty_viewer, &empty_records, FrameFooter::Controls)?;
         assert_ansi_golden("bam_viewer_no_reads.ansi", &empty_viewport)?;
@@ -2376,7 +2376,7 @@ mod tests {
             10,
         )?;
         let populated_records = populated_viewer.visible_records()?;
-        assert!(!populated_records.is_empty());
+        assert_ne!(populated_records, Vec::<RegionSequence>::new());
         assert_eq!(populated_viewer.current_window_len(), 10);
         let populated_frame = build_frame(
             &populated_viewer,
@@ -2397,7 +2397,7 @@ mod tests {
         )?;
         shortened_viewer.window_len = 7;
         let shortened_records = shortened_viewer.visible_records()?;
-        assert!(!shortened_records.is_empty());
+        assert_ne!(shortened_records, Vec::<RegionSequence>::new());
         assert_eq!(shortened_viewer.current_window_len(), 7);
         let shortened_frame = build_frame(
             &shortened_viewer,
@@ -2428,7 +2428,7 @@ mod tests {
             10,
         )?;
         let empty_records = empty_viewer.visible_records()?;
-        assert!(empty_records.is_empty());
+        assert_eq!(empty_records, Vec::<RegionSequence>::new());
         let empty_frame = build_frame(
             &empty_viewer,
             &empty_records,
@@ -2815,8 +2815,8 @@ mod tests {
         let no_calls = profiles.get(no_calls_index).expect("no-call profile");
         assert!(!no_calls.is_reverse());
         assert_eq!((no_calls.align_start(), no_calls.align_end()), (2, 32));
-        assert!(no_calls.calls().is_empty());
-        assert!(no_calls.windows().is_empty());
+        assert_eq!(no_calls.calls(), []);
+        assert_eq!(no_calls.windows(), []);
         viewer.viewport.read_offset = no_calls_index;
         let no_calls_frame =
             build_individual_frame(&viewer, &profiles, 60, 16, FrameFooter::Controls);
@@ -2829,7 +2829,7 @@ mod tests {
             start: 40,
         })?);
         let empty_profiles = viewer.visible_profiles(NonZeroU32::new(3).expect("non-zero"))?;
-        assert!(empty_profiles.is_empty());
+        assert_eq!(empty_profiles, Vec::<ReadModProfile>::new());
         assert_eq!(viewer.viewport.read_offset, 0);
         assert!(individual_status(&viewer, &empty_profiles, 60).contains("read 0/0"));
         let empty_frame =
