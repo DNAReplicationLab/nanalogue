@@ -371,6 +371,39 @@ where
         "MM ML parsing",
     )?;
 
+    if let Ok(mn_tag) = record.aux(b"MN") {
+        let mn_seq_len = match mn_tag {
+            Aux::I8(value) => i64::from(value),
+            Aux::U8(value) => i64::from(value),
+            Aux::I16(value) => i64::from(value),
+            Aux::U16(value) => i64::from(value),
+            Aux::I32(value) => i64::from(value),
+            Aux::U32(value) => i64::from(value),
+            Aux::Char(_)
+            | Aux::Float(_)
+            | Aux::Double(_)
+            | Aux::String(_)
+            | Aux::HexByteArray(_)
+            | Aux::ArrayI8(_)
+            | Aux::ArrayU8(_)
+            | Aux::ArrayI16(_)
+            | Aux::ArrayU16(_)
+            | Aux::ArrayI32(_)
+            | Aux::ArrayU32(_)
+            | Aux::ArrayFloat(_) => {
+                return Err(Error::InvalidModCoords(
+                    "MN tag must contain an integer sequence length".to_owned(),
+                ));
+            }
+        };
+        let current_seq_len = i64::try_from(record.seq_len())?;
+        if mn_seq_len != current_seq_len {
+            return Err(Error::InvalidModCoords(format!(
+                "MN tag sequence length {mn_seq_len} does not match current sequence length {current_seq_len}"
+            )));
+        }
+    }
+
     // Array to store all the different modifications within the MM tag
     let mut rtn: Vec<BaseMod> = Vec::new();
 
@@ -1164,6 +1197,36 @@ mod mod_parse_tests {
             |&_, &_, &_| true, // Accept all base/strand/tag combinations
             0,                 // No quality threshold
         )
+    }
+
+    fn create_mn_test_record(mn_seq_len: i32) -> Result<bam::Record, Error> {
+        let mut record = bam::Record::new();
+        record.set(b"test_read", None, b"ACGT", &[30; 4]);
+        record.push_aux(b"MM", Aux::String("C+m?,0;"))?;
+        record.push_aux(b"ML", Aux::ArrayU8((&[200]).into()))?;
+        record.push_aux(b"MN", Aux::I32(mn_seq_len))?;
+        Ok(record)
+    }
+
+    #[test]
+    fn nanalogue_mm_ml_parser_accepts_matching_mn_sequence_length() -> Result<(), Error> {
+        let record = create_mn_test_record(4)?;
+
+        let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+
+        assert_eq!(mods.base_mods.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn nanalogue_mm_ml_parser_rejects_mismatched_mn_sequence_length() -> Result<(), Error> {
+        let record = create_mn_test_record(5)?;
+
+        let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
+
+        assert!(matches!(result, Err(Error::InvalidModCoords(message))
+            if message == "MN tag sequence length 5 does not match current sequence length 4"));
+        Ok(())
     }
 
     #[test]
