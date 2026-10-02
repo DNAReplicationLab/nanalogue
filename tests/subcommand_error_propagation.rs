@@ -20,6 +20,7 @@ mod tests {
     use rust_htslib::bam::record::{Aux, Cigar, CigarString};
     use rust_htslib::bam::{Header, HeaderView, Record, header::HeaderRecord};
     use rust_htslib::errors::Error as HtslibError;
+    use std::cell::Cell;
     use std::io;
     use std::rc::Rc;
     use std::sync::Arc;
@@ -383,7 +384,7 @@ seq_len_n50\t5\n";
             records(vec![sentinel, control]),
             window_options(),
             &mods,
-            |values: &[u8]| threshold_and_mean(values).map(Into::into),
+            |values: &[u8]| threshold_and_mean(values).map(|value| Some(value.into())),
         )
         .expect("both records produce windowed output");
 
@@ -416,6 +417,45 @@ mod_type\twin_start\twin_end\tbasecall_qual",
             assert_eq!(row.get(10), Some(&win_end), "window end");
             assert_eq!(row.get(11), Some(&basecall_qual), "basecall quality");
         }
+    }
+
+    /// A supplied window function's errors belong to the caller and must not
+    /// be converted into warnings or skipped windows.
+    #[test]
+    fn window_reads_propagates_window_function_errors() {
+        let record = modified_record(
+            "callback_error",
+            "T+T,0,0,0,0,0;",
+            &[200u8; 5],
+            b"TTTTT",
+            &[30u8; 5],
+        );
+        let mods = InputMods::<OptionalTag>::default();
+        let mut output = Vec::new();
+        let callback_count = Cell::new(0u8);
+
+        let error = window_reads::run(
+            &mut output,
+            records(vec![record]),
+            window_options(),
+            &mods,
+            |_| {
+                callback_count.set(
+                    callback_count
+                        .get()
+                        .checked_add(1)
+                        .expect("fixture has only two windows"),
+                );
+                Err(Error::InvalidState("window callback failed".to_owned()))
+            },
+        )
+        .expect_err("window callback errors must reach the caller");
+
+        assert_eq!(callback_count.get(), 1, "processing must stop immediately");
+        assert!(
+            matches!(error, Error::InvalidState(message) if message == "window callback failed"),
+            "run must preserve the callback error"
+        );
     }
 
     /// Full display shows sequence and qualities, and empty `SEQ` uses fallbacks.
@@ -664,7 +704,7 @@ mod_type\twin_start\twin_end\tbasecall_qual",
                 )]),
                 window_options(),
                 &optional_mods,
-                |values: &[u8]| threshold_and_mean(values).map(Into::into),
+                |values: &[u8]| threshold_and_mean(values).map(|value| Some(value.into())),
             )
         });
 
