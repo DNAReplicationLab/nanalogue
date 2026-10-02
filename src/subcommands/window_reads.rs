@@ -78,7 +78,7 @@ fn compute_windowed_mod_data<F>(
     window_function: &F,
 ) -> Result<WindowedModTableEntry, Error>
 where
-    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+    F: Fn(&[u8]) -> Result<Option<F32AbsValAtMost1>, Error>,
 {
     // constant to mark windows with basecalled coordinates but no reference coordinates.
     const INVALID_REF_POS: i64 = -1;
@@ -128,24 +128,15 @@ where
             reason = "complex arithmetic in Q score avg. i64::from(u32) + 1 is fine, no overflow here"
         )]
         for win_start_index in (0..=v).step_by(slide_size) {
-            let win_val = match window_function(
+            let Some(win_val) = window_function(
                 mod_data
                     .get(win_start_index..)
                     .expect("win_start_index <= v where v = len - win_size")
                     .get(0..win_size)
                     .expect("no error as we've checked data len >= win size"),
-            ) {
-                Ok(val) => val,
-                #[expect(
-                    clippy::print_stderr,
-                    reason = "warning output to stderr is intentional here"
-                )]
-                Err(e) => {
-                    eprintln!(
-                        "Warning: Skipping {win_size} window starting at {qname}:{win_start_index} due to error: {e}"
-                    );
-                    continue;
-                }
+            )?
+            else {
+                continue;
             };
             // there is no way to trigger the errors below as we control how CurrRead is
             // populated quite strictly. Nevertheless, I am leaving these in for
@@ -309,7 +300,10 @@ where
     })
 }
 
-/// Windowed modification data along molecules
+/// Windowed modification data along molecules.
+///
+/// The window function returns `Ok(Some(value))` to emit a window, `Ok(None)` to omit it, and
+/// `Err(error)` to stop processing and return the error.
 ///
 /// # Examples
 ///
@@ -338,7 +332,7 @@ where
 /// let mut output = Vec::new();
 ///
 /// window_reads::run(&mut output, selected, window_options, &mods, |x| {
-///     threshold_and_mean(x).map(Into::into)
+///     threshold_and_mean(x).map(|value| Some(value.into()))
 /// })
 /// .unwrap();
 ///
@@ -370,7 +364,7 @@ where
 /// ```
 ///
 /// # Errors
-/// Returns an error if BAM record reading, or output writing fails.
+/// Returns an error if BAM record reading, output writing, or the window function fails.
 /// This TSV command also errors on blank BAM files because otherwise empty output would be
 /// ambiguous between "no windows/modifications found" and "no reads were present".
 /// It also errors if records are present but no modification windows are ever emitted, because
@@ -385,7 +379,7 @@ pub fn run<W, F, D>(
 ) -> Result<(), Error>
 where
     W: std::io::Write,
-    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+    F: Fn(&[u8]) -> Result<Option<F32AbsValAtMost1>, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // Get windowing parameters
@@ -472,6 +466,7 @@ or some other possibility.",
 /// Creates a `DataFrame` from windowed modification data
 ///
 /// This function calls [`run`] with a buffer handle, then parses the output into a Polars `DataFrame`.
+/// The window function uses the same emit, omit, and error contract documented by [`run`].
 /// The first line of output (after removing the leading '#') contains tab-separated column names,
 /// and subsequent lines contain tab-separated data values.
 ///
@@ -481,6 +476,7 @@ or some other possibility.",
 /// empty input as ambiguous for TSV-style window output.
 /// Likewise, if records are present but no modification windows are emitted, this function errors
 /// via [`run`] because an empty table would be ambiguous.
+/// Errors from the window function are also propagated by [`run`].
 ///
 /// # Panics
 /// If the output of `run` is malformed.
@@ -495,7 +491,7 @@ pub fn run_df<F, D>(
     window_function: F,
 ) -> Result<DataFrame, Error>
 where
-    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+    F: Fn(&[u8]) -> Result<Option<F32AbsValAtMost1>, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // Create a buffer to capture output
@@ -557,6 +553,8 @@ where
 /// Produces the same windowed data as [`run`] but serializes each read as a
 /// JSON object with alignment info and a `mod_table` whose `data` entries
 /// contain `[win_start, win_end, win_val, mean_base_qual, ref_win_start, ref_win_end]`.
+/// The window function returns `Ok(Some(value))` to emit a window, `Ok(None)` to omit it, and
+/// `Err(error)` to stop processing and return the error.
 ///
 /// # Examples
 ///
@@ -585,7 +583,7 @@ where
 /// let mut output = Vec::new();
 ///
 /// window_reads::run_json(&mut output, selected, window_options, &mods, |x| {
-///     threshold_and_mean(x).map(Into::into)
+///     threshold_and_mean(x).map(|value| Some(value.into()))
 /// })
 /// .unwrap();
 ///
@@ -639,7 +637,7 @@ where
 /// ```
 ///
 /// # Errors
-/// Returns an error if BAM record reading, or output writing fails.
+/// Returns an error if BAM record reading, output writing, or the window function fails.
 /// This JSON command errors on blank BAM files so callers can distinguish that case from a
 /// non-blank BAM whose per-read `mod_table` entries may legitimately be empty.
 /// Unlike [`run`] and `run_df`, records with no modifications are acceptable here because the
@@ -659,7 +657,7 @@ pub fn run_json<W, F, D>(
 ) -> Result<(), Error>
 where
     W: std::io::Write,
-    F: Fn(&[u8]) -> Result<F32AbsValAtMost1, Error>,
+    F: Fn(&[u8]) -> Result<Option<F32AbsValAtMost1>, Error>,
     D: IntoIterator<Item = Result<Rc<Record>, rust_htslib::errors::Error>>,
 {
     // Get windowing parameters
@@ -779,7 +777,7 @@ mod tests {
     fn windowing_rejects_mismatched_sequence_and_quality_lengths() {
         let base_mod = base_mod_with_seq_len(2);
         let _result = compute_windowed_mod_data(&base_mod, &[30], 1, 1, "read", &|_| {
-            F32AbsValAtMost1::new(0.0)
+            F32AbsValAtMost1::new(0.0).map(Some)
         });
     }
 
@@ -788,7 +786,7 @@ mod tests {
     fn windowing_rejects_empty_base_qualities() {
         let base_mod = base_mod_with_seq_len(0);
         let _result = compute_windowed_mod_data(&base_mod, &[], 1, 1, "read", &|_| {
-            F32AbsValAtMost1::new(0.0)
+            F32AbsValAtMost1::new(0.0).map(Some)
         });
     }
 
@@ -796,8 +794,9 @@ mod tests {
     #[should_panic(expected = "read ID length must be in")]
     fn windowing_rejects_empty_read_id() {
         let base_mod = base_mod_with_seq_len(1);
-        let _result =
-            compute_windowed_mod_data(&base_mod, &[30], 1, 1, "", &|_| F32AbsValAtMost1::new(0.0));
+        let _result = compute_windowed_mod_data(&base_mod, &[30], 1, 1, "", &|_| {
+            F32AbsValAtMost1::new(0.0).map(Some)
+        });
     }
 
     #[test]
@@ -806,7 +805,7 @@ mod tests {
         let base_mod = base_mod_with_seq_len(1);
         let qname = "r".repeat(usize::from(MAX_READ_ID_LEN) + 1);
         let _result = compute_windowed_mod_data(&base_mod, &[30], 1, 1, &qname, &|_| {
-            F32AbsValAtMost1::new(0.0)
+            F32AbsValAtMost1::new(0.0).map(Some)
         });
     }
 
@@ -845,7 +844,7 @@ mod tests {
             2,
             1,
             "quality-span",
-            &|_| F32AbsValAtMost1::new(0.0),
+            &|_| F32AbsValAtMost1::new(0.0).map(Some),
         )?;
 
         let window = result.data.first().expect("one window");
@@ -884,7 +883,7 @@ mod tests {
 
         let result =
             compute_windowed_mod_data(&base_mod, &base_qual, 2, 1, "rounding-boundary", &|_| {
-                F32AbsValAtMost1::new(0.0)
+                F32AbsValAtMost1::new(0.0).map(Some)
             })?;
         let grouped = result.data.first().expect("one window").3;
         let sequential = naive_mean_base_quality(&base_qual);
@@ -969,6 +968,7 @@ mod tests {
                     F32AbsValAtMost1::new(
                         f32::from(*values.first().expect("non-empty window")) / 255.0,
                     )
+                    .map(Some)
                 },
             )?;
             let expected_starts = (0..=base_mod.ranges.annotations().len() - width).step_by(step);
@@ -1010,11 +1010,8 @@ mod tests {
         Ok(())
     }
 
-    /// Helper function to run `window_reads` tests with `threshold_and_mean_and_thres_win`
-    ///
-    /// This function encapsulates the common test setup and execution logic for `window_reads` tests
-    /// that use a threshold value for filtering.
-    fn run_window_reads_test_with_threshold(
+    /// Runs a `window_reads` fixture with optional density filtering.
+    fn run_window_reads_test(
         input_file: &str,
         threshold: Option<f32>,
         expected_output_file: &str,
@@ -1027,21 +1024,14 @@ mod tests {
             serde_json::from_str("{\"win\": 2, \"step\": 1}").unwrap();
         let mods = InputMods::default();
 
-        // Run the window_reads function with appropriate function based on threshold
         match threshold {
-            None => {
-                // Use threshold_and_mean when no threshold is specified
-                run(&mut output, bam_records, window_options, &mods, |x| {
-                    threshold_and_mean(x).map(Into::into)
-                })?;
-            }
-            Some(thres_val) => {
-                // Use threshold_and_mean_and_thres_win with specified threshold
-                run(&mut output, bam_records, window_options, &mods, |x| {
-                    threshold_and_mean_and_thres_win(x, F32Bw0and1::new(thres_val).unwrap())
-                        .map(Into::into)
-                })?;
-            }
+            None => run(&mut output, bam_records, window_options, &mods, |x| {
+                threshold_and_mean(x).map(|value| Some(value.into()))
+            })?,
+            Some(threshold_value) => run(&mut output, bam_records, window_options, &mods, |x| {
+                threshold_and_mean_and_thres_win(x, F32Bw0and1::new(threshold_value).unwrap())
+                    .map(|value| value.map(Into::into))
+            })?,
         }
 
         // Perform comparison
@@ -1054,7 +1044,7 @@ mod tests {
 
     #[test]
     fn window_reads_example_1() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
+        run_window_reads_test(
             "./examples/example_1.bam",
             None,
             "./examples/example_1_window_reads",
@@ -1063,7 +1053,7 @@ mod tests {
 
     #[test]
     fn window_reads_example_1_gt_0pt4() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
+        run_window_reads_test(
             "./examples/example_1.bam",
             Some(0.4),
             "./examples/example_1_window_reads_gt_0pt4",
@@ -1072,7 +1062,7 @@ mod tests {
 
     #[test]
     fn window_reads_example_1_gt_0pt8() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
+        run_window_reads_test(
             "./examples/example_1.bam",
             Some(0.8),
             "./examples/example_1_window_reads_gt_0pt8",
@@ -1081,7 +1071,7 @@ mod tests {
 
     #[test]
     fn window_reads_example_7() -> Result<(), Error> {
-        run_window_reads_test_with_threshold(
+        run_window_reads_test(
             "./examples/example_7.sam",
             None,
             "./examples/example_7_window_reads",
@@ -1098,7 +1088,7 @@ mod tests {
         let mods = InputMods::default();
 
         run_json(&mut output, bam_records, window_options, &mods, |x| {
-            threshold_and_mean(x).map(Into::into)
+            threshold_and_mean(x).map(|value| Some(value.into()))
         })?;
 
         let output_str = String::from_utf8(output)?;
@@ -1124,7 +1114,7 @@ mod tests {
         let mods = InputMods::default();
 
         run_json(&mut output, bam_records, window_options, &mods, |x| {
-            threshold_and_mean(x).map(Into::into)
+            threshold_and_mean(x).map(|value| Some(value.into()))
         })?;
 
         let output_str = String::from_utf8(output)?;
@@ -1149,13 +1139,9 @@ mod tests {
             serde_json::from_str(&format!("{{\"win\": {win}, \"step\": {step}}}"))?;
         let mods = InputMods::default();
 
-        run_json(
-            &mut output,
-            bam_records,
-            window_options,
-            &mods,
-            crate::analysis::threshold_and_gradient,
-        )?;
+        run_json(&mut output, bam_records, window_options, &mods, |x| {
+            crate::analysis::threshold_and_gradient(x).map(Some)
+        })?;
 
         Ok(String::from_utf8(output)?)
     }
@@ -1240,7 +1226,7 @@ mod stochastic_tests {
         let mods = InputMods::default();
 
         run_df(bam_records, window_options, &mods, |x| {
-            analysis::threshold_and_mean(x).map(Into::into)
+            analysis::threshold_and_mean(x).map(|value| Some(value.into()))
         })
     }
 
@@ -1614,7 +1600,7 @@ mod stochastic_tests {
 
         let mut output = Vec::new();
         run_json(&mut output, bam_records, window_options, &mods, |x| {
-            analysis::threshold_and_mean(x).map(Into::into)
+            analysis::threshold_and_mean(x).map(|value| Some(value.into()))
         })?;
 
         let output_str = String::from_utf8(output)?;
@@ -1995,7 +1981,7 @@ mod stochastic_tests {
         let mods = InputMods::default();
 
         run(&mut output, bam_records, window_options, &mods, |x| {
-            analysis::threshold_and_mean(x).map(Into::into)
+            analysis::threshold_and_mean(x).map(|value| Some(value.into()))
         })
         .unwrap();
     }

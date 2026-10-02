@@ -624,7 +624,7 @@ where
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 &mods,
-                |x| analysis::threshold_and_mean(x).map(Into::into),
+                |x| analysis::threshold_and_mean(x).map(|value| Some(value.into())),
             )
         }
         Commands::WindowGrad {
@@ -639,7 +639,7 @@ where
                 pre_filt!(bam_rc_records, &bam),
                 win,
                 &mods,
-                analysis::threshold_and_gradient,
+                |x| analysis::threshold_and_gradient(x).map(Some),
             )
         }
         Commands::Peek { bam } => {

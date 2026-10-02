@@ -148,6 +148,7 @@ fn run_once(
         mods,
         |values| {
             F32AbsValAtMost1::new(f32::from(*values.first().expect("window is non-empty")) / 255.0)
+                .map(Some)
         },
     )
     .expect("dense fixture should produce windows");
