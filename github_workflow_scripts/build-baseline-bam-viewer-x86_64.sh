@@ -27,61 +27,10 @@ if ! rustup target list --installed | grep -qx "$rust_target"; then
     exit 1
 fi
 
-zig_path=""
-for candidate in "$HOME/.local/zig-0.15.2/zig" "$(command -v zig || true)"; do
-    if [[ -n "$candidate" && -x "$candidate" && "$("$candidate" version)" == 0.15.2 ]]; then
-        zig_path="$candidate"
-        break
-    fi
-done
-if [[ -z "$zig_path" ]]; then
-    echo "Zig 0.15.2 is required." >&2
-    echo "Install it with github_workflow_scripts/install-zig-for-libghostty.sh." >&2
-    exit 1
-fi
-
 target_dir="$repo_root/target/portable-bam-viewer"
 release_dir="$target_dir/$rust_target/release"
 output_dir="$repo_root/target/portable-dist"
 artifact="$output_dir/nanalogue_bam_viewer-x86_64-baseline"
-wrapper_dir="$(mktemp -d)"
-trap 'rm -rf "$wrapper_dir"' EXIT
-
-# libghostty-vt-sys 0.2.1 does not expose CPU selection to downstream builds.
-# Its native build invokes `zig build` without -Dtarget or -Dcpu, so Zig may
-# optimize Ghostty for the build machine. This temporary executable named
-# `zig` intercepts that invocation and adds the exact Zig option
-# `-Dcpu=baseline` before forwarding it to the real Zig 0.15.2 executable.
-#
-# Upstream commit f720ad74a66e333181986fd5008f34c0a788a119 added the environment
-# variable LIBGHOSTTY_VT_SYS_CPU and made `baseline` its default:
-# https://github.com/uzaaft/libghostty-rs/commit/f720ad74a66e333181986fd5008f34c0a788a119
-# Once nanalogue upgrades to a libghostty-vt release containing that change,
-# the crate passes `-Dcpu=baseline`. The wrapper accepts that exact option, but
-# rejects all other or duplicate CPU options so this remains a baseline build.
-cat >"$wrapper_dir/zig" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-if [[ "${1:-}" == build ]]; then
-    cpu_option_seen=false
-    for arg in "$@"; do
-        if [[ "$arg" == -Dcpu=* ]]; then
-            if [[ "$arg" != -Dcpu=baseline || "$cpu_option_seen" == true ]]; then
-                echo "The baseline BAM viewer build requires exactly one -Dcpu=baseline option." >&2
-                exit 1
-            fi
-            cpu_option_seen=true
-        fi
-    done
-    if [[ "$cpu_option_seen" == true ]]; then
-        exec "$NANALOGUE_REAL_ZIG" "$@"
-    fi
-    exec "$NANALOGUE_REAL_ZIG" build -Dcpu=baseline "${@:2}"
-fi
-exec "$NANALOGUE_REAL_ZIG" "$@"
-EOF
-chmod +x "$wrapper_dir/zig"
 
 rm -rf "$target_dir"
 mkdir -p "$output_dir"
@@ -89,8 +38,6 @@ rm -f "$artifact"
 (
     unset CARGO_ENCODED_RUSTFLAGS
     export CARGO_TARGET_DIR="$target_dir"
-    export NANALOGUE_REAL_ZIG="$zig_path"
-    export PATH="$wrapper_dir:$PATH"
     export RUSTFLAGS="-C target-cpu=x86-64"
     cargo build --locked --release --target "$rust_target" \
         --features bam-viewer --bin nanalogue_bam_viewer

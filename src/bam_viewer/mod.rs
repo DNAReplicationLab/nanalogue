@@ -3,7 +3,7 @@
 //! Interactive terminal viewer for indexed BAM files.
 //!
 //! Crossterm writes ANSI frames directly so the host terminal controls palette and styling.
-//! `libghostty-vt` interprets a retained frame only when a text snapshot is requested.
+//! A strict parser interprets the viewer's restricted ANSI subset for text snapshots.
 
 #![expect(
     clippy::print_stderr,
@@ -29,10 +29,6 @@ use crossterm::{
         disable_raw_mode, enable_raw_mode,
     },
 };
-use libghostty_vt::{
-    RenderState, Terminal, TerminalOptions,
-    render::{CellIterator, RowIterator},
-};
 use std::{
     env,
     error::Error,
@@ -42,6 +38,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(test)]
+mod ansi_golden;
+mod ansi_screen;
 mod cli;
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
@@ -223,29 +222,12 @@ impl FrameRenderer {
         rows: u16,
         directory: &Path,
     ) -> Result<String, String> {
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols: self.cols,
-            rows: self.rows,
-            max_scrollback: 0,
-        })
-        .map_err(|error| error.to_string())?;
-        terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
-        terminal.vt_write(
-            self.displayed_frame
-                .as_deref()
-                .ok_or_else(|| String::from("no frame has been displayed"))?
-                .as_bytes(),
-        );
-        let mut render_state = RenderState::new().map_err(|error| error.to_string())?;
-        let snapshot = render_state
-            .update(&terminal)
-            .map_err(|error| error.to_string())?;
-        let mut row_iterator = RowIterator::new().map_err(|error| error.to_string())?;
-        let mut cell_iterator = CellIterator::new().map_err(|error| error.to_string())?;
+        let frame = self
+            .displayed_frame
+            .as_deref()
+            .ok_or_else(|| String::from("no frame has been displayed"))?;
         let geometry = table_sequence_geometry(viewer, record_count, cols, rows);
-        let projected =
-            project_text_snapshot(&snapshot, &mut row_iterator, &mut cell_iterator, geometry)
-                .map_err(|error| error.to_string())?;
+        let projected = project_text_snapshot(frame, self.cols, self.rows, geometry)?;
         let prefix = snapshot_prefix(viewer);
         if viewer.mod_type.is_some() {
             let _paths = write_snapshot_pair(directory, &prefix, &projected)?;
@@ -602,9 +584,10 @@ mod tests {
         self,
         record::{Aux, Cigar, CigarString},
     };
-    use std::{ffi::OsString, fmt::Write as _, num::NonZeroU32, path::PathBuf, str::FromStr as _};
+    use std::{ffi::OsString, num::NonZeroU32, path::PathBuf, str::FromStr as _};
 
     use crate::{
+        ansi_screen::AnsiScreen,
         render::{
             fixed_line, label_column, position_error_footer, position_prompt_footer,
             sequence_columns,
@@ -661,94 +644,6 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    struct CapturedStyle {
-        style: libghostty_vt::style::Style,
-        foreground: Option<libghostty_vt::style::RgbColor>,
-        background: Option<libghostty_vt::style::RgbColor>,
-    }
-
-    impl CapturedStyle {
-        fn write_ansi(self, output: &mut String) {
-            output.push_str("\x1b[0m");
-            let mut codes = Vec::new();
-            codes.extend(
-                [
-                    (self.style.bold, "1"),
-                    (self.style.faint, "2"),
-                    (self.style.italic, "3"),
-                    (
-                        self.style.underline != libghostty_vt::style::Underline::None,
-                        "4",
-                    ),
-                    (self.style.blink, "5"),
-                    (self.style.inverse, "7"),
-                    (self.style.invisible, "8"),
-                    (self.style.strikethrough, "9"),
-                    (self.style.overline, "53"),
-                ]
-                .into_iter()
-                .filter(|&(enabled, _code)| enabled)
-                .map(|(_enabled, code)| String::from(code)),
-            );
-            if let Some(color) = self.foreground {
-                codes.push(format!("38;2;{};{};{}", color.r, color.g, color.b));
-            }
-            if let Some(color) = self.background {
-                codes.push(format!("48;2;{};{};{}", color.r, color.g, color.b));
-            }
-            if !codes.is_empty() {
-                write!(output, "\x1b[{}m", codes.join(";")).expect("writing to String cannot fail");
-            }
-        }
-    }
-
-    fn viewport_as_ansi<'alloc>(
-        snapshot: &libghostty_vt::render::Snapshot<'alloc, '_>,
-        row_iterator: &mut RowIterator<'alloc>,
-        cell_iterator: &mut CellIterator<'alloc>,
-    ) -> Result<String, Box<dyn Error>> {
-        let mut output = String::new();
-        let mut rows = row_iterator.update(snapshot)?;
-        let mut row_number = 1usize;
-        let mut loop_iterations = 0usize;
-        while let Some(row) = rows.next() {
-            loop_iterations = loop_iterations.saturating_add(1);
-            assert!(
-                loop_iterations <= 5_000_000,
-                "ANSI viewport capture exceeds five million loop iterations"
-            );
-            write!(output, "\x1b[{row_number};1H").expect("writing to String cannot fail");
-            let mut cells = cell_iterator.update(row)?;
-            let mut current_style = None;
-            while let Some(cell) = cells.next() {
-                loop_iterations = loop_iterations.saturating_add(1);
-                assert!(
-                    loop_iterations <= 5_000_000,
-                    "ANSI viewport capture exceeds five million loop iterations"
-                );
-                let captured_style = CapturedStyle {
-                    style: cell.style()?,
-                    foreground: cell.fg_color()?,
-                    background: cell.bg_color()?,
-                };
-                if current_style != Some(captured_style) {
-                    captured_style.write_ansi(&mut output);
-                    current_style = Some(captured_style);
-                }
-                let graphemes = cell.graphemes()?;
-                if graphemes.is_empty() {
-                    output.push(' ');
-                } else {
-                    output.extend(graphemes);
-                }
-            }
-            output.push_str("\x1b[0m");
-            row_number = row_number.saturating_add(1);
-        }
-        Ok(output)
-    }
-
     fn render_ansi_viewport(
         viewer: &Viewer,
         records: &[RegionSequence],
@@ -770,23 +665,7 @@ mod tests {
         rows: u16,
         geometry: render::TableSequenceGeometry,
     ) -> Result<TextSnapshot, Box<dyn Error>> {
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols,
-            rows,
-            max_scrollback: 0,
-        })?;
-        terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
-        terminal.vt_write(frame.as_bytes());
-        let mut render_state = RenderState::new()?;
-        let snapshot = render_state.update(&terminal)?;
-        let mut row_iterator = RowIterator::new()?;
-        let mut cell_iterator = CellIterator::new()?;
-        Ok(project_text_snapshot(
-            &snapshot,
-            &mut row_iterator,
-            &mut cell_iterator,
-            geometry,
-        )?)
+        Ok(project_text_snapshot(frame, cols, rows, geometry)?)
     }
 
     fn render_table_text_snapshot(
@@ -828,37 +707,14 @@ mod tests {
         cols: u16,
         rows: u16,
     ) -> Result<String, Box<dyn Error>> {
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols,
-            rows,
-            max_scrollback: 0,
-        })?;
+        let mut parsed = None;
         for frame in frames {
-            terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
-            terminal.vt_write(frame.as_ref().as_bytes());
+            parsed = Some(AnsiScreen::parse(frame.as_ref(), cols, rows)?);
         }
-        let mut render_state = RenderState::new()?;
-        let snapshot = render_state.update(&terminal)?;
-        let mut row_iterator = RowIterator::new()?;
-        let mut cell_iterator = CellIterator::new()?;
-        let actual = viewport_as_ansi(&snapshot, &mut row_iterator, &mut cell_iterator)?;
-
-        let mut replayed_terminal = Terminal::new(TerminalOptions {
-            cols,
-            rows,
-            max_scrollback: 0,
-        })?;
-        replayed_terminal.vt_write(actual.as_bytes());
-        let mut replayed_render_state = RenderState::new()?;
-        let replayed_snapshot = replayed_render_state.update(&replayed_terminal)?;
-        let mut replayed_row_iterator = RowIterator::new()?;
-        let mut replayed_cell_iterator = CellIterator::new()?;
-        let replayed = viewport_as_ansi(
-            &replayed_snapshot,
-            &mut replayed_row_iterator,
-            &mut replayed_cell_iterator,
-        )?;
-        assert_eq!(actual, replayed, "ANSI golden must reproduce its viewport");
+        let screen = parsed.ok_or("ANSI viewport capture requires at least one frame")?;
+        let actual = ansi_golden::screen_as_ansi(&screen);
+        let replayed = ansi_golden::parse_ansi(&actual, cols, rows)?;
+        assert_eq!(screen, replayed, "ANSI golden must reproduce its viewport");
         Ok(actual)
     }
 
@@ -867,28 +723,18 @@ mod tests {
         viewport: &str,
         label_width: u16,
     ) -> Result<Vec<String>, Box<dyn Error>> {
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols: DEMO_GOLDEN_COLS,
-            rows: DEMO_GOLDEN_ROWS,
-            max_scrollback: 0,
-        })?;
-        terminal.vt_write(viewport.as_bytes());
-        let mut render_state = RenderState::new()?;
-        let snapshot = render_state.update(&terminal)?;
-        let mut row_iterator = RowIterator::new()?;
-        let mut cell_iterator = CellIterator::new()?;
-        let mut rows = row_iterator.update(&snapshot)?;
+        let screen = ansi_golden::parse_ansi(viewport, DEMO_GOLDEN_COLS, DEMO_GOLDEN_ROWS)?;
         let mut labels = Vec::new();
         for screen_row in 0..DEMO_GOLDEN_ROWS {
-            let row = rows
-                .next()
-                .expect("demo terminal contains every screen row");
             if (3..DEMO_GOLDEN_ROWS - 1).contains(&screen_row) {
-                let mut cells = cell_iterator.update(row)?;
                 let mut label = String::new();
-                for _ in 0..label_width {
-                    let cell = cells.next().expect("read label fits within demo width");
-                    label.extend(cell.graphemes()?);
+                for column in 0..label_width {
+                    label.push(
+                        screen
+                            .cell(screen_row, column)
+                            .expect("read label fits within demo width")
+                            .character,
+                    );
                 }
                 labels.push(label.trim().to_owned());
             }
@@ -1323,7 +1169,7 @@ mod tests {
     }
 
     #[test]
-    fn ghostty_preserves_modified_base_columns_and_styles() -> Result<(), Box<dyn Error>> {
+    fn ansi_parser_preserves_modified_base_columns_and_styles() -> Result<(), Box<dyn Error>> {
         let position = InitialPosition {
             contig: String::from("dummyIII"),
             start: 23,
@@ -1336,43 +1182,20 @@ mod tests {
         )?;
         let records = viewer.visible_records()?;
         let frame = build_frame(&viewer, &records, 26, 6, FrameFooter::Controls);
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols: 26,
-            rows: 6,
-            max_scrollback: 0,
-        })?;
-        terminal.vt_write(frame.as_bytes());
-        let mut render_state = RenderState::new()?;
-        let snapshot = render_state.update(&terminal)?;
-        let mut row_iterator = RowIterator::new()?;
-        let mut rows = row_iterator.update(&snapshot)?;
-        for _row_index in 0..4 {
-            let _row = rows.next().expect("read row should exist");
-        }
-        let mut cell_iterator = CellIterator::new()?;
-        let mut cells = cell_iterator.update(&rows)?;
+        let screen = AnsiScreen::parse(&frame, 26, 6)?;
 
-        cells.select(21)?;
-        assert_eq!(cells.graphemes()?, ['A']);
-        assert!(!cells.style()?.bold);
-        assert_eq!(
-            cells.style()?.underline,
-            libghostty_vt::style::Underline::None
-        );
-        cells.select(22)?;
-        assert_eq!(cells.graphemes()?, ['T']);
-        assert!(cells.style()?.bold);
-        assert_eq!(
-            cells.style()?.underline,
-            libghostty_vt::style::Underline::Single
-        );
-        cells.select(23)?;
-        assert_eq!(cells.graphemes()?, ['C']);
-        assert!(!cells.style()?.bold);
-        assert_eq!(
-            cells.style()?.underline,
-            libghostty_vt::style::Underline::None
-        );
+        let unmodified = screen.cell(3, 21).expect("unmodified base cell");
+        assert_eq!(unmodified.character, 'A');
+        assert!(!unmodified.style.bold);
+        assert!(!unmodified.style.underline);
+        let modified = screen.cell(3, 22).expect("modified base cell");
+        assert_eq!(modified.character, 'T');
+        assert!(modified.style.bold);
+        assert!(modified.style.underline);
+        let following = screen.cell(3, 23).expect("following base cell");
+        assert_eq!(following.character, 'C');
+        assert!(!following.style.bold);
+        assert!(!following.style.underline);
         Ok(())
     }
 
@@ -4159,17 +3982,38 @@ mod tests {
     }
 
     #[test]
-    fn ghostty_parses_a_complete_frame() -> Result<(), Box<dyn Error>> {
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols: 20,
-            rows: 3,
-            max_scrollback: 0,
-        })?;
-        terminal.vt_write(b"\x1b[H\x1b[1;32mBAM\x1b[0m\x1b[3;1Hq quit");
-        let mut state = RenderState::new()?;
-        let snapshot = state.update(&terminal)?;
-        assert_eq!(snapshot.cols()?, 20);
-        assert_eq!(snapshot.rows()?, 3);
+    fn ansi_parser_accepts_only_the_viewer_vocabulary() -> Result<(), Box<dyn Error>> {
+        let screen = AnsiScreen::parse("\x1b[H\x1b[1;32mBAM\x1b[0m\x1b[3;1Hq quit", 20, 3)?;
+        assert_eq!(screen.cell(0, 0).expect("title cell").character, 'B');
+        assert!(screen.cell(0, 0).expect("title cell").style.bold);
+        assert_eq!(screen.cell(2, 0).expect("footer cell").character, 'q');
+        let full_rows = AnsiScreen::parse("\x1b[1;1HAB\x1b[0m\x1b[2;1HCD", 2, 2)?;
+        assert_eq!(full_rows.cell(1, 1).expect("last cell").character, 'D');
+        assert!(full_rows.cell(0, 2).is_none());
+        assert_eq!(
+            AnsiScreen::parse("\x1b[1;2HAB", 2, 2).unwrap_err(),
+            "viewer writes outside 2x2 terminal"
+        );
+        assert_eq!(
+            AnsiScreen::parse("\x1b[2J", 20, 3).unwrap_err(),
+            "viewer ANSI contains unsupported CSI J"
+        );
+        assert_eq!(
+            AnsiScreen::parse("\x1b[3mitalic", 20, 3).unwrap_err(),
+            "viewer ANSI contains unsupported SGR code 3"
+        );
+        assert_eq!(
+            AnsiScreen::parse("\x1b[31mred", 20, 3).unwrap_err(),
+            "viewer ANSI contains unsupported SGR code 31"
+        );
+        assert_eq!(
+            AnsiScreen::parse("\x1b[38;2;181;189;104mRGB", 20, 3).unwrap_err(),
+            "viewer ANSI contains unsupported SGR code 38"
+        );
+        assert_eq!(
+            AnsiScreen::parse("wide界", 20, 3).unwrap_err(),
+            "viewer ANSI contains unsupported display character '界'"
+        );
         Ok(())
     }
 }

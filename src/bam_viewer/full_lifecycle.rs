@@ -50,7 +50,7 @@
 //!
 //! A complementary display test observes complete terminal frames rather than calling the
 //! row projection directly. At each genomic viewport it enables full read IDs, renders the
-//! frame through Ghostty, reads the resulting terminal cells, and uses `PageDown` until
+//! frame through the strict ANSI parser, reads the resulting terminal cells, and uses `PageDown` until
 //! every cached read has appeared onscreen. It then uses `l` to fetch the next genomic
 //! viewport. The same lifecycle checks therefore validate the spaces, bases, and deletion
 //! dots that a user actually sees across both horizontal and vertical navigation.
@@ -63,10 +63,6 @@ use super::{
 };
 use crate::cli::InitialPosition;
 use crossterm::event::KeyCode;
-use libghostty_vt::{
-    RenderState, Terminal, TerminalOptions,
-    render::{CellIterator, RowIterator},
-};
 use nanalogue_core::{
     region_sequences::RegionSequence,
     simulate_mod_bam::{AlignmentFormat, SimulationConfig, TempBamSimulation},
@@ -269,21 +265,10 @@ fn rendered_table_text(
     cols: u16,
 ) -> Result<String, Box<dyn Error>> {
     let frame = build_frame(viewer, records, cols, DISPLAY_ROWS, FrameFooter::Controls);
-    let mut terminal = Terminal::new(TerminalOptions {
-        cols,
-        rows: DISPLAY_ROWS,
-        max_scrollback: 0,
-    })?;
-    terminal.vt_write(b"\x1bc\x1b[2J\x1b[H\x1b[?25l");
-    terminal.vt_write(frame.as_bytes());
-    let mut render_state = RenderState::new()?;
-    let snapshot = render_state.update(&terminal)?;
-    let mut row_iterator = RowIterator::new()?;
-    let mut cell_iterator = CellIterator::new()?;
     Ok(project_text_snapshot(
-        &snapshot,
-        &mut row_iterator,
-        &mut cell_iterator,
+        &frame,
+        cols,
+        DISPLAY_ROWS,
         table_sequence_geometry(viewer, records.len(), cols, DISPLAY_ROWS),
     )?
     .text)

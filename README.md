@@ -209,8 +209,7 @@ compression-intensive workloads.
 #### Building the optional BAM viewer
 
 `nanalogue_bam_viewer` is not built by default or included in the pre-built
-binary archives. To install it from a Git checkout, first install Zig (the
-viewer dependency is tested with Zig 0.15.2), then run:
+binary archives. To install it from a Git checkout, run:
 
 ```bash
 cargo install --path . --features bam-viewer --bin nanalogue_bam_viewer
@@ -218,21 +217,14 @@ cargo install --path . --features bam-viewer --bin nanalogue_bam_viewer
 
 On Linux x86-64, the repository also includes a script for a baseline
 CPU-configured release build. It uses a fresh Cargo target directory, sets
-Rust's CPU target to `x86-64`, and forces the vendored Ghostty Zig build to use
-`-Dcpu=baseline`.
+Rust's CPU target to `x86-64`, and prevents reuse of host-optimized archives.
 
 A normal native release build can unintentionally depend on instructions
-supported by the build machine. In particular, `libghostty-vt-sys` invokes Zig
-without selecting a CPU for native builds, so Zig may optimize Ghostty for a
-modern host and emit AVX-512 instructions. Such an executable can fail with an
-illegal-instruction error on older x86-64 systems. This script explicitly
-targets baseline x86-64 for both Rust and Ghostty and uses a fresh target
-directory to prevent reuse of host-optimized native archives.
-
-Install Zig 0.15.2, then run:
+supported by the build machine. This script explicitly targets baseline x86-64
+and uses a fresh target directory to prevent reuse of host-optimized native
+archives. Run:
 
 ```bash
-export PATH="$HOME/.local/zig-0.15.2:$PATH"
 ./github_workflow_scripts/build-baseline-bam-viewer-x86_64.sh
 ```
 

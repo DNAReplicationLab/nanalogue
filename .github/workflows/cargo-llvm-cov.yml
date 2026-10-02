@@ -45,13 +45,6 @@ jobs:
 
           # print available disk space
           df -h
-      - name: Install Zig for libghostty-vt
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q minisign
-          sha256sum --check --strict github_workflow_scripts/install-zig-for-libghostty.sha256
-          ./github_workflow_scripts/install-zig-for-libghostty.sh
-          echo "$HOME/.local/zig-0.15.2" >> "$GITHUB_PATH"
       - name: Generate code coverage
         id: llvm_cov_run
         run: |

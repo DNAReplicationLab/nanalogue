@@ -1,10 +1,6 @@
 //! Persistence for table snapshots and individual-read BED selections.
 
-use super::{render::TableSequenceGeometry, state::Viewer};
-use libghostty_vt::{
-    render::{CellIterator, RowIterator, Snapshot},
-    style::Underline,
-};
+use super::{ansi_screen::AnsiScreen, render::TableSequenceGeometry, state::Viewer};
 use nanalogue_core::region_sequences::ReadModProfile;
 use std::{
     fs::{self, File, OpenOptions},
@@ -21,47 +17,36 @@ pub(super) struct TextSnapshot {
     pub modifications: String,
 }
 
-/// Projects Ghostty's interpreted table screen into text and modification grids.
-pub(super) fn project_text_snapshot<'alloc>(
-    snapshot: &Snapshot<'alloc, '_>,
-    row_iterator: &mut RowIterator<'alloc>,
-    cell_iterator: &mut CellIterator<'alloc>,
+/// Projects the viewer's restricted ANSI frame into text and modification grids.
+pub(super) fn project_text_snapshot(
+    frame: &str,
+    cols: u16,
+    rows: u16,
     geometry: TableSequenceGeometry,
-) -> Result<TextSnapshot, libghostty_vt::Error> {
+) -> Result<TextSnapshot, String> {
+    let screen = AnsiScreen::parse(frame, cols, rows)?;
     let mut text = String::new();
     let mut modifications = String::new();
-    let mut rows = row_iterator.update(snapshot)?;
-    let mut row_index = 0u16;
-    while let Some(row) = rows.next() {
-        let mut cells = cell_iterator.update(row)?;
-        let mut column_index = 0u16;
-        while let Some(cell) = cells.next() {
-            let graphemes = cell.graphemes()?;
-            if graphemes.is_empty() {
-                text.push(' ');
+    for row in 0..screen.rows() {
+        for column in 0..screen.cols() {
+            let cell = screen
+                .cell(row, column)
+                .expect("parsed screen contains every in-bounds cell");
+            text.push(cell.character);
+            if geometry.contains(row, column) {
+                modifications.push(if matches!(cell.character, '.' | ' ' | '*') {
+                    ' '
+                } else if cell.style.underline {
+                    '1'
+                } else {
+                    '0'
+                });
             } else {
-                text.extend(&graphemes);
+                modifications.push(cell.character);
             }
-            if geometry.contains(row_index, column_index) {
-                modifications.push(
-                    if graphemes.is_empty() || matches!(&*graphemes, ['.' | ' ' | '*']) {
-                        ' '
-                    } else if cell.style()?.underline == Underline::None {
-                        '0'
-                    } else {
-                        '1'
-                    },
-                );
-            } else if graphemes.is_empty() {
-                modifications.push(' ');
-            } else {
-                modifications.extend(&graphemes);
-            }
-            column_index = column_index.saturating_add(1);
         }
         text.push('\n');
         modifications.push('\n');
-        row_index = row_index.saturating_add(1);
     }
     Ok(TextSnapshot {
         text,
