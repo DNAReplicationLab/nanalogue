@@ -1702,6 +1702,10 @@ mod stochastic_tests {
                     total_windows += 1;
                     let win_val = window[2].as_f64().unwrap();
                     #[expect(
+                        clippy::allow_attributes,
+                        reason = "float_cmp varies across supported Clippy versions"
+                    )]
+                    #[allow(
                         clippy::float_cmp,
                         reason = "exact 0.0 comparison is safe for thresholded-then-meaned low-probability mods"
                     )]
@@ -1885,6 +1889,10 @@ mod stochastic_tests {
                             "N mod should produce 200 bp windows"
                         );
                         #[expect(
+                            clippy::allow_attributes,
+                            reason = "float_cmp varies across supported Clippy versions"
+                        )]
+                        #[allow(
                             clippy::float_cmp,
                             reason = "exact 1.0 comparison is safe for thresholded high-probability mods"
                         )]
@@ -1914,6 +1922,10 @@ mod stochastic_tests {
                         assert!(!is_strand_plus);
                         assert_eq!(base, "C");
                         #[expect(
+                            clippy::allow_attributes,
+                            reason = "float_cmp varies across supported Clippy versions"
+                        )]
+                        #[allow(
                             clippy::float_cmp,
                             reason = "exact 0.0 comparison is safe for thresholded low-probability mods"
                         )]

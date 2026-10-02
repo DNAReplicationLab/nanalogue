@@ -6,7 +6,7 @@ set -euo pipefail
 # Environment overrides:
 #   THREADS=2            worker threads passed to nanalogue (default: 2)
 #   RUNS=5               number of timed runs (default: 5)
-#   BENCH_DIR=/path      new directory for the fixture and results
+#   BENCH_DIR=/path      new disk-backed directory for the fixture and results
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -49,12 +49,34 @@ if [[ -n "${BENCH_DIR:-}" ]]; then
     exit 1
   fi
 else
-  bench_dir="$(mktemp -d "${TMPDIR:-/tmp}/nanalogue-window-dens-benchmark.XXXXXX")"
+  mkdir -p "$repo_root/target"
+  bench_dir="$(mktemp -d "$repo_root/target/nanalogue-window-dens-benchmark.XXXXXX")"
 fi
 config="$bench_dir/config.json"
 bam="$bench_dir/simulated.bam"
 fasta="$bench_dir/simulated.fasta"
 results="$bench_dir/window-dens-times.tsv"
+
+cache_probe="$bench_dir/cache-probe"
+python3 - "$cache_probe" <<'PY'
+import os
+import sys
+
+if not hasattr(os, "posix_fadvise") or not hasattr(os, "POSIX_FADV_DONTNEED"):
+    raise SystemExit("Python does not expose POSIX_FADV_DONTNEED on this platform")
+
+with open(sys.argv[1], "wb") as handle:
+    handle.write(b"0" * 4096)
+    handle.flush()
+    os.fsync(handle.fileno())
+    os.posix_fadvise(handle.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+PY
+probe_resident="$(fincore --noheadings --output RES "$cache_probe" | tr -d '[:space:]')"
+rm "$cache_probe"
+if [[ "$probe_resident" != 0B ]]; then
+  echo "BENCH_DIR does not support cache eviction; choose a disk-backed filesystem: $bench_dir" >&2
+  exit 1
+fi
 
 cat > "$config" <<'JSON'
 {

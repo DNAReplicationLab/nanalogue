@@ -114,7 +114,7 @@ mod tests {
         ranges.filter_mods_by_ref_pos(30, 50).unwrap();
 
         // Verify that all annotations were filtered out.
-        assert!(ranges.annotations().is_empty());
+        assert_eq!(ranges.annotations(), []);
 
         // Verify metadata is preserved
         assert_eq!(ranges.seq_len(), 80);
@@ -137,7 +137,7 @@ mod tests {
 
         let mut excluded = base.clone();
         excluded.filter_mods_by_ref_pos(21, 22).unwrap();
-        assert!(excluded.annotations().is_empty());
+        assert_eq!(excluded.annotations(), []);
     }
 
     #[test]
@@ -154,7 +154,7 @@ mod tests {
         excluded
             .filter_mods_by_ref_pos(MAX_CONTIG_LEN, u32::MAX)
             .unwrap();
-        assert!(excluded.annotations().is_empty());
+        assert_eq!(excluded.annotations(), []);
 
         let mut included = base;
         included
@@ -241,7 +241,7 @@ mod tests {
         ranges.filter_mods_by_ref_pos(20, 20).unwrap();
 
         // Verify that no data remains
-        assert!(ranges.annotations().is_empty());
+        assert_eq!(ranges.annotations(), []);
     }
 
     #[test]
@@ -265,7 +265,7 @@ mod tests {
         ranges.filter_mods_by_ref_pos(70, 91).unwrap();
 
         // Verify that no point comes through
-        assert!(ranges.annotations().is_empty());
+        assert_eq!(ranges.annotations(), []);
         assert!(ranges.qual().next().is_none());
     }
 }

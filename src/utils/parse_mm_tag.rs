@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(group.mod_strand, '+');
         assert_eq!(group.modification_type.val(), 'm');
         assert!(!group.is_implicit);
-        assert!(group.mod_dists.is_empty());
+        assert_eq!(group.mod_dists, Vec::<u32>::new());
     }
 
     #[test]
@@ -373,7 +373,7 @@ mod tests {
         assert_eq!(group.mod_strand, '+');
         assert_eq!(group.modification_type.val(), 'm');
         assert!(group.is_implicit);
-        assert!(group.mod_dists.is_empty());
+        assert_eq!(group.mod_dists, Vec::<u32>::new());
     }
 
     #[test]
@@ -385,7 +385,7 @@ mod tests {
         assert_eq!(group.mod_strand, '+');
         assert_eq!(group.modification_type.val(), 'm');
         assert!(group.is_implicit);
-        assert!(group.mod_dists.is_empty());
+        assert_eq!(group.mod_dists, Vec::<u32>::new());
     }
 
     #[test]

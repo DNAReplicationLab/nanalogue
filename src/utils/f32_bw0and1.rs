@@ -205,6 +205,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "0.0, 1.0 generated without computation, so can compare"
     )]
@@ -217,7 +221,11 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::float_cmp, reason = "comparing exactly is ok for 0 and 1")]
+    #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(clippy::float_cmp, reason = "comparing exactly is ok for 0 and 1")]
     fn f32_bw0and1_from_u8() {
         // Test boundary values
         let zero = F32Bw0and1::from(0u8);
@@ -281,6 +289,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "conversion to abs values shouldn't result in floating point problems"
     )]
@@ -318,6 +330,10 @@ mod tests {
 
     #[test]
     #[expect(
+        clippy::allow_attributes,
+        reason = "float_cmp varies across supported Clippy versions"
+    )]
+    #[allow(
         clippy::float_cmp,
         reason = "exact comparison ok for boundary values and simple fractions"
     )]

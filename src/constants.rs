@@ -62,7 +62,7 @@ pub mod shared {
     );
 
     /// Hard cap on the number of types of mods per BAM record
-    pub const MAX_MOD_TYPES: u8 = 100;
+    pub const MAX_MOD_TYPES: u8 = 20;
 
     /// Hard cap on the total number of serialized modification annotations per read.
     pub const MAX_TOTAL_MOD_ANNOTATIONS_PER_READ: u32 = u32::MAX;
