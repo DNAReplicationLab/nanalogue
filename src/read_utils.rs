@@ -1487,22 +1487,19 @@ populated should forbid this"
     #[must_use]
     pub fn base_count_per_mod(&self) -> HashMap<ModChar, u32> {
         let mut output = HashMap::<ModChar, u32>::new();
-        let mut mod_type_count: u8 = 0;
         #[expect(
             clippy::arithmetic_side_effects,
             reason = "u32::MAX approx 4.2 Gb, v unlikely 1 molecule is this modified"
         )]
-        for k in &self.mod_data().0.base_mods {
+        for (mod_type_count, k) in self.mod_data().0.base_mods.iter().enumerate() {
             let base_count =
                 u32::try_from(k.ranges.annotations().len()).expect("number conversion error");
             let _: &mut u32 = output
                 .entry(ModChar::new(k.modification_type))
                 .and_modify(|e| *e += base_count)
                 .or_insert(base_count);
-            if mod_type_count >= MAX_MOD_TYPES {
+            if mod_type_count >= usize::from(MAX_MOD_TYPES) {
                 unreachable!("CurrRead data insertion should guard us against this possibility");
-            } else {
-                mod_type_count += 1;
             }
         }
         output

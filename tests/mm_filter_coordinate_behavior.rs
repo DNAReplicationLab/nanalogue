@@ -132,7 +132,7 @@ mod tests {
         // Rejecting a valid group still consumes its calls, so it must not
         // cause an ML-length mismatch.
         let rejected = nanalogue_mm_ml_parser(&record, |_| true, |_| true, |_, _, _| false, 0)?;
-        assert!(rejected.base_mods.is_empty());
+        assert_eq!(rejected.base_mods, Vec::<nanalogue_core::BaseMod>::new());
         Ok(())
     }
 

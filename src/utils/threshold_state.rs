@@ -285,7 +285,7 @@ mod tests {
         for threshold in thresholds {
             let display_str = format!("{threshold}");
             assert!(display_str.contains("probabilities"));
-            assert!(!display_str.is_empty());
+            assert_ne!(display_str, "");
         }
     }
 

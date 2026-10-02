@@ -48,7 +48,7 @@ mod tests {
             .expect("nanalogue executable should run");
 
         assert_eq!(output.status.code(), Some(1));
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout, Vec::<u8>::new());
         assert!(String::from_utf8_lossy(&output.stderr).starts_with("Error during execution: "));
     }
 
@@ -72,7 +72,7 @@ mod tests {
             .expect("nanalogue executable should run");
 
         assert_eq!(output.status.code(), Some(141));
-        assert!(output.stderr.is_empty());
+        assert_eq!(output.stderr, Vec::<u8>::new());
     }
 
     /// Detailed read information remains valid JSON when region lookup falls back
