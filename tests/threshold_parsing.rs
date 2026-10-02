@@ -90,15 +90,14 @@ mod tests {
 
     #[test]
     fn preserves_inclusive_band_edges_after_quantization() {
-        // Expected byte bounds are independently calculated: round(255*p).
-        // Equal endpoints and distinct fractions rounding to the same byte
-        // must remain valid one-byte exclusion bands, not become empty bands.
+        // Expected byte bounds are independently calculated as
+        // ceil(255 * low)..=floor(255 * high).
         for (input, low, high) in [
             ("0,1", 0u8, 255u8),
             ("0,0", 0, 0),
             ("1,1", 255, 255),
-            ("0.5,0.5", 128, 128),
-            ("0.5001,0.5002", 128, 128),
+            ("0,0.5", 0, 127),
+            ("0.3,0.7", 77, 178),
             ("0.2,0.8", 51, 204),
             (" 2e-1 , 8e-1 ", 51, 204),
         ] {
@@ -114,6 +113,17 @@ mod tests {
                     value < low || value > high,
                     "incorrect membership for {value} in {input}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn permits_all_bytes_when_fraction_band_contains_no_byte_probability() {
+        for input in ["0.5,0.5", "0.5001,0.5002"] {
+            let threshold = ThresholdState::from_str_ordpair_fraction(input).expect("valid band");
+            assert_eq!(threshold, ThresholdState::GtEq(0));
+            for value in 0..=255 {
+                assert!(threshold.contains(&value), "{input} rejected {value}");
             }
         }
     }

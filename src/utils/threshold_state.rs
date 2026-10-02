@@ -133,7 +133,12 @@ impl Contains<u8> for ThresholdState {
     }
 }
 
-/// Converts from `OrdPair<F32Bw0and1>` to `ThresholdState::InvertGtEqLtEq`
+/// Converts from `OrdPair<F32Bw0and1>` to a byte-based `ThresholdState`.
+/// The inclusive lower bound is rounded up and the inclusive upper bound is rounded down,
+/// retaining exactly the byte probabilities whose `value / 255` lies within the input interval.
+/// If no byte probability lies within the interval, the result permits all probabilities.
+/// For example, no byte represents exactly `0.5`, so the interval `0.5,0.5` permits all
+/// probabilities and is equivalent to `ThresholdState::GtEq(0)`.
 ///
 /// Example
 /// ```
@@ -141,19 +146,30 @@ impl Contains<u8> for ThresholdState {
 /// use std::str::FromStr;
 /// let b: ThresholdState = OrdPair::<F32Bw0and1>::from_str("0.4,0.6")?.into();
 /// assert_eq!(b, ThresholdState::InvertGtEqLtEq(OrdPair::<u8>::new(102u8, 153u8)?));
+/// let no_representable_probability: ThresholdState =
+///     OrdPair::<F32Bw0and1>::from_str("0.5,0.5")?.into();
+/// assert_eq!(no_representable_probability, ThresholdState::GtEq(0));
 /// # Ok::<(), nanalogue_core::Error>(())
 /// ```
 impl From<OrdPair<F32Bw0and1>> for ThresholdState {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "bounded fractions are scaled to the inclusive u8 probability range"
+    )]
     fn from(value: OrdPair<F32Bw0and1>) -> Self {
-        let low: u8 = value.low().into();
-        let high: u8 = value.high().into();
-        ThresholdState::InvertGtEqLtEq(OrdPair::<u8>::new(low, high).expect("no error"))
+        let low = (value.low().val() * 255.0).ceil() as u8;
+        let high = (value.high().val() * 255.0).floor() as u8;
+        OrdPair::<u8>::new(low, high).map_or(ThresholdState::GtEq(0), |interval| {
+            ThresholdState::InvertGtEqLtEq(interval)
+        })
     }
 }
 
 impl ThresholdState {
-    /// Converts a pair of fractions e.g. "0.4,0.6" into a `ThresholdState::InvertGtEqLtEq`, and
-    /// an empty string to the all-permitted `ThresholdState::GtEq(0)`.
+    /// Converts a pair of fractions e.g. "0.4,0.6" into a byte-based exclusion band, and an
+    /// empty string or a band containing no representable byte probability to the all-permitted
+    /// `ThresholdState::GtEq(0)`.
     ///
     /// Used to set up a filter to reject mod calls whose probabilities lie in a band.
     /// This can be used to reject low-quality calls for example which lie around 0.5.
@@ -376,15 +392,11 @@ mod tests {
         // Test with mid-range values 0.5,0.7
         let pair3 = OrdPair::<F32Bw0and1>::from_str("0.5,0.7").expect("should parse");
         let threshold3: ThresholdState = pair3.into();
-        assert!(
-            matches!(threshold3, ThresholdState::InvertGtEqLtEq(_)),
-            "Expected InvertGtEqLtEq variant"
+        assert_eq!(
+            threshold3,
+            ThresholdState::InvertGtEqLtEq(
+                OrdPair::<u8>::new(128u8, 178u8).expect("should create")
+            )
         );
-        if let ThresholdState::InvertGtEqLtEq(ord_pair) = threshold3 {
-            // Verify the conversion is approximately correct
-            // 0.5 * 255 ≈ 127.5, 0.7 * 255 ≈ 178.5
-            assert!(ord_pair.low() >= 127 && ord_pair.low() <= 128);
-            assert!(ord_pair.high() >= 178 && ord_pair.high() <= 179);
-        }
     }
 }

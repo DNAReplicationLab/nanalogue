@@ -47,10 +47,10 @@ pub enum Commands {
         #[clap(long, requires = "seq")]
         show_base_qual: bool,
         /// Show insertions in lower case
-        #[clap(long, requires = "seq_region")]
+        #[clap(long, requires = "seq_region", conflicts_with = "seq_full")]
         show_ins_lowercase: bool,
         /// Shows modified bases as Z (or z depending on other options)
-        #[clap(long, requires = "seq_region")]
+        #[clap(long, requires = "seq_region", conflicts_with = "seq_full")]
         show_mod_z: bool,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
@@ -71,7 +71,7 @@ pub enum Commands {
         #[clap(long, requires = "seq")]
         show_base_qual: bool,
         /// Show insertions in lower case
-        #[clap(long, requires = "seq_region")]
+        #[clap(long, requires = "seq_region", conflicts_with = "seq_full")]
         show_ins_lowercase: bool,
         /// Input sequence summary file from Guppy/Dorado (optional)
         #[clap(default_value_t = String::from(""))]
@@ -375,10 +375,9 @@ where
                     show_base_qual: flag_qual,
                 },
                 (None, true, _, true, _) | (None, true, _, _, true) | (Some(_), true, _, _, _) => {
-                    unreachable!(
-                        "clap prevents seq_region and seq_full, or setting insert \
-pos retrieval/mod colouring without seq_region"
-                    )
+                    return Err(Error::InvalidState(
+                        "invalid sequence display option combination".to_owned(),
+                    ));
                 }
             }
         };
@@ -595,6 +594,7 @@ pos retrieval/mod colouring without seq_region"
                     min_grad,
                 },
         } => {
+            ensure_gradient_window_size(win)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_min_grad_to_1 = OrdPair::new(min_grad, F32Bw0and1::one())?;
             find_modified_reads::run(
@@ -632,6 +632,7 @@ pos retrieval/mod colouring without seq_region"
             win,
             mut mods,
         } => {
+            ensure_gradient_window_size(win)?;
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             window_reads::run(
                 &mut handle,
@@ -654,6 +655,17 @@ pos retrieval/mod colouring without seq_region"
                 bam_rc_records.rc_records.take(100),
             )
         }
+    }
+}
+
+/// Ensures gradient calculations receive enough data points per window.
+fn ensure_gradient_window_size(window_options: InputWindowing) -> Result<(), Error> {
+    if window_options.win.get() < 2 {
+        Err(Error::InsufficientDataSize(
+            "gradient calculations require --win to be at least 2".to_owned(),
+        ))
+    } else {
+        Ok(())
     }
 }
 
