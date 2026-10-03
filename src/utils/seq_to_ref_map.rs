@@ -301,7 +301,7 @@ mod seq_to_ref_map_tests {
     fn replace_first_operation_code(record: &mut bam::Record, operation: u32) {
         const OP_MASK: u32 = 0xf;
         let qname_capacity = usize::from(record.inner().core.l_qname);
-        let data = record.inner_mut().data;
+        let data = record.inner().data;
         // SAFETY: `Record::set` allocated at least one aligned CIGAR word after the query name.
         let word = unsafe { data.add(qname_capacity) }.cast::<u32>();
         // SAFETY: the pointer addresses the initialized first CIGAR word.
