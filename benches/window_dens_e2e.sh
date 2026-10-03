@@ -71,9 +71,9 @@ with open(sys.argv[1], "wb") as handle:
     os.fsync(handle.fileno())
     os.posix_fadvise(handle.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
 PY
-probe_resident="$(fincore --noheadings --output RES "$cache_probe" | tr -d '[:space:]')"
+probe_resident="$(fincore --bytes --noheadings --output RES "$cache_probe" | tr -d '[:space:]')"
 rm "$cache_probe"
-if [[ "$probe_resident" != 0B ]]; then
+if [[ "$probe_resident" != 0 ]]; then
   echo "BENCH_DIR does not support cache eviction; choose a disk-backed filesystem: $bench_dir" >&2
   exit 1
 fi
@@ -164,8 +164,8 @@ for path in sys.argv[1:]:
         os.close(descriptor)
 PY
 
-  resident="$(fincore --noheadings --output RES "$bam" | tr -d '[:space:]')"
-  if [[ "$resident" != 0B ]]; then
+  resident="$(fincore --bytes --noheadings --output RES "$bam" | tr -d '[:space:]')"
+  if [[ "$resident" != 0 ]]; then
     echo "BAM cache eviction failed before run $run; resident size: $resident" >&2
     exit 1
   fi

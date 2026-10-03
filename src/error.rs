@@ -6,7 +6,6 @@
 //! information. We convert errors from other packages to this type so that
 //! error handling in our package becomes easier.
 
-use crate::F32Bw0and1;
 use derive_builder::UninitializedFieldError;
 use std::char::TryFromCharError;
 use std::fmt;
@@ -120,13 +119,6 @@ pub enum Error {
     },
     /// Sorting validation failure
     InvalidSorting(String),
-    /// Window density is below threshold
-    WindowDensBelowThres {
-        /// The density value that was below threshold
-        density: F32Bw0and1,
-        /// The threshold value
-        threshold: F32Bw0and1,
-    },
     /// Window does not contain any data
     EmptyWindow(String),
     /// Data is not of sufficient size (e.g. in a window)
@@ -218,9 +210,6 @@ impl fmt::Display for Error {
                 )
             }
             Self::InvalidSorting(v) => write!(f, "invalid sorting: {}", trunc_100(v)),
-            Self::WindowDensBelowThres { density, threshold } => {
-                write!(f, "window density {density} below threshold {threshold}")
-            }
             Self::EmptyWindow(v) => {
                 write!(f, "window does not contain any data: `{}`", trunc_100(v))
             }
@@ -306,7 +295,6 @@ impl std::error::Error for Error {
             | Self::ZeroSeqLen(_)
             | Self::InvalidRegion { .. }
             | Self::InvalidSorting(_)
-            | Self::WindowDensBelowThres { .. }
             | Self::EmptyWindow(_)
             | Self::InsufficientDataSize(_)
             | Self::Arithmetic(_)
@@ -653,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn display_formats_builder_polars_and_density_errors() {
+    fn display_formats_builder_and_polars_errors() {
         let builder_error = Error::from(UninitializedFieldError::new("bam_path")).to_string();
         assert_eq!(
             builder_error,
@@ -675,13 +663,6 @@ mod tests {
                 "expected Polars prefix in `{polars_error}`"
             );
         }
-
-        let density = Error::WindowDensBelowThres {
-            density: F32Bw0and1::new(0.25).expect("density should be valid"),
-            threshold: F32Bw0and1::new(0.75).expect("threshold should be valid"),
-        }
-        .to_string();
-        assert_eq!(density, "window density 0.25 below threshold 0.75");
     }
 
     fn assert_sources_present(cases: &[Error]) {
@@ -760,10 +741,6 @@ mod tests {
                 contig_length: 100,
             },
             Error::InvalidSorting(String::from("payload")),
-            Error::WindowDensBelowThres {
-                density: F32Bw0and1::new(0.25).expect("density should be valid"),
-                threshold: F32Bw0and1::new(0.75).expect("threshold should be valid"),
-            },
             Error::EmptyWindow(String::from("payload")),
             Error::InsufficientDataSize(String::from("payload")),
             Error::Arithmetic(String::from("payload")),

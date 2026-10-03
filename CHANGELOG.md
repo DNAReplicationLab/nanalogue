@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Removed the public `Error::WindowDensBelowThres` variant. Windows below a
+  requested density threshold return `Ok(None)`; library consumers must handle
+  that result rather than matching this obsolete error.
 - Sped up MM-tag distance parsing with a direct byte parser, reducing long-read
   BAM viewer fetch time by 14-20% in parser-only benchmarks. MM parsing now
   rejects non-canonical numeric modification codes, oversized headers, and
