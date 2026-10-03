@@ -275,7 +275,7 @@ mod tests {
         remove_temp_dir(&root);
     }
 
-    /// A missing list file surfaces as `InputOutputError` with `NotFound`.
+    /// A missing list file surfaces as `InputOutputError` with `NotFound` and its path.
     #[test]
     fn nonexistent_list_path_is_an_io_error() {
         let (root, list) = write_read_id_list("missing", format!("{SINGLE_READ_ID}\n").as_bytes());
@@ -291,6 +291,10 @@ mod tests {
             source.kind(),
             io::ErrorKind::NotFound,
             "the underlying io error must be preserved"
+        );
+        assert!(
+            source.to_string().contains(&list.display().to_string()),
+            "the error must identify the unavailable read-ID list: {source}"
         );
         remove_temp_dir(&root);
     }
