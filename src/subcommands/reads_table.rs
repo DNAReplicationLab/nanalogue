@@ -396,7 +396,15 @@ fn process_seq_summ(file_path: &str) -> Result<HashMap<String, Read>, Error> {
         ))),
     }?;
 
-    let file = File::open(fp)?;
+    let file = File::open(&fp).map_err(|error| {
+        Error::InputOutputError(Box::new(std::io::Error::new(
+            error.kind(),
+            format!(
+                "could not open sequencing summary file `{}`: {error}",
+                fp.display()
+            ),
+        )))
+    })?;
     let mut reader = BufReader::new(file);
     let mut line = String::with_capacity((MAX_SEQ_SUMM_SIZE_PER_LINE + 2).into()); // allow 2 bytes for newline(s)
 

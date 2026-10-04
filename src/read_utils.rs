@@ -402,7 +402,7 @@ impl<S: CurrReadStateWithAlign + CurrReadState> CurrRead<S> {
             None => match record.seq_len() {
                 0 => {
                     return Err(Error::ZeroSeqLen(format!(
-                        "avoid including 0-len sequences while parsing mod data in this program, read_id: {}",
+                        "cannot process record with `SEQ=*`, read_id: {}",
                         self.read_id()
                     )));
                 }
