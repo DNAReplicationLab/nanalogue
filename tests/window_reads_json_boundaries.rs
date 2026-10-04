@@ -62,6 +62,9 @@ mod tests {
                     match listener.accept() {
                         Ok((mut stream, _)) => {
                             stream
+                                .set_nonblocking(false)
+                                .expect("accepted stream should become blocking");
+                            stream
                                 .set_read_timeout(Some(Duration::from_secs(2)))
                                 .expect("read timeout can be set");
                             stream
