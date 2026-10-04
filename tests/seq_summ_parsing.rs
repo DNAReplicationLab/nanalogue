@@ -16,6 +16,7 @@ mod tests {
     use nanalogue_core::{Error, SeqDisplayOptions, nanalogue_bam_reader, reads_table, uuid};
     use rust_htslib::bam::Read as _;
     use std::fs;
+    use std::io;
     use std::path::{Path, PathBuf};
 
     /// Fixture BAM holding three records across three distinct read ids.
@@ -72,6 +73,26 @@ mod tests {
                 "{label} must be rejected as a non-path, got {rendered}"
             );
         }
+    }
+
+    /// An open failure preserves its I/O kind and identifies the summary path.
+    #[test]
+    fn missing_sequence_summary_error_names_path() {
+        let (root, path) = write_seq_summ("missing", HEADER);
+        fs::remove_file(&path).expect("the sequencing summary must be removable");
+        let path_str = path.to_str().expect("temporary paths are valid UTF-8");
+
+        let error = run_with_seq_summ(path_str).expect_err("a missing summary must fail");
+        remove_temp_dir(&root);
+        let Error::InputOutputError(source) = error else {
+            unreachable!("expected InputOutputError, got {error:?}")
+        };
+
+        assert_eq!(source.kind(), io::ErrorKind::NotFound);
+        assert!(
+            source.to_string().contains(path_str),
+            "the open error must identify the missing summary: {source}"
+        );
     }
 
     /// A non-numeric `sequence_length_template` names the field and the read.
