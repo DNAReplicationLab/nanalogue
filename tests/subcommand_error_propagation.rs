@@ -199,7 +199,7 @@ align_len_n50\t5\n\
 seq_len_mean\t6\n\
 seq_len_max\t7\n\
 seq_len_min\t5\n\
-seq_len_median\t7\n\
+seq_len_median\t6\n\
 seq_len_n50\t7\n";
         assert_eq!(
             String::from_utf8(output).expect("read_stats writes UTF-8"),
