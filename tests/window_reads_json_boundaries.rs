@@ -61,6 +61,8 @@ mod tests {
                 while !thread_stop.load(Ordering::Relaxed) {
                     match listener.accept() {
                         Ok((mut stream, _)) => {
+                            // Accepted sockets do not consistently inherit `O_NONBLOCK` across
+                            // platforms; use blocking I/O so the timeouts below govern operations.
                             stream
                                 .set_nonblocking(false)
                                 .expect("accepted stream should become blocking");
