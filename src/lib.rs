@@ -1316,18 +1316,18 @@ mod mod_parse_tests {
         )
     }
 
-    fn create_mn_test_record(mn_seq_len: i32) -> Result<bam::Record, Error> {
+    fn create_mn_test_record(mn_tag: Aux<'_>) -> Result<bam::Record, Error> {
         let mut record = bam::Record::new();
         record.set(b"test_read", None, b"ACGT", &[30; 4]);
         record.push_aux(b"MM", Aux::String("C+m?,0;"))?;
         record.push_aux(b"ML", Aux::ArrayU8((&[200]).into()))?;
-        record.push_aux(b"MN", Aux::I32(mn_seq_len))?;
+        record.push_aux(b"MN", mn_tag)?;
         Ok(record)
     }
 
     #[test]
     fn nanalogue_mm_ml_parser_accepts_matching_mn_sequence_length() -> Result<(), Error> {
-        let record = create_mn_test_record(4)?;
+        let record = create_mn_test_record(Aux::I32(4))?;
 
         let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
 
@@ -1336,13 +1336,75 @@ mod mod_parse_tests {
     }
 
     #[test]
+    fn nanalogue_mm_ml_parser_accepts_all_integer_mn_types() -> Result<(), Error> {
+        for mn_tag in [
+            Aux::I8(4),
+            Aux::U8(4),
+            Aux::I16(4),
+            Aux::U16(4),
+            Aux::U32(4),
+        ] {
+            let record = create_mn_test_record(mn_tag)?;
+
+            let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+
+            assert_eq!(mods.base_mods.len(), 1);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn nanalogue_mm_ml_parser_rejects_mismatched_mn_sequence_length() -> Result<(), Error> {
-        let record = create_mn_test_record(5)?;
+        let record = create_mn_test_record(Aux::I32(5))?;
 
         let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
 
         assert!(matches!(result, Err(Error::InvalidModCoords(message))
             if message == "MN tag sequence length 5 does not match current sequence length 4"));
+        Ok(())
+    }
+
+    #[test]
+    fn nanalogue_mm_ml_parser_rejects_noninteger_mn_tag() -> Result<(), Error> {
+        let record = create_mn_test_record(Aux::String("4"))?;
+
+        let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
+
+        assert!(matches!(result, Err(Error::InvalidModCoords(message))
+            if message == "MN tag must contain an integer sequence length"));
+        Ok(())
+    }
+
+    #[test]
+    fn nanalogue_mm_ml_parser_rejects_oversized_record_capacity() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        record.set(b"oversized_record", None, b"A", &[30]);
+        let payload = vec![0; usize::try_from(MAX_RECORD_CAPACITY_BYTES)?];
+        record.push_aux(b"ZZ", Aux::ArrayU8((&payload).into()))?;
+        assert!(record.inner().m_data > MAX_RECORD_CAPACITY_BYTES);
+
+        let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
+
+        assert!(matches!(result, Err(Error::InvalidState(message))
+        if message == format!(
+            "MM ML parsing record capacity limit exceeded: {MAX_RECORD_CAPACITY_BYTES}"
+        )));
+        Ok(())
+    }
+
+    #[test]
+    fn nanalogue_mm_ml_parser_rejects_sequence_over_limit() -> Result<(), Error> {
+        let seq_len = usize::try_from(MAX_SEQ_LEN)? + 1;
+        let sequence = vec![b'C'; seq_len];
+        let qualities = vec![30; seq_len];
+        let mut record = bam::Record::new();
+        record.set(b"oversized_sequence", None, &sequence, &qualities);
+        record.push_aux(b"MM", Aux::String("C+m;"))?;
+
+        let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
+
+        assert!(matches!(result, Err(Error::InvalidSeqLength(message))
+            if message == format!("sequence length exceeds {MAX_SEQ_LEN}")));
         Ok(())
     }
 
