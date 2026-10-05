@@ -173,7 +173,7 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
             v => return Err(Error::InvalidModType(format!("invalid MM strand `{v}`"))),
         };
 
-        let (mod_type, is_implicit) = {
+        let (modification_type, is_implicit) = {
             let mod_type_and_implicit_flag = &header[2..];
             let n = mod_type_and_implicit_flag.len();
             if mod_type_and_implicit_flag.ends_with('?') {
@@ -198,9 +198,9 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
         // We let this be as C+m, A+m is very unlikely i.e. an experimental
         // scenario where both cytosines and adenines are replaced by a 5-methyl cytosine.
         // Two bases replaced by the _same_ kind of modification is very unlikely.
-        if !seen_combinations.insert((mod_strand, mod_type)) {
+        if !seen_combinations.insert((mod_strand, modification_type)) {
             return Err(Error::InvalidDuplicates(format!(
-                "Duplicate strand '{mod_strand}' and modification_type '{mod_type}' combination found",
+                "Duplicate strand '{mod_strand}' and modification_type '{modification_type}' combination found",
             )));
         }
 
@@ -223,10 +223,18 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
             "no error as we have checked mm text does not exceed this length so no way the array exceeds the length"
         );
 
+        assert!(
+            matches!(mod_base, b'A' | b'C' | b'G' | b'T' | b'U' | b'N'),
+            "MM base was validated before constructing the parsed group"
+        );
+        assert!(
+            matches!(mod_strand, '+' | '-'),
+            "MM strand was validated before constructing the parsed group"
+        );
         groups.push(ParsedMmGroup {
             mod_base,
             mod_strand,
-            modification_type: mod_type,
+            modification_type,
             is_implicit,
             mod_dists,
         });
