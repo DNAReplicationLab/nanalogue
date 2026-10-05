@@ -6,7 +6,6 @@
 //! information. We convert errors from other packages to this type so that
 //! error handling in our package becomes easier.
 
-use crate::F32Bw0and1;
 use derive_builder::UninitializedFieldError;
 use std::char::TryFromCharError;
 use std::fmt;
@@ -23,10 +22,10 @@ const PEEK_HELP: &str =
 const PEEK_AND_HEADER_HELP: &str = "In command line tool, use `nanalogue peek` to check contig names, lengths, and mod types.\n\
 In command line tool, if piping in a samtools view command, please include header with -h in samtools.";
 
-/// Truncate display strings to 100 characters.
-fn trunc_100(s: &str) -> String {
+/// Truncate display strings to 300 characters.
+fn trunc_300(s: &str) -> String {
     let mut chars = s.chars();
-    let truncated: String = chars.by_ref().take(100).collect();
+    let truncated: String = chars.by_ref().take(300).collect();
     if chars.next().is_some() {
         format!("{truncated}...")
     } else {
@@ -120,13 +119,6 @@ pub enum Error {
     },
     /// Sorting validation failure
     InvalidSorting(String),
-    /// Window density is below threshold
-    WindowDensBelowThres {
-        /// The density value that was below threshold
-        density: F32Bw0and1,
-        /// The threshold value
-        threshold: F32Bw0and1,
-    },
     /// Window does not contain any data
     EmptyWindow(String),
     /// Data is not of sufficient size (e.g. in a window)
@@ -155,33 +147,33 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnknownAlignState(v) => {
-                write!(f, "unknown alignment state: `{}`", trunc_100(v))
+                write!(f, "unknown alignment state: `{}`", trunc_300(v))
             }
             Self::InvalidSeqLength(v) => {
-                write!(f, "invalid sequence length: `{}`", trunc_100(v))
+                write!(f, "invalid sequence length: `{}`", trunc_300(v))
             }
             Self::InvalidAlignLength(v) => {
-                write!(f, "invalid alignment length: `{}`", trunc_100(v))
+                write!(f, "invalid alignment length: `{}`", trunc_300(v))
             }
             Self::InvalidContigAndStart(v) => {
-                write!(f, "invalid contig and/or start: `{}`", trunc_100(v))
+                write!(f, "invalid contig and/or start: `{}`", trunc_300(v))
             }
             Self::InvalidAlignCoords(v) => {
                 write!(
                     f,
                     "invalid alignment coordinates (contig/start/end): `{}`.\n{PEEK_AND_HEADER_HELP}",
-                    trunc_100(v)
+                    trunc_300(v)
                 )
             }
-            Self::InvalidModCoords(v) => write!(f, "invalid mod coordinates: `{}`", trunc_100(v)),
-            Self::InvalidModProbs(v) => write!(f, "invalid mod probabilities: `{}`", trunc_100(v)),
-            Self::InvalidSeq(v) => write!(f, "invalid sequence: `{}`", trunc_100(v)),
-            Self::InvalidBase(v) => write!(f, "invalid base: `{}`", trunc_100(v)),
-            Self::InvalidReadID(v) => write!(f, "invalid read id: `{}`", trunc_100(v)),
-            Self::InvalidContig(v) => write!(f, "invalid contig: `{}`", trunc_100(v)),
-            Self::InvalidModType(v) => write!(f, "invalid mod type: `{}`", trunc_100(v)),
-            Self::EmptyModType(v) => write!(f, "empty mod type: `{}`", trunc_100(v)),
-            Self::InvalidMmSuffix(v) => write!(f, "invalid MM suffix: `{}`", trunc_100(v)),
+            Self::InvalidModCoords(v) => write!(f, "invalid mod coordinates: `{}`", trunc_300(v)),
+            Self::InvalidModProbs(v) => write!(f, "invalid mod probabilities: `{}`", trunc_300(v)),
+            Self::InvalidSeq(v) => write!(f, "invalid sequence: `{}`", trunc_300(v)),
+            Self::InvalidBase(v) => write!(f, "invalid base: `{}`", trunc_300(v)),
+            Self::InvalidReadID(v) => write!(f, "invalid read id: `{}`", trunc_300(v)),
+            Self::InvalidContig(v) => write!(f, "invalid contig: `{}`", trunc_300(v)),
+            Self::InvalidModType(v) => write!(f, "invalid mod type: `{}`", trunc_300(v)),
+            Self::EmptyModType(v) => write!(f, "empty mod type: `{}`", trunc_300(v)),
+            Self::InvalidMmSuffix(v) => write!(f, "invalid MM suffix: `{}`", trunc_300(v)),
             Self::RustHtslibError(v) => {
                 write!(f, "rust_htslib error: `{v}`\n{PEEK_AND_HEADER_HELP}")
             }
@@ -192,21 +184,21 @@ impl fmt::Display for Error {
             Self::Utf8ConversionError(v) => write!(f, "UTF-8 conversion error: `{v}`"),
             Self::JsonParseError(v) => write!(f, "JSON parsing error: `{v}`"),
             Self::OrdPairConversion(v) => {
-                write!(f, "ordered pair conversion error: `{}`", trunc_100(v))
+                write!(f, "ordered pair conversion error: `{}`", trunc_300(v))
             }
             Self::IntParseError(v) => write!(f, "integer parsing error: `{v}`"),
             Self::FloatParseError(v) => write!(f, "float parsing error: `{v}`"),
             Self::InputOutputError(v) => write!(f, "input output error: `{v}`"),
             Self::FormattingError(v) => write!(f, "formatting error: `{v}`"),
-            Self::InvalidDuplicates(v) => write!(f, "duplicates detected: `{}`", trunc_100(v)),
-            Self::InvalidState(v) => write!(f, "`{}`", trunc_100(v)),
-            Self::WriteOutput(v) => write!(f, "error while writing output: `{}`", trunc_100(v)),
-            Self::NotImplemented(v) => write!(f, "not implemented: `{}`", trunc_100(v)),
-            Self::WrongOrder(v) => write!(f, "items in wrong order: `{}`", trunc_100(v)),
-            Self::UnavailableData(v) => write!(f, "data not available: `{}`", trunc_100(v)),
-            Self::Unmapped(v) => write!(f, "read is unmapped: `{}`", trunc_100(v)),
-            Self::Zero(v) => write!(f, "zero values not allowed: `{}`", trunc_100(v)),
-            Self::ZeroSeqLen(v) => write!(f, "zero sequence length: `{}`", trunc_100(v)),
+            Self::InvalidDuplicates(v) => write!(f, "duplicates detected: `{}`", trunc_300(v)),
+            Self::InvalidState(v) => write!(f, "`{}`", trunc_300(v)),
+            Self::WriteOutput(v) => write!(f, "error while writing output: `{}`", trunc_300(v)),
+            Self::NotImplemented(v) => write!(f, "not implemented: `{}`", trunc_300(v)),
+            Self::WrongOrder(v) => write!(f, "items in wrong order: `{}`", trunc_300(v)),
+            Self::UnavailableData(v) => write!(f, "data not available: `{}`", trunc_300(v)),
+            Self::Unmapped(v) => write!(f, "read is unmapped: `{}`", trunc_300(v)),
+            Self::Zero(v) => write!(f, "zero values not allowed: `{}`", trunc_300(v)),
+            Self::ZeroSeqLen(v) => write!(f, "zero sequence length: `{}`", trunc_300(v)),
             Self::InvalidRegion {
                 region,
                 pos,
@@ -217,25 +209,22 @@ impl fmt::Display for Error {
                     "invalid region '{region}': position {pos} exceeds contig length {contig_length}\n{PEEK_HELP}"
                 )
             }
-            Self::InvalidSorting(v) => write!(f, "invalid sorting: {}", trunc_100(v)),
-            Self::WindowDensBelowThres { density, threshold } => {
-                write!(f, "window density {density} below threshold {threshold}")
-            }
+            Self::InvalidSorting(v) => write!(f, "invalid sorting: {}", trunc_300(v)),
             Self::EmptyWindow(v) => {
-                write!(f, "window does not contain any data: `{}`", trunc_100(v))
+                write!(f, "window does not contain any data: `{}`", trunc_300(v))
             }
             Self::InsufficientDataSize(v) => {
                 write!(
                     f,
                     "data is not of sufficient size (e.g. in a window): `{}`",
-                    trunc_100(v)
+                    trunc_300(v)
                 )
             }
             Self::Arithmetic(v) => {
                 write!(
                     f,
                     "unanticipated arithmetic error e.g. overflow: `{}`",
-                    trunc_100(v)
+                    trunc_300(v)
                 )
             }
             Self::BuilderError(v) => write!(f, "building error, are you missing inputs?: `{v}`"),
@@ -243,7 +232,7 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "building error, input validation failed: `{}`",
-                    trunc_100(v)
+                    trunc_300(v)
                 )
             }
             Self::FromCharError(v) => write!(f, "error converting between DNA bases: `{v}`"),
@@ -253,7 +242,7 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "Simulate DNA sequence error; problem at end of CIGAR: {}",
-                    trunc_100(v)
+                    trunc_300(v)
                 )
             }
         }
@@ -306,7 +295,6 @@ impl std::error::Error for Error {
             | Self::ZeroSeqLen(_)
             | Self::InvalidRegion { .. }
             | Self::InvalidSorting(_)
-            | Self::WindowDensBelowThres { .. }
             | Self::EmptyWindow(_)
             | Self::InsufficientDataSize(_)
             | Self::Arithmetic(_)
@@ -548,19 +536,30 @@ mod tests {
         clippy::non_ascii_literal,
         reason = "non-ascii characters are intentional here"
     )]
-    fn trunc_100_preserves_boundary_and_truncates_unicode() {
-        assert_eq!(trunc_100(""), "");
-        assert_eq!(trunc_100("x"), "x");
+    fn trunc_300_preserves_boundary_and_truncates_unicode() {
+        assert_eq!(trunc_300(""), "");
+        assert_eq!(trunc_300("x"), "x");
 
-        let exact = "é".repeat(100);
-        assert_eq!(trunc_100(&exact), exact);
+        let exact = "é".repeat(300);
+        assert_eq!(trunc_300(&exact), exact);
 
-        let longer = "界".repeat(101);
-        let expected = format!("{}...", "界".repeat(100));
-        assert_eq!(trunc_100(&longer), expected);
+        let longer = "界".repeat(301);
+        let expected = format!("{}...", "界".repeat(300));
+        assert_eq!(trunc_300(&longer), expected);
         assert_eq!(
             Error::UnknownAlignState(longer).to_string(),
             format!("unknown alignment state: `{expected}`")
+        );
+    }
+
+    #[test]
+    fn invalid_state_uses_300_character_limit() {
+        let diagnostic = "x".repeat(301);
+        let expected = format!("{}...", "x".repeat(300));
+
+        assert_eq!(
+            Error::InvalidState(diagnostic).to_string(),
+            format!("`{expected}`")
         );
     }
 
@@ -653,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn display_formats_builder_polars_and_density_errors() {
+    fn display_formats_builder_and_polars_errors() {
         let builder_error = Error::from(UninitializedFieldError::new("bam_path")).to_string();
         assert_eq!(
             builder_error,
@@ -675,13 +674,6 @@ mod tests {
                 "expected Polars prefix in `{polars_error}`"
             );
         }
-
-        let density = Error::WindowDensBelowThres {
-            density: F32Bw0and1::new(0.25).expect("density should be valid"),
-            threshold: F32Bw0and1::new(0.75).expect("threshold should be valid"),
-        }
-        .to_string();
-        assert_eq!(density, "window density 0.25 below threshold 0.75");
     }
 
     fn assert_sources_present(cases: &[Error]) {
@@ -760,10 +752,6 @@ mod tests {
                 contig_length: 100,
             },
             Error::InvalidSorting(String::from("payload")),
-            Error::WindowDensBelowThres {
-                density: F32Bw0and1::new(0.25).expect("density should be valid"),
-                threshold: F32Bw0and1::new(0.75).expect("threshold should be valid"),
-            },
             Error::EmptyWindow(String::from("payload")),
             Error::InsufficientDataSize(String::from("payload")),
             Error::Arithmetic(String::from("payload")),

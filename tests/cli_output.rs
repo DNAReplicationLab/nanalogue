@@ -40,6 +40,27 @@ mod tests {
             .expect("nanalogue executable should run")
     }
 
+    /// Writes the smallest mapped SAM record whose sequence field is `*`.
+    /// The returned directory is unique so parallel tests cannot share a fixture.
+    fn zero_length_sam_fixture() -> (std::path::PathBuf, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "nanalogue_zero_length_cli_{}",
+            nanalogue_core::uuid::v4_random()
+        ));
+        std::fs::create_dir_all(&root).expect("fixture directory should be created");
+        let sam = root.join("zero_length.sam");
+        std::fs::write(
+            &sam,
+            concat!(
+                "@HD\tVN:1.6\tSO:unsorted\n",
+                "@SQ\tSN:ctg1\tLN:100\n",
+                "secondary\t256\tctg1\t11\t37\t8M\t*\t0\t0\t*\t*\n"
+            ),
+        )
+        .expect("zero-length SAM fixture should be written");
+        (root, sam)
+    }
+
     /// Runtime failures report an error, rather than looking like a successful
     /// empty result or a command-line parsing failure.
     #[test]
@@ -58,6 +79,157 @@ mod tests {
         assert_eq!(output.status.code(), Some(1));
         assert_eq!(output.stdout, Vec::<u8>::new());
         assert!(String::from_utf8_lossy(&output.stderr).starts_with("Error during execution: "));
+    }
+
+    /// Commands using shared input filtering must see no records. Covers both
+    /// read-table commands, `read-stats`, `read-info`, both window commands,
+    /// all six `find-modified-reads` criteria, and `peek`. `peek` skips
+    /// zero-length records locally. Headers and zero/empty summaries are
+    /// intentionally retained; they do not describe the filtered SAM record.
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one test intentionally documents every CLI command's empty-input contract"
+    )]
+    fn zero_length_records_are_filtered_by_all_bam_reading_commands() {
+        let (root, sam_file) = zero_length_sam_fixture();
+        let sam_path = sam_file.to_string_lossy().into_owned();
+
+        for command in ["read-table-show-mods", "read-table-hide-mods"] {
+            let output = run_nanalogue(&[command, &sam_path]);
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "{command} should see no records"
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("No records found as input for analysis."),
+                "{command} must fail as an empty input, not while parsing the record"
+            );
+            let stdout = String::from_utf8(output.stdout).expect("table output should be UTF-8");
+            assert!(
+                stdout
+                    .lines()
+                    .last()
+                    .is_some_and(|line| line.starts_with("read_id\t")),
+                "the final line must be the table header, not a data row: {stdout}"
+            );
+            assert!(
+                !stdout.contains("secondary"),
+                "record-derived output: {stdout}"
+            );
+        }
+
+        let stats_output = run_nanalogue(&["read-stats", &sam_path]);
+        assert!(
+            stats_output.status.success(),
+            "read-stats failed: {}",
+            String::from_utf8_lossy(&stats_output.stderr)
+        );
+        let stats_text =
+            String::from_utf8(stats_output.stdout).expect("statistics should be UTF-8");
+        assert!(
+            stats_text.starts_with("key\tvalue\n"),
+            "statistics must include its header: {stats_text}"
+        );
+        assert!(
+            stats_text.lines().skip(1).all(|line| line.ends_with("\t0")),
+            "statistics must be the empty-input zero summary: {stats_text}"
+        );
+        assert!(
+            stats_text.contains("n_secondary_alignments\t0"),
+            "record must not contribute to stats: {stats_text}"
+        );
+
+        let read_info = run_nanalogue(&["read-info", &sam_path]);
+        assert!(
+            read_info.status.success(),
+            "read-info failed: {}",
+            String::from_utf8_lossy(&read_info.stderr)
+        );
+        let read_info_json = serde_json::from_slice::<serde_json::Value>(&read_info.stdout)
+            .expect("read-info output should be JSON");
+        assert_eq!(
+            read_info_json,
+            serde_json::json!([]),
+            "read-info must be empty"
+        );
+
+        for command in ["window-dens", "window-grad"] {
+            let output = run_nanalogue(&[command, "--win", "8", "--step", "1", &sam_path]);
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "{command} should see no records"
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("No records found as input for analysis."),
+                "{command} must fail as an empty input, not while parsing the record"
+            );
+            let stdout = String::from_utf8(output.stdout).expect("window output should be UTF-8");
+            assert_eq!(
+                stdout.lines().count(),
+                1,
+                "{command} emitted window data: {stdout}"
+            );
+            assert!(
+                stdout.starts_with("#contig\t"),
+                "unexpected header: {stdout}"
+            );
+        }
+
+        for (criterion, args) in [
+            ("all-dens-between", vec!["--dens-limits", "0,1"]),
+            ("any-dens-above", vec!["--high", "0"]),
+            ("any-dens-below", vec!["--low", "1"]),
+            (
+                "any-dens-below-and-any-dens-above",
+                vec!["--low", "1", "--high", "0"],
+            ),
+            ("dens-range-above", vec!["--min-range", "0"]),
+            ("any-abs-grad-above", vec!["--min-grad", "0"]),
+        ] {
+            let mut command = vec![
+                "find-modified-reads",
+                criterion,
+                "--win",
+                "8",
+                "--step",
+                "1",
+                "--tag",
+                "m",
+            ];
+            command.extend(args);
+            command.push(&sam_path);
+            let output = run_nanalogue(&command);
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "{criterion} should see no records: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("No records found as input for analysis."),
+                "{criterion} must fail as an empty input, not while parsing the record"
+            );
+            assert!(output.stdout.is_empty(), "{criterion} emitted a read ID");
+        }
+
+        let peek = run_nanalogue(&["peek", &sam_path]);
+        assert!(
+            peek.status.success(),
+            "peek failed: {}",
+            String::from_utf8_lossy(&peek.stderr)
+        );
+        assert_eq!(
+            peek.stdout, b"contigs_and_lengths:\nctg1\t100\n\nmodifications:\nNone\n",
+            "peek may show header metadata but must not derive modifications from the record"
+        );
+
+        std::fs::remove_dir_all(root).expect("fixture directory should be cleaned up");
     }
 
     /// Closing the peer before spawning avoids racing a consumer such as head:
@@ -211,6 +383,72 @@ mod tests {
             output.stdout, expected,
             "stdin statistics should match the checked-in output exactly"
         );
+    }
+
+    /// Strict sequence consumers reject an explicitly included `SEQ=*` record
+    /// before command-specific processing without incorrectly mentioning mod
+    /// data. Read-table commands are omitted because they intentionally recover
+    /// zero-length records; `peek` has no `--include-zero-len` option.
+    #[test]
+    fn strict_commands_have_neutral_error_for_included_zero_length_read() {
+        let (root, sam_path) = zero_length_sam_fixture();
+        let path = sam_path
+            .to_str()
+            .expect("temporary paths must be valid UTF-8");
+
+        let mut outputs = vec![
+            run_nanalogue(&["read-info", "--include-zero-len", path]),
+            run_nanalogue(&["read-stats", "--include-zero-len", path]),
+        ];
+
+        for command in ["window-dens", "window-grad"] {
+            outputs.push(run_nanalogue(&[
+                command,
+                "--include-zero-len",
+                "--win",
+                "8",
+                "--step",
+                "1",
+                path,
+            ]));
+        }
+
+        for (criterion, args) in [
+            ("all-dens-between", vec!["--dens-limits", "0,1"]),
+            ("any-dens-above", vec!["--high", "0"]),
+            ("any-dens-below", vec!["--low", "1"]),
+            (
+                "any-dens-below-and-any-dens-above",
+                vec!["--low", "1", "--high", "0"],
+            ),
+            ("dens-range-above", vec!["--min-range", "0"]),
+            ("any-abs-grad-above", vec!["--min-grad", "0"]),
+        ] {
+            let mut command = vec![
+                "find-modified-reads",
+                criterion,
+                "--include-zero-len",
+                "--win",
+                "8",
+                "--step",
+                "1",
+                "--tag",
+                "m",
+            ];
+            command.extend(args);
+            command.push(path);
+            outputs.push(run_nanalogue(&command));
+        }
+
+        std::fs::remove_dir_all(&root).expect("temporary directory must be removable");
+
+        for output in outputs {
+            assert_eq!(output.status.code(), Some(1));
+            assert!(!String::from_utf8_lossy(&output.stdout).contains("secondary"));
+            let stderr = String::from_utf8(output.stderr).expect("error output must be UTF-8");
+            assert!(stderr.contains("cannot process record with `SEQ=*`, read_id: secondary"));
+            assert!(!stderr.contains("mod data"));
+        }
     }
 
     /// With stdin input there is no index to consult, so `--region` is applied

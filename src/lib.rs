@@ -917,8 +917,12 @@ impl<'a, R: bam::Read> BamRcRecords<'a, R> {
             }
             (false, true) => {
                 bam_opts.read_id_set = if let Some(file_path) = bam_opts.read_id_list.as_ref() {
-                    let file = File::open(file_path)
-                        .map_err(|err| Error::InputOutputError(Box::new(err)))?;
+                    let file = File::open(file_path).map_err(|err| {
+                        Error::InputOutputError(Box::new(std::io::Error::new(
+                            err.kind(),
+                            format!("could not open read ID list `{file_path}`: {err}"),
+                        )))
+                    })?;
                     let reader = BufReader::new(file);
                     Some(load_read_ids_for_filtering(
                         reader,

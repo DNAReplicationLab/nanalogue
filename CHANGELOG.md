@@ -7,33 +7,125 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added CRAM output to `nanalogue_sim_bam`. The simulator now selects BAM or
+  CRAM from the output extension and creates the corresponding BAI or CRAI;
+  CRAM 3.1 output uses an external indexed FASTA reference. The public
+  `write_cram_denovo` API and detailed simulator CLI configuration help are
+  also new.
+- Added `mm_suffix` and `drop` simulation options. Simulated MM groups can use
+  `?`, `.`, or no suffix, and selected canonical bases can be omitted to
+  generate non-zero MM distances and omit their corresponding ML entries.
+- Added the public `mm_groups`/`ParsedMmGroup` MM-tag parser, resource-limit
+  constants, and reusable input-validation helpers.
+
 ### Changed
-- Sped up MM-tag distance parsing with a direct byte parser, reducing long-read
-  BAM viewer fetch time by 14-20% in parser-only benchmarks. MM parsing now
-  rejects non-canonical numeric modification codes, oversized headers, and
-  individual gaps above 128,000,000 bases.
+- Sped up modification parsing by scanning BAM's packed sequence directly,
+  parsing MM distances without intermediate strings, flattening stored calls,
+  and using a sparse CIGAR-segment coordinate map. Parser-only benchmarks for
+  the direct MM parser reduced long-read BAM viewer fetch time by 14-20%.
+- Sped up dense, overlapping `window-dens` and `window-grad` workloads by
+  reusing rolling reference-coordinate and base-quality calculations. Window
+  `basecall_qual` values can differ by one Phred unit at rounding boundaries
+  because of the changed floating-point summation order.
 - Made Polars an optional, default-off dependency. Library consumers using
   `curr_reads_to_dataframe`, `reads_table::run_df`, `window_reads::run_df`, or
   Polars-specific error handling must explicitly enable the `polars` Cargo
-  feature. CLI functionality is unchanged.
-- Replaced the MM/ML parser's per-base sequence-to-reference coordinate table
-  with a sparse CIGAR-segment map. The parser now handles padding (`P`) CIGAR
-  operations and returns errors instead of panicking on unknown or zero-length
-  operations; other alignment paths are unchanged.
-- Added `MAX_SEQ_LEN` (2^28 - 1) and `MAX_CONTIG_LEN` (`u32::MAX - 1`), lowering
-  the accepted sequence and contig limits from `u32::MAX`. Sequence-length
-  overflows now consistently return `InvalidSeqLength`.
-- Packed `FiberAnnotation` into 8 bytes instead of 16: query position (upper
-  24 bits) and quality (lower 8 bits) share one `u32`, and the reference
-  position is stored as `ref_pos + 1` in an `Option<NonZeroU32>`. This halves
-  the memory held by parsed modification calls and lowers `MAX_SEQ_LEN` to
-  2^24 - 1 (about 16.7 megabases). Breaking for library users: the fields are
-  now private; construct with `FiberAnnotation::try_new(pos, qual, ref_pos)`
-  and read with the `pos()`, `qual()` and `ref_pos()` methods. Ordering and
-  `Debug` output are unchanged.
+  feature. CLI functionality is unchanged. Several Polars output columns,
+  including sequence lengths, alignment bounds, and query positions, now use
+  `UInt32` instead of `UInt64`.
+- Reduced the dependency surface by replacing `thiserror`, `regex`, `csv`, and
+  `itertools` usage, and by incorporating only the required `bedrs` and
+  `openssl-probe` functionality. Enabled libdeflate in `rust-htslib`.
+- Hardened analysis of untrusted or pathological inputs with explicit limits
+  for record capacity/count, CIGAR operations, sequence and contig lengths,
+  modification types and annotations, MM/ML data, identifiers, paths, regions,
+  sequencing-summary files, and `peek` records. This includes a maximum of 20
+  modification groups per record and stricter ASCII/character rules for read
+  IDs, contigs, and paths. `find-modified-reads`, table/window commands, and
+  `peek` now error on zero input records, including when applicable filters
+  remove every record. `read-info` continues to return an empty JSON array, and
+  `read-stats` returns zero-valued summaries. TSV/DataFrame window output also
+  errors when records are present but no windows are emitted.
+- Applied the HTTP, HTTPS, and FTP URL-scheme allow-list consistently to public
+  URL-reader helpers and deserialization. Hardened the install instructions and
+  script to require HTTPS and TLS 1.2 when using curl (and HTTPS when using
+  wget).
+- Sequencing-summary parsing now uses bounded plain TSV input rather than CSV
+  quoting rules. Comments are accepted only before the header.
+- Simulator output paths must end in `.bam` or `.cram`, and simulated unmapped
+  reads now use MAPQ 0 rather than 255.
+- Breaking for library users: many coordinates and lengths now use bounded
+  `u32` types in `InputBam`, `InputWindowing`, `GenomicRegion`, simulation
+  configuration, alignments, and modification annotations. The crate now
+  exposes its own `Bed3`/`StrandedBed3` types and `GenomicBed3` aliases;
+  interval constructors are fallible and reject reversed coordinates.
+  `GenomicRegion` and `AlignmentInfo` no longer implement `Default`.
+- Breaking for library users: `FiberAnnotation` is now an 8-byte packed value
+  representing single query/reference positions rather than intervals; its old
+  end, length, and extra-column fields were removed. Construct it with
+  `FiberAnnotation::try_new(pos, qual, ref_pos)` and use `pos()`, `qual()`, and
+  `ref_pos()` accessors. `FiberAnnotations` fields are also private and its
+  coordinate/quality accessors return iterators (`starts()` and
+  `reference_starts()` become `pos()` and `ref_pos()`); `from_annotations` now
+  returns `Result`. The maximum supported read length is now 2^24 - 1 bases
+  (about 16.7 megabases), and the maximum contig length is `u32::MAX - 1`.
+- Breaking for library users: callbacks passed to `window_reads::run`,
+  `run_json`, and `run_df` now return `Result<Option<_>, Error>`: `Some` emits
+  a window, `None` omits it, and errors are propagated instead of logged and
+  skipped. Accordingly,
+  `threshold_and_mean_and_thres_win` now returns `Ok(None)` rather than an
+  error for a window below the requested density, and the obsolete public
+  `Error::WindowDensBelowThres` variant was removed.
+- Breaking for library users: `TempBamSimulation::new` now takes an
+  `AlignmentFormat`, and `TempBamSimulation` no longer implements
+  `Deserialize`. `SeqCoordCalls::mod_calls` now returns `&[u8]` rather than
+  `Option<&[u8]>` and panics for an out-of-range position.
+- Breaking for library users: external errors wrapped by `Error` now use boxed
+  payloads, affecting direct construction and nested pattern matching;
+  `Error::CsvError` was removed.
+
+### Removed
+- Removed the public `get_u8_tag` and
+  `utils::filter_by_ref_coords::WindowState` APIs. The simulation helpers
+  `generate_random_dna_modification` and `generate_reads_denovo` are now
+  private.
 
 ### Fixed
-- (Project tooling, not code) Fixed `install.sh` to use the correct ARM release archive name, matching the output from the relevant GitHub Actions workflow
+- Corrected `read-stats` median and N50 boundary calculations, including exact
+  halfway totals and zero-length values.
+- Made MM/ML parsing reject malformed records instead of panicking or silently
+  accepting them. This includes non-canonical numeric modification codes,
+  oversized headers, gaps above 128,000,000 bases, zero-length sequences,
+  mismatched MM/ML counts, MN tags that disagree with sequence length, and
+  mapped reads without a CIGAR. Canonical `U` is handled as BAM-encoded `T`,
+  and padding (`P`) CIGAR operations are supported.
+- Enforced sorted query coordinates and strictly monotonic mapped reference
+  coordinates in modification annotations, including during deserialization,
+  so reference filtering and window bounds cannot silently use invalid order.
+- Applied complete validation consistently to parsed, converted, built, and
+  deserialized genomic regions and intervals. Alignment intervals must be
+  non-empty; BED intervals may be empty but cannot be reversed.
+- Fixed probability-exclusion bands to reject exactly the representable
+  byte-valued ML probabilities within the inclusive bounds; a band containing
+  no representable probability now excludes nothing.
+- Deferred each `read-info` JSON delimiter until its record has been parsed and
+  rendered successfully, avoiding a dangling object for a failing first
+  record. Moved missing-index warnings from stdout to stderr so they no longer
+  corrupt structured output.
+- Gradient commands now reject one-element windows, and invalid
+  sequence-display flag combinations are rejected by the CLI.
+- Fixed simulator validation and cleanup: empty window/modification schedules
+  are rejected, failed temporary simulations remove their directories, and
+  aliased or hard-linked output paths cannot overwrite one another.
+- Read-ID filter files now permit comments only before the first ID and reject
+  blank/whitespace-only lines and malformed IDs.
+- Fixed HTTPS certificate discovery on macOS by checking the standard macOS
+  certificate bundle path.
+- (Project tooling, not code) Fixed `install.sh` to use the ARM release archive
+  name produced by the release workflow.
+- Updated the locked TLS stack to `rustls` 0.23.45 and `rustls-webpki` 0.103.15
+  as a security dependency update.
 
 ## [0.1.11] - 2026-05-16
 
