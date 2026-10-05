@@ -691,8 +691,8 @@ where
                     // ran out of candidate bases; reported as a count mismatch below
                     break;
                 };
-                let cur_seq_idx = usize::try_from(candidate_at(target))
-                    .expect("u32 fits in supported usize");
+                let cur_seq_idx =
+                    usize::try_from(candidate_at(target)).expect("u32 fits in supported usize");
                 if is_emit_zero_prob {
                     for skipped_idx in cursor..target {
                         let idx = usize::try_from(candidate_at(skipped_idx))
