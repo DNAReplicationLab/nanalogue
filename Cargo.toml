@@ -2,6 +2,7 @@
 name = "nanalogue"
 version = "0.1.11"
 edition = "2024"
+autobenches = false
 description = "BAM/Mod BAM parsing and analysis tool with a single-molecule focus"
 license = "MIT"
 readme = "README.md"
@@ -63,6 +64,19 @@ harness = false
 [[bench]]
 name = "window_reads_dense"
 harness = false
+
+[[bench]]
+name = "mm_ml_parser"
+harness = false
+
+[[bench]]
+name = "mm_ml_cli"
+path = "benches/mm_ml_cli.rs"
+harness = false
+
+[[example]]
+name = "mm_ml_cli"
+path = "benches/mm_ml_cli.rs"
 
 [lints.clippy]
 alloc_instead_of_core = "deny"
