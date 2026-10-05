@@ -227,6 +227,79 @@ pub unsafe fn init_ssl_certificates() {
     });
 }
 
+/// Collects, in ascending order of the forward (basecalled) orientation, every sequence
+/// position matching `encoded_mod_base`.
+///
+/// `packed` is BAM's 4-bit packed sequence (two bases per byte, high nibble first) of
+/// `seq_len` bases. `encoded_mod_base` is the 4-bit code to look for in the stored
+/// (record) orientation; `None` represents `N` and matches every position. For reverse
+/// records, stored index `r` maps to forward index `seq_len - 1 - r`.
+///
+/// Scanning the packed bytes directly, once per base type, is much cheaper than
+/// decoding and testing every base individually for every MM group.
+fn mod_candidate_positions(
+    packed: &[u8],
+    seq_len: usize,
+    encoded_mod_base: Option<u8>,
+    is_reverse: bool,
+) -> Vec<u32> {
+    assert!(
+        (1..=usize::try_from(MAX_SEQ_LEN).expect("u32 fits in supported usize")).contains(&seq_len),
+        "sequence length must be between 1 and MAX_SEQ_LEN"
+    );
+    assert_eq!(
+        packed.len(),
+        seq_len.div_ceil(2),
+        "packed sequence must contain two bases per byte"
+    );
+
+    let Some(code) = encoded_mod_base else {
+        return (0..u32::try_from(seq_len).expect("sequence length is bounded by u32::MAX"))
+            .collect();
+    };
+    assert!(
+        matches!(code, 1 | 2 | 4 | 8),
+        "encoded modification base must be A, C, G, or T"
+    );
+
+    let mut positions = Vec::<u32>::with_capacity(seq_len);
+    // Build one compact result bit per base from 32 packed bytes (64 bases).
+    // A compact mask makes extracting each matching position inexpensive.
+    for (word_idx, chunk) in packed.chunks(32).enumerate() {
+        let mut mask: u64 = 0;
+        for (byte_idx, &byte) in chunk.iter().enumerate() {
+            let high_nibble_matches = u64::from(byte >> 4u8 == code);
+            let low_nibble_matches = u64::from(byte & 0b1111 == code);
+            mask |= (high_nibble_matches | (low_nibble_matches << 1u8)) << byte_idx.wrapping_mul(2);
+        }
+        let word_start = word_idx.wrapping_mul(64);
+        while mask != 0 {
+            let pos = word_start
+                .wrapping_add(usize::try_from(mask.trailing_zeros()).expect("u32 fits in usize"));
+            positions.push(u32::try_from(pos).expect("sequence length is bounded by u32::MAX"));
+            // Clear one matching bit, so the loop runs exactly the original mask's
+            // number of set bits.
+            mask &= mask.wrapping_sub(1);
+        }
+    }
+    if let Some(&last_position) = positions.last() {
+        assert!(
+            last_position < u32::try_from(seq_len).expect("sequence length is bounded by u32::MAX"),
+            "candidate positions must be below the sequence length"
+        );
+    }
+    if is_reverse {
+        // Stored indices are ascending and all `< seq_len`; mapping to forward
+        // orientation and reversing yields ascending forward indices.
+        let seq_len_u32 = u32::try_from(seq_len).expect("sequence length is bounded by u32::MAX");
+        positions.reverse();
+        for pos in &mut positions {
+            *pos = seq_len_u32.saturating_sub(1).saturating_sub(*pos);
+        }
+    }
+    positions
+}
+
 /// Estimate per-group mod annotation capacity, clamped to sequence length.
 fn approximate_mod_data_len(
     mod_dists: &[u32],
@@ -517,6 +590,8 @@ where
             SeqToRefMap::try_from_raw_cigar(record.raw_cigar(), reference_start, seq_len_u32)?
         };
 
+        let mut candidate_cache: Vec<(u8, Vec<u32>)> = Vec::new();
+
         for ParsedMmGroup {
             mod_base,
             mod_strand,
@@ -527,10 +602,10 @@ where
         {
             // do we include bases with zero probabilities?
             let is_include_zero_prob = filter_mod_prob(&0);
+            let is_emit_zero_prob = is_include_zero_prob && is_implicit;
 
             // find real positions in the forward sequence
             let mut cur_mod_idx: usize = 0;
-            let mut dist_from_last_mod_base: u32 = 0;
 
             // declare vectors with an approximate with_capacity
             let mod_data_len_approx = approximate_mod_data_len(&mod_dists, is_implicit, seq_len)?;
@@ -546,68 +621,110 @@ where
                 (b'C', false) | (b'G', true) => Some(2),
                 (b'G', false) | (b'C', true) => Some(4),
                 (b'T' | b'U', false) | (b'A', true) => Some(8),
-                _ => None,
+                (b'N', _) => None,
+                _ => unreachable!("MM base was validated by mm_groups"),
             };
 
-            #[expect(
-                clippy::arithmetic_side_effects,
-                reason = "sequence indices are bounded; one counter is checked for overflow and the other is incremented only when below a ceiling"
-            )]
-            for cur_seq_idx in (0..seq_len).filter(|&forward_idx| {
-                if mod_base == b'N' {
-                    return true;
-                }
-                let Some(encoded_base) = encoded_mod_base else {
-                    return false;
-                };
-                let record_idx = if is_reverse {
-                    seq_len - 1 - forward_idx
-                } else {
-                    forward_idx
-                };
-                packed_seq.encoded_base(record_idx) == encoded_base
-            }) {
-                let is_seq_pos_pass: bool = filter_mod_pos(&cur_seq_idx)
+            // Positions (forward orientation, ascending) of every base that the MM
+            // distances of this group count over. Groups on the same base share them.
+            // BAM stores U on the same encoded base as T, so both can share candidates.
+            let candidates: Option<&[u32]> = if encoded_mod_base.is_none() {
+                // Every position is an N candidate, so use its index directly rather
+                // than allocating an identity vector for long reads.
+                None
+            } else {
+                let candidate_key = if mod_base == b'U' { b'T' } else { mod_base };
+                let cache_idx =
+                    if let Some(idx) = candidate_cache.iter().position(|x| x.0 == candidate_key) {
+                        idx
+                    } else {
+                        candidate_cache.push((
+                            candidate_key,
+                            mod_candidate_positions(
+                                packed_seq.encoded,
+                                seq_len,
+                                encoded_mod_base,
+                                is_reverse,
+                            ),
+                        ));
+                        candidate_cache.len().saturating_sub(1)
+                    };
+                Some(
+                    &candidate_cache
+                        .get(cache_idx)
+                        .expect("index was just found or pushed")
+                        .1,
+                )
+            };
+            let candidate_len = candidates.map_or(seq_len, <[u32]>::len);
+            let candidate_at = |idx: usize| -> u32 {
+                candidates.map_or_else(
+                    || u32::try_from(idx).expect("candidate index is below sequence length"),
+                    |candidate_positions| {
+                        *candidate_positions
+                            .get(idx)
+                            .expect("candidate index is below candidate count")
+                    },
+                )
+            };
+
+            let is_seq_pos_pass = |idx: usize| -> bool {
+                filter_mod_pos(&idx)
                     && (min_qual > 0).then(|| {
                         base_qual
-                            .get(cur_seq_idx)
+                            .get(idx)
                             .is_some_and(|x| *x >= min_qual && *x != 255u8)
-                    }) != Some(false);
-                if cur_mod_idx < mod_dists.len()
-                    && dist_from_last_mod_base
-                        == *mod_dists
-                            .get(cur_mod_idx)
-                            .expect("cur_mod_idx < mod_dists.len()")
-                {
-                    let prob = ml_tag
-                        .as_ref()
-                        .and_then(|tag| tag.get(num_mods_seen + cur_mod_idx))
-                        .ok_or_else(|| {
-                            Error::InvalidModProbs(
-                                "ML tag appears to be insufficiently long!".into(),
-                            )
-                        })?;
-                    if filter_mod_prob(&prob) && is_seq_pos_pass {
-                        modified_positions.push(cur_seq_idx);
-                        modified_probabilities.push(prob);
+                    }) != Some(false)
+            };
+
+            // Each MM distance says how many candidate bases to skip before the next
+            // base that has an ML probability. Skipped bases are unmodified in implicit
+            // mode and unknown in explicit mode, so we jump over them directly unless
+            // implicit zero-probability entries are being reported.
+            let mut cursor: usize = 0;
+            for &dist in &mod_dists {
+                let Some(target) = usize::try_from(dist)
+                    .ok()
+                    .and_then(|d| cursor.checked_add(d))
+                    .filter(|t| *t < candidate_len)
+                else {
+                    // ran out of candidate bases; reported as a count mismatch below
+                    break;
+                };
+                let cur_seq_idx =
+                    usize::try_from(candidate_at(target)).expect("u32 fits in supported usize");
+                if is_emit_zero_prob {
+                    for skipped_idx in cursor..target {
+                        let idx = usize::try_from(candidate_at(skipped_idx))
+                            .expect("u32 fits in supported usize");
+                        if is_seq_pos_pass(idx) {
+                            modified_positions.push(idx);
+                            modified_probabilities.push(0);
+                        }
                     }
-                    dist_from_last_mod_base = 0;
-                    cur_mod_idx += 1;
-                } else if cur_mod_idx < mod_dists.len()
-                    && dist_from_last_mod_base
-                        > *mod_dists
-                            .get(cur_mod_idx)
-                            .expect("cur_mod_idx < mod_dists.len()")
-                {
-                    return Err(Error::InvalidModCoords(String::from(
-                        "Problem with parsing distances in MM/ML data",
-                    )));
-                } else {
-                    if is_include_zero_prob && is_implicit && is_seq_pos_pass {
-                        modified_positions.push(cur_seq_idx);
+                }
+                let prob = ml_tag
+                    .as_ref()
+                    .zip(num_mods_seen.checked_add(cur_mod_idx))
+                    .and_then(|(tag, i)| tag.get(i))
+                    .ok_or_else(|| {
+                        Error::InvalidModProbs("ML tag appears to be insufficiently long!".into())
+                    })?;
+                if filter_mod_prob(&prob) && is_seq_pos_pass(cur_seq_idx) {
+                    modified_positions.push(cur_seq_idx);
+                    modified_probabilities.push(prob);
+                }
+                cursor = target.saturating_add(1);
+                cur_mod_idx = cur_mod_idx.saturating_add(1);
+            }
+            if is_emit_zero_prob && cur_mod_idx == mod_dists.len() {
+                for trailing_idx in cursor..candidate_len {
+                    let idx = usize::try_from(candidate_at(trailing_idx))
+                        .expect("u32 fits in supported usize");
+                    if is_seq_pos_pass(idx) {
+                        modified_positions.push(idx);
                         modified_probabilities.push(0);
                     }
-                    dist_from_last_mod_base += 1;
                 }
             }
 
@@ -1203,18 +1320,18 @@ mod mod_parse_tests {
         )
     }
 
-    fn create_mn_test_record(mn_seq_len: i32) -> Result<bam::Record, Error> {
+    fn create_mn_test_record(mn_tag: Aux<'_>) -> Result<bam::Record, Error> {
         let mut record = bam::Record::new();
         record.set(b"test_read", None, b"ACGT", &[30; 4]);
         record.push_aux(b"MM", Aux::String("C+m?,0;"))?;
         record.push_aux(b"ML", Aux::ArrayU8((&[200]).into()))?;
-        record.push_aux(b"MN", Aux::I32(mn_seq_len))?;
+        record.push_aux(b"MN", mn_tag)?;
         Ok(record)
     }
 
     #[test]
     fn nanalogue_mm_ml_parser_accepts_matching_mn_sequence_length() -> Result<(), Error> {
-        let record = create_mn_test_record(4)?;
+        let record = create_mn_test_record(Aux::I32(4))?;
 
         let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
 
@@ -1223,14 +1340,178 @@ mod mod_parse_tests {
     }
 
     #[test]
+    fn nanalogue_mm_ml_parser_accepts_all_integer_mn_types() -> Result<(), Error> {
+        for mn_tag in [
+            Aux::I8(4),
+            Aux::U8(4),
+            Aux::I16(4),
+            Aux::U16(4),
+            Aux::U32(4),
+        ] {
+            let record = create_mn_test_record(mn_tag)?;
+
+            let mods = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+
+            assert_eq!(mods.base_mods.len(), 1);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn nanalogue_mm_ml_parser_rejects_mismatched_mn_sequence_length() -> Result<(), Error> {
-        let record = create_mn_test_record(5)?;
+        let record = create_mn_test_record(Aux::I32(5))?;
 
         let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
 
         assert!(matches!(result, Err(Error::InvalidModCoords(message))
             if message == "MN tag sequence length 5 does not match current sequence length 4"));
         Ok(())
+    }
+
+    #[test]
+    fn nanalogue_mm_ml_parser_rejects_noninteger_mn_tag() -> Result<(), Error> {
+        let record = create_mn_test_record(Aux::String("4"))?;
+
+        let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
+
+        assert!(matches!(result, Err(Error::InvalidModCoords(message))
+            if message == "MN tag must contain an integer sequence length"));
+        Ok(())
+    }
+
+    #[test]
+    fn nanalogue_mm_ml_parser_rejects_oversized_record_capacity() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        record.set(b"oversized_record", None, b"A", &[30]);
+        let payload = vec![0; usize::try_from(MAX_RECORD_CAPACITY_BYTES)?];
+        record.push_aux(b"ZZ", Aux::ArrayU8((&payload).into()))?;
+        assert!(record.inner().m_data > MAX_RECORD_CAPACITY_BYTES);
+
+        let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
+
+        assert!(matches!(result, Err(Error::InvalidState(message))
+        if message == format!(
+            "MM ML parsing record capacity limit exceeded: {MAX_RECORD_CAPACITY_BYTES}"
+        )));
+        Ok(())
+    }
+
+    #[test]
+    fn nanalogue_mm_ml_parser_rejects_sequence_over_limit() -> Result<(), Error> {
+        let seq_len = usize::try_from(MAX_SEQ_LEN)? + 1;
+        let sequence = vec![b'C'; seq_len];
+        let qualities = vec![30; seq_len];
+        let mut record = bam::Record::new();
+        record.set(b"oversized_sequence", None, &sequence, &qualities);
+        record.push_aux(b"MM", Aux::String("C+m;"))?;
+
+        let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
+
+        assert!(matches!(result, Err(Error::InvalidSeqLength(message))
+            if message == format!("sequence length exceeds {MAX_SEQ_LEN}")));
+        Ok(())
+    }
+
+    /// Packs ASCII bases into BAM's 4-bit representation, high nibble first.
+    fn pack_bases(seq: &[u8]) -> Vec<u8> {
+        let code = |b: &u8| -> u8 {
+            match *b {
+                b'A' => 1,
+                b'C' => 2,
+                b'G' => 4,
+                b'T' => 8,
+                _ => 15,
+            }
+        };
+        seq.chunks(2)
+            .map(|pair| {
+                let hi = pair.first().map_or(0, code);
+                let lo = pair.get(1).map_or(0, code);
+                (hi << 4u8) | lo
+            })
+            .collect()
+    }
+
+    /// Straightforward per-base reference for [`mod_candidate_positions`].
+    fn naive_candidates(seq: &[u8], mod_base: u8, is_reverse: bool) -> Vec<u32> {
+        let complement = |b: u8| match b {
+            b'A' => b'T',
+            b'C' => b'G',
+            b'G' => b'C',
+            b'T' => b'A',
+            other => other,
+        };
+        let forward: Vec<u8> = if is_reverse {
+            seq.iter().rev().map(|b| complement(*b)).collect()
+        } else {
+            seq.to_vec()
+        };
+        forward
+            .iter()
+            .enumerate()
+            .filter(|&(_, b)| mod_base == b'N' || *b == mod_base)
+            .map(|(i, _)| u32::try_from(i).expect("test sequences fit in u32"))
+            .collect()
+    }
+
+    #[test]
+    fn mod_candidate_positions_matches_naive_scan() {
+        let pattern = b"ACGTTGCANCCATGAGT";
+        for len in [1usize, 2, 3, 63, 64, 65, 127, 128, 129, 200, 201] {
+            let seq: Vec<u8> = pattern.iter().copied().cycle().take(len).collect();
+            let packed = pack_bases(&seq);
+            for mod_base in *b"ACGTN" {
+                for is_reverse in [false, true] {
+                    let encoded = match (mod_base, is_reverse) {
+                        (b'A', false) | (b'T', true) => Some(1),
+                        (b'C', false) | (b'G', true) => Some(2),
+                        (b'G', false) | (b'C', true) => Some(4),
+                        (b'T', false) | (b'A', true) => Some(8),
+                        _ => None,
+                    };
+                    assert_eq!(
+                        mod_candidate_positions(&packed, len, encoded, is_reverse),
+                        naive_candidates(&seq, mod_base, is_reverse),
+                        "len {len}, base {}, reverse {is_reverse}",
+                        char::from(mod_base)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "sequence length must be between 1 and MAX_SEQ_LEN")]
+    fn mod_candidate_positions_rejects_zero_length() {
+        drop(mod_candidate_positions(&[], 0, Some(1), false));
+    }
+
+    #[test]
+    #[should_panic(expected = "packed sequence must contain two bases per byte")]
+    fn mod_candidate_positions_rejects_inconsistent_packed_length() {
+        drop(mod_candidate_positions(&[], 1, Some(1), false));
+    }
+
+    #[test]
+    fn mod_candidate_positions_handles_odd_length_padding_nibble() {
+        // "C" followed by the padding nibble of an odd-length sequence.
+        let packed = vec![0b0010_0000u8];
+        assert_eq!(mod_candidate_positions(&packed, 1, Some(2), false), vec![0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "encoded modification base must be A, C, G, or T")]
+    fn mod_candidate_positions_rejects_noncanonical_bam_nibble() {
+        drop(mod_candidate_positions(&[0x10], 1, Some(0), false));
+    }
+
+    #[test]
+    fn mod_candidate_positions_none_matches_every_position() {
+        let packed = pack_bases(b"ACGT");
+        assert_eq!(
+            mod_candidate_positions(&packed, 4, None, false),
+            vec![0, 1, 2, 3]
+        );
     }
 
     #[test]
