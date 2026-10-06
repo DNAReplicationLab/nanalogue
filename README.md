@@ -401,7 +401,7 @@ align_len_n50   48
 seq_len_mean    34
 seq_len_max     48
 seq_len_min     8
-seq_len_median  48
+seq_len_median  40
 seq_len_n50     48
 ```
 

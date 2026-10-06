@@ -28,7 +28,7 @@ where
     D: IntoIterator<Item = Result<Rc<bam::Record>, rust_htslib::errors::Error>>,
 {
     // If the detailed options are not set, then we report a simple mod count.
-    // For this, we set threshold to 128 i.e. 0.5.
+    // For this, we set the ML threshold to 128 i.e. probability >= 0.5020.
     if detailed.is_none() {
         match mods.mod_prob_filter {
             ref mut v @ ThresholdState::GtEq(w) => *v = ThresholdState::GtEq(u8::max(128, w)),
