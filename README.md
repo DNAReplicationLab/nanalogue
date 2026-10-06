@@ -317,11 +317,12 @@ The viewer uses this positional syntax:
 nanalogue_bam_viewer <BAM> <CONTIG:START> [MOD_TYPE [WINDOW_SIZE individual]]
 ```
 
-`BAM` must be a local BAM with an accessible index. `START` is zero-based,
-although displayed coordinates are one-based. The terminal width determines
-the displayed genomic window, up to 200 bases. Table mode shows every alignment
-that overlaps the window. Individual mode shows only reads whose alignments span
-the entire window.
+`BAM` must be a local BAM with an accessible index. Input and displayed
+coordinates are zero-based. Displayed ranges and snapshot filename ranges are
+start-inclusive and end-exclusive. The terminal width determines the displayed
+genomic window, up to 200 bases. Table mode shows every alignment that overlaps
+the window. Individual mode shows only reads whose alignments span the entire
+window.
 `MOD_TYPE` is an optional single-letter or numeric ChEBI modification code. For
 example, table mode can show `m` calls at `chr1:1000`:
 

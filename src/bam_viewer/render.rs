@@ -239,7 +239,7 @@ pub(super) fn build_frame(
         let status = format!(
             " {path}  {}:{}-{}  reads {}  row {}{mod_status}",
             viewer.target_name(),
-            viewer.viewport.start.saturating_add(1),
+            viewer.viewport.start,
             end,
             records.len(),
             viewer.viewport.read_offset.saturating_add(1)
@@ -255,8 +255,7 @@ pub(super) fn build_frame(
             let coordinate = viewer
                 .viewport
                 .start
-                .saturating_add(u32::try_from(column).unwrap_or(u32::MAX))
-                .saturating_add(1);
+                .saturating_add(u32::try_from(column).unwrap_or(u32::MAX));
             ruler.push(if coordinate.is_multiple_of(10) {
                 '|'
             } else {

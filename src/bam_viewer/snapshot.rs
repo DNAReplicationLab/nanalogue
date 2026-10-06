@@ -86,7 +86,7 @@ pub(super) fn snapshot_prefix(viewer: &Viewer) -> String {
         || String::from("unknown.bam"),
         |name| name.to_string_lossy().into_owned(),
     );
-    let displayed_start = viewer.viewport.start.saturating_add(1);
+    let displayed_start = viewer.viewport.start;
     let displayed_end = viewer
         .viewport
         .start

@@ -1372,7 +1372,7 @@ mod tests {
         let prefix = snapshot_prefix(&viewer);
         assert_eq!(
             prefix,
-            "nanalogue-01234567-bad_name_.bam-dummyIII-24-30-row-1"
+            "nanalogue-01234567-bad_name_.bam-dummyIII-23-30-row-1"
         );
         assert!(!prefix.contains('/'));
 
@@ -1776,9 +1776,9 @@ mod tests {
             DEMO_GOLDEN_ROWS,
             FrameFooter::Controls,
         );
-        assert!(baseline_frame.contains("contig_00000:366-436  reads 187  row 1  mods m>=0.5"));
+        assert!(baseline_frame.contains("contig_00000:365-436  reads 187  row 1  mods m>=0.5"));
         assert!(baseline_frame.contains("read id"));
-        assert!(baseline_frame.contains("....|.........|.........|"));
+        assert!(baseline_frame.contains(".....|.........|.........|"));
         assert!(baseline_frame.contains("\x1b[1;4m"));
 
         assert!(!handle_demo_key(&mut viewer, KeyCode::Char('j'), &records));
@@ -1791,8 +1791,8 @@ mod tests {
             DEMO_GOLDEN_ROWS,
             FrameFooter::Controls,
         );
-        assert!(after_j_frame.contains("contig_00000:366-436  reads 187  row 2  mods m>=0.5"));
-        assert!(after_j_frame.contains("....|.........|.........|"));
+        assert!(after_j_frame.contains("contig_00000:365-436  reads 187  row 2  mods m>=0.5"));
+        assert!(after_j_frame.contains(".....|.........|.........|"));
         assert!(after_j_frame.contains("\x1b[1;4m"));
         let after_j_viewport = render_frames_as_ansi(
             [baseline_frame.as_str(), after_j_frame.as_str()],
@@ -1856,8 +1856,8 @@ mod tests {
             DEMO_GOLDEN_ROWS,
             FrameFooter::Controls,
         );
-        assert!(page_up_frame.contains("contig_00000:366-436  reads 187  row 156  mods m>=0.5"));
-        assert!(page_up_frame.contains("....|.........|.........|"));
+        assert!(page_up_frame.contains("contig_00000:365-436  reads 187  row 156  mods m>=0.5"));
+        assert!(page_up_frame.contains(".....|.........|.........|"));
         assert!(page_up_frame.contains("\x1b[1;4m"));
         let end_page_up_viewport = render_frames_as_ansi(
             [end_frame.as_str(), page_up_frame.as_str()],
@@ -2902,7 +2902,7 @@ mod tests {
 
         let default_frame =
             build_individual_frame(&viewer, &profiles, 80, 24, FrameFooter::Controls);
-        assert!(default_frame.contains("contig_00000:30001"));
+        assert!(default_frame.contains("contig_00000:30000"));
         assert!(default_frame.contains("mods T win 300"));
         viewer.mod_type = Some(ModChar::from_str("472232").expect("numeric modification code"));
         let numeric_status = individual_status(&viewer, &profiles, 80);
@@ -3018,8 +3018,8 @@ mod tests {
             24,
             FrameFooter::Controls,
         );
-        assert!(second_contig_frame.contains("contig_00001:30001"));
-        assert!(!second_contig_frame.contains("contig_000:30001"));
+        assert!(second_contig_frame.contains("contig_00001:30000"));
+        assert!(!second_contig_frame.contains("contig_000:30000"));
         Ok(())
     }
 

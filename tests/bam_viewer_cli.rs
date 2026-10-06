@@ -76,8 +76,12 @@ mod tests {
             "help should begin with usage; got: {stdout}"
         );
         assert!(
-            stdout.contains("START is zero-based; displayed coordinates are one-based."),
+            stdout.contains("Input and displayed coordinates are zero-based."),
             "help should explain the position convention; got: {stdout}"
+        );
+        assert!(
+            stdout.contains("Displayed ranges are start-inclusive and end-exclusive."),
+            "help should explain displayed range bounds; got: {stdout}"
         );
     }
 
@@ -673,10 +677,10 @@ mod tests {
 
         let text = terminal_text(&session.output);
         let initial_position = text
-            .find("dummyI:1-10")
+            .find("dummyI:0-10")
             .expect("initial position should draw");
         let moved_position = text
-            .find("dummyI:11-20")
+            .find("dummyI:10-20")
             .expect("Right should navigate one genomic window");
         assert!(
             initial_position < moved_position,

@@ -12,7 +12,8 @@ use std::{
 /// Usage, display conventions, and controls shown for help and argument errors.
 pub(super) const USAGE: &str = concat!(
     "Usage: nanalogue_bam_viewer <BAM> <CONTIG:START> [MOD_TYPE [WINDOW_SIZE individual]]\n",
-    "START is zero-based; displayed coordinates are one-based.\n",
+    "Input and displayed coordinates are zero-based.\n",
+    "Displayed ranges are start-inclusive and end-exclusive.\n",
     "The end coordinate is selected from the terminal width, up to 200 bp.\n",
     "MOD_TYPE is a letter or numeric ChEBI code; calls with probability >= 0.5 are ",
     "bold and underlined.\n",

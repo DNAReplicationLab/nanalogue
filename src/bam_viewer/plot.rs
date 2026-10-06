@@ -332,9 +332,7 @@ fn plot_ruler(viewer: &Viewer, profile: &ReadModProfile, plot_cols: usize) -> (S
     let mut labels = vec![' '; plot_cols.saturating_add(5)];
     let mut previous_coordinate = None;
     for column in (0..plot_cols).step_by(10) {
-        let Some(coordinate) = first_base_for_column(profile, column, plot_cols)
-            .map(|position| position.saturating_add(1))
-        else {
+        let Some(coordinate) = first_base_for_column(profile, column, plot_cols) else {
             continue;
         };
         if previous_coordinate == Some(coordinate) {
@@ -418,7 +416,7 @@ pub(super) fn individual_status(
     let read_number = selected.map_or(0, |_profile| viewer.viewport.read_offset.saturating_add(1));
     let middle = format!(
         ":{}-{end} reads {} read {read_number}/{} ",
-        viewer.viewport.start.saturating_add(1),
+        viewer.viewport.start,
         profiles.len(),
         profiles.len()
     );
