@@ -15,9 +15,8 @@ use std::rc::Rc;
 )]
 /// Receives a heap of numbers and calculates statistics
 /// (count, mean, longest, shortest, median, N50).
-/// We assume the heap is long enough that we use approximate
-/// formulae for e.g. the median. We assume there is enough read-to-read
-/// variation that integer precision is ok for these quantities.
+/// Integer division is used for the mean and for the median of an even-sized
+/// input, so fractional base pairs are rounded down.
 ///
 /// # Panics
 /// Should not panic as heap size is not expected to exceed `u64::MAX` (~2^64),
@@ -42,15 +41,12 @@ fn get_stats_from_heap(
 
         running_total_length += v;
 
-        // In both median and N50 calculations, we assume lots of reads
-        // and a continuous distribution. If not, the answers can be slightly
-        // different... for example, for the median, technically speaking,
-        // if the number of reads is even, we are supposed to take the mean
-        // of the two lengths in the middle of the pack. We don't do this as
-        // we assume lots of reads so there's no point in making such an accurate
-        // calculation.
         if median.is_none() && counter == heap_size.div_ceil(2).saturating_sub(1) {
-            median = Some(v);
+            median = Some(if heap_size.is_multiple_of(2) {
+                input.peek().map_or(v, |next| v.midpoint(*next))
+            } else {
+                v
+            });
         }
 
         if n50.is_none() && running_total_length >= total_length.div_ceil(2) {
@@ -206,7 +202,8 @@ mod tests {
             ("empty", &[], 0),
             ("singleton", &[10], 10),
             ("odd", &[30, 20, 10], 20),
-            ("even", &[40, 30, 20, 10], 30),
+            ("even", &[40, 30, 20, 10], 25),
+            ("even rounds down", &[13_410, 12_655], 13_032),
             ("repeated", &[8, 8, 8, 8], 8),
         ];
 
@@ -266,7 +263,7 @@ mod tests {
         seq_len_mean	34
         seq_len_max	48
         seq_len_min	8
-        seq_len_median	48
+        seq_len_median	40
         seq_len_n50	48
 ",
         );

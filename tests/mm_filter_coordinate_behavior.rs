@@ -253,4 +253,24 @@ mod tests {
         assert!(matches!(probability_error, Error::InvalidModProbs(message)
                 if message == "MM and ML tag lengths do not match!"));
     }
+
+    #[test]
+    fn implicit_mod_tags_left_after_hard_clipping_report_count_mismatch() {
+        let mut record = Record::new();
+        let cigar = CigarString::from(vec![Cigar::Match(7), Cigar::HardClip(1)]);
+        record.set(b"hard_clipped_mod_read", Some(&cigar), b"CCCCCCC", &[30; 7]);
+        record.set_flags(0);
+        record.set_tid(0);
+        record.set_pos(10);
+        add_mod_tags(
+            &mut record,
+            "C+m.,0,0,0,0,0,0,0,0;",
+            &[200, 200, 200, 200, 200, 200, 200, 200],
+        );
+
+        let error = nanalogue_mm_ml_parser(&record, |_| true, |_| true, |_, _, _| true, 0)
+            .expect_err("eight C modifications cannot fit in seven retained C bases");
+        assert!(matches!(error, Error::InvalidModCoords(message)
+            if message == "Problem with parsing MM/ML data, counts do not match 7 != 8"));
+    }
 }

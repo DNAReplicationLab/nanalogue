@@ -97,7 +97,6 @@ jobs:
           docker images | grep dockerofsat/nanalogue
 
       - name: Log in to Docker Hub
-        if: inputs.dry_run != true
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: dockerofsat

@@ -528,8 +528,9 @@ pub struct InputMods<S: TagState + Args + FromArgMatches + Default> {
     /// are in this range e.g. "0.4,0.6" rejects 0.4 <= p <= 0.6.
     /// You can use this to reject 'weak' modification calls before analysis
     /// i.e. those with probabilities close to 0.5.
-    /// NOTE: (1) Whether this filtration is applied or not, mods < 0.5
-    /// are considered unmodified and >= 0.5 are considered modified by our program.
+    /// NOTE: (1) Whether this filtration is applied or not, ML values below 128
+    /// are considered unmodified and values >= 128 (probability >= 0.5020) are
+    /// considered modified by our program.
     /// (2) mod probabilities are stored as a number from 0-255 in the modBAM format,
     /// so we internally convert 0.0-1.0 to 0-255. Default: reject nothing.
     #[clap(long, value_parser=ThresholdState::from_str_ordpair_fraction, default_value = "")]
