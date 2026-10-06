@@ -18,12 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generate non-zero MM distances and omit their corresponding ML entries.
 - Added the public `mm_groups`/`ParsedMmGroup` MM-tag parser, resource-limit
   constants, and reusable input-validation helpers.
+- Added reusable MM/ML parser and end-to-end CLI benchmarks with deterministic
+  ModBAM fixtures, cache controls, baseline comparisons, and JSON results.
 
 ### Changed
 - Sped up modification parsing by scanning BAM's packed sequence directly,
   parsing MM distances without intermediate strings, flattening stored calls,
-  and using a sparse CIGAR-segment coordinate map. Parser-only benchmarks for
-  the direct MM parser reduced long-read BAM viewer fetch time by 14-20%.
+  caching candidate positions, and using a sparse CIGAR-segment coordinate map.
+  End-to-end benchmarks improved representative sparse long-read commands by
+  more than 2×, with gains varying by read and modification structure.
 - Sped up dense, overlapping `window-dens` and `window-grad` workloads by
   reusing rolling reference-coordinate and base-quality calculations. Window
   `basecall_qual` values can differ by one Phred unit at rounding boundaries
