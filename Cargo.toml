@@ -1,6 +1,6 @@
 [package]
 name = "nanalogue"
-version = "0.1.11"
+version = "0.2.0"
 edition = "2024"
 autobenches = false
 description = "BAM/Mod BAM parsing and analysis tool with a single-molecule focus"
