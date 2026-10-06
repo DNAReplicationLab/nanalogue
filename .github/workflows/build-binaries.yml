@@ -184,6 +184,9 @@ jobs:
           CFLAGS_x86_64_unknown_linux_gnu: >-
             -DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI
             -DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ
+          CFLAGS_x86_64_unknown_linux_musl: >-
+            -DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_AVX512VNNI
+            -DLIBDEFLATE_ASSEMBLER_DOES_NOT_SUPPORT_VPCLMULQDQ
         run: cargo zigbuild --release --target "$TARGET" --bins
 
       - name: Package binaries
