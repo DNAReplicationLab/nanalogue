@@ -146,6 +146,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Docker Hub so invalid release credentials fail before a real push.
 - Updated the locked networking dependencies to `h2` 0.4.16, `rustls` 0.23.45,
   and `rustls-webpki` 0.103.15 to address security advisories.
+- Updated locked `event-listener` from 5.4.1 to 5.4.2 to address
+  `RUSTSEC-2026-0221`, and replaced the yanked `chacha20` 0.10.0 with 0.10.2.
 
 ## [0.1.11] - 2026-05-16
 
