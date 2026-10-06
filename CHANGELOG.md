@@ -7,10 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-06
+
 ### Added
 - Added CRAM output to `nanalogue_sim_bam`. The simulator now selects BAM or
   CRAM from the output extension and creates the corresponding BAI or CRAI;
-  CRAM 3.1 output uses an external indexed FASTA reference. The public
+  CRAM 3.1 output uses a generated external FASTA reference and FAI. The public
   `write_cram_denovo` API and detailed simulator CLI configuration help are
   also new.
 - Added `mm_suffix` and `drop` simulation options. Simulated MM groups can use
@@ -45,8 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   modification types and annotations, MM/ML data, identifiers, paths, regions,
   sequencing-summary files, and `peek` records. This includes a maximum of 20
   modification groups per record and stricter ASCII/character rules for read
-  IDs, contigs, and paths. `find-modified-reads`, table/window commands, and
-  `peek` now error on zero input records, including when applicable filters
+  IDs, contigs, and paths; displayed user-controlled error context is truncated
+  after 300 Unicode characters. `find-modified-reads`, table/window commands,
+  and `peek` now error on zero input records, including when applicable filters
   remove every record. `read-info` continues to return an empty JSON array, and
   `read-stats` returns zero-valued summaries. TSV/DataFrame window output also
   errors when records are present but no windows are emitted.
@@ -55,15 +58,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   script to require HTTPS and TLS 1.2 when using curl (and HTTPS when using
   wget).
 - Sequencing-summary parsing now uses bounded plain TSV input rather than CSV
-  quoting rules. Comments are accepted only before the header.
-- Simulator output paths must end in `.bam` or `.cram`, and simulated unmapped
-  reads now use MAPQ 0 rather than 255.
+  quoting rules. Comments are accepted only before the header, and supplied
+  summaries must contain a header and at least one read row.
+- Simulator output paths must end case-insensitively in `.bam` or `.cram`, and
+  simulated unmapped reads now use MAPQ 0 rather than 255.
 - Breaking for library users: many coordinates and lengths now use bounded
   `u32` types in `InputBam`, `InputWindowing`, `GenomicRegion`, simulation
-  configuration, alignments, and modification annotations. The crate now
-  exposes its own `Bed3`/`StrandedBed3` types and `GenomicBed3` aliases;
-  interval constructors are fallible and reject reversed coordinates.
-  `GenomicRegion` and `AlignmentInfo` no longer implement `Default`.
+  configuration and helpers, `BamPreFilt`, `OrdPair`, alignments, modification
+  annotations, and relevant error payloads. Conversion from `&GenomicRegion`
+  to `bam::FetchDefinition` is now infallible (`From` rather than `TryFrom`).
+  The crate now exposes its own `Bed3`/`StrandedBed3` types and `GenomicBed3`
+  aliases; interval constructors are fallible and reject reversed coordinates.
+  `GenomicRegion` and `AlignmentInfo` no longer implement `Default`. Only
+  32-bit and 64-bit targets are supported.
 - Breaking for library users: `FiberAnnotation` is now an 8-byte packed value
   representing single query/reference positions rather than intervals; its old
   end, length, and extra-column fields were removed. Construct it with
@@ -87,6 +94,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Breaking for library users: external errors wrapped by `Error` now use boxed
   payloads, affecting direct construction and nested pattern matching;
   `Error::CsvError` was removed.
+- (Project tooling, not code) Expanded locked and unlocked dependency CI to
+  macOS and both default/all-feature builds, strengthened repository guardrails,
+  and updated the pinned Zig release toolchain with download verification and
+  a libdeflate compatibility workaround.
 
 ### Removed
 - Removed the public `get_u8_tag` and
@@ -121,14 +132,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed simulator validation and cleanup: empty window/modification schedules
   are rejected, failed temporary simulations remove their directories, and
   aliased or hard-linked output paths cannot overwrite one another.
+- BAM/CRAM writers now reject unusable index paths and out-of-range CRAM thread
+  counts before creating alignment output.
+- Explicitly flushed subcommand output and propagated flush failures, preventing
+  buffered-output errors from being silently lost.
 - Read-ID filter files now permit comments only before the first ID and reject
   blank/whitespace-only lines and malformed IDs.
 - Fixed HTTPS certificate discovery on macOS by checking the standard macOS
   certificate bundle path.
 - (Project tooling, not code) Fixed `install.sh` to use the ARM release archive
   name produced by the release workflow.
-- Updated the locked TLS stack to `rustls` 0.23.45 and `rustls-webpki` 0.103.15
-  as a security dependency update.
+- Updated the locked networking dependencies to `h2` 0.4.16, `rustls` 0.23.45,
+  and `rustls-webpki` 0.103.15 to address security advisories.
 
 ## [0.1.11] - 2026-05-16
 
