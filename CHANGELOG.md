@@ -113,7 +113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   oversized headers, gaps above 128,000,000 bases, zero-length sequences,
   mismatched MM/ML counts, MN tags that disagree with sequence length, and
   mapped reads without a CIGAR. Canonical `U` is handled as BAM-encoded `T`,
-  and padding (`P`) CIGAR operations are supported.
+  and MM/ML parsing handles padding (`P`) CIGAR operations without panicking.
 - Enforced sorted query coordinates and strictly monotonic mapped reference
   coordinates in modification annotations, including during deserialization,
   so reference filtering and window bounds cannot silently use invalid order.
@@ -142,8 +142,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   certificate bundle path.
 - (Project tooling, not code) Fixed `install.sh` to use the ARM release archive
   name produced by the release workflow.
+- (GitHub workflow, not code) Docker publication dry runs now authenticate with
+  Docker Hub so invalid release credentials fail before a real push.
 - Updated the locked networking dependencies to `h2` 0.4.16, `rustls` 0.23.45,
   and `rustls-webpki` 0.103.15 to address security advisories.
+- Updated locked `event-listener` from 5.4.1 to 5.4.2 to address
+  `RUSTSEC-2026-0221`, and replaced the yanked `chacha20` 0.10.0 with 0.10.2.
 
 ## [0.1.11] - 2026-05-16
 
