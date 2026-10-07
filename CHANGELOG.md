@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   appends selected alignments to a session BED6 file
 
 ### Changed
+- BAM viewer displayed coordinates are now zero-based, matching input
+  coordinates; displayed ranges are start-inclusive and end-exclusive
 - BAM viewer table mode now shows every overlapping alignment, using spaces for
   positions before a read starts or after it ends
 - BAM viewer horizontal navigation reuses whole-read modification data for

@@ -2846,6 +2846,33 @@ mod tests {
     }
 
     #[test]
+    fn individual_status_respects_contig_end() -> Result<(), Box<dyn Error>> {
+        let path = write_individual_semantics_bam()?;
+        let mut viewer = individual_semantics_viewer(&path)?;
+        viewer.window_len = 20;
+        for (start, expected_range, expected_reads) in [
+            (5, "first:5-25", 3),
+            (31, "first:31-50", 0),
+            (49, "first:49-50", 0),
+        ] {
+            let _changed = viewer.go_to(&InitialPosition {
+                contig: String::from("first"),
+                start,
+            })?;
+            let profiles = viewer.visible_profiles(NonZeroU32::new(3).expect("non-zero"))?;
+            assert_eq!(profiles.len(), expected_reads);
+            assert!(individual_status(&viewer, &profiles, 80).contains(expected_range));
+            let frame = build_individual_frame(&viewer, &profiles, 80, 24, FrameFooter::Controls);
+            let screen = AnsiScreen::parse(&frame, 80, 24)?;
+            let status = (0..80)
+                .map(|column| screen.cell(1, column).expect("status cell").character)
+                .collect::<String>();
+            assert!(status.contains(expected_range), "{status}");
+        }
+        remove_viewer_test_bam(&path)
+    }
+
+    #[test]
     fn individual_goto_resets_selection_and_fetches_target() -> Result<(), Box<dyn Error>> {
         let path = write_individual_semantics_bam()?;
         let mut viewer = individual_semantics_viewer(&path)?;
