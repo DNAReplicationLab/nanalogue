@@ -1,5 +1,5 @@
 //! `GenomicRegion` struct for representing genomic coordinates
-//! Handles parsing of genomic regions from standard string formats
+//! Handles parsing of genomic regions with zero-based, end-exclusive coordinates.
 
 use super::ord_pair::OrdPair;
 use crate::{
@@ -36,7 +36,12 @@ impl TryFrom<GenomicRegionShadow> for GenomicRegion {
     }
 }
 
-/// Obtains genomic region from a string with the standard region format of name[:begin[-end]].
+/// Obtains a genomic region from `name`, `name:begin-end`, or `name:begin-`.
+/// Coordinates are zero-based and end-exclusive, unlike samtools' one-based,
+/// inclusive region coordinates. For example, `chr1:0-100` selects the first
+/// 100 bases, equivalent to samtools region `chr1:1-100`.
+/// A bare contig name selects the whole contig; `chr1:100-` selects from
+/// zero-based position 100 to the end of the contig.
 ///
 /// ```
 /// use nanalogue_core::GenomicRegion;

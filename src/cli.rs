@@ -242,6 +242,10 @@ pub struct InputBam {
     /// of selecting such reads will be faster. If you are using standard input
     /// as your input e.g. you are piping in the output from samtools, then
     /// you cannot use an index as a BAM filename is not available.
+    /// Formats: name, name:begin-end, or name:begin- (to the contig's end).
+    /// Coordinates are zero-based and end-exclusive.
+    /// For example, chr1:0-100 selects the first 100 bases, equivalent to
+    /// samtools region chr1:1-100 (samtools uses one-based, inclusive coordinates).
     #[clap(long)]
     #[builder(field(
         ty = "String",
@@ -550,7 +554,11 @@ pub struct InputMods<S: TagState + Args + FromArgMatches + Default> {
     /// is not available are all rejected if this is non-zero.
     #[clap(long, default_value_t)]
     pub base_qual_filter_mod: u8,
-    /// Only keep modification data from this region
+    /// Only keep modification data from this region.
+    /// Formats: name, name:begin-end, or name:begin- (to the contig's end).
+    /// Coordinates are zero-based and end-exclusive.
+    /// For example, chr1:0-100 selects the first 100 bases, equivalent to
+    /// samtools region chr1:1-100 (samtools uses one-based, inclusive coordinates).
     #[clap(long)]
     #[builder(field(
         ty = "String",

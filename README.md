@@ -268,6 +268,12 @@ restrict by one or several read ids (`--read-id` or `--read-id-list`),
 a specific mapping type (`--read-filter`), filter modification data suitably
 (`--mod-prob-filter`) etc.
 
+Both `--region` and `--mod-region` accept `name`, `name:begin-end`, or `name:begin-`
+with **zero-based, end-exclusive** coordinates. For example, `chr1:0-100` selects the first 100 bases,
+equivalent to `chr1:1-100` in samtools, whose region coordinates are one-based and
+inclusive. A bare contig name selects the whole contig, and `chr1:100-` selects
+from zero-based position 100 to the end of the contig.
+
 ## Inputs
 
 The input can be a local path, a URL, or `-` for standard input i.e. if you want
