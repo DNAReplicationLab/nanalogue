@@ -455,7 +455,7 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
         "No windowed data found. This could mean \
 no records were found (BAM file empty or filtering removed records)\n\
 or no mods were found or mods were found but reads are all shorter \
-than the window size chosen so no mods could not be windowed\n\
+than the window size chosen so no mods could be windowed\n\
 or some other possibility.",
     )?;
 
