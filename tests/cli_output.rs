@@ -40,6 +40,65 @@ mod tests {
             .expect("nanalogue executable should run")
     }
 
+    /// Decimal equality is inclusive despite density subtraction rounding, but
+    /// a threshold more than one f32 epsilon above the range still excludes it.
+    #[rstest::rstest]
+    #[case(6, 7, "0.1", true)]
+    #[case(4, 9, "0.5", true)]
+    #[case(1, 7, "0.6", true)]
+    #[case(1, 9, "0.8", true)]
+    #[case(1, 9, "0.799999", true)]
+    #[case(1, 9, "0.800001", false)]
+    #[case(4, 4, "0", true)]
+    #[case(4, 4, "0.00000011920928955078125", true)]
+    #[case(4, 4, "0.0000002384185791015625", false)]
+    fn density_range_includes_rounding_boundary(
+        #[case] low_count: usize,
+        #[case] high_count: usize,
+        #[case] threshold: &str,
+        #[case] expected_match: bool,
+    ) {
+        let probabilities = [low_count, high_count]
+            .into_iter()
+            .flat_map(|count| (0..10).map(move |index| if index < count { "255" } else { "0" }))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sam = format!(
+            "@HD\tVN:1.6\tSO:unsorted\n\
+             @SQ\tSN:ctg1\tLN:100\n\
+             boundary\t0\tctg1\t11\t60\t20M\t*\t0\t0\t{}\t{}\tMM:Z:C+m,{};\tML:B:C,{probabilities}\n",
+            "C".repeat(20),
+            "I".repeat(20),
+            vec!["0"; 20].join(","),
+        );
+        let output = run_nanalogue_with_stdin(
+            [
+                "find-modified-reads",
+                "dens-range-above",
+                "-",
+                "--win",
+                "10",
+                "--step",
+                "10",
+                "--tag",
+                "m",
+                "--min-range",
+                threshold,
+            ],
+            sam.as_bytes(),
+        );
+        assert!(
+            output.status.success(),
+            "density-range command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).expect("read IDs should be UTF-8"),
+            if expected_match { "boundary\n" } else { "" },
+            "counts {low_count} and {high_count}, threshold {threshold}"
+        );
+    }
+
     /// Writes the smallest mapped SAM record whose sequence field is `*`.
     /// The returned directory is unique so parallel tests cannot share a fixture.
     fn zero_length_sam_fixture() -> (std::path::PathBuf, std::path::PathBuf) {
