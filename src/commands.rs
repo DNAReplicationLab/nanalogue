@@ -573,15 +573,18 @@ where
                 &mods,
                 analysis::threshold_and_mean,
                 |x| {
-                    x.iter()
+                    let range = x
+                        .iter()
                         .map(F32Bw0and1::val)
                         .reduce(f32::max)
                         .unwrap_or(0.0)
                         - x.iter()
                             .map(F32Bw0and1::val)
                             .reduce(f32::min)
-                            .unwrap_or(0.0)
-                        >= min_range.val()
+                            .unwrap_or(0.0);
+                    let threshold = min_range.val();
+                    // Rounded densities can put an equal range just below the threshold.
+                    (threshold - f32::EPSILON..=1.0).contains(&range)
                 },
             )
         }
