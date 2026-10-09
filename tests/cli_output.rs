@@ -42,6 +42,7 @@ mod tests {
 
     /// Decimal equality is inclusive despite density subtraction rounding, but
     /// a threshold more than one f32 epsilon above the range still excludes it.
+    /// A positive threshold must exclude identical densities, even below epsilon.
     #[rstest::rstest]
     #[case(6, 7, "0.1", true)]
     #[case(4, 9, "0.5", true)]
@@ -50,8 +51,13 @@ mod tests {
     #[case(1, 9, "0.799999", true)]
     #[case(1, 9, "0.800001", false)]
     #[case(4, 4, "0", true)]
-    #[case(4, 4, "0.00000011920928955078125", true)]
+    #[case(4, 4, "1e-9", false)]
+    #[case(4, 4, "1e-8", false)]
+    #[case(4, 4, "5e-8", false)]
+    #[case(4, 4, "1e-7", false)]
+    #[case(4, 4, "0.00000011920928955078125", false)]
     #[case(4, 4, "0.0000002384185791015625", false)]
+    #[case(4, 5, "1e-9", true)]
     fn density_range_includes_rounding_boundary(
         #[case] low_count: usize,
         #[case] high_count: usize,
