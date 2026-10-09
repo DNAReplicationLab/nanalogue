@@ -345,6 +345,10 @@ where
 /// Returns errors associated with the subcommands or if command line
 /// options are problematic
 #[expect(clippy::too_many_lines, reason = "Comprehensive CLI command routing")]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "the nonnegative threshold assertion is guaranteed by F32Bw0and1"
+)]
 pub fn run_on_bam<R, W>(cli: Cli, mut handle: W, mut bam_reader: R) -> Result<(), Error>
 where
     W: io::Write,
@@ -566,6 +570,10 @@ where
                 },
         } => {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
+            assert!(
+                min_range.val() >= 0.0,
+                "density range threshold must be nonnegative"
+            );
             find_modified_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
@@ -584,7 +592,9 @@ where
                             .unwrap_or(0.0);
                     let threshold = min_range.val();
                     // Rounded densities can put an equal range just below the threshold.
-                    (threshold - f32::EPSILON..=1.0).contains(&range)
+                    // Tolerance must not admit zero spread for a positive threshold.
+                    (threshold == 0.0 || range > 0.0)
+                        && (threshold - f32::EPSILON..=1.0).contains(&range)
                 },
             )
         }

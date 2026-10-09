@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `find-modified-reads dens-range-above` allows an absolute `f32::EPSILON`
+  tolerance when comparing density ranges to `--min-range`, so subtraction
+  rounding does not exclude ranges at the requested boundary. Positive
+  thresholds always reject zero density range, including thresholds at or
+  below epsilon; `--min-range 0` still accepts zero range.
+
 ## [0.2.0] - 2026-10-06
 
 ### Added
