@@ -407,10 +407,15 @@ mod tests {
     #[test]
     fn peek_accepts_pansn_contigs() -> Result<(), Error> {
         let header = bam::HeaderView::from_bytes(b"@SQ\tSN:HG002#1#chr1\tLN:100\n");
-        let mut record = bam::Record::from_sam(
-            &header,
-            b"read_1\t0\tHG002#1#chr1\t11\t60\t1M\t*\t0\t0\tC\t*\tMM:Z:C+m,0;\tML:B:C,200",
-        )?;
+        let mut record = bam::Record::new();
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(1)]);
+        record.set(b"read_1", Some(&cigar), b"C", &[255]);
+        record.unset_flags();
+        record.set_tid(0);
+        record.set_pos(10);
+        record.set_mapq(60);
+        record.push_aux(b"MM", bam::record::Aux::String("C+m,0;"))?;
+        record.push_aux(b"ML", bam::record::Aux::ArrayU8((&[200]).into()))?;
         record.set_header(std::sync::Arc::new(header.clone()));
         let mut output = Vec::new();
         run(&mut output, &header, std::iter::once(Ok(Rc::new(record))))?;
