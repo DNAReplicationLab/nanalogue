@@ -405,6 +405,23 @@ mod tests {
     }
 
     #[test]
+    fn peek_accepts_pansn_contigs() -> Result<(), Error> {
+        let header = bam::HeaderView::from_bytes(b"@SQ\tSN:HG002#1#chr1\tLN:100\n");
+        let mut record = bam::Record::from_sam(
+            &header,
+            b"read_1\t0\tHG002#1#chr1\t11\t60\t1M\t*\t0\t0\tC\t*\tMM:Z:C+m,0;\tML:B:C,200",
+        )?;
+        record.set_header(std::sync::Arc::new(header.clone()));
+        let mut output = Vec::new();
+        run(&mut output, &header, std::iter::once(Ok(Rc::new(record))))?;
+        assert_eq!(
+            String::from_utf8(output)?,
+            "contigs_and_lengths:\nHG002#1#chr1\t100\n\nmodifications:\nC+m\n"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn peek_rejects_invalid_header_contig_name() {
         let overlong_contig = "a".repeat(usize::from(MAX_CONTIG_NAME_LENGTH) + 1);
         let header_text =

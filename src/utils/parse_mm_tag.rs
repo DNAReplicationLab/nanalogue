@@ -170,7 +170,12 @@ pub fn mm_groups(group: &str) -> Result<Vec<ParsedMmGroup>, Error> {
         let mod_strand = match &header_bytes[1] {
             &b'+' => '+',
             &b'-' => '-',
-            v => return Err(Error::InvalidModType(format!("invalid MM strand `{v}`"))),
+            v => {
+                return Err(Error::InvalidModType(format!(
+                    "invalid MM strand `{}`: strand should be '+' or '-'",
+                    char::from(*v)
+                )));
+            }
         };
 
         let (modification_type, is_implicit) = {

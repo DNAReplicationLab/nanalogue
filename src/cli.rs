@@ -192,8 +192,8 @@ pub struct InputBam {
     pub threads: NonZeroU32,
     /// Include "zero-length" sequences e.g. sequences with "*" in the sequence
     /// field. By default, these sequences are excluded to avoid processing errors.
-    /// If this flag is set, these reads are included irrespective of any
-    /// minimum sequence or align length criteria the user may have set.
+    /// If this flag is set, these reads bypass minimum sequence length criteria.
+    /// Minimum alignment length and all other read filters still apply.
     /// WARNINGS: (1) Some functions of the codebase may break or produce incorrect
     /// results if you use this flag. (2) due to a technical reason, we need a DNA sequence
     /// in the sequence field and cannot infer sequence length from other sources
@@ -559,6 +559,8 @@ pub struct InputMods<S: TagState + Args + FromArgMatches + Default> {
     /// Coordinates are zero-based and end-exclusive.
     /// For example, chr1:0-100 selects the first 100 bases, equivalent to
     /// samtools region chr1:1-100 (samtools uses one-based, inclusive coordinates).
+    /// Terminal soft-clipped calls are excluded even if the region contains
+    /// the whole alignment; insertions between retained calls are kept.
     #[clap(long)]
     #[builder(field(
         ty = "String",

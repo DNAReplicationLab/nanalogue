@@ -106,6 +106,10 @@ impl InputRegionOptions for MockModOptions {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
+    use rust_htslib::bam::{
+        Record,
+        record::{Aux, Cigar, CigarString},
+    };
 
     const HIGH_PROBABILITY_THRESHOLD: u8 = 255;
     const HIGH_PROBABILITY_POSITIONS: [u32; 3] = [3, 8, 47];
@@ -250,6 +254,58 @@ mod tests {
 
         let high = filtered_second_record(&probability_filter_options(HIGH_PROBABILITY_THRESHOLD))?;
         assert_eq!(annotations(&high), Vec::<(u32, i64, u8)>::new());
+        Ok(())
+    }
+
+    #[test]
+    fn region_filter_excludes_terminal_clips_even_with_full_overlap() -> Result<(), Error> {
+        // Calls cover both soft clips, both ends of the alignment, and an insertion.
+        let cigar = CigarString(vec![
+            Cigar::SoftClip(1),
+            Cigar::Match(2),
+            Cigar::Ins(1),
+            Cigar::Match(2),
+            Cigar::SoftClip(1),
+        ]);
+        let mut record = Record::new();
+        record.set(b"clipped_read", Some(&cigar), b"AAAAAAA", &[30; 7]);
+        record.set_tid(0);
+        record.set_pos(10);
+        record.set_header(std::sync::Arc::new(
+            rust_htslib::bam::HeaderView::from_bytes(b"@SQ\tSN:HG002#1#chr1\tLN:100\n"),
+        ));
+        record.push_aux(b"MM", Aux::String("N+n,0,0,0,0,0,0,0;"))?;
+        record.push_aux(
+            b"ML",
+            Aux::ArrayU8((&[201, 202, 203, 204, 205, 206, 207]).into()),
+        )?;
+
+        for flags in [0, 16] {
+            record.set_flags(flags);
+            for (region, expected_positions) in [
+                (None, vec![0, 1, 2, 3, 4, 5, 6]),
+                (Some((10, 14)), vec![1, 2, 3, 4, 5]),
+                (Some((0, 100)), vec![1, 2, 3, 4, 5]),
+                (Some((10, 13)), vec![1, 2, 3, 4]),
+                (Some((11, 14)), vec![2, 3, 4, 5]),
+                (Some((14, 20)), vec![]),
+            ] {
+                let mut options = MockModOptions::new();
+                options.region_filter =
+                    region.map(|(start, end)| GenomicBed3::new(0, start, end).unwrap());
+                let result = CurrRead::default()
+                    .try_from_only_alignment(&record)?
+                    .set_mod_data_restricted_options(&record, &options)?;
+                let positions: Vec<u32> = annotations(&result)
+                    .iter()
+                    .map(|&(pos, _, _)| pos)
+                    .collect();
+                assert_eq!(
+                    positions, expected_positions,
+                    "flags {flags}, region {region:?}"
+                );
+            }
+        }
         Ok(())
     }
 

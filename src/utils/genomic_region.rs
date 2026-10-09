@@ -42,6 +42,9 @@ impl TryFrom<GenomicRegionShadow> for GenomicRegion {
 /// 100 bases, equivalent to samtools region `chr1:1-100`.
 /// A bare contig name selects the whole contig; `chr1:100-` selects from
 /// zero-based position 100 to the end of the contig.
+/// Colons are part of the name unless the final colon-delimited suffix contains
+/// a hyphen, in which case that suffix is interpreted as coordinates.
+/// Contig names containing a hyphen after their final colon are unsupported.
 ///
 /// ```
 /// use nanalogue_core::GenomicRegion;
@@ -79,16 +82,13 @@ impl FromStr for GenomicRegion {
                 "genomic region is too long!",
             )));
         }
-        let mut colon_split: Vec<&str> = val_str.split(':').collect();
-        match colon_split.len() {
-            0 => unreachable!(),
-            1 => GenomicRegion::new_checked(val_str.to_string(), None),
-            _ => {
-                let interval_str = colon_split.pop().expect("no error");
-                let contig = colon_split.join(":");
-                let coords = OrdPair::<u32>::from_interval(interval_str)?;
-                GenomicRegion::new_checked(contig, Some((coords.low(), coords.high())))
-            }
+        if let Some((contig, interval_str)) = val_str.rsplit_once(':')
+            && interval_str.contains('-')
+        {
+            let coords = OrdPair::<u32>::from_interval(interval_str)?;
+            GenomicRegion::new_checked(contig.to_owned(), Some((coords.low(), coords.high())))
+        } else {
+            GenomicRegion::new_checked(val_str.to_owned(), None)
         }
     }
 }
@@ -278,6 +278,28 @@ impl TryFrom<(String, (u32, u32))> for GenomicRegion {
 mod tests {
     use super::*;
     use crate::bedrs::Coordinates as _;
+
+    #[test]
+    fn assembly_names_resolve_with_and_without_coordinates() -> Result<(), Error> {
+        for name in ["HLA-A*01:01:01:01", "HG002#1#chr1"] {
+            let header =
+                bam::HeaderView::from_bytes(format!("@SQ\tSN:{name}\tLN:100\n").as_bytes());
+            for (input, expected) in [
+                (name.to_owned(), (0, 100)),
+                (format!("{name}:10-20"), (10, 20)),
+                (format!("{name}:10-"), (10, 100)),
+            ] {
+                let region = GenomicRegion::from_str(&input)?;
+                assert_eq!(region.contig(), name);
+                let bed = region.try_to_bed3(&header)?;
+                assert_eq!(
+                    (*bed.chr(), bed.start(), bed.end()),
+                    (0, expected.0, expected.1)
+                );
+            }
+        }
+        Ok(())
+    }
 
     /// Tests comprehensive `GenomicRegion` parsing
     #[expect(
@@ -642,6 +664,11 @@ mod tests {
         for (contig, expected) in [
             ("bad\ncontig", false),
             ("", false),
+            ("chr1:alt-", false),
+            ("chr1:alt-part", false),
+            ("chr1:100-200", false),
+            ("chr1-", true),
+            ("chr1:alt-part:copy", true),
             (max_length_name.as_str(), true),
             (overlong_name.as_str(), false),
         ] {
