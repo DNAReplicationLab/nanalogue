@@ -1380,6 +1380,25 @@ mod mod_parse_tests {
     }
 
     #[test]
+    fn nanalogue_mm_ml_parser_accepts_large_read_with_rounded_capacity() -> Result<(), Error> {
+        let header = bam::HeaderView::from_bytes(b"@HD\tVN:1.6\n");
+        let sam = format!(
+            "large_read\t4\t*\t0\t0\t*\t*\t0\t0\t{}\t*",
+            "A".repeat(12_000_000)
+        );
+        let record = bam::Record::from_sam(&header, sam.as_bytes())?;
+        // Packed sequence uses 1/2 byte per base, and missing qualities still use
+        // 1 byte per base (filled with 255), so this record needs about 18 MB.
+        // That exceeds 16 MiB; HTSlib rounds capacity up to 32 MiB, the next
+        // power of two that fits.
+        assert!(record.inner().l_data < 32 * 1024 * 1024);
+        assert_eq!(record.inner().m_data, 32 * 1024 * 1024);
+        let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+        assert_eq!(result.base_mods.len(), 0);
+        Ok(())
+    }
+
+    #[test]
     fn nanalogue_mm_ml_parser_rejects_oversized_record_capacity() -> Result<(), Error> {
         let mut record = bam::Record::new();
         record.set(b"oversized_record", None, b"A", &[30]);

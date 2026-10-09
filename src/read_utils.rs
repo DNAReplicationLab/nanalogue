@@ -1317,11 +1317,7 @@ impl CurrRead<OnlyAlignDataComplete> {
                         "`bedrs` should not allow malformed intervals!",
                     )));
                 }
-                if v.start() == stranded_bed3.start() && v.end() == stranded_bed3.end() {
-                    None // No filtering needed
-                } else {
-                    Some(v.start()..v.end())
-                }
+                Some(v.start()..v.end())
             } else {
                 Some(0..0) // No intersection means discard all data
             }

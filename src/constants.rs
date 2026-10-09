@@ -22,7 +22,9 @@ pub mod shared {
     /// we can exit safely if we want. It is also possible that we will run
     /// into an extremely large record without warning, in which case
     /// we will crash as we depend on htslib and there's no way to prevent this.
-    pub const MAX_RECORD_CAPACITY_BYTES: u32 = 32 * 1024 * 1024 - 1;
+    /// The cap includes exactly 32 MiB, since `HTSlib` rounds capacity up to
+    /// powers of two; excluding that value would halve the effective limit.
+    pub const MAX_RECORD_CAPACITY_BYTES: u32 = 32 * 1024 * 1024;
 
     /// Hard cap on the maximum number of records that commands will accept
     pub const MAX_RECORDS: u32 = 500_000_000;
