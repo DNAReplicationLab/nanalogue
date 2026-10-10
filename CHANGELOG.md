@@ -7,12 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Contig names now support PanSN names like `HG002#1#chr1` and bare names with
+  colons like `HLA-A*01:01:01:01`. Names starting with `#` or containing a
+  hyphen after the last colon are unsupported; the latter clashes with
+  region syntax. Read-ID rules are unchanged.
+
 ### Fixed
 - `find-modified-reads dens-range-above` allows an absolute `f32::EPSILON`
   tolerance when comparing density ranges to `--min-range`, so subtraction
   rounding does not exclude ranges at the requested boundary. Positive
   thresholds always reject zero density range, including thresholds at or
   below epsilon; `--min-range 0` still accepts zero range.
+- Record capacity can now reach exactly 32 MiB, so HTSlib's rounded allocations
+  are no longer rejected for being one byte over the old limit.
+- Applied modification-region filtering even when the requested region
+  contains the entire aligned span of a read, including an exact match.
+  Terminal soft-clipped modification calls are now excluded in these cases;
+  insertions between retained calls are still kept.
+- Invalid MM-strand errors now display the offending character and explain
+  that the strand must be `+` or `-`.
+- Corrected the `--include-zero-len` documentation: zero-length sequences
+  bypass minimum sequence-length filtering only; minimum alignment-length
+  and all other read filters still apply.
+- Reject reversed `--low`/`--high` thresholds.
 
 ## [0.2.0] - 2026-10-06
 
