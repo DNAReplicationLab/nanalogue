@@ -16,6 +16,51 @@ mod tests {
             .expect("nanalogue executable should run")
     }
 
+    /// Combined density criteria require ordered thresholds, including equality.
+    #[rstest::rstest]
+    #[case("0.9", "0.1", false)]
+    #[case("1", "0", false)]
+    #[case("0.1", "0.9", true)]
+    #[case("0.5", "0.5", true)]
+    #[case("0", "1", true)]
+    fn combined_density_threshold_order(
+        #[case] low: &str,
+        #[case] high: &str,
+        #[case] valid: bool,
+    ) {
+        let output = run_nanalogue(&[
+            "find-modified-reads",
+            "any-dens-below-and-any-dens-above",
+            "--low",
+            low,
+            "--high",
+            high,
+            "--tag",
+            "m",
+            "--win",
+            "10",
+            "--step",
+            "10",
+            "examples/example_1.bam",
+        ]);
+        assert_eq!(
+            output.status.success(),
+            valid,
+            "thresholds {low}, {high}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if !valid {
+            assert!(
+                output.stdout.is_empty(),
+                "invalid thresholds emitted read IDs"
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("--low must be <= --high"),
+                "ordering failure must explain the required threshold order"
+            );
+        }
+    }
+
     /// Runs the `nanalogue` executable with `args`, writes `stdin_bytes` to its
     /// standard input, and returns the captured output.
     fn run_nanalogue_with_stdin<const N: usize>(args: [&str; N], stdin_bytes: &[u8]) -> Output {
@@ -251,7 +296,7 @@ mod tests {
             ("any-dens-below", vec!["--low", "1"]),
             (
                 "any-dens-below-and-any-dens-above",
-                vec!["--low", "1", "--high", "0"],
+                vec!["--low", "0.5", "--high", "0.5"],
             ),
             ("dens-range-above", vec!["--min-range", "0"]),
             ("any-abs-grad-above", vec!["--min-grad", "0"]),
@@ -484,7 +529,7 @@ mod tests {
             ("any-dens-below", vec!["--low", "1"]),
             (
                 "any-dens-below-and-any-dens-above",
-                vec!["--low", "1", "--high", "0"],
+                vec!["--low", "0.5", "--high", "0.5"],
             ),
             ("dens-range-above", vec!["--min-range", "0"]),
             ("any-abs-grad-above", vec!["--min-grad", "0"]),

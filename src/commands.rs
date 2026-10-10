@@ -190,6 +190,7 @@ pub enum FindModReadsSubcommands {
     },
     /// Find reads with windowed modification density such that at least one window is
     /// at or below the low value and at least one window is at or above the high value.
+    /// Thresholds must satisfy low <= high; equal thresholds are allowed.
     /// This operation may enrich for reads with spatial gradients in modification density.
     AnyDensBelowAndAnyDensAbove {
         /// Input BAM file
@@ -543,6 +544,11 @@ where
                     high,
                 },
         } => {
+            if low > high {
+                return Err(Error::WrongOrder(
+                    "--low must be <= --high for any-dens-below-and-any-dens-above".to_owned(),
+                ));
+            }
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
