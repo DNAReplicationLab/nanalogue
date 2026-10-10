@@ -274,6 +274,26 @@ equivalent to `chr1:1-100` in samtools, whose region coordinates are one-based a
 inclusive. A bare contig name selects the whole contig, and `chr1:100-` selects
 from zero-based position 100 to the end of the contig.
 
+Contig names may contain internal `#` characters, as in PanSN names such as
+`HG002#1#chr1`, but must not start with `#`. Colons are part of the name unless
+the suffix after the final colon contains a hyphen, in which case that suffix
+is parsed as coordinates. For example, `HLA-A*01:01:01:01` selects the whole
+contig, and `HLA-A*01:01:01:01:10-20` selects bases 10 through 19 on that contig.
+Contig names containing a hyphen after their final colon, such as
+`chr1:alt-part`, are unsupported because they are ambiguous with region syntax.
+Hyphens elsewhere in a name, such as `chr1-alt` or `chr1:alt-part:copy`, are
+allowed.
+
+## Filtering notes
+
+When `--mod-region` is set, terminal soft-clipped modification calls are excluded
+even if the region contains the read's entire aligned span; insertions between
+retained calls are kept.
+
+The `--include-zero-len` option lets zero-length sequences bypass minimum
+sequence-length filtering only. Minimum alignment-length and all other read
+filters still apply.
+
 ## Inputs
 
 The input can be a local path, a URL, or `-` for standard input i.e. if you want
