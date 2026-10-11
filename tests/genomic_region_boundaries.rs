@@ -5,6 +5,7 @@
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
+    use nanalogue_core::constants::shared::MAX_CONTIG_LEN;
     use nanalogue_core::{Error, GenomicBed3, GenomicRegion};
     use rust_htslib::bam;
 
@@ -57,33 +58,40 @@ mod tests {
         // Header-only fixtures exercise large coordinates without allocating
         // a multi-gigabyte sequence or depending on an external reference.
         let header = bam::HeaderView::from_bytes(
-            b"@SQ\tSN:limit\tLN:4294967295\n@SQ\tSN:too_long\tLN:4294967296\n",
+            b"@SQ\tSN:limit\tLN:4294967294\n@SQ\tSN:too_long\tLN:4294967295\n@SQ\tSN:clamped\tLN:4294967296\n",
         );
-        assert_eq!(header.target_len(0), Some(0xFFFF_FFFF));
+        assert_eq!(header.target_len(0), Some(u64::from(MAX_CONTIG_LEN)));
         // The pinned HTSlib clamps larger declared lengths to u32::MAX.
-        // Consequently try_to_bed3's contig_len > u32::MAX guard is not
-        // reachable through this public header-construction path. Do not
-        // mutate HTSlib internals just to manufacture branch coverage.
         assert_eq!(header.target_len(1), Some(0xFFFF_FFFF));
-        for (input, start) in [("limit", 0), ("limit:4294967294-", 0xFFFF_FFFE)] {
-            let bed = input
-                .parse::<GenomicRegion>()
-                .unwrap()
-                .try_to_bed3(&header)
-                .expect("u32::MAX is a supported contig length");
-            assert_eq!(bed, GenomicBed3::new(0, start, u32::MAX).unwrap());
-        }
-        for (input, start, end) in [
-            ("too_long", 0, u32::MAX),
-            ("too_long:0-1", 0, 1),
-            ("too_long:1-", 1, u32::MAX),
+        assert_eq!(header.target_len(2), Some(0xFFFF_FFFF));
+        for (input, start) in [
+            ("limit", 0),
+            ("limit:4294967293-", 0xFFFF_FFFD),
+            ("limit:4294967293-4294967294", 0xFFFF_FFFD),
         ] {
             let bed = input
                 .parse::<GenomicRegion>()
                 .unwrap()
                 .try_to_bed3(&header)
-                .expect("conversion uses the length HTSlib exposes");
-            assert_eq!(bed, GenomicBed3::new(1, start, end).unwrap());
+                .expect("MAX_CONTIG_LEN is a supported contig length");
+            assert_eq!(bed, GenomicBed3::new(0, start, MAX_CONTIG_LEN).unwrap());
+        }
+        for contig in ["too_long", "clamped"] {
+            for input in [
+                contig.to_owned(),
+                format!("{contig}:0-1"),
+                format!("{contig}:1-"),
+            ] {
+                let error = input
+                    .parse::<GenomicRegion>()
+                    .unwrap()
+                    .try_to_bed3(&header)
+                    .unwrap_err();
+                assert!(
+                    matches!(error, Error::InvalidSeqLength(_)),
+                    "reject oversized contigs even for short bounded regions"
+                );
+            }
         }
     }
 
@@ -95,7 +103,6 @@ mod tests {
             ("target:11-36", 36),
             ("target:11-37", 37),
             ("target:11-", 37),
-            ("target:11-4294967295", 37),
         ] {
             let bed = input
                 .parse::<GenomicRegion>()
@@ -118,6 +125,41 @@ mod tests {
                 matches!(&error, Error::InvalidRegion { region, pos, contig_length }
                     if region == input && *pos == invalid_pos && *contig_length == 37),
                 "report the offending bound; start takes precedence: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn reserves_maximum_coordinate_for_omitted_ends() {
+        for input in ["chr16:0-4294967295", "chr16:0- 4294967295 \t"] {
+            let error = input.parse::<GenomicRegion>().unwrap_err();
+            assert!(
+                matches!(error, Error::OrdPairConversion(_)),
+                "a numeric end above MAX_CONTIG_LEN must fail during parsing"
+            );
+        }
+        let header = bam::HeaderView::from_bytes(b"@SQ\tSN:chr16\tLN:90338345\n");
+        let open = "chr16:11- \t".parse::<GenomicRegion>().unwrap();
+        assert_eq!(open.start_end(), Some((11, u32::MAX)));
+        assert_eq!(
+            serde_json::to_value(&open).unwrap(),
+            serde_json::json!(["chr16", {"low": 11, "high": u32::MAX}])
+        );
+        for region in [
+            open,
+            GenomicRegion::try_from(("chr16".to_owned(), (11, u32::MAX))).unwrap(),
+            serde_json::from_str::<GenomicRegion>(r#"["chr16", {"low": 11, "high": 4294967295}]"#)
+                .unwrap(),
+        ] {
+            assert!(
+                matches!(bam::FetchDefinition::from(&region),
+                    bam::FetchDefinition::RegionString(name, 11, i64::MAX)
+                    if name == b"chr16"),
+                "the sentinel must remain an open fetch end"
+            );
+            assert_eq!(
+                region.try_to_bed3(&header).unwrap(),
+                GenomicBed3::new(0, 11, 90_338_345).unwrap()
             );
         }
     }
