@@ -4,7 +4,7 @@
 use super::ord_pair::OrdPair;
 use crate::{
     Error, GenomicBed3,
-    constants::shared::{MAX_CONTIG_NAME_LENGTH, MAX_GENOMIC_REGION_STRING_LENGTH},
+    constants::shared::{MAX_CONTIG_LEN, MAX_CONTIG_NAME_LENGTH, MAX_GENOMIC_REGION_STRING_LENGTH},
     ensure_valid_contig,
 };
 use rust_htslib::bam;
@@ -112,6 +112,7 @@ impl GenomicRegion {
     ///
     /// # Errors
     /// Returns an error if the contig name is not found in the header,
+    /// its length exceeds [`MAX_CONTIG_LEN`],
     /// or if the specified region is invalid (start/end position exceeds contig length).
     ///
     /// # Panics
@@ -130,9 +131,9 @@ impl GenomicRegion {
                 let contig_len: u64 = header
                     .target_len(u32::try_from(numeric_contig)?)
                     .expect("no error as we've checked if contig exists");
-                if contig_len > u64::from(u32::MAX) {
-                    return Err(Error::InvalidSeqLength(String::from(
-                        "cannot deal with contigs with length > u32::MAX",
+                if contig_len > u64::from(MAX_CONTIG_LEN) {
+                    return Err(Error::InvalidSeqLength(format!(
+                        "contig length {contig_len} exceeds maximum contig length {MAX_CONTIG_LEN}"
                     )));
                 }
                 contig_len.try_into().expect("no error")
@@ -685,7 +686,7 @@ mod tests {
     fn constructors_enforce_interval_boundaries() {
         for (start, end, expected) in [
             (0, 1, true),
-            (u32::MAX - 1, u32::MAX, true),
+            (MAX_CONTIG_LEN - 1, MAX_CONTIG_LEN, true),
             (1, 1, false),
             (2, 1, false),
         ] {

@@ -49,6 +49,7 @@ pub mod shared {
     ///
     /// Valid positions are in `[0, MAX_CONTIG_LEN)`, while the end of a half-open reference
     /// interval may equal `MAX_CONTIG_LEN`.
+    /// `u32::MAX` is reserved as the omitted-end sentinel for genomic regions.
     ///
     /// Some organisms have contigs longer than roughly 4.3 gigabases, but they are uncommon
     /// and are not supported.
@@ -60,7 +61,7 @@ pub mod shared {
     );
     const _: () = assert!(
         MAX_CONTIG_LEN < u32::MAX,
-        "contig limit must fit below u32::MAX"
+        "contig limit must fit below the u32::MAX omitted-end sentinel"
     );
 
     /// Hard cap on the number of types of mods per BAM record
