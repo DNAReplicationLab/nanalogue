@@ -11,6 +11,7 @@ use crate::{
         NO_RECORDS_FOUND_FOR_ANALYSIS,
     },
     ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
+    maybe,
 };
 #[cfg(feature = "polars")]
 use polars::prelude::*;
@@ -721,6 +722,7 @@ where
             )?);
         }
 
+        maybe!(mod_table.is_empty(), "a read could have no modifications");
         let entry = WindowedReadEntry {
             alignment_type: read_state,
             alignment,
