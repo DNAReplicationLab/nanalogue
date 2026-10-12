@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Golden format variants of `examples/example_1.bam` in
+  `examples/example_1_formats/`, made by its `generate.sh`. They cover a BAM
+  with a CSI index, uncompressed and per-record BGZF BAM, plain and bgzipped
+  SAM with CSI, and CRAM 2.0, 2.1, 3.0 and 3.1 with external, embedded and no
+  reference. They also include CRAM 3.1 compression profiles, slice layouts,
+  an unsorted CRAM, and interleaved files mixing per-record encodings.
+  `tests/example_1_format_variants.rs` checks that every variant gives the same
+  CLI and library results as the original. It also checks index use, reference
+  resolution, and that a missing or wrong reference is handled. Two tests
+  deliberately pin incorrect HTSlib behaviour: a wrong reference goes
+  undetected in multi-reference CRAM slices, and CRAM 2.x reference-free
+  encoding does not restore absent base qualities.
+- `.gitattributes` keeps files under `examples/` byte-exact on every platform
+  and marks alignment and index files as binary.
+
 ### Changed
 - Contig names now support PanSN names like `HG002#1#chr1` and bare names with
   colons like `HLA-A*01:01:01:01`. Names starting with `#` or containing a
