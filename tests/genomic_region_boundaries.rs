@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn reserves_maximum_coordinate_for_omitted_ends() {
+    fn numeric_string_ends_are_rejected_but_tuple_and_serde_use_the_sentinel() {
         for input in ["chr16:0-4294967295", "chr16:0- 4294967295 \t"] {
             let error = input.parse::<GenomicRegion>().unwrap_err();
             assert!(
@@ -145,8 +145,12 @@ mod tests {
             serde_json::to_value(&open).unwrap(),
             serde_json::json!(["chr16", {"low": 11, "high": u32::MAX}])
         );
+        let round_trip: GenomicRegion =
+            serde_json::from_str(&serde_json::to_string(&open).unwrap()).unwrap();
+        assert_eq!(round_trip, open);
         for region in [
             open,
+            round_trip,
             GenomicRegion::try_from(("chr16".to_owned(), (11, u32::MAX))).unwrap(),
             serde_json::from_str::<GenomicRegion>(r#"["chr16", {"low": 11, "high": 4294967295}]"#)
                 .unwrap(),

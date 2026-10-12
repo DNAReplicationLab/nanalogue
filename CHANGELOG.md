@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   region syntax. Read-ID rules are unchanged.
 
 ### Fixed
+- Genomic region strings reject explicit numeric ends above `MAX_CONTIG_LEN`
+  (4294967294), including `chr1:0-4294967295`, instead of silently treating them
+  as open ends. Use an omitted end such as `chr1:0-` in strings. For library
+  compatibility, tuple construction and serde still interpret `u32::MAX`
+  (4294967295) as the open-end sentinel, not a literal coordinate; this
+  distinction is now documented on `GenomicRegion`.
 - `find-modified-reads dens-range-above` allows an absolute `f32::EPSILON`
   tolerance when comparing density ranges to `--min-range`, so subtraction
   rounding does not exclude ranges at the requested boundary. Positive
