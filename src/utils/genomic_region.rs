@@ -17,6 +17,15 @@ use std::str::FromStr;
 /// invariants enforced by the public `TryFrom<(String, (u32, u32))>` and
 /// `FromStr` constructors (non-empty contig, `start < end`) are also enforced
 /// on every serde input source.
+///
+/// End coordinates have different input conventions: string parsing rejects
+/// numeric ends above [`MAX_CONTIG_LEN`] and requires an omitted end (`chr1:100-`)
+/// for an open interval. The tuple constructor and serde representation instead
+/// use `u32::MAX` as the open-end sentinel, **not** as a literal coordinate.
+/// For example, `("chr1", (100, u32::MAX))` (with an owned contig string) and
+/// JSON `["chr1", {"low": 100, "high": 4294967295}]` both mean `chr1:100-`.
+/// Serialization preserves this sentinel so open intervals round-trip.
+/// [`GenomicRegion::try_to_bed3`] resolves it to the header's contig length.
 #[derive(Debug, Clone, PartialOrd, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 #[serde(try_from = "GenomicRegionShadow")]
@@ -42,6 +51,9 @@ impl TryFrom<GenomicRegionShadow> for GenomicRegion {
 /// 100 bases, equivalent to samtools region `chr1:1-100`.
 /// A bare contig name selects the whole contig; `chr1:100-` selects from
 /// zero-based position 100 to the end of the contig.
+/// An explicit numeric end must not exceed [`MAX_CONTIG_LEN`]. In particular,
+/// `chr1:100-4294967295` is rejected rather than treated as an open interval,
+/// unlike the sentinel convention used by tuple construction and serde.
 /// Colons are part of the name unless the final colon-delimited suffix contains
 /// a hyphen, in which case that suffix is interpreted as coordinates.
 /// Contig names containing a hyphen after their final colon are unsupported.
@@ -192,7 +204,9 @@ impl GenomicRegion {
         &self.0.0
     }
 
-    /// Gets a (start, end) pair if available
+    /// Gets a (start, end) pair if available.
+    /// An end of `u32::MAX` denotes an open interval, not a literal coordinate.
+    ///
     /// ```
     /// use nanalogue_core::GenomicRegion;
     /// use std::str::FromStr;
@@ -253,7 +267,12 @@ impl<'a> From<&'a GenomicRegion> for bam::FetchDefinition<'a> {
 impl TryFrom<(String, (u32, u32))> for GenomicRegion {
     type Error = Error;
 
-    /// Conversion from tuple if possible
+    /// Conversion from tuple if possible.
+    ///
+    /// An end of `u32::MAX` denotes an open interval and is resolved to the
+    /// contig length by [`GenomicRegion::try_to_bed3`]. It is not a literal
+    /// coordinate. This differs from string parsing, which requires an omitted
+    /// end and rejects the numeric end `4294967295`.
     ///
     /// # Errors
     /// if conversion fails
@@ -681,7 +700,7 @@ mod tests {
         }
     }
 
-    /// Every public construction path must enforce strict interval ordering at its boundaries.
+    /// All constructors agree on bounded intervals and invalid interval ordering.
     #[test]
     fn constructors_enforce_interval_boundaries() {
         for (start, end, expected) in [
@@ -689,6 +708,7 @@ mod tests {
             (MAX_CONTIG_LEN - 1, MAX_CONTIG_LEN, true),
             (1, 1, false),
             (2, 1, false),
+            (u32::MAX, u32::MAX, false),
         ] {
             assert_eq!(
                 construction_results("chr1", start, end),
