@@ -153,6 +153,47 @@ pub use utils::{
     ensure_valid_contig, ensure_valid_read_id, mm_groups, revcomp,
 };
 
+/// Documents a possibility without asserting it or evaluating either argument.
+///
+/// The condition must be a `bool` and the message a `&str`. Both expressions are
+/// type-checked (and borrow-checked), but never evaluated, in debug or release
+/// builds. This is a structured comment, not a runtime check or an optimizer hint.
+/// An optional trailing comma is accepted.
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::maybe;
+/// use std::cell::Cell;
+///
+/// let evaluated = Cell::new(false);
+/// maybe!(false, "this possibility need not be true");
+/// maybe!(
+///     { evaluated.set(true); true },
+///     { evaluated.set(true); "neither argument runs" },
+/// );
+/// assert!(!evaluated.get());
+/// ```
+///
+/// Non-boolean conditions and non-string messages are rejected:
+///
+/// ```compile_fail
+/// nanalogue_core::maybe!(1, "not a boolean");
+/// ```
+///
+/// ```compile_fail
+/// nanalogue_core::maybe!(true, 1);
+/// ```
+#[macro_export]
+macro_rules! maybe {
+    ($condition:expr, $message:expr $(,)?) => {
+        if false {
+            let _: bool = $condition;
+            let _: &str = $message;
+        }
+    };
+}
+
 /// Genomic 3-column BED shorthand used with `bedrs` coordinate types in this crate.
 pub type GenomicBed3 = Bed3<i32, u32>;
 /// Genomic stranded BED shorthand used with `bedrs` coordinate types in this crate.
@@ -757,6 +798,10 @@ where
                 assert!(
                     annotations.len() <= seq_len,
                     "annotation count cannot exceed sequence length"
+                );
+                maybe!(
+                    annotations.is_empty(),
+                    "a retained modification type could have no calls after probability, position, or base-quality filtering"
                 );
 
                 total_mod_annotations += u64::try_from(annotations.len())

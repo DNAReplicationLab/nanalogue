@@ -8,7 +8,7 @@ use crate::constants::shared::{
 };
 use crate::{
     AllowedAGCTN, CurrRead, Error, ModChar, ensure_bounded_counter, ensure_nonzero_counter,
-    ensure_record_data_capacity, ensure_valid_contig,
+    ensure_record_data_capacity, ensure_valid_contig, maybe,
 };
 use rust_htslib::bam;
 use std::collections::HashSet;
@@ -64,6 +64,7 @@ where
 {
     // We check the total contig number here and error out if too many are found.
     // No contigs found is fine as BAM may be unmapped.
+    maybe!(header.target_count() == 0, "header could have no sequences");
     if header.target_count() > MAX_CONTIGS {
         return Err(Error::InvalidState(format!(
             "peek contig limit exceeded: > {MAX_CONTIGS}"

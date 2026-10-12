@@ -2644,6 +2644,10 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
         }
     }
 
+    crate::maybe!(
+        !reads.is_empty() && positions.is_empty(),
+        "nonempty read input could produce a modification table with no rows"
+    );
     // Build the DataFrame
     let df = df! {
         "read_id" => read_ids,
