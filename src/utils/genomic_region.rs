@@ -1,10 +1,10 @@
 //! `GenomicRegion` struct for representing genomic coordinates
-//! Handles parsing of genomic regions from standard string formats
+//! Handles parsing of genomic regions with zero-based, end-exclusive coordinates.
 
 use super::ord_pair::OrdPair;
 use crate::{
     Error, GenomicBed3,
-    constants::shared::{MAX_CONTIG_NAME_LENGTH, MAX_GENOMIC_REGION_STRING_LENGTH},
+    constants::shared::{MAX_CONTIG_LEN, MAX_CONTIG_NAME_LENGTH, MAX_GENOMIC_REGION_STRING_LENGTH},
     ensure_valid_contig,
 };
 use rust_htslib::bam;
@@ -17,6 +17,15 @@ use std::str::FromStr;
 /// invariants enforced by the public `TryFrom<(String, (u32, u32))>` and
 /// `FromStr` constructors (non-empty contig, `start < end`) are also enforced
 /// on every serde input source.
+///
+/// End coordinates have different input conventions: string parsing rejects
+/// numeric ends above [`MAX_CONTIG_LEN`] and requires an omitted end (`chr1:100-`)
+/// for an open interval. The tuple constructor and serde representation instead
+/// use `u32::MAX` as the open-end sentinel, **not** as a literal coordinate.
+/// For example, `("chr1", (100, u32::MAX))` (with an owned contig string) and
+/// JSON `["chr1", {"low": 100, "high": 4294967295}]` both mean `chr1:100-`.
+/// Serialization preserves this sentinel so open intervals round-trip.
+/// [`GenomicRegion::try_to_bed3`] resolves it to the header's contig length.
 #[derive(Debug, Clone, PartialOrd, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 #[serde(try_from = "GenomicRegionShadow")]
@@ -36,7 +45,18 @@ impl TryFrom<GenomicRegionShadow> for GenomicRegion {
     }
 }
 
-/// Obtains genomic region from a string with the standard region format of name[:begin[-end]].
+/// Obtains a genomic region from `name`, `name:begin-end`, or `name:begin-`.
+/// Coordinates are zero-based and end-exclusive, unlike samtools' one-based,
+/// inclusive region coordinates. For example, `chr1:0-100` selects the first
+/// 100 bases, equivalent to samtools region `chr1:1-100`.
+/// A bare contig name selects the whole contig; `chr1:100-` selects from
+/// zero-based position 100 to the end of the contig.
+/// An explicit numeric end must not exceed [`MAX_CONTIG_LEN`]. In particular,
+/// `chr1:100-4294967295` is rejected rather than treated as an open interval,
+/// unlike the sentinel convention used by tuple construction and serde.
+/// Colons are part of the name unless the final colon-delimited suffix contains
+/// a hyphen, in which case that suffix is interpreted as coordinates.
+/// Contig names containing a hyphen after their final colon are unsupported.
 ///
 /// ```
 /// use nanalogue_core::GenomicRegion;
@@ -74,16 +94,13 @@ impl FromStr for GenomicRegion {
                 "genomic region is too long!",
             )));
         }
-        let mut colon_split: Vec<&str> = val_str.split(':').collect();
-        match colon_split.len() {
-            0 => unreachable!(),
-            1 => GenomicRegion::new_checked(val_str.to_string(), None),
-            _ => {
-                let interval_str = colon_split.pop().expect("no error");
-                let contig = colon_split.join(":");
-                let coords = OrdPair::<u32>::from_interval(interval_str)?;
-                GenomicRegion::new_checked(contig, Some((coords.low(), coords.high())))
-            }
+        if let Some((contig, interval_str)) = val_str.rsplit_once(':')
+            && interval_str.contains('-')
+        {
+            let coords = OrdPair::<u32>::from_interval(interval_str)?;
+            GenomicRegion::new_checked(contig.to_owned(), Some((coords.low(), coords.high())))
+        } else {
+            GenomicRegion::new_checked(val_str.to_owned(), None)
         }
     }
 }
@@ -107,6 +124,7 @@ impl GenomicRegion {
     ///
     /// # Errors
     /// Returns an error if the contig name is not found in the header,
+    /// its length exceeds [`MAX_CONTIG_LEN`],
     /// or if the specified region is invalid (start/end position exceeds contig length).
     ///
     /// # Panics
@@ -125,9 +143,9 @@ impl GenomicRegion {
                 let contig_len: u64 = header
                     .target_len(u32::try_from(numeric_contig)?)
                     .expect("no error as we've checked if contig exists");
-                if contig_len > u64::from(u32::MAX) {
-                    return Err(Error::InvalidSeqLength(String::from(
-                        "cannot deal with contigs with length > u32::MAX",
+                if contig_len > u64::from(MAX_CONTIG_LEN) {
+                    return Err(Error::InvalidSeqLength(format!(
+                        "contig length {contig_len} exceeds maximum contig length {MAX_CONTIG_LEN}"
                     )));
                 }
                 contig_len.try_into().expect("no error")
@@ -186,7 +204,9 @@ impl GenomicRegion {
         &self.0.0
     }
 
-    /// Gets a (start, end) pair if available
+    /// Gets a (start, end) pair if available.
+    /// An end of `u32::MAX` denotes an open interval, not a literal coordinate.
+    ///
     /// ```
     /// use nanalogue_core::GenomicRegion;
     /// use std::str::FromStr;
@@ -247,7 +267,12 @@ impl<'a> From<&'a GenomicRegion> for bam::FetchDefinition<'a> {
 impl TryFrom<(String, (u32, u32))> for GenomicRegion {
     type Error = Error;
 
-    /// Conversion from tuple if possible
+    /// Conversion from tuple if possible.
+    ///
+    /// An end of `u32::MAX` denotes an open interval and is resolved to the
+    /// contig length by [`GenomicRegion::try_to_bed3`]. It is not a literal
+    /// coordinate. This differs from string parsing, which requires an omitted
+    /// end and rejects the numeric end `4294967295`.
     ///
     /// # Errors
     /// if conversion fails
@@ -273,6 +298,28 @@ impl TryFrom<(String, (u32, u32))> for GenomicRegion {
 mod tests {
     use super::*;
     use crate::bedrs::Coordinates as _;
+
+    #[test]
+    fn assembly_names_resolve_with_and_without_coordinates() -> Result<(), Error> {
+        for name in ["HLA-A*01:01:01:01", "HG002#1#chr1"] {
+            let header =
+                bam::HeaderView::from_bytes(format!("@SQ\tSN:{name}\tLN:100\n").as_bytes());
+            for (input, expected) in [
+                (name.to_owned(), (0, 100)),
+                (format!("{name}:10-20"), (10, 20)),
+                (format!("{name}:10-"), (10, 100)),
+            ] {
+                let region = GenomicRegion::from_str(&input)?;
+                assert_eq!(region.contig(), name);
+                let bed = region.try_to_bed3(&header)?;
+                assert_eq!(
+                    (*bed.chr(), bed.start(), bed.end()),
+                    (0, expected.0, expected.1)
+                );
+            }
+        }
+        Ok(())
+    }
 
     /// Tests comprehensive `GenomicRegion` parsing
     #[expect(
@@ -637,6 +684,11 @@ mod tests {
         for (contig, expected) in [
             ("bad\ncontig", false),
             ("", false),
+            ("chr1:alt-", false),
+            ("chr1:alt-part", false),
+            ("chr1:100-200", false),
+            ("chr1-", true),
+            ("chr1:alt-part:copy", true),
             (max_length_name.as_str(), true),
             (overlong_name.as_str(), false),
         ] {
@@ -648,14 +700,15 @@ mod tests {
         }
     }
 
-    /// Every public construction path must enforce strict interval ordering at its boundaries.
+    /// All constructors agree on bounded intervals and invalid interval ordering.
     #[test]
     fn constructors_enforce_interval_boundaries() {
         for (start, end, expected) in [
             (0, 1, true),
-            (u32::MAX - 1, u32::MAX, true),
+            (MAX_CONTIG_LEN - 1, MAX_CONTIG_LEN, true),
             (1, 1, false),
             (2, 1, false),
+            (u32::MAX, u32::MAX, false),
         ] {
             assert_eq!(
                 construction_results("chr1", start, end),

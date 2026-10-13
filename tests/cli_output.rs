@@ -16,6 +16,51 @@ mod tests {
             .expect("nanalogue executable should run")
     }
 
+    /// Combined density criteria require ordered thresholds, including equality.
+    #[rstest::rstest]
+    #[case("0.9", "0.1", false)]
+    #[case("1", "0", false)]
+    #[case("0.1", "0.9", true)]
+    #[case("0.5", "0.5", true)]
+    #[case("0", "1", true)]
+    fn combined_density_threshold_order(
+        #[case] low: &str,
+        #[case] high: &str,
+        #[case] valid: bool,
+    ) {
+        let output = run_nanalogue(&[
+            "find-modified-reads",
+            "any-dens-below-and-any-dens-above",
+            "--low",
+            low,
+            "--high",
+            high,
+            "--tag",
+            "m",
+            "--win",
+            "10",
+            "--step",
+            "10",
+            "examples/example_1.bam",
+        ]);
+        assert_eq!(
+            output.status.success(),
+            valid,
+            "thresholds {low}, {high}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if !valid {
+            assert!(
+                output.stdout.is_empty(),
+                "invalid thresholds emitted read IDs"
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("--low must be <= --high"),
+                "ordering failure must explain the required threshold order"
+            );
+        }
+    }
+
     /// Runs the `nanalogue` executable with `args`, writes `stdin_bytes` to its
     /// standard input, and returns the captured output.
     fn run_nanalogue_with_stdin<const N: usize>(args: [&str; N], stdin_bytes: &[u8]) -> Output {
@@ -38,6 +83,71 @@ mod tests {
         child
             .wait_with_output()
             .expect("nanalogue executable should run")
+    }
+
+    /// Decimal equality is inclusive despite density subtraction rounding, but
+    /// a threshold more than one f32 epsilon above the range still excludes it.
+    /// A positive threshold must exclude identical densities, even below epsilon.
+    #[rstest::rstest]
+    #[case(6, 7, "0.1", true)]
+    #[case(4, 9, "0.5", true)]
+    #[case(1, 7, "0.6", true)]
+    #[case(1, 9, "0.8", true)]
+    #[case(1, 9, "0.799999", true)]
+    #[case(1, 9, "0.800001", false)]
+    #[case(4, 4, "0", true)]
+    #[case(4, 4, "1e-9", false)]
+    #[case(4, 4, "1e-8", false)]
+    #[case(4, 4, "5e-8", false)]
+    #[case(4, 4, "1e-7", false)]
+    #[case(4, 4, "0.00000011920928955078125", false)]
+    #[case(4, 4, "0.0000002384185791015625", false)]
+    #[case(4, 5, "1e-9", true)]
+    fn density_range_includes_rounding_boundary(
+        #[case] low_count: usize,
+        #[case] high_count: usize,
+        #[case] threshold: &str,
+        #[case] expected_match: bool,
+    ) {
+        let probabilities = [low_count, high_count]
+            .into_iter()
+            .flat_map(|count| (0..10).map(move |index| if index < count { "255" } else { "0" }))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sam = format!(
+            "@HD\tVN:1.6\tSO:unsorted\n\
+             @SQ\tSN:ctg1\tLN:100\n\
+             boundary\t0\tctg1\t11\t60\t20M\t*\t0\t0\t{}\t{}\tMM:Z:C+m,{};\tML:B:C,{probabilities}\n",
+            "C".repeat(20),
+            "I".repeat(20),
+            vec!["0"; 20].join(","),
+        );
+        let output = run_nanalogue_with_stdin(
+            [
+                "find-modified-reads",
+                "dens-range-above",
+                "-",
+                "--win",
+                "10",
+                "--step",
+                "10",
+                "--tag",
+                "m",
+                "--min-range",
+                threshold,
+            ],
+            sam.as_bytes(),
+        );
+        assert!(
+            output.status.success(),
+            "density-range command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).expect("read IDs should be UTF-8"),
+            if expected_match { "boundary\n" } else { "" },
+            "counts {low_count} and {high_count}, threshold {threshold}"
+        );
     }
 
     /// Writes the smallest mapped SAM record whose sequence field is `*`.
@@ -186,7 +296,7 @@ mod tests {
             ("any-dens-below", vec!["--low", "1"]),
             (
                 "any-dens-below-and-any-dens-above",
-                vec!["--low", "1", "--high", "0"],
+                vec!["--low", "0.5", "--high", "0.5"],
             ),
             ("dens-range-above", vec!["--min-range", "0"]),
             ("any-abs-grad-above", vec!["--min-grad", "0"]),
@@ -419,7 +529,7 @@ mod tests {
             ("any-dens-below", vec!["--low", "1"]),
             (
                 "any-dens-below-and-any-dens-above",
-                vec!["--low", "1", "--high", "0"],
+                vec!["--low", "0.5", "--high", "0.5"],
             ),
             ("dens-range-above", vec!["--min-range", "0"]),
             ("any-abs-grad-above", vec!["--min-grad", "0"]),

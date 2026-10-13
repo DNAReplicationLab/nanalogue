@@ -190,6 +190,7 @@ pub enum FindModReadsSubcommands {
     },
     /// Find reads with windowed modification density such that at least one window is
     /// at or below the low value and at least one window is at or above the high value.
+    /// Thresholds must satisfy low <= high; equal thresholds are allowed.
     /// This operation may enrich for reads with spatial gradients in modification density.
     AnyDensBelowAndAnyDensAbove {
         /// Input BAM file
@@ -345,6 +346,10 @@ where
 /// Returns errors associated with the subcommands or if command line
 /// options are problematic
 #[expect(clippy::too_many_lines, reason = "Comprehensive CLI command routing")]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "the nonnegative threshold assertion is guaranteed by F32Bw0and1"
+)]
 pub fn run_on_bam<R, W>(cli: Cli, mut handle: W, mut bam_reader: R) -> Result<(), Error>
 where
     W: io::Write,
@@ -539,6 +544,11 @@ where
                     high,
                 },
         } => {
+            if low > high {
+                return Err(Error::WrongOrder(
+                    "--low must be <= --high for any-dens-below-and-any-dens-above".to_owned(),
+                ));
+            }
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
             let interval_0_to_low = OrdPair::new(F32Bw0and1::zero(), low)?;
             let interval_high_to_1 = OrdPair::new(high, F32Bw0and1::one())?;
@@ -566,6 +576,10 @@ where
                 },
         } => {
             let bam_rc_records = BamRcRecords::new(&mut bam_reader, &mut bam, &mut mods)?;
+            assert!(
+                min_range.val() >= 0.0,
+                "density range threshold must be nonnegative"
+            );
             find_modified_reads::run(
                 &mut handle,
                 pre_filt!(bam_rc_records, &bam),
@@ -573,15 +587,20 @@ where
                 &mods,
                 analysis::threshold_and_mean,
                 |x| {
-                    x.iter()
+                    let range = x
+                        .iter()
                         .map(F32Bw0and1::val)
                         .reduce(f32::max)
                         .unwrap_or(0.0)
                         - x.iter()
                             .map(F32Bw0and1::val)
                             .reduce(f32::min)
-                            .unwrap_or(0.0)
-                        >= min_range.val()
+                            .unwrap_or(0.0);
+                    let threshold = min_range.val();
+                    // Rounded densities can put an equal range just below the threshold.
+                    // Tolerance must not admit zero spread for a positive threshold.
+                    (threshold == 0.0 || range > 0.0)
+                        && (threshold - f32::EPSILON..=1.0).contains(&range)
                 },
             )
         }

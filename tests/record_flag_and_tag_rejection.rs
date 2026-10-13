@@ -229,7 +229,7 @@ mod tests {
         let strand_rendered = format!("{strand_error:?}");
         assert!(
             matches!(strand_error, Error::InvalidModType(message)
-                if message.starts_with("invalid MM strand")),
+                if message == "invalid MM strand `*`: strand should be '+' or '-'"),
             "an invalid strand byte must be InvalidModType, got {strand_rendered}"
         );
     }

@@ -10,6 +10,37 @@ mod tests {
     use clap::Parser as _;
     use nanalogue_core::{commands, reads_table::sort_output_lines};
 
+    /// Both command entry points reject reversed thresholds without emitting output.
+    #[test]
+    fn reversed_density_thresholds_fail_without_output() {
+        let cli = commands::Cli::parse_from([
+            "nanalogue",
+            "find-modified-reads",
+            "any-dens-below-and-any-dens-above",
+            "examples/example_1.bam",
+            "--tag",
+            "m",
+            "--win",
+            "10",
+            "--step",
+            "10",
+            "--low",
+            "0.9",
+            "--high",
+            "0.1",
+        ]);
+        let mut output = Vec::new();
+        let error = commands::run(cli.clone(), &mut output).unwrap_err();
+        assert!(matches!(error, nanalogue_core::Error::WrongOrder(_)));
+        assert!(output.is_empty(), "invalid thresholds must not emit output");
+
+        let reader = nanalogue_core::nanalogue_bam_reader("examples/example_1.bam")
+            .expect("example BAM should open");
+        let reader_error = commands::run_on_bam(cli, &mut output, reader).unwrap_err();
+        assert!(matches!(reader_error, nanalogue_core::Error::WrongOrder(_)));
+        assert!(output.is_empty(), "invalid thresholds must not emit output");
+    }
+
     /// Helper function that runs a CLI command and compares its sorted output with a file
     fn assert_command_output_matches_file(cli: commands::Cli, expected_output_path: &str) {
         // Capture output to buffer

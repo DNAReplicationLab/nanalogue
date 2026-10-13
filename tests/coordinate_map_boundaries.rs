@@ -5,11 +5,15 @@
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use nanalogue_core::{CurrRead, Error, GenomicBed3};
+    use nanalogue_core::{
+        CurrRead, Error, GenomicBed3, ThresholdState,
+        constants::shared::{MAX_CONTIG_LEN, MAX_SEQ_LEN},
+        read_utils::AlignAndModData,
+    };
     use rust_htslib::bam::{
         Header, HeaderView, Record,
         header::HeaderRecord,
-        record::{Cigar, CigarString},
+        record::{Aux, Cigar, CigarString},
     };
     use std::sync::Arc;
 
@@ -33,6 +37,111 @@ mod tests {
         result.set_tid(0);
         result.set_pos(10);
         result
+    }
+
+    #[test]
+    fn maximum_sequence_length_is_accepted_by_setter_and_retrieval() -> Result<(), Error> {
+        let region = GenomicBed3::new(0, 10, 12).unwrap();
+        // A long clip keeps the output tiny while probing the last two query indices.
+        let aligned = record(
+            vec![Cigar::SoftClip(MAX_SEQ_LEN - 2), Cigar::Match(2)],
+            &vec![b'C'; usize::try_from(MAX_SEQ_LEN)?],
+        );
+        let state = CurrRead::default()
+            .set_read_state_and_id(&aligned)?
+            .set_seq_len(&aligned)?;
+        assert_eq!(state.seq_len()?, MAX_SEQ_LEN);
+
+        let read = CurrRead::default().try_from_only_alignment(&aligned)?;
+        assert_eq!(
+            read.seq_coords_from_ref_coords(&aligned, &region)?,
+            [Some((true, MAX_SEQ_LEN - 2)), Some((true, MAX_SEQ_LEN - 1))]
+        );
+        assert_eq!(
+            read.seq_and_qual_on_ref_coords(&aligned, &region)?,
+            [Some((true, b'C', 30)), Some((true, b'C', 30))]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn oversized_sequence_is_rejected_by_setter_and_retrieval() -> Result<(), Error> {
+        let region = GenomicBed3::new(0, 10, 12).unwrap();
+        let len = MAX_SEQ_LEN + 1;
+        let aligned = record(
+            vec![Cigar::SoftClip(len - 2), Cigar::Match(2)],
+            &vec![b'C'; usize::try_from(len)?],
+        );
+        let length_result = CurrRead::default()
+            .set_read_state_and_id(&aligned)?
+            .set_seq_len(&aligned);
+        assert!(matches!(length_result, Err(Error::InvalidSeqLength(_))));
+
+        // Bypass ingestion's length check to exercise each retrieval API's own guard.
+        let read = CurrRead::default().try_from_only_alignment_zero_seq_len(&aligned)?;
+        assert!(matches!(
+            read.seq_coords_from_ref_coords(&aligned, &region),
+            Err(Error::InvalidSeqLength(_))
+        ));
+        assert!(matches!(
+            read.seq_and_qual_on_ref_coords(&aligned, &region),
+            Err(Error::InvalidSeqLength(_))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn parsed_limit_coordinates_survive_json_roundtrip() -> Result<(), Error> {
+        let mut aligned = record(
+            vec![Cigar::SoftClip(MAX_SEQ_LEN - 2), Cigar::Match(2)],
+            &vec![b'C'; usize::try_from(MAX_SEQ_LEN)?],
+        );
+        let mut header = Header::new();
+        let _header = header.push_record(
+            HeaderRecord::new(b"SQ")
+                .push_tag(b"SN", "chr1")
+                .push_tag(b"LN", MAX_CONTIG_LEN),
+        );
+        aligned.set_header(Arc::new(HeaderView::from_header(&header)));
+        aligned.set_pos(i64::from(MAX_CONTIG_LEN - 2));
+        // Calls at query 0, MAX_SEQ_LEN - 2, and MAX_SEQ_LEN - 1 distinguish
+        // unmapped coordinates from the highest two supported reference positions.
+        aligned.push_aux(
+            b"MM",
+            Aux::String(&format!("C+m?,0,{},0;", MAX_SEQ_LEN - 3)),
+        )?;
+        aligned.push_aux(b"ML", Aux::ArrayU8((&[0u8, 127, 255][..]).into()))?;
+        let parsed = CurrRead::default()
+            .try_from_only_alignment(&aligned)?
+            .set_mod_data(&aligned, ThresholdState::GtEq(0), 0)?;
+        let json = serde_json::to_value(&parsed)?;
+        let expected = serde_json::json!({
+            "alignment_type": "primary_forward",
+            "alignment": {
+                "start": MAX_CONTIG_LEN - 2,
+                "end": MAX_CONTIG_LEN,
+                "contig": "chr1",
+                "contig_id": 0
+            },
+            "mod_table": [{
+                "base": "C",
+                "is_strand_plus": true,
+                "mod_code": "m",
+                "data": [
+                    [0, -1, 0],
+                    [MAX_SEQ_LEN - 2, MAX_CONTIG_LEN - 2, 127],
+                    [MAX_SEQ_LEN - 1, MAX_CONTIG_LEN - 1, 255]
+                ]
+            }],
+            "read_id": "coordinate-read",
+            "mapq": 0,
+            "seq_len": MAX_SEQ_LEN
+        });
+        assert_eq!(json, expected);
+        let restored: CurrRead<AlignAndModData> = serde_json::from_value(json)?;
+        assert_eq!(restored, parsed);
+        assert_eq!(serde_json::to_value(restored)?, expected);
+        Ok(())
     }
 
     #[test]

@@ -192,8 +192,8 @@ pub struct InputBam {
     pub threads: NonZeroU32,
     /// Include "zero-length" sequences e.g. sequences with "*" in the sequence
     /// field. By default, these sequences are excluded to avoid processing errors.
-    /// If this flag is set, these reads are included irrespective of any
-    /// minimum sequence or align length criteria the user may have set.
+    /// If this flag is set, these reads bypass minimum sequence length criteria.
+    /// Minimum alignment length and all other read filters still apply.
     /// WARNINGS: (1) Some functions of the codebase may break or produce incorrect
     /// results if you use this flag. (2) due to a technical reason, we need a DNA sequence
     /// in the sequence field and cannot infer sequence length from other sources
@@ -242,6 +242,10 @@ pub struct InputBam {
     /// of selecting such reads will be faster. If you are using standard input
     /// as your input e.g. you are piping in the output from samtools, then
     /// you cannot use an index as a BAM filename is not available.
+    /// Formats: name, name:begin-end, or name:begin- (to the contig's end).
+    /// Coordinates are zero-based and end-exclusive.
+    /// For example, chr1:0-100 selects the first 100 bases, equivalent to
+    /// samtools region chr1:1-100 (samtools uses one-based, inclusive coordinates).
     #[clap(long)]
     #[builder(field(
         ty = "String",
@@ -550,7 +554,13 @@ pub struct InputMods<S: TagState + Args + FromArgMatches + Default> {
     /// is not available are all rejected if this is non-zero.
     #[clap(long, default_value_t)]
     pub base_qual_filter_mod: u8,
-    /// Only keep modification data from this region
+    /// Only keep modification data from this region.
+    /// Formats: name, name:begin-end, or name:begin- (to the contig's end).
+    /// Coordinates are zero-based and end-exclusive.
+    /// For example, chr1:0-100 selects the first 100 bases, equivalent to
+    /// samtools region chr1:1-100 (samtools uses one-based, inclusive coordinates).
+    /// Terminal soft-clipped calls are excluded even if the region contains
+    /// the whole alignment; insertions between retained calls are kept.
     #[clap(long)]
     #[builder(field(
         ty = "String",

@@ -6,10 +6,10 @@
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use nanalogue_core::{
-        DNARestrictive, Error, nanalogue_bam_reader, nanalogue_indexed_bam_reader, uuid,
-        write_bam_denovo, write_cram_denovo, write_fasta,
+        CurrRead, DNARestrictive, Error, GenomicBed3, ThresholdState, nanalogue_bam_reader,
+        nanalogue_indexed_bam_reader, uuid, write_bam_denovo, write_cram_denovo, write_fasta,
     };
-    use rust_htslib::bam::record::{Cigar, CigarString};
+    use rust_htslib::bam::record::{Aux, Cigar, CigarString};
     use rust_htslib::bam::{FetchDefinition, Read as _, Record};
     use rust_htslib::errors::Error as HtslibError;
     use rust_htslib::faidx;
@@ -80,6 +80,81 @@ mod tests {
                     .expect("test read names are valid UTF-8"))
             })
             .collect()
+    }
+
+    #[test]
+    fn long_cigar_bam_roundtrip_preserves_coordinates_and_modifications() -> Result<(), Error> {
+        let temp = TempDir::new("long_cigar");
+        let bam_path = temp.join("long_cigar.bam");
+        // 100,000 * (1M 1I), then 2M 3D 1M: 200,003 operations force BAM's
+        // CG encoding. The unequal query/reference spans expose a lost CG tag.
+        let mut operations = [Cigar::Match(1), Cigar::Ins(1)].repeat(100_000);
+        operations.extend([Cigar::Match(2), Cigar::Del(3), Cigar::Match(1)]);
+        assert_eq!(operations.len(), 200_003);
+        let mut record = mapped_record("long_cigar", 0, 17, false);
+        record.set(
+            b"long_cigar",
+            Some(&CigarString(operations.clone())),
+            &vec![b'C'; 200_003],
+            &vec![30; 200_003],
+        );
+        record.push_aux(b"MM", Aux::String("C+m?,0,0,199997,0,1;"))?;
+        record.push_aux(
+            b"ML",
+            Aux::ArrayU8((&[51u8, 102, 153, 204, 255][..]).into()),
+        )?;
+        write_bam_denovo(
+            vec![record],
+            [("chrA".to_owned(), 120_000)],
+            Vec::<String>::new(),
+            Vec::<String>::new(),
+            &bam_path,
+        )?;
+
+        let mut reader = nanalogue_bam_reader(&bam_path)?;
+        let restored = reader.records().next().expect("one written record")?;
+        assert_eq!(
+            restored.cigar().iter().copied().collect::<Vec<_>>(),
+            operations
+        );
+        let read = CurrRead::default().try_from_only_alignment(&restored)?;
+        assert_eq!(read.seq_len()?, 200_003);
+        assert_eq!(read.align_len()?, 100_006);
+        assert_eq!(read.contig_id_and_start()?, (0, 17));
+        assert_eq!(
+            read.seq_coords_from_ref_coords(
+                &restored,
+                &GenomicBed3::new(0, 100_017, 100_023).unwrap()
+            )?,
+            [
+                Some((true, 200_000)),
+                Some((true, 200_001)),
+                None,
+                None,
+                None,
+                Some((true, 200_002))
+            ]
+        );
+        let modified = read.set_mod_data(&restored, ThresholdState::GtEq(0), 0)?;
+        let calls: Vec<_> = modified
+            .mod_data()
+            .0
+            .base_mods
+            .iter()
+            .flat_map(|group| group.ranges.annotations())
+            .map(|call| (call.pos(), call.ref_pos(), call.qual()))
+            .collect();
+        assert_eq!(
+            calls,
+            [
+                (0, Some(17), 51),
+                (1, None, 102),
+                (199_999, None, 153),
+                (200_000, Some(100_017), 204),
+                (200_002, Some(100_022), 255)
+            ]
+        );
+        Ok(())
     }
 
     /// One written BAM exercises numeric, named, interval, all, and unmapped

@@ -11,6 +11,7 @@ use crate::{
         NO_RECORDS_FOUND_FOR_ANALYSIS,
     },
     ensure_bounded_counter, ensure_flag, ensure_nonzero_counter, ensure_record_data_capacity,
+    maybe,
 };
 #[cfg(feature = "polars")]
 use polars::prelude::*;
@@ -455,7 +456,7 @@ base\tmod_strand\tmod_type\twin_start\twin_end\tbasecall_qual",
         "No windowed data found. This could mean \
 no records were found (BAM file empty or filtering removed records)\n\
 or no mods were found or mods were found but reads are all shorter \
-than the window size chosen so no mods could not be windowed\n\
+than the window size chosen so no mods could be windowed\n\
 or some other possibility.",
     )?;
 
@@ -721,6 +722,7 @@ where
             )?);
         }
 
+        maybe!(mod_table.is_empty(), "a read could have no modifications");
         let entry = WindowedReadEntry {
             alignment_type: read_state,
             alignment,

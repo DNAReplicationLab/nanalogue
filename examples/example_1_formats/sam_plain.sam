@@ -1,0 +1,16 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:dummyI	LN:22
+@SQ	SN:dummyII	LN:48
+@SQ	SN:dummyIII	LN:76
+@RG	ID:1	LB:blank	PL:ULTIMA	SM:blank	PU:blank
+@PG	ID:samtools	PN:samtools	VN:1.13	CL:samtools view -Sb -h -o example_1.bam example_1.sam
+@PG	ID:samtools.1	PN:samtools	PP:samtools	VN:1.13	CL:samtools view -h example_1.bam
+@PG	ID:samtools.2	PN:samtools	PP:samtools.1	VN:1.13	CL:samtools view -Sb -o example_1.bam example_1.sam
+@PG	ID:samtools.3	PN:samtools	PP:samtools.2	VN:1.13	CL:samtools view -h ./example_1.bam
+@PG	ID:samtools.4	PN:samtools	PP:samtools.3	VN:1.13	CL:samtools view -Sb -o example_1.bam example_1.sam
+@PG	ID:samtools.5	PN:samtools	PP:samtools.4	VN:1.13	CL:samtools view -h example_1.bam
+@PG	ID:samtools.6	PN:samtools	PP:samtools.5	VN:1.13	CL:samtools view -h -Sb -o example_1.bam example_1.sam
+5d10eb9a-aae1-4db8-8ec6-7ebb34d32575	0	dummyI	10	255	8M	*	0	0	TCGTTTCT	*	XA:Z:5d10eb9a-aae1-4db8-8ec6-7ebb34d32575_dummyI_9_17_fwd	RG:Z:1	ML:B:C,4,7,9,6	MM:Z:T+T?,0,0,0,1;	XR:i:97586873
+fffffff1-10d2-49cb-8ca3-e8d48979001b	16	dummyII	4	255	33M	*	0	0	GGGGGGGTCTCTAACGACCAAGGGGGGGGGGGG	*	XA:Z:fffffff1-10d2-49cb-8ca3-e8d48979001b_dummyII_3_36_rev	RG:Z:1	ML:B:C,182,3,4,3,3	MM:Z:T+T?,0,0,0,0,0;	XR:i:268435455
+a4f36092-b4d5-47a9-813e-c22c3b477a0c	0	dummyIII	24	255	48M	*	0	0	ACATCAAATCCACACCACACCACACCCTGGGAGCCACCATAACGGCCT	*	XA:Z:a4f36092-b4d5-47a9-813e-c22c3b477a0c_dummyIII_23_71_fwd	RG:Z:1	ML:B:C,221,242,3,47,239	MM:Z:T+T?,0,0,0,0,0;	XR:i:172963337
+a4f36092-b4d5-47a9-813e-c22c3b477a0c	4	*	0	0	*	*	0	0	ACATCAAATCCACACCACACCACACCCTGGGAGCCACCATAACGGCCT	*	RG:Z:1	ML:B:C,221,242,47,239,77	MM:Z:T+T.,0,0,1,0;G-7200,4;

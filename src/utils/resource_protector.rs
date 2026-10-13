@@ -58,38 +58,58 @@ pub fn ensure_flag(flag: bool, msg: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// Selects the identifier validation policy and its diagnostic label.
+#[derive(Debug, Clone, Copy)]
+enum Identifier {
+    /// A read ID, including the restriction on internal `#` characters.
+    ReadID,
+    /// A contig name, allowing internal `#` characters for `PanSN` references.
+    ContigName,
+}
+
+impl core::fmt::Display for Identifier {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match *self {
+            Self::ReadID => "read_id",
+            Self::ContigName => "contig",
+        })
+    }
+}
+
 /// Verify that a read-id-like or contig-like identifier is safe for downstream use.
 ///
 /// This helper deliberately applies a stricter shared policy than the underlying
 /// BAM or reference-name specifications so that callers can avoid downstream
 /// issues such as comment parsing, spreadsheet formula injection, and awkward
 /// punctuation in text-based exports.
+/// Internal `#` characters are permitted for contigs to support `PanSN` names;
+/// leading `#` remains reserved for comments in text formats.
 #[expect(clippy::else_if_without_else, reason = "simple enough structure")]
-fn ensure_valid_identifier(value: &[u8], max_len: u8, what: &str) -> Result<(), Error> {
+fn ensure_valid_identifier(value: &[u8], max_len: u8, identifier: Identifier) -> Result<(), Error> {
     #[expect(
         clippy::indexing_slicing,
         reason = "the first branch returns on empty input, so later `value[0]` is guarded"
     )]
     if value.is_empty() {
-        return Err(Error::InvalidState(format!("{what} is blank")));
+        return Err(Error::InvalidState(format!("{identifier} is blank")));
     } else if value.len() > usize::from(max_len) {
         return Err(Error::InvalidState(format!(
-            "error in setting {what}, length > {max_len}"
+            "error in setting {identifier}, length > {max_len}"
         )));
     } else if matches!(value[0], b'#' | b'*' | b'=' | b'+' | b'-' | b'@') {
         // These are reserved either by our downstream safety rules or by the
         // reference-name specification for the first character.
         return Err(Error::InvalidState(format!(
-            "we do not accept {what} values starting with reserved leading characters"
+            "we do not accept {identifier} values starting with reserved leading characters"
         )));
     }
     for byte in value {
         if (0..33).contains(byte)
             || (127..).contains(byte)
+            || (*byte == b'#' && matches!(identifier, Identifier::ReadID))
             || matches!(
                 *byte,
-                b'#' | b'`'
-                    | b'"'
+                b'`' | b'"'
                     | b'\''
                     | b'\\'
                     | b','
@@ -104,7 +124,7 @@ fn ensure_valid_identifier(value: &[u8], max_len: u8, what: &str) -> Result<(), 
             )
         {
             return Err(Error::InvalidState(format!(
-                "{what} contains forbidden characters"
+                "{identifier} contains forbidden characters"
             )));
         }
     }
@@ -122,7 +142,7 @@ fn ensure_valid_identifier(value: &[u8], max_len: u8, what: &str) -> Result<(), 
 /// - if it contains non-ASCII, control, or forbidden punctuation characters
 /// - if it starts with a reserved leading character
 pub fn ensure_valid_read_id(qname: &[u8], max_len: u8) -> Result<(), Error> {
-    ensure_valid_identifier(qname, max_len, "read_id").map_err(|err| {
+    ensure_valid_identifier(qname, max_len, Identifier::ReadID).map_err(|err| {
         let Error::InvalidState(msg) = err else {
             unreachable!("shared identifier validator must return InvalidState")
         };
@@ -140,13 +160,25 @@ pub fn ensure_valid_read_id(qname: &[u8], max_len: u8) -> Result<(), Error> {
 /// - if above a max contig length
 /// - if it contains non-ASCII, control, or forbidden punctuation characters
 /// - if it starts with a reserved leading character
+/// - if the portion after its final colon contains a hyphen (ambiguous region syntax)
 pub fn ensure_valid_contig(contig: &[u8], max_len: u8) -> Result<(), Error> {
-    ensure_valid_identifier(contig, max_len, "contig").map_err(|err| {
+    ensure_valid_identifier(contig, max_len, Identifier::ContigName).map_err(|err| {
         let Error::InvalidState(msg) = err else {
             unreachable!("shared identifier validator must return InvalidState")
         };
         Error::InvalidContig(msg)
-    })
+    })?;
+    if let Some(colon) = contig.iter().rposition(|byte| *byte == b':')
+        && contig
+            .get(colon.saturating_add(1)..)
+            .is_some_and(|suffix| suffix.contains(&b'-'))
+    {
+        return Err(Error::InvalidContig(
+            "contig names cannot contain a hyphen after the final colon (ambiguous region syntax)"
+                .to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -334,7 +366,27 @@ mod tests {
 
     #[test]
     fn ensure_valid_contig_accepts_valid_contig() -> Result<(), Error> {
-        ensure_valid_contig(b"chr1_alt", 20)
+        for name in ["chr1_alt", "HG002#1#chr1", "chr1-", "chr1:alt-part:copy"] {
+            ensure_valid_contig(name.as_bytes(), 20)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn ensure_valid_contig_rejects_ambiguous_region_names() {
+        for name in [
+            "chr1:alt-",
+            "chr1:alt-part",
+            "chr1:100-200",
+            "chr1:copy:100-",
+        ] {
+            assert!(
+                matches!(ensure_valid_contig(name.as_bytes(), 20),
+                Err(Error::InvalidContig(message))
+                if message == "contig names cannot contain a hyphen after the final colon (ambiguous region syntax)"),
+                "{name}"
+            );
+        }
     }
 
     #[test]

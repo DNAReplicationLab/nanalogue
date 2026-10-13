@@ -2,7 +2,7 @@
 //! Provides ordered pair datatype with validation and interval operations
 
 use super::contains::Contains;
-use crate::{Error, F32Bw0and1};
+use crate::{Error, F32Bw0and1, constants::shared::MAX_CONTIG_LEN};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
@@ -178,6 +178,8 @@ impl<T: Clone + Copy + Debug + PartialEq + PartialOrd> OrdPair<T> {
 impl OrdPair<u32> {
     /// Parse an interval string specifically for genomic regions.
     /// Supports formats like "1000-2000" and "1000-" (where end defaults to `u32::MAX`).
+    /// Explicit ends must not exceed [`MAX_CONTIG_LEN`]; `u32::MAX` is reserved
+    /// for an omitted end.
     /// Enforces strict inequality (start < end).
     ///
     /// ```
@@ -210,7 +212,7 @@ impl OrdPair<u32> {
     ///
     /// # Errors
     /// Returns an error if the interval format is invalid, coordinates cannot be parsed,
-    /// or if start is not strictly less than end.
+    /// an explicit end exceeds [`MAX_CONTIG_LEN`], or start is not strictly less than end.
     ///
     #[expect(
         clippy::missing_panics_doc,
@@ -243,7 +245,7 @@ calls are only used after verifying the length of the parts vector, ensuring saf
                     u32::MAX
                 } else {
                     // Closed interval: "1000-2000"
-                    parts
+                    let explicit_end = parts
                         .get(1)
                         .expect("parts has exactly 2 elements")
                         .trim()
@@ -252,7 +254,13 @@ calls are only used after verifying the length of the parts vector, ensuring saf
                             Error::OrdPairConversion(
                                 "Invalid end coordinate in interval!".to_string(),
                             )
-                        })?
+                        })?;
+                    if explicit_end > MAX_CONTIG_LEN {
+                        return Err(Error::OrdPairConversion(format!(
+                            "end coordinate {explicit_end} exceeds maximum contig length {MAX_CONTIG_LEN}"
+                        )));
+                    }
+                    explicit_end
                 };
 
                 // Enforce strict inequality (start < end)

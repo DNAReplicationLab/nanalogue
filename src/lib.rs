@@ -157,6 +157,47 @@ pub use utils::{
     ensure_valid_contig, ensure_valid_read_id, mm_groups, revcomp,
 };
 
+/// Documents a possibility without asserting it or evaluating either argument.
+///
+/// The condition must be a `bool` and the message a `&str`. Both expressions are
+/// type-checked (and borrow-checked), but never evaluated, in debug or release
+/// builds. This is a structured comment, not a runtime check or an optimizer hint.
+/// An optional trailing comma is accepted.
+///
+/// # Examples
+///
+/// ```
+/// use nanalogue_core::maybe;
+/// use std::cell::Cell;
+///
+/// let evaluated = Cell::new(false);
+/// maybe!(false, "this possibility need not be true");
+/// maybe!(
+///     { evaluated.set(true); true },
+///     { evaluated.set(true); "neither argument runs" },
+/// );
+/// assert!(!evaluated.get());
+/// ```
+///
+/// Non-boolean conditions and non-string messages are rejected:
+///
+/// ```compile_fail
+/// nanalogue_core::maybe!(1, "not a boolean");
+/// ```
+///
+/// ```compile_fail
+/// nanalogue_core::maybe!(true, 1);
+/// ```
+#[macro_export]
+macro_rules! maybe {
+    ($condition:expr, $message:expr $(,)?) => {
+        if false {
+            let _: bool = $condition;
+            let _: &str = $message;
+        }
+    };
+}
+
 /// Genomic 3-column BED shorthand used with `bedrs` coordinate types in this crate.
 pub type GenomicBed3 = Bed3<i32, u32>;
 /// Genomic stranded BED shorthand used with `bedrs` coordinate types in this crate.
@@ -761,6 +802,10 @@ where
                 assert!(
                     annotations.len() <= seq_len,
                     "annotation count cannot exceed sequence length"
+                );
+                maybe!(
+                    annotations.is_empty(),
+                    "a retained modification type could have no calls after probability, position, or base-quality filtering"
                 );
 
                 total_mod_annotations += u64::try_from(annotations.len())
@@ -1380,6 +1425,41 @@ mod mod_parse_tests {
 
         assert!(matches!(result, Err(Error::InvalidModCoords(message))
             if message == "MN tag must contain an integer sequence length"));
+        Ok(())
+    }
+
+    #[test]
+    fn nanalogue_mm_ml_parser_accepts_large_read_with_rounded_capacity() -> Result<(), Error> {
+        let mut record = bam::Record::new();
+        // We need a 12-million-base read whose allocated capacity is exactly
+        // 32 MiB, even though its actual record data uses only about 18 MB.
+        // Unlike the SAM parsing path's power-of-two allocation, set grows its
+        // buffer to the next 32-byte boundary. Setting 12 million bases directly
+        // would therefore allocate only 18,000,032 bytes, not 32 MiB.
+        // First use 22,369,600 bases to deliberately reach the required capacity:
+        //   QName: 10 bytes for "large_read" + 1 NUL terminator + 1 alignment
+        //          padding byte = 12 bytes (the CIGAR starts on a 4-byte boundary).
+        //   Sequence: two bases per packed byte = 11,184,800 bytes.
+        //   Qualities: one byte per base, even when missing (255) = 22,369,600 bytes.
+        // There is no CIGAR or auxiliary data, so the total is 33,554,412 bytes.
+        // Rounding to the next 32-byte boundary adds 20 unused padding bytes:
+        // 33,554,412 + 20 = 33,554,432 bytes = 32 * 1024 * 1024 = 32 MiB.
+        let mut sequence = vec![b'A'; 22_369_600];
+        let mut qualities = vec![255; sequence.len()];
+        record.set(b"large_read", None, &sequence, &qualities);
+        // Shrinking the sequence retains the rounded allocation. This avoids
+        // relying on backend-specific SAM parsing or auxiliary-tag growth policies.
+        sequence.truncate(12_000_000);
+        qualities.truncate(sequence.len());
+        record.set(b"large_read", None, &sequence, &qualities);
+        record.set_unmapped();
+        // Packed sequence uses 1/2 byte per base, and missing qualities still use
+        // 1 byte per base (filled with 255), so this record needs about 18 MB.
+        assert_eq!(record.seq_len(), 12_000_000);
+        assert!(record.inner().l_data < 32 * 1024 * 1024);
+        assert_eq!(record.inner().m_data, 32 * 1024 * 1024);
+        let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0)?;
+        assert_eq!(result.base_mods.len(), 0);
         Ok(())
     }
 

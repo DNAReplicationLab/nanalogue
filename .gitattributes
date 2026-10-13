@@ -1,0 +1,12 @@
+# Test inputs and expected outputs must keep their exact bytes on every
+# platform: line-ending conversion would break FASTA index offsets and
+# byte-level comparisons against golden files.
+examples/** -text
+
+# Alignment, index and compressed files are binary.
+*.bam binary
+*.bai binary
+*.cram binary
+*.crai binary
+*.csi binary
+*.gz binary

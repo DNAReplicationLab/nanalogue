@@ -1320,11 +1320,7 @@ impl CurrRead<OnlyAlignDataComplete> {
                         "`bedrs` should not allow malformed intervals!",
                     )));
                 }
-                if v.start() == stranded_bed3.start() && v.end() == stranded_bed3.end() {
-                    None // No filtering needed
-                } else {
-                    Some(v.start()..v.end())
-                }
+                Some(v.start()..v.end())
             } else {
                 Some(0..0) // No intersection means discard all data
             }
@@ -2651,6 +2647,10 @@ pub fn curr_reads_to_dataframe(reads: &[CurrRead<AlignAndModData>]) -> Result<Da
         }
     }
 
+    crate::maybe!(
+        !reads.is_empty() && positions.is_empty(),
+        "nonempty read input could produce a modification table with no rows"
+    );
     // Build the DataFrame
     let df = df! {
         "read_id" => read_ids,

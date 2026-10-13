@@ -14,6 +14,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paired modification mask when a modification type is requested
 - Session-labelled BAM viewer saves and an individual-view save action that
   appends selected alignments to a session BED6 file
+- Golden format variants of `examples/example_1.bam` in
+  `examples/example_1_formats/`, made by its `generate.sh`. They cover a BAM
+  with a CSI index, uncompressed and per-record BGZF BAM, plain and bgzipped
+  SAM with CSI, and CRAM 2.0, 2.1, 3.0 and 3.1 with external, embedded and no
+  reference. They also include CRAM 3.1 compression profiles, slice layouts,
+  an unsorted CRAM, and interleaved files mixing per-record encodings.
+  `tests/example_1_format_variants.rs` checks that every variant gives the same
+  CLI and library results as the original. It also checks index use, reference
+  resolution, and that a missing or wrong reference is handled. Two tests
+  deliberately pin incorrect HTSlib behaviour: a wrong reference goes
+  undetected in multi-reference CRAM slices, and CRAM 2.x reference-free
+  encoding does not restore absent base qualities.
+- `.gitattributes` keeps files under `examples/` byte-exact on every platform
+  and marks alignment and index files as binary.
 
 ### Changed
 - BAM viewer displayed coordinates are now zero-based, matching input
@@ -24,6 +38,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alignments that stay on screen, and the table view decodes only the visible
   part of each read. Added the `bam_viewer_fetch` benchmark that replays these
   fetches.
+- Contig names now support PanSN names like `HG002#1#chr1` and bare names with
+  colons like `HLA-A*01:01:01:01`. Names starting with `#` or containing a
+  hyphen after the last colon are unsupported; the latter clashes with
+  region syntax. Read-ID rules are unchanged.
+
+### Fixed
+- Genomic region strings reject explicit numeric ends above `MAX_CONTIG_LEN`
+  (4294967294), including `chr1:0-4294967295`, instead of silently treating them
+  as open ends. Use an omitted end such as `chr1:0-` in strings. For library
+  compatibility, tuple construction and serde still interpret `u32::MAX`
+  (4294967295) as the open-end sentinel, not a literal coordinate; this
+  distinction is now documented on `GenomicRegion`.
+- `find-modified-reads dens-range-above` allows an absolute `f32::EPSILON`
+  tolerance when comparing density ranges to `--min-range`, so subtraction
+  rounding does not exclude ranges at the requested boundary. Positive
+  thresholds always reject zero density range, including thresholds at or
+  below epsilon; `--min-range 0` still accepts zero range.
+- Record capacity can now reach exactly 32 MiB, so HTSlib's rounded allocations
+  are no longer rejected for being one byte over the old limit.
+- Applied modification-region filtering even when the requested region
+  contains the entire aligned span of a read, including an exact match.
+  Terminal soft-clipped modification calls are now excluded in these cases;
+  insertions between retained calls are still kept.
+- Invalid MM-strand errors now display the offending character and explain
+  that the strand must be `+` or `-`.
+- Corrected the `--include-zero-len` documentation: zero-length sequences
+  bypass minimum sequence-length filtering only; minimum alignment-length
+  and all other read filters still apply.
+- Reject reversed `--low`/`--high` thresholds.
 
 ## [0.2.0] - 2026-10-06
 

@@ -8,7 +8,7 @@ use crate::constants::shared::{
 };
 use crate::{
     AllowedAGCTN, CurrRead, Error, ModChar, ensure_bounded_counter, ensure_nonzero_counter,
-    ensure_record_data_capacity, ensure_valid_contig,
+    ensure_record_data_capacity, ensure_valid_contig, maybe,
 };
 use rust_htslib::bam;
 use std::collections::HashSet;
@@ -64,6 +64,7 @@ where
 {
     // We check the total contig number here and error out if too many are found.
     // No contigs found is fine as BAM may be unmapped.
+    maybe!(header.target_count() == 0, "header could have no sequences");
     if header.target_count() > MAX_CONTIGS {
         return Err(Error::InvalidState(format!(
             "peek contig limit exceeded: > {MAX_CONTIGS}"
@@ -402,6 +403,28 @@ mod tests {
             bam_rc_records.rc_records.take(100),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn peek_accepts_pansn_contigs() -> Result<(), Error> {
+        let header = bam::HeaderView::from_bytes(b"@SQ\tSN:HG002#1#chr1\tLN:100\n");
+        let mut record = bam::Record::new();
+        let cigar = bam::record::CigarString::from(vec![bam::record::Cigar::Match(1)]);
+        record.set(b"read_1", Some(&cigar), b"C", &[255]);
+        record.unset_flags();
+        record.set_tid(0);
+        record.set_pos(10);
+        record.set_mapq(60);
+        record.push_aux(b"MM", bam::record::Aux::String("C+m,0;"))?;
+        record.push_aux(b"ML", bam::record::Aux::ArrayU8((&[200]).into()))?;
+        record.set_header(std::sync::Arc::new(header.clone()));
+        let mut output = Vec::new();
+        run(&mut output, &header, std::iter::once(Ok(Rc::new(record))))?;
+        assert_eq!(
+            String::from_utf8(output)?,
+            "contigs_and_lengths:\nHG002#1#chr1\t100\n\nmodifications:\nC+m\n"
+        );
+        Ok(())
     }
 
     #[test]

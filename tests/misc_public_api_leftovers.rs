@@ -132,30 +132,25 @@ mod tests {
         );
     }
 
-    /// A contig of exactly `u32::MAX` bases is the largest supported length:
-    /// the whole contig converts to the exact interval `[0, u32::MAX)`, while
-    /// one base less converts to `[0, u32::MAX - 1)`.
+    /// A contig of `u32::MAX - 1` bases is supported, but `u32::MAX` is not.
     ///
     /// A header declaring `LN = u32::MAX + 1` is clamped by `HTSlib` before
     /// nanalogue sees it: reference lengths are stored in a `u32`, so
-    /// `target_len` reports `u32::MAX`. Consequently the
-    /// `contig_len > u32::MAX` guard inside `try_to_bed3` (which would return
-    /// `Error::InvalidSeqLength`) is unreachable through any header produced
-    /// by the public HTSlib-backed API, and the conversion succeeds with the
-    /// clamped interval instead of failing.
+    /// `target_len` reports `u32::MAX`. That still exceeds the supported cap,
+    /// so the conversion must reject it.
     #[test]
     fn region_conversion_handles_the_u32_length_boundary() {
         let max_header = header_with_contig_length(u64::from(u32::MAX));
-        assert_eq!(
-            region_to_bed3(&max_header, "chr1"),
-            GenomicBed3::new(0, 0, u32::MAX).unwrap(),
-            "the whole contig is the exact BED interval"
-        );
-        assert_eq!(
-            region_to_bed3(&max_header, "chr1:0-"),
-            GenomicBed3::new(0, 0, u32::MAX).unwrap(),
-            "an open end is the contig length"
-        );
+        for input in ["chr1", "chr1:0-"] {
+            let error = GenomicRegion::from_str(input)
+                .unwrap()
+                .try_to_bed3(&max_header)
+                .unwrap_err();
+            assert!(
+                matches!(error, Error::InvalidSeqLength(_)),
+                "reject oversized contigs"
+            );
+        }
 
         let below_header = header_with_contig_length(u64::from(u32::MAX) - 1);
         assert_eq!(
@@ -170,10 +165,13 @@ mod tests {
             Some(u64::from(u32::MAX)),
             "HTSlib clamps an oversized reference length to u32::MAX"
         );
-        assert_eq!(
-            region_to_bed3(&over_max_header, "chr1"),
-            GenomicBed3::new(0, 0, u32::MAX).unwrap(),
-            "the conversion sees the clamped length"
+        let error = GenomicRegion::from_str("chr1")
+            .unwrap()
+            .try_to_bed3(&over_max_header)
+            .unwrap_err();
+        assert!(
+            matches!(error, Error::InvalidSeqLength(_)),
+            "reject clamped oversized contigs"
         );
     }
 
