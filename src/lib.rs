@@ -375,6 +375,47 @@ fn approximate_mod_data_len(
     Ok(calculated_approx.min(seq_len))
 }
 
+/// Checks that an auxiliary tag contains an integer matching the sequence length.
+/// Typically used to validate MN when a record has nonempty MM/Mm modification data.
+/// The sequence length must be in `1..=MAX_SEQ_LEN`.
+fn validate_tag_equals_seq_len(mn_tag: &Aux<'_>, seq_len: usize) -> Result<(), Error> {
+    assert!(
+        (1..=usize::try_from(MAX_SEQ_LEN).expect("u32 fits in supported usize")).contains(&seq_len),
+        "sequence length must be between 1 and MAX_SEQ_LEN"
+    );
+    let mn_seq_len = match *mn_tag {
+        Aux::I8(value) => i64::from(value),
+        Aux::U8(value) => i64::from(value),
+        Aux::I16(value) => i64::from(value),
+        Aux::U16(value) => i64::from(value),
+        Aux::I32(value) => i64::from(value),
+        Aux::U32(value) => i64::from(value),
+        Aux::Char(_)
+        | Aux::Float(_)
+        | Aux::Double(_)
+        | Aux::String(_)
+        | Aux::HexByteArray(_)
+        | Aux::ArrayI8(_)
+        | Aux::ArrayU8(_)
+        | Aux::ArrayI16(_)
+        | Aux::ArrayU16(_)
+        | Aux::ArrayI32(_)
+        | Aux::ArrayU32(_)
+        | Aux::ArrayFloat(_) => {
+            return Err(Error::InvalidModCoords(
+                "MN tag must contain an integer sequence length".to_owned(),
+            ));
+        }
+    };
+    let current_seq_len = i64::try_from(seq_len)?;
+    if mn_seq_len != current_seq_len {
+        return Err(Error::InvalidModCoords(format!(
+            "MN tag sequence length {mn_seq_len} does not match current sequence length {current_seq_len}"
+        )));
+    }
+    Ok(())
+}
+
 /// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods`-like struct.
 ///
 /// Portions of this implementation are adapted from the published crate
@@ -485,39 +526,6 @@ where
         "MM ML parsing",
     )?;
 
-    if let Ok(mn_tag) = record.aux(b"MN") {
-        let mn_seq_len = match mn_tag {
-            Aux::I8(value) => i64::from(value),
-            Aux::U8(value) => i64::from(value),
-            Aux::I16(value) => i64::from(value),
-            Aux::U16(value) => i64::from(value),
-            Aux::I32(value) => i64::from(value),
-            Aux::U32(value) => i64::from(value),
-            Aux::Char(_)
-            | Aux::Float(_)
-            | Aux::Double(_)
-            | Aux::String(_)
-            | Aux::HexByteArray(_)
-            | Aux::ArrayI8(_)
-            | Aux::ArrayU8(_)
-            | Aux::ArrayI16(_)
-            | Aux::ArrayU16(_)
-            | Aux::ArrayI32(_)
-            | Aux::ArrayU32(_)
-            | Aux::ArrayFloat(_) => {
-                return Err(Error::InvalidModCoords(
-                    "MN tag must contain an integer sequence length".to_owned(),
-                ));
-            }
-        };
-        let current_seq_len = i64::try_from(record.seq_len())?;
-        if mn_seq_len != current_seq_len {
-            return Err(Error::InvalidModCoords(format!(
-                "MN tag sequence length {mn_seq_len} does not match current sequence length {current_seq_len}"
-            )));
-        }
-    }
-
     // Array to store all the different modifications within the MM tag
     let mut rtn: Vec<BaseMod> = Vec::new();
 
@@ -588,15 +596,6 @@ where
 
     // if there is an MM tag, process the data
     if !mm_text.is_empty() {
-        // base qualities; must reverse if rev comp.
-        // NOTE this is always equal to number of bases in the sequence, otherwise
-        // rust_htslib will throw an error, so we don't have to check this.
-        let base_qual: Vec<u8> = match (min_qual, is_reverse) {
-            (0, _) => Vec::new(),
-            (_, true) => record.qual().iter().rev().copied().collect(),
-            (_, false) => record.qual().to_vec(),
-        };
-
         // Keep the sequence in BAM's packed 4-bit representation. Candidate MM bases are
         // selected from it below without allocating and decoding the entire read.
         let packed_seq = record.seq();
@@ -613,6 +612,19 @@ where
                 "zero length sequences cannot be used for mod tag parsing".to_owned(),
             ));
         }
+
+        if let Ok(mn_tag) = record.aux(b"MN") {
+            validate_tag_equals_seq_len(&mn_tag, seq_len)?;
+        }
+
+        // base qualities; must reverse if rev comp.
+        // NOTE this is always equal to number of bases in the sequence, otherwise
+        // rust_htslib will throw an error, so we don't have to check this.
+        let base_qual: Vec<u8> = match (min_qual, is_reverse) {
+            (0, _) => Vec::new(),
+            (_, true) => record.qual().iter().rev().copied().collect(),
+            (_, false) => record.qual().to_vec(),
+        };
 
         if !base_qual.is_empty() && base_qual.len() != seq_len {
             return Err(Error::InvalidState(
@@ -1484,6 +1496,7 @@ mod mod_parse_tests {
         let mut record = bam::Record::new();
         record.set(b"oversized_sequence", None, &sequence, &qualities);
         record.push_aux(b"MM", Aux::String("C+m;"))?;
+        record.push_aux(b"MN", Aux::U32(u32::try_from(seq_len)?))?;
 
         let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
 
