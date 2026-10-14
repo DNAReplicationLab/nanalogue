@@ -55,6 +55,76 @@ mod tests {
     }
 
     #[test]
+    fn mn_is_ignored_without_modification_data() {
+        for mm_tag in [None, Some(b"MM"), Some(b"Mm")] {
+            for mn_tag in [Aux::I32(14), Aux::String("stale")] {
+                let mut unmodified = record(b"ACGT", &[Cigar::Match(4)]);
+                unmodified.push_aux(b"MN", mn_tag).expect("MN tag");
+                if let Some(tag) = mm_tag {
+                    unmodified
+                        .push_aux(tag, Aux::String(""))
+                        .expect("empty MM tag");
+                }
+                assert!(
+                    parse(&unmodified)
+                        .expect("MN is irrelevant without modification data")
+                        .base_mods
+                        .is_empty(),
+                    "absent or empty MM data must yield no modifications"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn nonempty_mm_group_without_calls_still_checks_mn() {
+        for tag in [b"MM", b"Mm"] {
+            let mut modified = record(b"ACGT", &[Cigar::Match(4)]);
+            modified
+                .push_aux(tag, Aux::String("C+m?;"))
+                .expect("MM group without calls");
+            modified.push_aux(b"MN", Aux::I32(14)).expect("MN tag");
+            let error = parse(&modified).expect_err("nonempty MM data requires a matching MN");
+            assert!(
+                matches!(error, Error::InvalidModCoords(message)
+                if message == "MN tag sequence length 14 does not match current sequence length 4"),
+                "MN validation must not depend on ML probabilities being present"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_mn_precedes_mm_calls_exceeding_sequence() {
+        for (mm_tag, ml_tag) in [(b"MM", b"ML"), (b"Mm", b"Ml")] {
+            let mut malformed = record(b"CCGT", &[Cigar::Match(4)]);
+            // Three calls cannot fit on the sequence's two cytosines.
+            malformed
+                .push_aux(mm_tag, Aux::String("C+m?,0,0,0;"))
+                .expect("MM tag");
+            malformed
+                .push_aux(ml_tag, Aux::ArrayU8((&[51u8, 102, 204][..]).into()))
+                .expect("ML tag");
+            malformed.push_aux(b"MN", Aux::I32(14)).expect("stale MN");
+
+            let length_error = parse(&malformed).expect_err("both MN and MM data are invalid");
+            assert!(
+                matches!(length_error, Error::InvalidModCoords(message)
+                if message == "MN tag sequence length 14 does not match current sequence length 4"),
+                "MN mismatch must be reported before processing MM calls"
+            );
+
+            malformed.remove_aux(b"MN").expect("remove stale MN");
+            malformed.push_aux(b"MN", Aux::I32(4)).expect("matching MN");
+            let calls_error = parse(&malformed).expect_err("MM calls still exceed the sequence");
+            assert!(
+                matches!(calls_error, Error::InvalidModCoords(message)
+                if message == "Problem with parsing MM/ML data, counts do not match 2 != 3"),
+                "correcting only MN must expose the independently invalid MM data"
+            );
+        }
+    }
+
+    #[test]
     fn nonempty_mm_tag_rejects_missing_sequence_even_without_calls() {
         // BAM records can omit SEQ. A nonempty MM group still needs a sequence,
         // even if it has no distances and therefore no ML probabilities.
@@ -72,6 +142,13 @@ mod tests {
                     matches!(error, Error::ZeroSeqLen(message)
                     if message == "zero length sequences cannot be used for mod tag parsing"),
                     "missing sequence must not produce a silently empty result"
+                );
+                empty.push_aux(b"MN", Aux::I32(0)).expect("MN tag");
+                let tagged_error =
+                    parse(&empty).expect_err("MN cannot make an empty sequence valid");
+                assert!(
+                    matches!(tagged_error, Error::ZeroSeqLen(_)),
+                    "sequence length must be rejected before the MN helper's assertion"
                 );
             }
         }
