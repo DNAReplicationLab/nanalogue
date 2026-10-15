@@ -1496,7 +1496,6 @@ mod mod_parse_tests {
         let mut record = bam::Record::new();
         record.set(b"oversized_sequence", None, &sequence, &qualities);
         record.push_aux(b"MM", Aux::String("C+m;"))?;
-        record.push_aux(b"MN", Aux::U32(u32::try_from(seq_len)?))?;
 
         let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
 
