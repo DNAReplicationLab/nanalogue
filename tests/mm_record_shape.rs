@@ -32,7 +32,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_sequence_needs_no_shape_validation_without_modifications() {
+    fn empty_sequence_needs_no_shape_validation_without_mm_tag() {
         let mut empty = record(b"", &[]);
         empty.set_flags(4);
         empty.set_tid(-1);
@@ -45,33 +45,57 @@ mod tests {
                 .is_empty(),
             "a sequence-less record with no MM data has no calls"
         );
-        empty
-            .push_aux(b"MM", Aux::String(""))
-            .expect("empty MM tag");
-        assert!(
-            parse(&empty).expect("empty MM data").base_mods.is_empty(),
-            "an empty tag must behave like an absent tag"
-        );
     }
 
     #[test]
-    fn mn_is_ignored_without_modification_data() {
-        for mm_tag in [None, Some(b"MM"), Some(b"Mm")] {
-            for mn_tag in [Aux::I32(14), Aux::String("stale")] {
+    fn mn_is_ignored_without_mm_tag() {
+        for mn_tag in [Aux::I32(14), Aux::String("stale")] {
+            let mut unmodified = record(b"ACGT", &[Cigar::Match(4)]);
+            unmodified.push_aux(b"MN", mn_tag).expect("MN tag");
+            assert!(
+                parse(&unmodified)
+                    .expect("MN is irrelevant without an MM tag")
+                    .base_mods
+                    .is_empty(),
+                "absent MM must yield no modifications"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_mm_tag_checks_mn() {
+        for tag in [b"MM", b"Mm"] {
+            for (mn_tag, expected_error) in [
+                (None, None),
+                (Some(Aux::I32(4)), None),
+                (
+                    Some(Aux::I32(14)),
+                    Some("MN tag sequence length 14 does not match current sequence length 4"),
+                ),
+                (
+                    Some(Aux::String("stale")),
+                    Some("MN tag must contain an integer sequence length"),
+                ),
+            ] {
                 let mut unmodified = record(b"ACGT", &[Cigar::Match(4)]);
-                unmodified.push_aux(b"MN", mn_tag).expect("MN tag");
-                if let Some(tag) = mm_tag {
-                    unmodified
-                        .push_aux(tag, Aux::String(""))
-                        .expect("empty MM tag");
+                unmodified
+                    .push_aux(tag, Aux::String(""))
+                    .expect("empty MM tag");
+                if let Some(value) = mn_tag {
+                    unmodified.push_aux(b"MN", value).expect("MN tag");
                 }
-                assert!(
-                    parse(&unmodified)
-                        .expect("MN is irrelevant without modification data")
-                        .base_mods
-                        .is_empty(),
-                    "absent or empty MM data must yield no modifications"
-                );
+                let parsed = parse(&unmodified);
+                if let Some(expected) = expected_error {
+                    assert!(
+                        matches!(parsed, Err(Error::InvalidModCoords(message)) if message == expected),
+                        "empty MM must reject invalid MN"
+                    );
+                } else {
+                    assert!(
+                        parsed.expect("valid empty MM").base_mods.is_empty(),
+                        "valid empty MM must yield no modifications"
+                    );
+                }
             }
         }
     }
@@ -125,31 +149,29 @@ mod tests {
     }
 
     #[test]
-    fn nonempty_mm_tag_rejects_missing_sequence_even_without_calls() {
-        // BAM records can omit SEQ. A nonempty MM group still needs a sequence,
-        // even if it has no distances and therefore no ML probabilities.
+    fn present_mm_tag_rejects_missing_sequence_even_without_calls() {
+        // BAM records can omit SEQ, but a present MM tag requires a sequence,
+        // even if it is empty or has no calls and therefore no ML probabilities.
         for tag in [b"MM", b"Mm"] {
-            for suffix in ["?", ".", ""] {
-                let mut empty = record(b"", &[]);
-                empty.set_flags(4);
-                empty.set_tid(-1);
-                empty.set_pos(-1);
-                empty
-                    .push_aux(tag, Aux::String(&format!("C+m{suffix};")))
-                    .expect("syntactically valid empty group");
-                let error = parse(&empty).expect_err("MM data requires a sequence");
-                assert!(
-                    matches!(error, Error::ZeroSeqLen(message)
-                    if message == "zero length sequences cannot be used for mod tag parsing"),
-                    "missing sequence must not produce a silently empty result"
-                );
-                empty.push_aux(b"MN", Aux::I32(0)).expect("MN tag");
-                let tagged_error =
-                    parse(&empty).expect_err("MN cannot make an empty sequence valid");
-                assert!(
-                    matches!(tagged_error, Error::ZeroSeqLen(_)),
-                    "sequence length must be rejected before the MN helper's assertion"
-                );
+            for mm_text in ["", "C+m?;", "C+m.;", "C+m;"] {
+                for mn in [None, Some(0), Some(14)] {
+                    let mut empty = record(b"", &[]);
+                    empty.set_flags(4);
+                    empty.set_tid(-1);
+                    empty.set_pos(-1);
+                    empty
+                        .push_aux(tag, Aux::String(mm_text))
+                        .expect("syntactically valid MM tag");
+                    if let Some(value) = mn {
+                        empty.push_aux(b"MN", Aux::I32(value)).expect("MN tag");
+                    }
+                    let error = parse(&empty).expect_err("MM data requires a sequence");
+                    assert!(
+                        matches!(error, Error::ZeroSeqLen(message)
+                        if message == "zero length sequences cannot be used for mod tag parsing"),
+                        "missing sequence must be rejected before MN validation: MM: {mm_text:?}, MN: {mn:?}"
+                    );
+                }
             }
         }
     }
@@ -164,19 +186,37 @@ mod tests {
             vec![Cigar::SoftClip(1), Cigar::Match(1)],
             vec![Cigar::Match(2), Cigar::Ins(2)],
         ] {
-            let mut malformed = record(b"CCC", &cigar);
-            malformed
-                .push_aux(b"MM", Aux::String("C+m?,0,0,0;"))
-                .expect("three calls");
-            malformed
-                .push_aux(b"ML", Aux::ArrayU8((&[51u8, 102, 204][..]).into()))
-                .expect("three probabilities");
-            let error = parse(&malformed).expect_err("query consumption mismatch");
-            assert!(
-                matches!(error, Error::InvalidState(message)
-                if message == "rust_htslib failure! seq coordinates malformed"),
-                "malformed CIGAR must reach the shape check: {cigar:?}"
-            );
+            for (mm_text, probabilities) in [("", &[][..]), ("C+m?,0,0,0;", &[51u8, 102, 204][..])]
+            {
+                for (mm_tag, ml_tag) in [(b"MM", b"ML"), (b"Mm", b"Ml")] {
+                    for mn in [None, Some(3), Some(14)] {
+                        let mut malformed = record(b"CCC", &cigar);
+                        malformed
+                            .push_aux(mm_tag, Aux::String(mm_text))
+                            .expect("MM tag");
+                        malformed
+                            .push_aux(ml_tag, Aux::ArrayU8(probabilities.into()))
+                            .expect("matching probabilities");
+                        if let Some(value) = mn {
+                            malformed.push_aux(b"MN", Aux::I32(value)).expect("MN tag");
+                        }
+                        let error = parse(&malformed).expect_err("invalid record");
+                        if mn == Some(14) {
+                            assert!(
+                                matches!(error, Error::InvalidModCoords(message)
+                                if message == "MN tag sequence length 14 does not match current sequence length 3"),
+                                "invalid MN must be rejected before CIGAR validation"
+                            );
+                        } else {
+                            assert!(
+                                matches!(error, Error::InvalidState(message)
+                                if message == "rust_htslib failure! seq coordinates malformed"),
+                                "malformed CIGAR must reach the shape check: {cigar:?}, MM: {mm_text:?}, MN: {mn:?}"
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 

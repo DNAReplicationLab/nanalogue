@@ -565,7 +565,7 @@ where
     let is_reverse = record.is_reverse();
 
     // We allow `MM` or legacy `Mm`, but both may not coexist.
-    let mm_text = {
+    let (mm_text, is_mm_present_but_empty) = {
         match (record.aux(b"MM"), record.aux(b"Mm")) {
             (Ok(_), Ok(_)) => {
                 return Err(Error::InvalidState(
@@ -573,8 +573,8 @@ where
                             .to_owned(),
                     ));
             }
-            (Err(_), Ok(Aux::String(v))) | (Ok(Aux::String(v)), Err(_)) => v,
-            (Err(_), Err(_)) => "",
+            (Err(_), Ok(Aux::String(v))) | (Ok(Aux::String(v)), Err(_)) => (v, v.is_empty()),
+            (Err(_), Err(_)) => ("", false),
             _ => {
                 return Err(Error::InvalidState(
                     "rust-htslib MM/Mm tag parsing failure: unexpected auxiliary tag type"
@@ -595,7 +595,7 @@ where
     }
 
     // if there is an MM tag, process the data
-    if !mm_text.is_empty() {
+    if !mm_text.is_empty() || is_mm_present_but_empty {
         // Keep the sequence in BAM's packed 4-bit representation. Candidate MM bases are
         // selected from it below without allocating and decoding the entire read.
         let packed_seq = record.seq();
@@ -1496,7 +1496,6 @@ mod mod_parse_tests {
         let mut record = bam::Record::new();
         record.set(b"oversized_sequence", None, &sequence, &qualities);
         record.push_aux(b"MM", Aux::String("C+m;"))?;
-        record.push_aux(b"MN", Aux::U32(u32::try_from(seq_len)?))?;
 
         let result = nanalogue_mm_ml_parser(&record, |&_| true, |&_| true, |&_, &_, &_| true, 0);
 
