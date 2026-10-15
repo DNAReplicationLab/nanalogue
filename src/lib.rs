@@ -565,7 +565,7 @@ where
     let is_reverse = record.is_reverse();
 
     // We allow `MM` or legacy `Mm`, but both may not coexist.
-    let mm_text = {
+    let (mm_text, is_mm_present_but_empty) = {
         match (record.aux(b"MM"), record.aux(b"Mm")) {
             (Ok(_), Ok(_)) => {
                 return Err(Error::InvalidState(
@@ -573,8 +573,8 @@ where
                             .to_owned(),
                     ));
             }
-            (Err(_), Ok(Aux::String(v))) | (Ok(Aux::String(v)), Err(_)) => v,
-            (Err(_), Err(_)) => "",
+            (Err(_), Ok(Aux::String(v))) | (Ok(Aux::String(v)), Err(_)) => (v, v.is_empty()),
+            (Err(_), Err(_)) => ("", false),
             _ => {
                 return Err(Error::InvalidState(
                     "rust-htslib MM/Mm tag parsing failure: unexpected auxiliary tag type"
@@ -595,7 +595,7 @@ where
     }
 
     // if there is an MM tag, process the data
-    if !mm_text.is_empty() {
+    if !mm_text.is_empty() || is_mm_present_but_empty {
         // Keep the sequence in BAM's packed 4-bit representation. Candidate MM bases are
         // selected from it below without allocating and decoding the entire read.
         let packed_seq = record.seq();
