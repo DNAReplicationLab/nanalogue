@@ -18,7 +18,7 @@ Available benchmarks:
 
 | Benchmark | Timed work |
 | --- | --- |
-| `mm_ml_parser` | MM/ML parsing across short, long, sparse, dense, implicit, multi-modification, and ultra-long records. |
+| `mm_ml_parser` | MM/ML parsing across short, long, sparse, dense, implicit, multi-modification, and ultra-long records, including forward and reverse records aligned with an indel-rich CIGAR. |
 | `basemods_to_seq_coord_calls` | Conversion of long-read base modifications into sequence-coordinate calls, including separate allocation measurements. |
 | `gradient_windows` | Gradient calculation over repeated, overlapping windows. |
 | `seq_coords_capacity` | Coordinate extraction when output vectors retain spare capacity, including allocation and reallocation measurements. |
