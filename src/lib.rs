@@ -1927,6 +1927,14 @@ mod mod_parse_tests {
     }
 
     #[test]
+    fn nanalogue_mm_ml_parser_rejects_empty_mm_with_nonempty_ml() {
+        let result = create_test_record_and_parse("", &[100]);
+
+        assert!(matches!(result, Err(Error::InvalidModProbs(message))
+            if message == "MM and ML tag lengths do not match!"));
+    }
+
+    #[test]
     #[should_panic(expected = "InvalidModProbs")]
     fn nanalogue_mm_ml_parser_detects_ml_tag_shorter_than_mm_data() {
         // ML tag has fewer values than modifications in MM tag
