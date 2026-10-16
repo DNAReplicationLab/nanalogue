@@ -218,7 +218,11 @@ impl FiberAnnotations {
         seq_len: u32,
         reverse: bool,
     ) -> Result<Self, Error> {
-        annotations.sort_by_key(FiberAnnotation::pos);
+        // Checking first lets already-sorted input skip the stable sort's scratch
+        // allocation and pass.
+        if !annotations.is_sorted_by_key(FiberAnnotation::pos) {
+            annotations.sort_by_key(FiberAnnotation::pos);
+        }
         if !annotations
             .iter()
             .filter_map(FiberAnnotation::ref_pos)
