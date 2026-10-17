@@ -1,6 +1,7 @@
 After you have finished incorporating code and before showing a final
 message to me that you have successfully done everything, you must run
 the following commands in this order:
+- `cargo clippy -q --all-targets -- -D warnings` to make sure you pass clippy linting tests with the default features.
 - `cargo clippy -q --all-features --all-targets -- -D warnings` to make sure you pass clippy linting tests
 - `cargo test -q` to make sure tests pass with the default features.
 - `cargo test -q --all-features` to make sure tests pass with all features,
