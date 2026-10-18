@@ -52,7 +52,9 @@ pub enum Commands {
         /// Shows modified bases as Z (or z depending on other options)
         #[clap(long, requires = "seq_region", conflicts_with = "seq_full")]
         show_mod_z: bool,
-        /// Input sequence summary file from Guppy/Dorado (optional)
+        /// Optional basecaller sequencing-summary TSV, requiring `read_id` and
+        /// `sequence_length_template` columns. When provided, only BAM reads
+        /// whose IDs appear in this file are included in the output.
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
     },
@@ -73,7 +75,9 @@ pub enum Commands {
         /// Show insertions in lower case
         #[clap(long, requires = "seq_region", conflicts_with = "seq_full")]
         show_ins_lowercase: bool,
-        /// Input sequence summary file from Guppy/Dorado (optional)
+        /// Optional basecaller sequencing-summary TSV, requiring `read_id` and
+        /// `sequence_length_template` columns. When provided, only BAM reads
+        /// whose IDs appear in this file are included in the output.
         #[clap(default_value_t = String::from(""))]
         seq_summ_file: String,
     },
@@ -697,5 +701,34 @@ mod tests {
     #[test]
     fn verify_cli() {
         Cli::command().debug_assert();
+    }
+
+    /// A sequencing summary intentionally restricts output to its read IDs;
+    /// keep that non-obvious behavior visible in both read-table helps.
+    #[test]
+    fn sequencing_summary_help_explains_read_filtering() {
+        let mut command = Cli::command();
+        for command_name in ["read-table-show-mods", "read-table-hide-mods"] {
+            let subcommand = command
+                .find_subcommand_mut(command_name)
+                .expect("read-table subcommand must exist");
+            let help = subcommand
+                .get_arguments()
+                .find(|argument| argument.get_id() == "seq_summ_file")
+                .and_then(clap::Arg::get_help)
+                .expect("sequencing-summary argument must have help")
+                .to_string();
+
+            assert!(
+                help.contains("only BAM reads whose IDs appear in this file are included"),
+                "{command_name} must document sequencing-summary filtering: {help}"
+            );
+            assert!(
+                help.contains("Optional basecaller sequencing-summary TSV, requiring")
+                    && help.contains("`read_id`")
+                    && help.contains("`sequence_length_template`"),
+                "{command_name} must document the sequencing-summary format: {help}"
+            );
+        }
     }
 }
