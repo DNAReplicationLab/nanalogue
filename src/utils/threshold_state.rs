@@ -121,14 +121,12 @@ impl fmt::Display for ThresholdState {
 impl Contains<u8> for ThresholdState {
     /// see if value is contained within the interval
     /// specified by the threshold state
+    #[inline]
     fn contains(&self, val: &u8) -> bool {
         match *self {
             ThresholdState::GtEq(v) => *val >= v,
             ThresholdState::InvertGtEqLtEq(w) => !w.contains(val),
-            ThresholdState::Both((a, b)) => {
-                ThresholdState::GtEq(a).contains(val)
-                    && ThresholdState::InvertGtEqLtEq(b).contains(val)
-            }
+            ThresholdState::Both((a, b)) => *val >= a && !b.contains(val),
         }
     }
 }
@@ -223,6 +221,36 @@ impl ThresholdState {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn threshold_state_contains_matches_its_definition_for_every_byte() {
+        let bounds = [0u8, 1, 99, 100, 101, 127, 128, 200, 254, 255];
+        for low in bounds {
+            for high in bounds.into_iter().filter(|high| *high >= low) {
+                let band = OrdPair::new(low, high).expect("low <= high");
+                for at_least in bounds {
+                    for value in 0..=u8::MAX {
+                        let outside_band = value < low || value > high;
+                        assert_eq!(
+                            ThresholdState::GtEq(at_least).contains(&value),
+                            value >= at_least,
+                            "GtEq({at_least}) at {value}"
+                        );
+                        assert_eq!(
+                            ThresholdState::InvertGtEqLtEq(band).contains(&value),
+                            outside_band,
+                            "InvertGtEqLtEq({low}, {high}) at {value}"
+                        );
+                        assert_eq!(
+                            ThresholdState::Both((at_least, band)).contains(&value),
+                            value >= at_least && outside_band,
+                            "Both({at_least}, ({low}, {high})) at {value}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn threshold_state_gt_eq() {

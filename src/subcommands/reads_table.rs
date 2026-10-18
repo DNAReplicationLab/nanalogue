@@ -1833,9 +1833,12 @@ mod sequencing_summary_tests {
 
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "generated rstest cases use direct assertions on locally named expected values"
+#[cfg_attr(
+    feature = "polars",
+    expect(
+        clippy::arithmetic_side_effects,
+        reason = "generated rstest cases use direct assertions on locally named expected values"
+    )
 )]
 mod stochastic_tests {
     use super::*;

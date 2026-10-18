@@ -345,6 +345,60 @@ fn mod_candidate_positions(
     positions
 }
 
+/// Sequence position of the `idx`-th candidate base of an MM group; `None` means every
+/// position is a candidate (the `N` base).
+///
+/// This and [`is_seq_pos_pass`] run once per candidate base inside the large MM/ML
+/// parser, where LLVM kept the equivalent closures as out-of-line calls; `#[inline]` lets
+/// it fold them into the loop.
+#[inline]
+fn candidate_idx_to_seq_idx(candidates: Option<&[u32]>, idx: usize) -> usize {
+    match candidates {
+        None => idx,
+        Some(candidate_positions) => usize::try_from(
+            *candidate_positions
+                .get(idx)
+                .expect("candidate index is below candidate count"),
+        )
+        .expect("u32 fits in supported usize"),
+    }
+}
+
+/// Whether a sequence position passes the position filter and, if `min_qual` is non-zero,
+/// has a known base quality of at least `min_qual`.
+#[inline]
+fn is_seq_pos_pass<G: Fn(&usize) -> bool>(
+    filter_mod_pos: &G,
+    base_qual: &[u8],
+    min_qual: u8,
+    idx: usize,
+) -> bool {
+    filter_mod_pos(&idx)
+        && (min_qual == 0
+            || base_qual
+                .get(idx)
+                .is_some_and(|x| *x >= min_qual && *x != 255u8))
+}
+
+/// Builds annotations from `(position, probability)` calls whose record-orientation
+/// positions are ascending, looking reference coordinates up in one sweep of `pos_map`.
+fn annotations_from_ascending_calls(
+    calls: impl ExactSizeIterator<Item = (usize, u8)>,
+    pos_map: &SeqToRefMap,
+) -> Result<Vec<FiberAnnotation>, Error> {
+    let mut annotations = Vec::with_capacity(calls.len());
+    let mut segment = 0u32;
+    for (seq_pos, prob) in calls {
+        let pos = u32::try_from(seq_pos)?;
+        annotations.push(FiberAnnotation::try_new(
+            pos,
+            prob,
+            pos_map.get_ascending(&mut segment, pos),
+        )?);
+    }
+    Ok(annotations)
+}
+
 /// Estimate per-group mod annotation capacity, clamped to sequence length.
 fn approximate_mod_data_len(
     mod_dists: &[u32],
@@ -377,6 +431,47 @@ fn approximate_mod_data_len(
         mod_dists.len()
     };
     Ok(calculated_approx.min(seq_len))
+}
+
+/// Checks that an auxiliary tag contains an integer matching the sequence length.
+/// Typically used to validate MN when a record has nonempty MM/Mm modification data.
+/// The sequence length must be in `1..=MAX_SEQ_LEN`.
+fn validate_tag_equals_seq_len(mn_tag: &Aux<'_>, seq_len: usize) -> Result<(), Error> {
+    assert!(
+        (1..=usize::try_from(MAX_SEQ_LEN).expect("u32 fits in supported usize")).contains(&seq_len),
+        "sequence length must be between 1 and MAX_SEQ_LEN"
+    );
+    let mn_seq_len = match *mn_tag {
+        Aux::I8(value) => i64::from(value),
+        Aux::U8(value) => i64::from(value),
+        Aux::I16(value) => i64::from(value),
+        Aux::U16(value) => i64::from(value),
+        Aux::I32(value) => i64::from(value),
+        Aux::U32(value) => i64::from(value),
+        Aux::Char(_)
+        | Aux::Float(_)
+        | Aux::Double(_)
+        | Aux::String(_)
+        | Aux::HexByteArray(_)
+        | Aux::ArrayI8(_)
+        | Aux::ArrayU8(_)
+        | Aux::ArrayI16(_)
+        | Aux::ArrayU16(_)
+        | Aux::ArrayI32(_)
+        | Aux::ArrayU32(_)
+        | Aux::ArrayFloat(_) => {
+            return Err(Error::InvalidModCoords(
+                "MN tag must contain an integer sequence length".to_owned(),
+            ));
+        }
+    };
+    let current_seq_len = i64::try_from(seq_len)?;
+    if mn_seq_len != current_seq_len {
+        return Err(Error::InvalidModCoords(format!(
+            "MN tag sequence length {mn_seq_len} does not match current sequence length {current_seq_len}"
+        )));
+    }
+    Ok(())
 }
 
 /// Extracts mod information from BAM record to the `fibertools-rs` `BaseMods`-like struct.
@@ -489,39 +584,6 @@ where
         "MM ML parsing",
     )?;
 
-    if let Ok(mn_tag) = record.aux(b"MN") {
-        let mn_seq_len = match mn_tag {
-            Aux::I8(value) => i64::from(value),
-            Aux::U8(value) => i64::from(value),
-            Aux::I16(value) => i64::from(value),
-            Aux::U16(value) => i64::from(value),
-            Aux::I32(value) => i64::from(value),
-            Aux::U32(value) => i64::from(value),
-            Aux::Char(_)
-            | Aux::Float(_)
-            | Aux::Double(_)
-            | Aux::String(_)
-            | Aux::HexByteArray(_)
-            | Aux::ArrayI8(_)
-            | Aux::ArrayU8(_)
-            | Aux::ArrayI16(_)
-            | Aux::ArrayU16(_)
-            | Aux::ArrayI32(_)
-            | Aux::ArrayU32(_)
-            | Aux::ArrayFloat(_) => {
-                return Err(Error::InvalidModCoords(
-                    "MN tag must contain an integer sequence length".to_owned(),
-                ));
-            }
-        };
-        let current_seq_len = i64::try_from(record.seq_len())?;
-        if mn_seq_len != current_seq_len {
-            return Err(Error::InvalidModCoords(format!(
-                "MN tag sequence length {mn_seq_len} does not match current sequence length {current_seq_len}"
-            )));
-        }
-    }
-
     // Array to store all the different modifications within the MM tag
     let mut rtn: Vec<BaseMod> = Vec::new();
 
@@ -561,7 +623,7 @@ where
     let is_reverse = record.is_reverse();
 
     // We allow `MM` or legacy `Mm`, but both may not coexist.
-    let mm_text = {
+    let (mm_text, is_mm_present_but_empty) = {
         match (record.aux(b"MM"), record.aux(b"Mm")) {
             (Ok(_), Ok(_)) => {
                 return Err(Error::InvalidState(
@@ -569,8 +631,8 @@ where
                             .to_owned(),
                     ));
             }
-            (Err(_), Ok(Aux::String(v))) | (Ok(Aux::String(v)), Err(_)) => v,
-            (Err(_), Err(_)) => "",
+            (Err(_), Ok(Aux::String(v))) | (Ok(Aux::String(v)), Err(_)) => (v, v.is_empty()),
+            (Err(_), Err(_)) => ("", false),
             _ => {
                 return Err(Error::InvalidState(
                     "rust-htslib MM/Mm tag parsing failure: unexpected auxiliary tag type"
@@ -591,16 +653,7 @@ where
     }
 
     // if there is an MM tag, process the data
-    if !mm_text.is_empty() {
-        // base qualities; must reverse if rev comp.
-        // NOTE this is always equal to number of bases in the sequence, otherwise
-        // rust_htslib will throw an error, so we don't have to check this.
-        let base_qual: Vec<u8> = match (min_qual, is_reverse) {
-            (0, _) => Vec::new(),
-            (_, true) => record.qual().iter().rev().copied().collect(),
-            (_, false) => record.qual().to_vec(),
-        };
-
+    if !mm_text.is_empty() || is_mm_present_but_empty {
         // Keep the sequence in BAM's packed 4-bit representation. Candidate MM bases are
         // selected from it below without allocating and decoding the entire read.
         let packed_seq = record.seq();
@@ -618,11 +671,30 @@ where
             ));
         }
 
+        if let Ok(mn_tag) = record.aux(b"MN") {
+            validate_tag_equals_seq_len(&mn_tag, seq_len)?;
+        }
+
+        // base qualities; must reverse if rev comp.
+        // NOTE this is always equal to number of bases in the sequence, otherwise
+        // rust_htslib will throw an error, so we don't have to check this.
+        let base_qual: Vec<u8> = match (min_qual, is_reverse) {
+            (0, _) => Vec::new(),
+            (_, true) => record.qual().iter().rev().copied().collect(),
+            (_, false) => record.qual().to_vec(),
+        };
+
         if !base_qual.is_empty() && base_qual.len() != seq_len {
             return Err(Error::InvalidState(
                 "base quality array is not the same size as sequence!".to_owned(),
             ));
         }
+
+        // Copy the ML probabilities into a plain slice once, so the per-call loop below
+        // indexes bytes directly instead of going through rust-htslib's array accessor.
+        let ml_probs: Vec<u8> = ml_tag
+            .as_ref()
+            .map_or_else(Vec::new, |tag| tag.iter().collect());
 
         let pos_map = if record.is_unmapped() {
             // No sequence position has a reference coordinate.
@@ -702,25 +774,6 @@ where
                 )
             };
             let candidate_len = candidates.map_or(seq_len, <[u32]>::len);
-            let candidate_at = |idx: usize| -> u32 {
-                candidates.map_or_else(
-                    || u32::try_from(idx).expect("candidate index is below sequence length"),
-                    |candidate_positions| {
-                        *candidate_positions
-                            .get(idx)
-                            .expect("candidate index is below candidate count")
-                    },
-                )
-            };
-
-            let is_seq_pos_pass = |idx: usize| -> bool {
-                filter_mod_pos(&idx)
-                    && (min_qual > 0).then(|| {
-                        base_qual
-                            .get(idx)
-                            .is_some_and(|x| *x >= min_qual && *x != 255u8)
-                    }) != Some(false)
-            };
 
             // Each MM distance says how many candidate bases to skip before the next
             // base that has an ML probability. Skipped bases are unmodified in implicit
@@ -736,26 +789,25 @@ where
                     // ran out of candidate bases; reported as a count mismatch below
                     break;
                 };
-                let cur_seq_idx =
-                    usize::try_from(candidate_at(target)).expect("u32 fits in supported usize");
+                let cur_seq_idx = candidate_idx_to_seq_idx(candidates, target);
                 if is_emit_zero_prob {
                     for skipped_idx in cursor..target {
-                        let idx = usize::try_from(candidate_at(skipped_idx))
-                            .expect("u32 fits in supported usize");
-                        if is_seq_pos_pass(idx) {
+                        let idx = candidate_idx_to_seq_idx(candidates, skipped_idx);
+                        if is_seq_pos_pass(&filter_mod_pos, &base_qual, min_qual, idx) {
                             modified_positions.push(idx);
                             modified_probabilities.push(0);
                         }
                     }
                 }
-                let prob = ml_tag
-                    .as_ref()
-                    .zip(num_mods_seen.checked_add(cur_mod_idx))
-                    .and_then(|(tag, i)| tag.get(i))
+                let prob = *num_mods_seen
+                    .checked_add(cur_mod_idx)
+                    .and_then(|i| ml_probs.get(i))
                     .ok_or_else(|| {
                         Error::InvalidModProbs("ML tag appears to be insufficiently long!".into())
                     })?;
-                if filter_mod_prob(&prob) && is_seq_pos_pass(cur_seq_idx) {
+                if filter_mod_prob(&prob)
+                    && is_seq_pos_pass(&filter_mod_pos, &base_qual, min_qual, cur_seq_idx)
+                {
                     modified_positions.push(cur_seq_idx);
                     modified_probabilities.push(prob);
                 }
@@ -764,9 +816,8 @@ where
             }
             if is_emit_zero_prob && cur_mod_idx == mod_dists.len() {
                 for trailing_idx in cursor..candidate_len {
-                    let idx = usize::try_from(candidate_at(trailing_idx))
-                        .expect("u32 fits in supported usize");
-                    if is_seq_pos_pass(idx) {
+                    let idx = candidate_idx_to_seq_idx(candidates, trailing_idx);
+                    if is_seq_pos_pass(&filter_mod_pos, &base_qual, min_qual, idx) {
                         modified_positions.push(idx);
                         modified_probabilities.push(0);
                     }
@@ -790,15 +841,22 @@ where
                 reason = "`seq_len - 1 - k` (protected as mod pos cannot exceed seq_len)"
             )]
             if filter_mod_base_strand_tag(&mod_base, &mod_strand, &modification_type) {
-                let annotations: Vec<FiberAnnotation> = modified_positions
+                // Calls are in ascending forward-orientation order. Visit them in ascending
+                // record-orientation order instead (reversed on reverse records), so that
+                // reference lookups can sweep the CIGAR once and the annotations come out
+                // already sorted by position.
+                let calls = modified_positions
                     .iter()
-                    .map(|k| if is_reverse { seq_len - 1 - k } else { *k })
-                    .zip(modified_probabilities.iter())
-                    .map(|k| {
-                        let pos = u32::try_from(k.0)?;
-                        FiberAnnotation::try_new(pos, *k.1, pos_map.get(pos))
-                    })
-                    .collect::<Result<Vec<FiberAnnotation>, Error>>()?;
+                    .copied()
+                    .zip(modified_probabilities.iter().copied());
+                let annotations = if is_reverse {
+                    annotations_from_ascending_calls(
+                        calls.rev().map(|(k, prob)| (seq_len - 1 - k, prob)),
+                        &pos_map,
+                    )?
+                } else {
+                    annotations_from_ascending_calls(calls, &pos_map)?
+                };
                 assert!(
                     annotations.len() <= seq_len,
                     "annotation count cannot exceed sequence length"
@@ -816,15 +874,8 @@ where
                     )));
                 }
 
-                let ranges = Ranges::from_annotations(
-                    if is_reverse {
-                        annotations.into_iter().rev().collect()
-                    } else {
-                        annotations
-                    },
-                    u32::try_from(seq_len)?,
-                    is_reverse,
-                )?;
+                let ranges =
+                    Ranges::from_annotations(annotations, u32::try_from(seq_len)?, is_reverse)?;
                 let mods = BaseMod {
                     modified_base: mod_base,
                     strand: mod_strand,
@@ -1919,12 +1970,438 @@ mod mod_parse_tests {
     }
 
     #[test]
+    fn nanalogue_mm_ml_parser_rejects_empty_mm_with_nonempty_ml() {
+        let result = create_test_record_and_parse("", &[100]);
+
+        assert!(matches!(result, Err(Error::InvalidModProbs(message))
+            if message == "MM and ML tag lengths do not match!"));
+    }
+
+    #[test]
     #[should_panic(expected = "InvalidModProbs")]
     fn nanalogue_mm_ml_parser_detects_ml_tag_shorter_than_mm_data() {
         // ML tag has fewer values than modifications in MM tag
         let mm_value = "T+T,0,3;"; // 2 modifications
         let ml_values = Vec::from([100u8]); // 1 value - too few!
         let _: BaseMods = create_test_record_and_parse(mm_value, &ml_values).unwrap();
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod parser_reference_tests {
+    //! Compares [`nanalogue_mm_ml_parser`] on random records with a plain per-base
+    //! reference that decodes every base, scans for candidates, and takes reference
+    //! coordinates from htslib's own `aligned_pairs_full`.
+
+    use super::*;
+    use rust_htslib::bam::record::{Cigar, CigarString};
+
+    /// Deterministic xorshift generator for reproducible random records.
+    struct XorShift(u64);
+
+    impl XorShift {
+        /// Next raw value.
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+
+        /// Value in `0..upper_bound`.
+        fn below(&mut self, upper_bound: usize) -> usize {
+            usize::try_from(
+                self.next()
+                    .checked_rem(u64::try_from(upper_bound).expect("small bound"))
+                    .expect("upper bound is non-zero"),
+            )
+            .expect("value below a usize bound")
+        }
+
+        /// True with probability `numerator / denominator`.
+        fn chance(&mut self, numerator: usize, denominator: usize) -> bool {
+            self.below(denominator) < numerator
+        }
+
+        /// Random byte.
+        fn byte(&mut self) -> u8 {
+            u8::try_from(self.below(256)).expect("value below 256")
+        }
+
+        /// Random element of a non-empty slice.
+        fn pick<T: Copy>(&mut self, items: &[T]) -> T {
+            *items
+                .get(self.below(items.len()))
+                .expect("index is below the slice length")
+        }
+    }
+
+    /// Probability filter, kept apart from [`ThresholdState`] so the reference does not
+    /// reuse the code under test.
+    #[derive(Debug, Clone, Copy)]
+    enum ProbFilter {
+        /// Keep probabilities `>= at_least`.
+        AtLeast(u8),
+        /// Keep probabilities outside `low..=high`.
+        Outside(u8, u8),
+        /// Keep probabilities `>= at_least` and outside `low..=high`.
+        Both(u8, u8, u8),
+    }
+
+    impl ProbFilter {
+        /// Draws a random filter, with ordered band bounds.
+        fn random(rng: &mut XorShift) -> Self {
+            let (first, second) = (rng.byte(), rng.byte());
+            let (low, high) = (first.min(second), first.max(second));
+            match rng.below(4) {
+                0 => Self::AtLeast(0),
+                1 => Self::AtLeast(rng.byte()),
+                2 => Self::Outside(low, high),
+                _ => Self::Both(rng.byte(), low, high),
+            }
+        }
+
+        /// The equivalent parser threshold.
+        fn threshold(self) -> ThresholdState {
+            let band = |low, high| OrdPair::new(low, high).expect("bounds are ordered");
+            match self {
+                Self::AtLeast(at_least) => ThresholdState::GtEq(at_least),
+                Self::Outside(low, high) => ThresholdState::InvertGtEqLtEq(band(low, high)),
+                Self::Both(at_least, low, high) => {
+                    ThresholdState::Both((at_least, band(low, high)))
+                }
+            }
+        }
+
+        /// Whether the filter keeps `prob`.
+        fn keeps(self, prob: u8) -> bool {
+            match self {
+                Self::AtLeast(at_least) => prob >= at_least,
+                Self::Outside(low, high) => prob < low || prob > high,
+                Self::Both(at_least, low, high) => prob >= at_least && (prob < low || prob > high),
+            }
+        }
+    }
+
+    /// One generated MM group.
+    struct Group {
+        /// MM base, one of `ACGTUN`.
+        base: u8,
+        /// MM strand, `+` or `-`.
+        strand: char,
+        /// Single-letter modification code.
+        code: char,
+        /// Whether skipped candidates are implicitly unmodified.
+        is_implicit: bool,
+        /// Forward-orientation positions of every candidate base.
+        candidates: Vec<usize>,
+        /// ML probability per candidate, `None` where the candidate has no call.
+        calls: Vec<Option<u8>>,
+    }
+
+    /// One parsed group as comparable plain data: strand, code, base, reverse flag,
+    /// sequence length, and `(position, reference position, probability)` per annotation.
+    type GroupSummary = (char, char, u8, bool, u32, Vec<(u32, Option<u32>, u8)>);
+
+    /// Complements a stored base; `N` stays `N`.
+    fn complement(base: u8) -> u8 {
+        match base {
+            b'A' => b'T',
+            b'C' => b'G',
+            b'G' => b'C',
+            b'T' => b'A',
+            other => other,
+        }
+    }
+
+    /// Random CIGAR without padding (htslib's `aligned_pairs_full` panics on padding;
+    /// padding is covered by the segment-map tests) that consumes at least one query base.
+    fn random_cigar(rng: &mut XorShift) -> Vec<Cigar> {
+        let operation_count = rng.below(8);
+        let mut operations: Vec<Cigar> = core::iter::repeat_with(|| {
+            let len = u32::try_from(rng.below(6))
+                .expect("small value")
+                .saturating_add(1);
+            match rng.below(8) {
+                0 => Cigar::Match(len),
+                1 => Cigar::Ins(len),
+                2 => Cigar::Del(len),
+                3 => Cigar::RefSkip(len),
+                4 => Cigar::SoftClip(len),
+                5 => Cigar::HardClip(len),
+                6 => Cigar::Equal(len),
+                _ => Cigar::Diff(len),
+            }
+        })
+        .take(operation_count)
+        .collect();
+        operations.push(Cigar::Match(
+            u32::try_from(rng.below(30))
+                .expect("small value")
+                .saturating_add(1),
+        ));
+        operations
+    }
+
+    /// Number of query bases a CIGAR consumes.
+    fn query_len(operations: &[Cigar]) -> usize {
+        operations
+            .iter()
+            .map(|operation| match *operation {
+                Cigar::Match(len)
+                | Cigar::Ins(len)
+                | Cigar::SoftClip(len)
+                | Cigar::Equal(len)
+                | Cigar::Diff(len) => usize::try_from(len).expect("small value"),
+                Cigar::Del(_) | Cigar::RefSkip(_) | Cigar::HardClip(_) | Cigar::Pad(_) => 0,
+            })
+            .sum()
+    }
+
+    /// Builds one MM group over the forward-orientation sequence.
+    fn random_group(rng: &mut XorShift, forward: &[u8], code: char) -> Group {
+        let base = rng.pick(b"ACGTUN");
+        let target = if base == b'U' { b'T' } else { base };
+        let candidates: Vec<usize> = forward
+            .iter()
+            .enumerate()
+            .filter(|&(_, stored)| base == b'N' || *stored == target)
+            .map(|(position, _)| position)
+            .collect();
+        let call_chance = rng.below(9).saturating_add(1);
+        let calls = candidates
+            .iter()
+            .map(|_| rng.chance(call_chance, 10).then(|| rng.byte()))
+            .collect();
+        Group {
+            base,
+            strand: rng.pick(&['+', '-']),
+            code,
+            is_implicit: rng.chance(1, 2),
+            candidates,
+            calls,
+        }
+    }
+
+    /// MM text for one group: each distance counts the uncalled candidates skipped.
+    fn mm_text(group: &Group, rng: &mut XorShift) -> String {
+        let suffix = if group.is_implicit {
+            rng.pick(&[".", ""])
+        } else {
+            "?"
+        };
+        let mut text = format!(
+            "{}{}{}{suffix}",
+            char::from(group.base),
+            group.strand,
+            group.code
+        );
+        let mut skipped = 0usize;
+        for call in &group.calls {
+            if call.is_some() {
+                text.push(',');
+                text.push_str(&skipped.to_string());
+                skipped = 0;
+            } else {
+                skipped = skipped.saturating_add(1);
+            }
+        }
+        text.push(';');
+        text
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one randomized scenario reads more clearly as a single test"
+    )]
+    fn parser_matches_per_base_reference_on_random_records() -> Result<(), Error> {
+        let mut rng = XorShift(0x2545_F491_4F6C_DD1D);
+        let codes = ['a', 'b', 'c', 'f', 'g', 'h', 'm', 'n', 'o', 'x'];
+        for case in 0..3_000 {
+            let is_reverse = rng.chance(1, 2);
+            let is_unmapped = rng.chance(1, 8);
+            let cigar = (!is_unmapped).then(|| random_cigar(&mut rng));
+            let seq_len = cigar
+                .as_deref()
+                .map_or_else(|| rng.below(60).saturating_add(1), query_len);
+            let stored_seq: Vec<u8> = core::iter::repeat_with(|| {
+                if rng.chance(1, 20) {
+                    b'N'
+                } else {
+                    rng.pick(b"ACGT")
+                }
+            })
+            .take(seq_len)
+            .collect();
+            let stored_qual: Vec<u8> = core::iter::repeat_with(|| {
+                if rng.chance(1, 20) {
+                    255
+                } else {
+                    u8::try_from(rng.below(45)).expect("small value")
+                }
+            })
+            .take(seq_len)
+            .collect();
+            let (forward_seq, forward_qual): (Vec<u8>, Vec<u8>) = if is_reverse {
+                (
+                    stored_seq
+                        .iter()
+                        .rev()
+                        .map(|base| complement(*base))
+                        .collect(),
+                    stored_qual.iter().rev().copied().collect(),
+                )
+            } else {
+                (stored_seq.clone(), stored_qual.clone())
+            };
+
+            let mut record = bam::Record::new();
+            let flags = (u16::from(is_reverse) << 4u8) | (u16::from(is_unmapped) << 2u8);
+            match cigar.as_ref() {
+                Some(operations) => {
+                    record.set(
+                        b"read",
+                        Some(&CigarString::from(operations.clone())),
+                        &stored_seq,
+                        &stored_qual,
+                    );
+                    record.set_tid(0);
+                    record.set_pos(i64::try_from(rng.below(1_000)).expect("small value"));
+                }
+                None => record.set(b"read", None, &stored_seq, &stored_qual),
+            }
+            record.set_flags(flags);
+
+            let mut group_codes = codes;
+            for index in (1..group_codes.len()).rev() {
+                group_codes.swap(index, rng.below(index.saturating_add(1)));
+            }
+            let groups: Vec<Group> = group_codes
+                .iter()
+                .take(rng.below(3).saturating_add(1))
+                .map(|code| random_group(&mut rng, &forward_seq, *code))
+                .collect();
+            let mm: String = groups
+                .iter()
+                .map(|group| mm_text(group, &mut rng))
+                .collect();
+            let ml: Vec<u8> = groups
+                .iter()
+                .flat_map(|group| group.calls.iter().flatten().copied())
+                .collect();
+            record.push_aux(b"MM", Aux::String(&mm))?;
+            if !ml.is_empty() {
+                record.push_aux(b"ML", Aux::ArrayU8((&ml).into()))?;
+            }
+
+            let prob_filter = ProbFilter::random(&mut rng);
+            let window_start = rng.below(seq_len.saturating_add(1));
+            let window_end = window_start.saturating_add(rng.below(seq_len.saturating_add(1)));
+            let is_windowed = rng.chance(1, 3);
+            let keeps_position =
+                |position: usize| !is_windowed || (window_start..window_end).contains(&position);
+            let min_qual = if rng.chance(1, 2) {
+                0
+            } else {
+                u8::try_from(rng.below(40)).expect("small value")
+            };
+            let kept_codes: Vec<char> = groups
+                .iter()
+                .filter(|_| rng.chance(3, 4))
+                .map(|group| group.code)
+                .collect();
+
+            let threshold = prob_filter.threshold();
+            let parsed = nanalogue_mm_ml_parser(
+                &record,
+                |prob| threshold.contains(prob),
+                |position| keeps_position(*position),
+                |_, _, code| kept_codes.contains(&code.val()),
+                min_qual,
+            )?;
+            let mut actual: Vec<GroupSummary> = parsed
+                .base_mods
+                .iter()
+                .map(|base_mod| {
+                    (
+                        base_mod.strand,
+                        base_mod.modification_type,
+                        base_mod.modified_base,
+                        base_mod.record_is_reverse,
+                        base_mod.ranges.seq_len(),
+                        base_mod
+                            .ranges
+                            .annotations()
+                            .iter()
+                            .map(|annotation| {
+                                (annotation.pos(), annotation.ref_pos(), annotation.qual())
+                            })
+                            .collect(),
+                    )
+                })
+                .collect();
+
+            let ref_positions: Vec<Option<u32>> = if is_unmapped {
+                vec![None; seq_len]
+            } else {
+                record
+                    .aligned_pairs_full()
+                    .filter(|pair| pair[0].is_some())
+                    .map(|pair| pair[1].map(|ref_pos| u32::try_from(ref_pos).expect("small value")))
+                    .collect()
+            };
+            assert_eq!(ref_positions.len(), seq_len, "case {case}: aligned pairs");
+            let seq_len_u32 = u32::try_from(seq_len).expect("small value");
+            let mut expected: Vec<GroupSummary> = groups
+                .iter()
+                .filter(|group| kept_codes.contains(&group.code))
+                .map(|group| {
+                    let mut annotations: Vec<(u32, Option<u32>, u8)> = group
+                        .candidates
+                        .iter()
+                        .zip(&group.calls)
+                        .filter_map(|(&position, call)| {
+                            let prob = call.or_else(|| group.is_implicit.then_some(0))?;
+                            let qual = *forward_qual.get(position).expect("position < seq_len");
+                            let passes = prob_filter.keeps(prob)
+                                && keeps_position(position)
+                                && (min_qual == 0 || (qual >= min_qual && qual != 255));
+                            passes.then(|| {
+                                let stored = if is_reverse {
+                                    seq_len.saturating_sub(1).saturating_sub(position)
+                                } else {
+                                    position
+                                };
+                                (
+                                    u32::try_from(stored).expect("small value"),
+                                    *ref_positions.get(stored).expect("stored < seq_len"),
+                                    prob,
+                                )
+                            })
+                        })
+                        .collect();
+                    annotations.sort_unstable();
+                    (
+                        group.strand,
+                        group.code,
+                        group.base,
+                        is_reverse,
+                        seq_len_u32,
+                        annotations,
+                    )
+                })
+                .collect();
+
+            actual.sort_by_key(|summary| (summary.0, summary.1));
+            expected.sort_by_key(|summary| (summary.0, summary.1));
+            assert_eq!(
+                actual, expected,
+                "case {case}: MM {mm}, filter {prob_filter:?}, min_qual {min_qual}"
+            );
+        }
+        Ok(())
     }
 }
 

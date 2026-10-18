@@ -7,8 +7,8 @@ use crate::constants::shared::{MAX_CIGAR_OPERATIONS, MAX_CONTIG_LEN, MAX_SEQ_LEN
 /// [`crate::nanalogue_mm_ml_parser`].
 ///
 /// Long reads with indels would otherwise need one entry per base. For well-formed
-/// CIGARs the map instead stores one entry per query-consuming operation and looks
-/// positions up by binary search.
+/// CIGARs the map instead stores one entry per query-consuming operation, which the
+/// parser sweeps once per modification group as positions arrive in ascending order.
 #[derive(Debug)]
 pub(crate) struct SeqToRefMap(Vec<SeqToRefSegment>);
 
@@ -29,14 +29,52 @@ impl SeqToRefMap {
         Self(Vec::new())
     }
 
-    /// Returns the reference coordinate of a sequence position that is below the sequence length.
-    pub(crate) fn get(&self, position: u32) -> Option<u32> {
-        let index = self
+    /// Returns the reference coordinate of a sequence position that is below the sequence
+    /// length, for positions visited in non-decreasing order.
+    ///
+    /// `segment` must start at 0 and is then carried between calls: it only moves forward,
+    /// so a pass over sorted positions costs O(positions + segments) instead of one binary
+    /// search per position.
+    ///
+    /// # Panics
+    /// Panics if `position` lies before the segment reached by an earlier call, i.e. if
+    /// positions go backwards across a segment boundary, if `position` is at or beyond
+    /// the sequence length on a mapped record, or if `segment` is out of range because it
+    /// did not start at 0 or was changed between calls.
+    pub(crate) fn get_ascending(&self, segment: &mut u32, position: u32) -> Option<u32> {
+        let mut index = usize::try_from(*segment).expect("u32 fits in supported usize");
+        assert!(
+            self.0.is_empty() || index < self.0.len(),
+            "segment cursor out of range; it must start at 0 and only be advanced by this method"
+        );
+        if let Some(current) = self.0.get(index) {
+            assert!(
+                current.query_start <= position,
+                "sequence positions must be looked up in non-decreasing order"
+            );
+        }
+        while self
             .0
-            .partition_point(|segment| segment.query_end <= position);
-        let segment = self.0.get(index)?;
-        let ref_start = segment.ref_start?;
-        let offset = position.checked_sub(segment.query_start)?;
+            .get(index)
+            .is_some_and(|current| current.query_end <= position)
+        {
+            index = index.saturating_add(1);
+        }
+        assert!(
+            self.0.is_empty() || index < self.0.len(),
+            "sequence position {position} is at or beyond the sequence length"
+        );
+        if let Some(current) = self.0.get(index) {
+            assert!(
+                current.query_start <= position,
+                "sequence positions must be looked up in non-decreasing order"
+            );
+        }
+        *segment = u32::try_from(index)
+            .expect("segment count is capped by MAX_CIGAR_OPERATIONS, which fits in u32");
+        let current = self.0.get(index)?;
+        let ref_start = current.ref_start?;
+        let offset = position.checked_sub(current.query_start)?;
         // Validated when the map was built: every aligned position fits in `u32`.
         ref_start.checked_add(offset)
     }
@@ -187,6 +225,18 @@ mod seq_to_ref_map_tests {
     use rust_htslib::bam::ext::BamRecordExtensions as _;
     use rust_htslib::bam::record::{Aux, Cigar, CigarString};
 
+    /// Looks up one position by binary search; the reference that
+    /// [`SeqToRefMap::get_ascending`] is checked against.
+    fn get(map: &SeqToRefMap, position: u32) -> Option<u32> {
+        let index = map
+            .0
+            .partition_point(|segment| segment.query_end <= position);
+        let segment = map.0.get(index)?;
+        let ref_start = segment.ref_start?;
+        let offset = position.checked_sub(segment.query_start)?;
+        ref_start.checked_add(offset)
+    }
+
     /// Largest length a single BAM CIGAR operation can encode (28 bits); used where
     /// tests need operations longer than `MAX_SEQ_LEN`.
     const MAX_CIGAR_OP_LEN: u32 = (1 << 28) - 1;
@@ -244,6 +294,19 @@ mod seq_to_ref_map_tests {
         }
     }
 
+    /// Looks up every position in `positions` with one ascending sweep, checking each
+    /// result against the independent binary-search lookup.
+    fn ascending_lookups(map: &SeqToRefMap, positions: core::ops::Range<u32>) -> Vec<Option<u32>> {
+        let mut segment = 0;
+        positions
+            .map(|index| {
+                let swept = map.get_ascending(&mut segment, index);
+                assert_eq!(swept, get(map, index), "position {index}");
+                swept
+            })
+            .collect()
+    }
+
     /// Asserts that the segment map agrees with the dense collection for every position.
     fn assert_matches_dense(record: &bam::Record, seq_len: usize) {
         let expected = dense(record, seq_len);
@@ -275,9 +338,7 @@ mod seq_to_ref_map_tests {
                         .sum::<u32>(),
                     seq_len_u32
                 );
-                (0..seq_len_u32)
-                    .map(|index| map.get(index))
-                    .collect::<Vec<_>>()
+                ascending_lookups(&map, 0..seq_len_u32)
             });
         assert_eq!(actual, expected);
     }
@@ -477,9 +538,12 @@ mod seq_to_ref_map_tests {
     fn maximum_sequence_length_maps_first_and_last_base() {
         let map = SeqToRefMap::try_from_raw_cigar(&[word(MAX_SEQ_LEN, 0)], 0, MAX_SEQ_LEN)
             .expect("the maximum supported sequence length is valid");
-        assert_eq!(map.get(0), Some(0));
-        assert_eq!(map.get(MAX_SEQ_LEN - 1), Some(MAX_SEQ_LEN - 1));
-        assert_eq!(map.get(MAX_SEQ_LEN), None);
+        let mut segment = 0;
+        assert_eq!(map.get_ascending(&mut segment, 0), Some(0));
+        assert_eq!(
+            map.get_ascending(&mut segment, MAX_SEQ_LEN - 1),
+            Some(MAX_SEQ_LEN - 1)
+        );
     }
 
     #[test]
@@ -487,7 +551,7 @@ mod seq_to_ref_map_tests {
         // 2S 3M 2I 3M => query 0..2 clip, 2..5 aligned, 5..7 insertion, 7..10 aligned.
         let raw = [word(2, 4), word(3, 0), word(2, 1), word(3, 0)];
         let map = SeqToRefMap::try_from_raw_cigar(&raw, 100, 10).expect("valid CIGAR");
-        let positions: Vec<_> = (0..12).map(|index| map.get(index)).collect();
+        let positions = ascending_lookups(&map, 0..10);
         assert_eq!(
             positions,
             [
@@ -501,17 +565,37 @@ mod seq_to_ref_map_tests {
                 Some(103),
                 Some(104),
                 Some(105),
-                None,
-                None,
             ]
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "sequence position 10 is at or beyond the sequence length")]
+    fn ascending_lookup_rejects_position_past_the_sequence_end() {
+        // 2S 3M 2I 3M => 10 query bases.
+        let raw = [word(2, 4), word(3, 0), word(2, 1), word(3, 0)];
+        let map = SeqToRefMap::try_from_raw_cigar(&raw, 100, 10).expect("valid CIGAR");
+        let mut segment = 0;
+        assert_eq!(map.get_ascending(&mut segment, 9), Some(105));
+        let _: Option<u32> = map.get_ascending(&mut segment, 10);
+    }
+
+    #[test]
+    #[should_panic(expected = "sequence positions must be looked up in non-decreasing order")]
+    fn ascending_lookup_rejects_position_before_an_earlier_segment() {
+        // 2S 3M 2I 3M => query 0..2 clip, 2..5 aligned, 5..7 insertion, 7..10 aligned.
+        let raw = [word(2, 4), word(3, 0), word(2, 1), word(3, 0)];
+        let map = SeqToRefMap::try_from_raw_cigar(&raw, 100, 10).expect("valid CIGAR");
+        let mut segment = 0;
+        assert_eq!(map.get_ascending(&mut segment, 7), Some(103));
+        let _: Option<u32> = map.get_ascending(&mut segment, 4);
     }
 
     #[test]
     fn padding_and_hard_clips_do_not_shift_positions() {
         let raw = [word(2, 0), word(3, 6), word(1, 5), word(2, 0)];
         let map = SeqToRefMap::try_from_raw_cigar(&raw, 7, 4).expect("valid CIGAR");
-        let positions: Vec<_> = (0..4).map(|index| map.get(index)).collect();
+        let positions = ascending_lookups(&map, 0..4);
         assert_eq!(positions, [Some(7), Some(8), Some(9), Some(10)]);
     }
 
@@ -519,9 +603,12 @@ mod seq_to_ref_map_tests {
     fn reference_coordinate_saturation_does_not_wrap() {
         let mut valid: Vec<u32> = std::iter::repeat_n(word(MAX_CIGAR_OP_LEN, 2), 16).collect();
         valid.push(word(1, 0));
-        let map = SeqToRefMap::try_from_raw_cigar(&valid, 0, 1)
+        let valid_map = SeqToRefMap::try_from_raw_cigar(&valid, 0, 1)
             .expect("the aligned base remains below the contig limit");
-        assert_eq!(map.get(0), Some(16 * MAX_CIGAR_OP_LEN));
+        assert_eq!(
+            valid_map.get_ascending(&mut 0, 0),
+            Some(16 * MAX_CIGAR_OP_LEN)
+        );
 
         let mut overflowing: Vec<u32> =
             std::iter::repeat_n(word(MAX_CIGAR_OP_LEN, 2), 17).collect();
@@ -634,7 +721,7 @@ mod seq_to_ref_map_tests {
 
             match (within_limit, actual) {
                 (true, Ok(map)) => {
-                    let positions: Vec<_> = (0..seq_len_u32).map(|index| map.get(index)).collect();
+                    let positions = ascending_lookups(&map, 0..seq_len_u32);
                     assert_eq!(Ok(positions), expected, "{operations:?} at {start}");
                 }
                 (false, Err(_)) => {}
