@@ -58,10 +58,10 @@ pub fn ensure_flag(flag: bool, msg: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// Selects the identifier validation policy and its diagnostic label.
+/// Selects the identifier's diagnostic label.
 #[derive(Debug, Clone, Copy)]
 enum Identifier {
-    /// A read ID, including the restriction on internal `#` characters.
+    /// A read ID.
     ReadID,
     /// A contig name, allowing internal `#` characters for `PanSN` references.
     ContigName,
@@ -82,7 +82,7 @@ impl core::fmt::Display for Identifier {
 /// BAM or reference-name specifications so that callers can avoid downstream
 /// issues such as comment parsing, spreadsheet formula injection, and awkward
 /// punctuation in text-based exports.
-/// Internal `#` characters are permitted for contigs to support `PanSN` names;
+/// Internal `#` characters are permitted for read IDs and contig names;
 /// leading `#` remains reserved for comments in text formats.
 #[expect(clippy::else_if_without_else, reason = "simple enough structure")]
 fn ensure_valid_identifier(value: &[u8], max_len: u8, identifier: Identifier) -> Result<(), Error> {
@@ -106,7 +106,6 @@ fn ensure_valid_identifier(value: &[u8], max_len: u8, identifier: Identifier) ->
     for byte in value {
         if (0..33).contains(byte)
             || (127..).contains(byte)
-            || (*byte == b'#' && matches!(identifier, Identifier::ReadID))
             || matches!(
                 *byte,
                 b'`' | b'"'
@@ -359,9 +358,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "read_id contains forbidden characters")]
-    fn ensure_valid_read_id_rejects_hash_in_middle() {
-        ensure_valid_read_id(b"read#123", 20).unwrap();
+    fn ensure_valid_read_id_accepts_internal_hash() -> Result<(), Error> {
+        for name in ["read#123", "HWI-ST216_0121:5:5:10367:4149#0"] {
+            ensure_valid_read_id(name.as_bytes(), 200)?;
+        }
+        Ok(())
     }
 
     #[test]
