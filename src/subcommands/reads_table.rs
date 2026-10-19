@@ -1604,8 +1604,8 @@ mod sequencing_summary_tests {
     }
 
     #[test]
-    // checks that read id with # in it is rejected
-    fn process_seq_summ_rejects_hash_in_read_id() {
+    // checks that read id with an internal # is preserved
+    fn process_seq_summ_accepts_hash_in_read_id() {
         let temp_path = write_temp_seq_summary("read_id\tsequence_length_template\nre#ad1\t1234\n");
         let result = process_seq_summ(
             temp_path
@@ -1614,10 +1614,11 @@ mod sequencing_summary_tests {
         );
         remove_temp_file(&temp_path);
 
-        assert!(
-            result.is_err(),
-            "read_id containing # should now be rejected"
-        );
+        let data_map = result.expect("read_id containing an internal # should be accepted");
+        assert!(matches!(
+            data_map.get("re#ad1"),
+            Some(Read(ReadInstance::OnlyBc(1234)))
+        ));
     }
 
     #[test]
