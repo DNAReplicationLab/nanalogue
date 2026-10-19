@@ -22,9 +22,13 @@ pub mod shared {
     /// we can exit safely if we want. It is also possible that we will run
     /// into an extremely large record without warning, in which case
     /// we will crash as we depend on htslib and there's no way to prevent this.
-    /// The cap includes 32 MiB plus 32 bytes: `HTSlib` rounds capacity up to
-    /// powers of two, and newer versions add 32 bytes of allocation padding.
-    /// Allowing that padding preserves the effective 32 MiB limit across versions.
+    /// The cap includes 32 MiB plus 32 bytes: `HTSlib` 1.21 and later add
+    /// 32 bytes of allocation padding after rounding capacity to a power of two.
+    /// This forward-compatibility allowance preserves acceptance of records whose
+    /// rounded allocation was 32 MiB under older versions; the currently locked
+    /// `HTSlib` may not add this padding.
+    /// The deliberately loose CIGAR, ML-array and MM-tag caps below also include
+    /// this allowance because they derive from the record-capacity cap.
     pub const MAX_RECORD_CAPACITY_BYTES: u32 = 32 * 1024 * 1024 + 32;
 
     /// Hard cap on the maximum number of records that commands will accept
