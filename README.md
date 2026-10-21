@@ -469,6 +469,13 @@ dummyI  13      17      read1   0       +       T       +       T       3       
 Output windowed gradients of reads.
 Sample output is similar to the one above but with gradients reported instead of
 mean modification densities in the `win_val` column.
+After applying the filters you specify, the remaining modification calls are
+numbered in order from 1 to N. A window of `--win` calls moves along this list
+in steps of `--step` calls, and a line is fitted within each window. The x value
+is the call's index, and the y value is 1 for modified (ML at least 128) or 0
+otherwise. The slope of this line is reported in `win_val`, so the gradient is
+per modification call, not per base pair; the distances in base pairs between
+the retained modification calls do not enter the calculation.
 
 ## `nanalogue peek`
 Read the BAM file header and the first 100 records, and output contig information
