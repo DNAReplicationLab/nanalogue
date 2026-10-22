@@ -33,7 +33,10 @@ jobs:
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
+          # Refresh base images and the build stage's CA certificate package.
           docker buildx build \
+            --pull \
+            --no-cache-filter build-env \
             --platform linux/arm64 \
             --build-arg RUST_TARGET=aarch64-unknown-linux-musl \
             --tag nanalogue:latest \
