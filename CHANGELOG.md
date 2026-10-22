@@ -7,7 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-22
+
+### Security
+- Updated locked `rustls-webpki` from 0.103.15 to 0.103.16 to address
+  `RUSTSEC-2026-0382` (CVE-2026-111943), rejecting certificate chains with
+  compromised eMudhra/emSign intermediate public keys.
+- Docker images now require Debian's eMudhra distrust update
+  (`ca-certificates` 20250419+deb13u1 or newer) and copy the updated bundle
+  into the runtime image. Both architecture workflows refresh base images
+  and bypass the build-stage cache; certificate-package refresh failures
+  stop the build. Users must pull the new images and recreate containers.
+- Standalone HTTPS access through HTSlib/libcurl/OpenSSL still requires an
+  updated system or custom CA bundle; upgrading nanalogue alone does not
+  update that bundle. See the README's HTTPS certificate guidance, including
+  the macOS PEM-bundle caveat and existing environment overrides.
+- Updated locked `rustls` from 0.23.45 to 0.23.46, `quinn-proto` from
+  0.11.15 to 0.11.18, and `xxhash-rust` from 0.8.15 to 0.8.16 to address
+  security advisories. Lockfile presence does not imply that every dependency
+  is enabled in the default or all-feature build.
+
 ### Added
+- Added the public `maybe!` macro for documenting possible states. Its boolean
+  condition and string message are type- and borrow-checked but never evaluated;
+  it is not an assertion or an optimizer hint.
 - Golden format variants of `examples/example_1.bam` in
   `examples/example_1_formats/`, made by its `generate.sh`. They cover a BAM
   with a CSI index, uncompressed and per-record BGZF BAM, plain and bgzipped
@@ -27,22 +50,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contig names now support PanSN names like `HG002#1#chr1` and bare names with
   colons like `HLA-A*01:01:01:01`. Names starting with `#` or containing a
   hyphen after the last colon are unsupported; the latter clashes with
-  region syntax. Read-ID rules are unchanged.
+  region syntax.
+- Read IDs now allow internal `#` characters in BAM records, read-ID lists,
+  and sequencing summaries. Leading `#` remains forbidden in IDs.
+- Further optimized MM/ML parsing by copying ML probabilities once, inlining
+  hot-loop helpers, sweeping CIGAR segments over ascending modification calls,
+  and avoiding sorting annotations that are already ordered.
+- Clarified that region coordinates are zero-based and end-exclusive, that
+  sequencing-summary input restricts output to its read IDs, and that
+  `window-grad` reports slope per retained modification call, not per base pair.
+  These documentation changes do not change those calculations or filters.
+- (Project tooling, not code) CI now checks Clippy with both default and all
+  features, with feature-dependent lint fixes.
 
 ### Fixed
+- Explicitly empty MM/Mm tags now undergo sequence-length and mapped-CIGAR
+  validation instead of bypassing it. MN validation now applies only when
+  MM/Mm is present, including an empty tag. Added regression coverage for empty
+  MM with nonempty ML, which was already rejected in 0.2.0.
 - Genomic region strings reject explicit numeric ends above `MAX_CONTIG_LEN`
   (4294967294), including `chr1:0-4294967295`, instead of silently treating them
   as open ends. Use an omitted end such as `chr1:0-` in strings. For library
   compatibility, tuple construction and serde still interpret `u32::MAX`
   (4294967295) as the open-end sentinel, not a literal coordinate; this
   distinction is now documented on `GenomicRegion`.
+- `GenomicRegion::try_to_bed3` rejects header contig lengths above
+  `MAX_CONTIG_LEN`, even when the requested region is short and bounded.
 - `find-modified-reads dens-range-above` allows an absolute `f32::EPSILON`
   tolerance when comparing density ranges to `--min-range`, so subtraction
   rounding does not exclude ranges at the requested boundary. Positive
   thresholds always reject zero density range, including thresholds at or
   below epsilon; `--min-range 0` still accepts zero range.
-- Record capacity can now reach exactly 32 MiB, so HTSlib's rounded allocations
-  are no longer rejected for being one byte over the old limit.
+- Record capacity can now reach 32 MiB plus 32 bytes, accepting HTSlib's rounded
+  allocations and the additional padding used by newer HTSlib versions.
+  The derived CIGAR, MM, and ML limits include the same allowance.
 - Applied modification-region filtering even when the requested region
   contains the entire aligned span of a read, including an exact match.
   Terminal soft-clipped modification calls are now excluded in these cases;
