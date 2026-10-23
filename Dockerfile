@@ -2,10 +2,13 @@ FROM rust:1.99.0-slim-trixie AS build-env
 ARG RUST_TARGET=x86_64-unknown-linux-musl
 RUN rustup target add ${RUST_TARGET}
 # Use matching Clang/libclang 19 for hts-sys/bindgen compatibility.
-RUN apt-get update \
+RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends \
         musl musl-tools musl-dev build-essential clang-19 libclang-19-dev \
         ca-certificates pkg-config perl \
+    # Require the eMudhra distrust update or newer; never ship an older CA bundle.
+    && dpkg --compare-versions \
+        "$(dpkg-query -W -f='${Version}' ca-certificates)" ge '20250419+deb13u1' \
     && rm -rf /var/lib/apt/lists/*
 ENV CLANG_PATH=/usr/bin/clang-19
 ENV LIBCLANG_PATH=/usr/lib/llvm-19/lib
@@ -19,6 +22,8 @@ RUN RUSTFLAGS='-C link-arg=-s' cargo build --release --target ${RUST_TARGET}
 
 FROM gcr.io/distroless/static-debian12
 ARG RUST_TARGET=x86_64-unknown-linux-musl
+# Use the updated CA bundle installed in the build stage, not the base image's bundle.
+COPY --from=build-env /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build-env /app/target/${RUST_TARGET}/release/nanalogue /
 COPY --from=build-env /app/target/${RUST_TARGET}/release/nanalogue_sim_bam /
 ENV PATH="$PATH:/"

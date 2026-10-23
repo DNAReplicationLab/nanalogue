@@ -38,6 +38,7 @@ tag variants; other mixed-case or lowercase variants are not recognized.
       - [Building the optional BAM viewer](#building-the-optional-bam-viewer)
     - [Building and testing notes](#building-and-testing-notes)
   - [Using Docker](#using-docker)
+  - [HTTPS certificates](#https-certificates)
 - [Commands](#commands)
   - [`nanalogue_bam_viewer`](#nanalogue_bam_viewer)
   - [`nanalogue read-info`](#nanalogue-read-info)
@@ -288,6 +289,54 @@ docker run --rm -v "$(pwd):$(pwd)" -w "$(pwd)" dockerofsat/nanalogue:latest nana
 ```
 
 You can mount other directories using the `-v` option as needed.
+
+## HTTPS certificates
+
+Nanalogue can read remote BAM, CRAM, and SAM files. Reading a local CRAM file
+can also trigger a remote download of an external reference. For HTTPS requests,
+nanalogue relies on HTSlib/libcurl/OpenSSL and a system or custom CA certificate
+bundle to verify the server's identity. The details below explain how to keep
+these certificates updated and how nanalogue selects the bundle to use.
+
+In October 2026, the [eMudhra intermediate-CA compromise](https://emudhra.we-have-a-problem.com/)
+exposed a certificate-authority vulnerability with implications across many
+types of applications and hardware, including browsers on computers and phones,
+command-line tools, servers, and Internet-of-Things (IoT) devices. This is not
+specific to nanalogue: any client that still trusts the compromised certificates
+can accept an attacker impersonating an HTTPS server. Exposure depends on the
+client's certificate verification and whether distrust updates have been applied.
+To address this vulnerability, update
+your operating system's CA certificate package (or your custom bundle) and use
+nanalogue 0.2.1 or newer. Updating nanalogue alone does not update the host's
+bundle. For Docker, pull the 0.2.1 release images or newer and recreate existing
+containers; updating the Docker host does not update a container's bundle.
+Images built from 0.2.1 include Debian's distrust update.
+
+On macOS, browser or Keychain distrust updates alone may not protect clients
+using `/etc/ssl/cert.pem`, which nanalogue probes by default. Use a maintained,
+patched PEM bundle, such as an updated Homebrew `ca-certificates` bundle, and
+select it explicitly if the default bundle is stale.
+
+Nanalogue preserves an existing `CURL_CA_BUNDLE` setting. Otherwise, it uses an
+existing path specified by `SSL_CERT_FILE`, or selects the first existing
+certificate bundle from its platform-specific list. On macOS, that list starts
+with `/etc/ssl/cert.pem`, followed by `/etc/ssl/certs/ca-certificates.crt`.
+On Linux, it starts with `/etc/ssl/certs/ca-certificates.crt`;
+`/etc/ssl/cert.pem` is a later fallback. OpenBSD uses `/etc/ssl/cert.pem`.
+The complete platform lists and probing order reside in
+[`src/utils/openssl_probe.rs`](src/utils/openssl_probe.rs); environment-variable
+initialization is handled by `init_ssl_certificates` in
+[`src/lib.rs`](src/lib.rs).
+
+Discovery checks whether a path exists; it does not check whether the bundle
+is current or select the newest bundle. Existing environment overrides are not
+automatically repaired, even if they point to missing or outdated bundles.
+Set `CURL_CA_BUNDLE` to the absolute path of your maintained PEM bundle if you
+need to override discovery. Check these overrides, including mounted bundles
+in containers: a stale custom bundle can bypass the updated default.
+Do not disable TLS verification.
+For platform-specific patched versions and caveats, consult the incident
+guidance linked above.
 
 # Commands
 
@@ -566,6 +615,13 @@ dummyI  13      17      read1   0       +       T       +       T       3       
 Output windowed gradients of reads.
 Sample output is similar to the one above but with gradients reported instead of
 mean modification densities in the `win_val` column.
+After applying the filters you specify, the remaining modification calls are
+numbered in order from 1 to N. A window of `--win` calls moves along this list
+in steps of `--step` calls, and a line is fitted within each window. The x value
+is the call's index, and the y value is 1 for modified (ML at least 128) or 0
+otherwise. The slope of this line is reported in `win_val`, so the gradient is
+per modification call, not per base pair; the distances in base pairs between
+the retained modification calls do not enter the calculation.
 
 ## `nanalogue peek`
 Read the BAM file header and the first 100 records, and output contig information
