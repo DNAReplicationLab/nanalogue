@@ -452,7 +452,12 @@ fn whole_read_profile(
             window_series_starts.push(series_start);
         }
     }
-    calls.sort_unstable_by_key(|&(ref_pos, _probability)| ref_pos);
+    // `FiberAnnotations` keeps each modification group in strictly increasing reference
+    // order, so a stable run-merging sort combines several groups in near-linear time. A
+    // single group is already sorted and skips the stable sort's scratch allocation.
+    if !calls.is_sorted_by_key(|&(ref_pos, _probability)| ref_pos) {
+        calls.sort_by_key(|&(ref_pos, _probability)| ref_pos);
+    }
     Ok(CachedProfile {
         calls,
         windows,
