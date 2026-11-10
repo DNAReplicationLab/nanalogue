@@ -150,8 +150,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
-            clang \
-            libclang-dev \
+            clang-19 \
+            libclang-19-dev \
             pkg-config \
             perl \
             libssl-dev \
@@ -160,6 +160,12 @@ jobs:
             liblzma-dev \
             libzstd-dev \
             zlib1g-dev
+          {
+            echo 'CLANG_PATH=/usr/bin/clang-19'
+            echo 'LIBCLANG_PATH=/usr/lib/llvm-19/lib'
+          } >> "$GITHUB_ENV"
+          /usr/bin/clang-19 --version
+          dpkg-query -W clang-19 libclang-19-dev
 
       - name: Install cargo-zigbuild
         run: cargo install --locked --version '=0.23.4' cargo-zigbuild

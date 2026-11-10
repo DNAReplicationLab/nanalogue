@@ -38,6 +38,17 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Set up Clang 19 for HTSlib bindings
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-19 libclang-19-dev
+          {
+            echo 'CLANG_PATH=/usr/bin/clang-19'
+            echo 'LIBCLANG_PATH=/usr/lib/llvm-19/lib'
+          } >> "$GITHUB_ENV"
+          /usr/bin/clang-19 --version
+          dpkg-query -W clang-19 libclang-19-dev
       - name: Setup rustup
         env:
           TOOLCHAIN: ${{ matrix.toolchain }}
