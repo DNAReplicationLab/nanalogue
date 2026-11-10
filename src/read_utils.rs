@@ -230,6 +230,11 @@ impl CurrRead<NoData> {
             (true, false, false, true) => ReadState::SupplementaryRev,
             (false, false, false, true) => ReadState::SupplementaryFwd,
             (false, false, false, false) => ReadState::PrimaryFwd,
+            (true, true, false, false) => {
+                return Err(Error::UnknownAlignState(format!(
+                    "reverse-complemented unmapped reads not supported! read_id: {read_id}",
+                )));
+            }
             _ => {
                 return Err(Error::UnknownAlignState(format!(
                     "invalid flag combination! read_id: {read_id}",
@@ -2708,9 +2713,14 @@ mod test_error_handling {
             //   secondary and supplementary are both set
             // * third line are flags we have chosen to exclude from our program.
             match (flag_value, curr_read.set_read_state_and_id(&record)) {
+                (20, Err(Error::UnknownAlignState(message))) => assert_eq!(
+                    message,
+                    "reverse-complemented unmapped reads not supported! read_id: test_read"
+                ),
+                (20, _) => unreachable!("flag 20 must return UnknownAlignState"),
                 (0 | 4 | 16 | 256 | 272 | 2048 | 2064, Ok(_))
                 | (
-                    20 | 260 | 276 | 2052 | 2068 | 2304 | 2308 | 2320 | 2324,
+                    260 | 276 | 2052 | 2068 | 2304 | 2308 | 2320 | 2324,
                     Err(Error::UnknownAlignState(_)),
                 )
                 | (_, Err(Error::NotImplemented(_))) => {}
